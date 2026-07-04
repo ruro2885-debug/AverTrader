@@ -1,129 +1,339 @@
 import { useEffect, useState } from 'react';
-import { Cpu, Radio, ShieldAlert, Sparkles } from 'lucide-react';
-import { usePreferences } from '../contexts/PreferencesContext';
+import { motion, AnimatePresence } from 'motion/react';
+import { Cpu, Shield, Activity, TrendingUp } from 'lucide-react';
 
 interface LoaderProps {
   onComplete: () => void;
 }
 
 export default function Loader({ onComplete }: LoaderProps) {
-  const [progress, setProgress] = useState(0);
-  const [statusIndex, setStatusIndex] = useState(0);
+  const [statusText, setStatusText] = useState('ESTABLISHING SECURE CONNECTION...');
   const [fadeOut, setFadeOut] = useState(false);
-  const { t } = usePreferences();
 
-  const statuses = [
-    { text: t('load.s1') || 'Initializing AverCore AI™ Neural Core...', icon: Cpu },
-    { text: t('load.s2') || 'Establishing secure decentralized nodes...', icon: Radio },
-    { text: t('load.s3') || 'Calibrating Precision Entry Optimizer™ (PEO™)...', icon: Sparkles },
-    { text: t('load.s4') || 'Structuring adaptive security layers...', icon: ShieldAlert },
-    { text: t('load.s5') || 'Synchronizing institutional analytics streams...', icon: Cpu },
-    { text: t('load.s6') || 'Ecosystem fully synchronized. Ready.', icon: Sparkles }
-  ];
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        const increment = prev > 80 ? Math.floor(Math.random() * 3) + 1 : Math.floor(Math.random() * 8) + 4;
-        return Math.min(prev + increment, 100);
-      });
-    }, 120);
-    return () => clearInterval(interval);
-  }, []);
+  // High-performance micro particles that drift upward to create an ambient, sophisticated space
+  const [particles] = useState(() =>
+    Array.from({ length: 15 }).map((_, i) => ({
+      id: i,
+      x: Math.random() * 100, // horizontal percentage
+      y: Math.random() * 100, // vertical percentage
+      size: Math.random() * 2 + 1, // 1px to 3px
+      delay: Math.random() * 2,
+      duration: Math.random() * 3 + 4, // 4s to 7s drift
+    }))
+  );
 
   useEffect(() => {
-    if (progress < 20) setStatusIndex(0);
-    else if (progress < 45) setStatusIndex(1);
-    else if (progress < 70) setStatusIndex(2);
-    else if (progress < 85) setStatusIndex(3);
-    else if (progress < 98) setStatusIndex(4);
-    else setStatusIndex(5);
+    // Elegant timing sequencer for the premium startup sequence
+    const t1 = setTimeout(() => {
+      setStatusText('CALIBRATING AVERCORE AI™ ENGINES...');
+    }, 700);
 
-    if (progress === 100) {
-      const delay = setTimeout(() => {
-        setFadeOut(true);
-        const completeDelay = setTimeout(() => {
-          onComplete();
-        }, 600);
-        return () => clearTimeout(completeDelay);
-      }, 500);
-      return () => clearTimeout(delay);
-    }
-  }, [progress, onComplete]);
+    const t2 = setTimeout(() => {
+      setStatusText('SYNCHRONIZING SECURE PORTFOLIO NODES...');
+    }, 1400);
 
-  const StatusIcon = statuses[statusIndex].icon;
+    const t3 = setTimeout(() => {
+      setStatusText('SYSTEM STATUS: SECURED & OPERATIONAL');
+    }, 2100);
+
+    // Complete loader presentation and trigger fade out
+    const fadeTimer = setTimeout(() => {
+      setFadeOut(true);
+      const completeTimer = setTimeout(() => {
+        onComplete();
+      }, 600); // Wait for the smooth fadeout to finish
+      return () => clearTimeout(completeTimer);
+    }, 2500);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(fadeTimer);
+    };
+  }, [onComplete]);
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-gray-950 transition-opacity duration-500 ease-in-out ${
-        fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
-      }`}
-    >
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293710_1px,transparent_1px),linear-gradient(to_bottom,#1f293710_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="relative z-10 flex flex-col items-center max-w-md px-6 text-center">
-        <div className="relative mb-8 flex items-center justify-center">
-          <div className="absolute -inset-4 bg-emerald-500/20 rounded-full blur-xl animate-pulse duration-3000" />
-          <svg
-            className="w-24 h-24 text-emerald-400 animate-pulse duration-2000"
-            viewBox="0 0 100 100"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z"
-              stroke="currentColor"
+    <AnimatePresence>
+      {!fadeOut && (
+        <motion.div
+          key="loader-container"
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          className="fixed inset-0 z-[9999] bg-[#020204] flex flex-col items-center justify-center overflow-hidden select-none"
+        >
+          {/* Subtle Financial Grid Texture */}
+          <div className="absolute inset-0 opacity-[0.03] bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none z-0" />
+          
+          {/* Multi-layered Soft Brand Radial Light Glows */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.07)_0%,transparent_65%)] pointer-events-none z-0 animate-pulse duration-[4000ms]" />
+          <div className="absolute top-1/4 left-1/4 w-[350px] h-[350px] bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none z-0" />
+          <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-emerald-600/3 rounded-full blur-[140px] pointer-events-none z-0" />
+
+          {/* Premium Market Trend Guideline Lines (Self-Drawing Behind the Core) */}
+          <svg className="absolute inset-x-0 bottom-[30%] h-40 w-full opacity-[0.06] pointer-events-none z-0" viewBox="0 0 1200 200" preserveAspectRatio="none">
+            <motion.path
+              d="M 0 140 Q 150 110 300 130 T 600 80 T 900 140 T 1200 70"
+              fill="none"
+              stroke="#10b981"
               strokeWidth="1.5"
-              strokeDasharray="4, 4"
-              className="opacity-40 animate-[spin_40s_linear_infinite]"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 2.2, ease: "easeInOut" }}
             />
-            <path
-              d="M50 18 L80 78 L65 78 L50 48 L35 78 L20 78 Z"
-              fill="url(#averGrad)"
-              className="drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]"
+            <motion.path
+              d="M 0 80 Q 200 120 400 60 T 800 130 T 1200 90"
+              fill="none"
+              stroke="#10b981"
+              strokeWidth="1"
+              strokeDasharray="4 4"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 2.5, ease: "easeInOut", delay: 0.15 }}
             />
-            <circle cx="50" cy="48" r="4" fill="#34d399" className="animate-ping" />
-            <circle cx="50" cy="48" r="3.5" fill="#10b981" />
-            <defs>
-              <linearGradient id="averGrad" x1="50" y1="18" x2="50" y2="78" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#34d399" />
-                <stop offset="100%" stopColor="#047857" />
-              </linearGradient>
-            </defs>
           </svg>
-        </div>
-        
-        <h1 className="font-display text-4xl font-bold tracking-widest text-white mb-2">
-          AVER<span className="text-emerald-400">.</span>
-        </h1>
-        <p className="text-xs font-bold tracking-[0.2em] text-gray-500 font-mono uppercase mb-8">
-          INTELLIGENT ECOSYSTEM
-        </p>
-        
-        <div className="h-12 flex flex-col items-center justify-center mb-6">
-          <div className="flex items-center space-x-2 text-emerald-400 font-mono text-sm">
-            <StatusIcon className="w-4 h-4 animate-spin" />
-            <span>{statuses[statusIndex].text}</span>
+
+          {/* Drift Particles Layer */}
+          <div className="absolute inset-0 pointer-events-none z-0">
+            {particles.map((p) => (
+              <motion.div
+                key={`p-${p.id}`}
+                className="absolute rounded-full bg-emerald-400/30"
+                style={{
+                  left: `${p.x}%`,
+                  top: `${p.y}%`,
+                  width: p.size,
+                  height: p.size,
+                }}
+                animate={{
+                  y: [-10, -80],
+                  opacity: [0, 0.7, 0],
+                }}
+                transition={{
+                  duration: p.duration,
+                  repeat: Infinity,
+                  delay: p.delay,
+                  ease: 'easeInOut',
+                }}
+              />
+            ))}
           </div>
-        </div>
-        
-        <div className="w-64 h-[2px] bg-gray-900 rounded-full overflow-hidden mb-3 relative">
-          <div
-            className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-150 ease-out relative"
-            style={{ width: `${progress}%` }}
-          >
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_8px_#10b981]" />
+
+          {/* Connected Network/AI Constellation Nodes */}
+          <div className="absolute w-[450px] h-[350px] pointer-events-none z-10 flex items-center justify-center">
+            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 450 350">
+              {/* Node connecting lines */}
+              <motion.line
+                x1="225" y1="175" x2="70" y2="60"
+                stroke="rgba(16, 185, 129, 0.08)"
+                strokeWidth="1"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: 1.6, ease: "easeOut" }}
+              />
+              <motion.line
+                x1="225" y1="175" x2="380" y2="80"
+                stroke="rgba(16, 185, 129, 0.08)"
+                strokeWidth="1"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: 1.7, ease: "easeOut", delay: 0.1 }}
+              />
+              <motion.line
+                x1="225" y1="175" x2="60" y2="280"
+                stroke="rgba(16, 185, 129, 0.08)"
+                strokeWidth="1"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: 1.8, ease: "easeOut", delay: 0.2 }}
+              />
+              <motion.line
+                x1="225" y1="175" x2="390" y2="290"
+                stroke="rgba(16, 185, 129, 0.08)"
+                strokeWidth="1"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: 1.9, ease: "easeOut", delay: 0.3 }}
+              />
+            </svg>
+
+            {/* Satellite network nodes */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.6, duration: 0.6, ease: "easeOut" }}
+              className="absolute left-[70px] top-[60px] -translate-x-1/2 -translate-y-1/2 flex items-center space-x-1.5"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="absolute left-[70px] top-[60px] -translate-x-1/2 -translate-y-1/2 rounded-full w-1.5 h-1.5 bg-emerald-400 animate-ping opacity-30" />
+              <span className="font-mono text-[7px] text-gray-600 tracking-wider">QUANT_NODE_A</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.8, duration: 0.6, ease: "easeOut" }}
+              className="absolute left-[380px] top-[80px] -translate-x-1/2 -translate-y-1/2 flex items-center space-x-1.5"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="absolute left-[380px] top-[80px] -translate-x-1/2 -translate-y-1/2 rounded-full w-1.5 h-1.5 bg-emerald-400 animate-ping opacity-30" />
+              <span className="font-mono text-[7px] text-gray-600 tracking-wider">AI_CO_PROC</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 1.0, duration: 0.6, ease: "easeOut" }}
+              className="absolute left-[60px] top-[280px] -translate-x-1/2 -translate-y-1/2 flex items-center space-x-1.5"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="absolute left-[60px] top-[280px] -translate-x-1/2 -translate-y-1/2 rounded-full w-1.5 h-1.5 bg-emerald-400 animate-ping opacity-30" />
+              <span className="font-mono text-[7px] text-gray-600 tracking-wider">SECURE_TUNNEL</span>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 1.2, duration: 0.6, ease: "easeOut" }}
+              className="absolute left-[390px] top-[290px] -translate-x-1/2 -translate-y-1/2 flex items-center space-x-1.5"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="absolute left-[390px] top-[290px] -translate-x-1/2 -translate-y-1/2 rounded-full w-1.5 h-1.5 bg-emerald-400 animate-ping opacity-30" />
+              <span className="font-mono text-[7px] text-gray-600 tracking-wider">FEED_INBOUND</span>
+            </motion.div>
           </div>
-        </div>
-        
-        <span className="font-mono text-xs text-gray-400 tracking-wider">
-          {progress}% SECURED
-        </span>
-      </div>
-    </div>
+
+          {/* Central Animated Content Block */}
+          <div className="relative z-20 flex flex-col items-center max-w-lg px-6">
+            
+            {/* Perfectly Sharp Vector Logo Container */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 1.4, ease: [0.16, 1, 0.3, 1] }}
+              className="relative w-28 h-28 flex items-center justify-center rounded-2xl bg-gradient-to-b from-[#181920]/60 to-[#0a0b0d]/80 border border-white/5 shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_40px_rgba(16,185,129,0.06)] overflow-hidden"
+            >
+              {/* Premium Metallic/Glass Reflection Sweep */}
+              <motion.div
+                initial={{ x: '-160%', skewX: -20 }}
+                animate={{ x: '160%' }}
+                transition={{ duration: 1.5, ease: [0.16, 1, 0.3, 1], delay: 0.6 }}
+                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none z-30"
+              />
+
+              {/* Vector Logo Structure */}
+              <svg
+                className="w-20 h-20 text-emerald-400"
+                viewBox="0 0 100 100"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                {/* Sharp high-contrast outer framing hexagon */}
+                <motion.path
+                  d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z"
+                  stroke="#10b981"
+                  strokeWidth="1.5"
+                  className="opacity-25"
+                  initial={{ pathLength: 0 }}
+                  animate={{ pathLength: 1 }}
+                  transition={{ duration: 1.8, ease: "easeInOut" }}
+                />
+
+                {/* Main stylized "A" core with smooth glass gradient fill */}
+                <motion.path
+                  d="M50 18 L80 78 L65 78 L50 48 L35 78 L20 78 Z"
+                  fill="url(#averLogoGrad)"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+                  style={{
+                    filter: 'drop-shadow(0 0 15px rgba(16,185,129,0.35))'
+                  }}
+                />
+
+                {/* Glowing central matrix core */}
+                <circle cx="50" cy="48" r="4.5" fill="#34d399" className="animate-pulse" />
+                <circle cx="50" cy="48" r="2.5" fill="#10b981" />
+
+                <defs>
+                  <linearGradient id="averLogoGrad" x1="50" y1="18" x2="50" y2="78" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#34d399" />
+                    <stop offset="100%" stopColor="#047857" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </motion.div>
+
+            {/* Platform Brand Name using ExtraBold Premium Typography */}
+            <motion.h1
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+              className="font-display text-5xl font-extrabold tracking-[0.25em] text-white text-center mt-7 pl-[0.25em]"
+            >
+              AVER<span className="text-emerald-400">.</span>
+            </motion.h1>
+
+            {/* Sub-label for brand presentation */}
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5, duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+              className="text-[10px] font-bold tracking-[0.35em] text-emerald-500/50 font-mono uppercase text-center mt-3 pl-[0.35em]"
+            >
+              INTELLIGENT ECOSYSTEM
+            </motion.p>
+
+            {/* Subtle Horizontal Metric Accents (Micro-Telemetry Frame) */}
+            <div className="flex items-center space-x-12 mt-12 opacity-30">
+              <div className="flex flex-col items-center">
+                <span className="font-mono text-[8px] text-gray-500">LATENCY</span>
+                <span className="font-mono text-[9px] text-emerald-400 font-bold">1.2ms</span>
+              </div>
+              <div className="w-[1px] h-6 bg-emerald-500/20" />
+              <div className="flex flex-col items-center">
+                <span className="font-mono text-[8px] text-gray-500">SECURITIES</span>
+                <span className="font-mono text-[9px] text-emerald-400 font-bold">AES-GCM</span>
+              </div>
+              <div className="w-[1px] h-6 bg-emerald-500/20" />
+              <div className="flex flex-col items-center">
+                <span className="font-mono text-[8px] text-gray-500">VERSION</span>
+                <span className="font-mono text-[9px] text-emerald-400 font-bold">v4.2.1</span>
+              </div>
+            </div>
+
+            {/* Live Telemetry Process Log Output */}
+            <div className="mt-14 h-8 flex items-center justify-center relative">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={statusText}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.35, ease: "easeInOut" }}
+                  className="flex items-center space-x-2.5"
+                >
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                  </span>
+                  <span className="text-[10px] font-mono font-bold tracking-[0.18em] text-emerald-400 uppercase">
+                    {statusText}
+                  </span>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+
+          </div>
+
+          {/* Decorative Corner Framing Ornaments */}
+          <div className="absolute top-8 left-8 w-6 h-6 border-t border-l border-white/5 pointer-events-none" />
+          <div className="absolute top-8 right-8 w-6 h-6 border-t border-r border-white/5 pointer-events-none" />
+          <div className="absolute bottom-8 left-8 w-6 h-6 border-b border-l border-white/5 pointer-events-none" />
+          <div className="absolute bottom-8 right-8 w-6 h-6 border-b border-r border-white/5 pointer-events-none" />
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

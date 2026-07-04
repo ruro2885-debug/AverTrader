@@ -4,9 +4,10 @@ import { usePreferences } from '../contexts/PreferencesContext';
 interface HeroProps {
   theme: 'light' | 'dark';
   onShowcase: () => void;
+  onGetStarted: () => void;
 }
 
-export default function Hero({ theme, onShowcase }: HeroProps) {
+export default function Hero({ theme, onShowcase, onGetStarted }: HeroProps) {
   const isDark = theme === 'dark';
   const { t, formatCurrency } = usePreferences();
 
@@ -70,13 +71,13 @@ export default function Hero({ theme, onShowcase }: HeroProps) {
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto pt-2">
             
             {/* Get Started Button */}
-            <a
-              href="#tech"
+            <button
+              onClick={onGetStarted}
               className="px-8 py-4 bg-emerald-500 text-black hover:bg-emerald-400 font-bold rounded-lg transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] cursor-pointer flex items-center justify-center space-x-2"
             >
               <span>{t('hero.cta.doc')}</span>
               <ArrowRight className="w-5 h-5" />
-            </a>
+            </button>
 
             {/* Explore Platform Button */}
             <button

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, X, Globe, Moon, Sun, Monitor, HelpCircle, MessageCircle, RefreshCw, Layers } from 'lucide-react';
+import { Settings, X, Globe, Moon, Sun, Monitor, HelpCircle, RefreshCw, Layers } from 'lucide-react';
 import { Language, Theme, Currency, FAQItem } from '../types';
 import { usePreferences } from '../contexts/PreferencesContext';
 
@@ -301,21 +301,6 @@ export default function QuickHub({
                 </div>
 
                 {/* Support Link */}
-                <div className="mt-4 pt-4 border-t border-white/5">
-                  <a 
-                    href="https://t.me/AverNoxTraderbot"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center justify-center space-x-2 w-full py-3 rounded-xl border text-xs font-bold font-mono transition-all cursor-pointer ${
-                      isDark 
-                        ? 'border-white/10 text-gray-300 hover:bg-white/5 hover:text-white' 
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                    }`}
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    <span>Contact Support Telegram</span>
-                  </a>
-                </div>
               </div>
             )}
           </div>

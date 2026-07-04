@@ -1,11 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&family=Space+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Sora", ui-sans-serif, system-ui, sans-serif;
   
   --color-brand-green: #10b981;
   --color-brand-emerald: #059669;
@@ -73,6 +73,84 @@ body {
   @apply font-sans antialiased overflow-x-hidden;
   background-color: #030712;
   color: #f3f4f6;
+  font-weight: 600; /* Made thicker (from 500 to 600) */
+  font-size: 1.05rem; /* Made bigger */
+}
+
+/* Enforce bold headings with display typography */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display), sans-serif !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* Override font weight utilities to make all typography bolder/thicker */
+.font-light {
+  font-weight: 600 !important; /* Made thicker (from 500 to 600) */
+}
+
+.font-normal {
+  font-weight: 600 !important; /* Made thicker (from 500 to 600) */
+}
+
+.font-medium {
+  font-weight: 700 !important; /* Made thicker (from 600 to 700) */
+}
+
+.font-semibold {
+  font-weight: 800 !important; /* Made thicker (from 700 to 800) */
+}
+
+.font-bold {
+  font-weight: 800 !important;
+}
+
+.font-extrabold {
+  font-weight: 800 !important;
+}
+
+/* Globally scale up all standard text sizing classes */
+.text-xs {
+  font-size: 0.85rem !important; /* scaled up from 0.75rem */
+}
+.text-sm {
+  font-size: 1rem !important; /* scaled up from 0.875rem */
+}
+.text-base {
+  font-size: 1.125rem !important; /* scaled up from 1rem */
+}
+.text-lg {
+  font-size: 1.25rem !important; /* scaled up from 1.125rem */
+}
+.text-xl {
+  font-size: 1.4rem !important; /* scaled up from 1.25rem */
+}
+.text-2xl {
+  font-size: 1.7rem !important; /* scaled up from 1.5rem */
+}
+.text-3xl {
+  font-size: 2.15rem !important; /* scaled up from 1.875rem */
+}
+.text-4xl {
+  font-size: 2.65rem !important; /* scaled up from 2.25rem */
+}
+.text-5xl {
+  font-size: 3.5rem !important; /* scaled up from 3rem */
+}
+.text-6xl {
+  font-size: 4.5rem !important; /* scaled up from 3.75rem */
+}
+.text-7xl {
+  font-size: 5.5rem !important; /* scaled up from 4.5rem */
+}
+
+/* Custom radial gradient background masks */
+.bg-radial-gradient-dark {
+  background: radial-gradient(circle, transparent 15%, rgba(5, 5, 5, 0.45) 55%, #050505 100%);
+}
+
+.bg-radial-gradient-light {
+  background: radial-gradient(circle, transparent 15%, rgba(248, 250, 252, 0.45) 55%, #f8fafc 100%);
 }
 
 /* Fade-in transitions */

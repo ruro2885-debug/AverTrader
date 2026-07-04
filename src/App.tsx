@@ -9,11 +9,12 @@ import Stats from './components/Stats';
 import QuickHub from './components/QuickHub';
 import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
+import AuthPage from './components/AuthPage';
 import { usePreferences } from './contexts/PreferencesContext';
 
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'showcase'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth'>('home');
   const { preferences, updatePreference } = usePreferences();
   const { theme, language, currency } = preferences;
 
@@ -116,6 +117,24 @@ export default function App() {
   return (
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`}>
       
+      {/* Premium fixed trading background image with high-end overlay blending */}
+      <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
+        <img 
+          src="/images/premium_trading_bg.jpg" 
+          alt="Aver Premium Background" 
+          className={`w-full h-full object-cover object-center transition-opacity duration-700 ${
+            theme === 'dark' ? 'opacity-[0.24] mix-blend-lighten' : 'opacity-[0.14] mix-blend-multiply'
+          }`}
+          referrerPolicy="no-referrer"
+        />
+        {/* Ambient radial vignette overlay to keep contrast around active panels */}
+        <div 
+          className={`absolute inset-0 ${
+            theme === 'dark' ? 'bg-radial-gradient-dark' : 'bg-radial-gradient-light'
+          }`} 
+        />
+      </div>
+
       {/* Background visual light leak for premium depth */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-screen pointer-events-none overflow-hidden z-0">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-900/20 rounded-full blur-[120px] pointer-events-none" />
@@ -128,14 +147,21 @@ export default function App() {
             key="showcase"
             theme={theme}
             onBack={() => setCurrentView('home')}
+            onGetStarted={() => setCurrentView('auth')}
+          />
+        ) : currentView === 'auth' ? (
+          <AuthPage
+            key="auth"
+            theme={theme}
+            onBack={() => setCurrentView('home')}
           />
         ) : (
           <motion.div
             key="home"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
+            initial={{ opacity: 0, scale: 1 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
           >
             {/* Navigation */}
             <Navbar
@@ -151,6 +177,7 @@ export default function App() {
               <Hero
                 theme={theme}
                 onShowcase={() => setCurrentView('showcase')}
+                onGetStarted={() => setCurrentView('auth')}
               />
 
               {/* Technology Innovations */}
