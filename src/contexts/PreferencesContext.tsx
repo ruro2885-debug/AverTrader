@@ -1,0 +1,140 @@
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Language, Theme, Currency, Preferences } from '../types';
+import { translations } from '../i18n/translations';
+
+interface PreferencesContextType {
+  preferences: Preferences;
+  updatePreference: (key: keyof Preferences, value: any) => void;
+  t: (key: string) => string;
+  formatCurrency: (usdValue: number, compact?: boolean) => string;
+}
+
+const defaultPreferences: Preferences = {
+  language: 'EN',
+  theme: 'dark',
+  currency: 'USD',
+};
+
+// Mock exchange rates relative to USD
+const EXCHANGE_RATES: Record<Currency, number> = {
+  USD: 1,
+  EUR: 0.92,
+  GBP: 0.79,
+  BTC: 0.000014,
+  USDT: 1,
+};
+
+const CURRENCY_SYMBOLS: Record<Currency, string> = {
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  BTC: '₿',
+  USDT: '₮',
+};
+
+const PreferencesContext = createContext<PreferencesContextType | undefined>(undefined);
+
+export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
+  const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Load preferences from local storage
+  useEffect(() => {
+    const savedLanguage = localStorage.getItem('aver_language') as Language;
+    const savedTheme = localStorage.getItem('aver_theme') as Theme;
+    const savedCurrency = localStorage.getItem('aver_currency') as Currency;
+    
+    setPreferences(prev => ({
+      language: savedLanguage || prev.language,
+      theme: savedTheme || prev.theme,
+      currency: savedCurrency || prev.currency,
+    }));
+    setIsLoaded(true);
+
+    // Listen for storage events to synchronize across tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'aver_language') {
+        setPreferences(prev => ({ ...prev, language: e.newValue as Language || prev.language }));
+      }
+      if (e.key === 'aver_theme') {
+        setPreferences(prev => ({ ...prev, theme: e.newValue as Theme || prev.theme }));
+      }
+      if (e.key === 'aver_currency') {
+        setPreferences(prev => ({ ...prev, currency: e.newValue as Currency || prev.currency }));
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  const updatePreference = (key: keyof Preferences, value: any) => {
+    setPreferences(prev => ({ ...prev, [key]: value }));
+    localStorage.setItem(`aver_${key}`, value);
+  };
+
+  const t = (key: string): string => {
+    const langDict = translations[preferences.language];
+    if (langDict && langDict[key]) {
+      return langDict[key];
+    }
+    // Fallback to English
+    const fallbackDict = translations['EN'];
+    return fallbackDict[key] || key;
+  };
+
+  const formatCurrency = (usdValue: number, compact: boolean = false): string => {
+    const rate = EXCHANGE_RATES[preferences.currency];
+    const symbol = CURRENCY_SYMBOLS[preferences.currency];
+    const convertedValue = usdValue * rate;
+
+    // Use Intl.NumberFormat for proper localization based on the selected language
+    let locale = 'en-US';
+    switch (preferences.language) {
+      case 'ES': locale = 'es-ES'; break;
+      case 'FR': locale = 'fr-FR'; break;
+      case 'DE': locale = 'de-DE'; break;
+      case 'ZH': locale = 'zh-CN'; break;
+    }
+
+    const formatter = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: preferences.currency,
+      notation: compact ? 'compact' : 'standard',
+      maximumFractionDigits: preferences.currency === 'BTC' ? 4 : 2,
+    });
+
+    // We can also let Intl.NumberFormat handle the symbol automatically, 
+    // but sometimes crypto symbols are tricky, so let's rely on Intl for formatting, 
+    // but we can enforce the symbol if needed. Wait, Intl.NumberFormat handles USD, EUR, GBP fine.
+    // Let's just use it, except maybe replace the currency code for BTC/USDT with the symbol if it formats as code.
+    
+    let formatted = formatter.format(convertedValue);
+    
+    // Quick fix for crypto if Intl uses the currency code instead of symbol
+    if (preferences.currency === 'BTC' && !formatted.includes('₿')) {
+        formatted = formatted.replace('BTC', '₿');
+    }
+    if (preferences.currency === 'USDT' && !formatted.includes('₮')) {
+        formatted = formatted.replace('USDT', '₮');
+    }
+
+    return formatted;
+  };
+
+  if (!isLoaded) return null;
+
+  return (
+    <PreferencesContext.Provider value={{ preferences, updatePreference, t, formatCurrency }}>
+      {children}
+    </PreferencesContext.Provider>
+  );
+};
+
+export const usePreferences = () => {
+  const context = useContext(PreferencesContext);
+  if (context === undefined) {
+    throw new Error('usePreferences must be used within a PreferencesProvider');
+  }
+  return context;
+};

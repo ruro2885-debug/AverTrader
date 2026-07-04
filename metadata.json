@@ -1,0 +1,6 @@
+{
+  "name": "Aver Platform",
+  "description": "A premium, AI-powered landing page and interactive preview for the Aver project, featuring AverCore AI™ and Precision Entry Optimizer™ (PEO™).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
