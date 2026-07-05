@@ -44,10 +44,14 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     const savedTheme = localStorage.getItem('aver_theme') as Theme;
     const savedCurrency = localStorage.getItem('aver_currency') as Currency;
     
+    const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
+    const validThemes: Theme[] = ['light', 'dark'];
+    const validCurrencies: Currency[] = ['USD', 'EUR', 'GBP', 'BTC', 'USDT'];
+
     setPreferences(prev => ({
-      language: savedLanguage || prev.language,
-      theme: savedTheme || prev.theme,
-      currency: savedCurrency || prev.currency,
+      language: validLanguages.includes(savedLanguage) ? savedLanguage : prev.language,
+      theme: validThemes.includes(savedTheme) ? savedTheme : prev.theme,
+      currency: validCurrencies.includes(savedCurrency) ? savedCurrency : prev.currency,
     }));
     setIsLoaded(true);
 
