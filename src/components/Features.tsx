@@ -5,6 +5,8 @@ interface FeaturesProps {
   theme: 'light' | 'dark';
 }
 
+import tradingDashboardImg from '../assets/images/trading_dashboard.jpg';
+
 export default function Features({ theme }: FeaturesProps) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
@@ -95,7 +97,7 @@ export default function Features({ theme }: FeaturesProps) {
             <div className="relative group rounded-3xl overflow-hidden shadow-2xl border border-white/10 aspect-[16/10]">
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
               <img
-                src="/images/trading_dashboard.jpg"
+                src={tradingDashboardImg}
                 alt="Aver Trading Optimization Dashboards"
                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
               />

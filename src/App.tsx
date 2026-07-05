@@ -11,6 +11,7 @@ import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
+import premiumTradingBgImg from './assets/images/premium_trading_bg.jpg';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 
@@ -135,7 +136,7 @@ export default function App() {
       {/* Premium fixed trading background image with high-end overlay blending */}
       <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
         <img 
-          src="/images/premium_trading_bg.jpg" 
+          src={premiumTradingBgImg} 
           alt="Aver Premium Background" 
           className={`w-full h-full object-cover object-center transition-opacity duration-700 ${
             theme === 'dark' ? 'opacity-[0.4] mix-blend-lighten' : 'opacity-[0.25] mix-blend-multiply'
