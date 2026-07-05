@@ -141,7 +141,7 @@ export default function Stats({ theme }: StatsProps) {
     <section id="stats" ref={containerRef} className="py-24 relative overflow-hidden px-6">
       <div className="absolute inset-0 z-0 overflow-hidden">
         <img
-          src="https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=1200"
+          src="https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=1200&auto=format&fit=crop"
           alt="Aver Cyber Encryption Map Backdrop"
           className={`w-full h-full object-cover object-center scale-100 select-none pointer-events-none transition-opacity duration-1000 ${
             isDark ? 'opacity-[0.04]' : 'opacity-[0.02]'

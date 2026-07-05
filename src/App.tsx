@@ -11,7 +11,6 @@ import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
-import premiumTradingBgImg from './assets/images/premium_trading_bg.jpg';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 
@@ -131,14 +130,12 @@ export default function App() {
     : 'bg-slate-50 text-slate-900';
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`}>
-      {/* Platform Version Identifier */}
-      <div className="hidden" aria-hidden="true" data-version="1.0.1"></div>
+    <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.4">
       
       {/* Premium fixed trading background image with high-end overlay blending */}
       <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
         <img 
-          src={premiumTradingBgImg} 
+          src="https://images.unsplash.com/photo-1640340434855-6084b1f4901c?q=80&w=2000&auto=format&fit=crop" 
           alt="Aver Premium Background" 
           className={`w-full h-full object-cover object-center transition-opacity duration-700 ${
             theme === 'dark' ? 'opacity-[0.4] mix-blend-lighten' : 'opacity-[0.25] mix-blend-multiply'

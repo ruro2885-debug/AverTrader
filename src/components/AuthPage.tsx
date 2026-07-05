@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Shield, ArrowLeft, ArrowRight, Eye, EyeOff, Check, X, Bell, TrendingUp, Monitor as MonitorIcon, Tablet as TabletIcon, Phone as PhoneIcon, Cpu, Zap, Lock, DollarSign, Globe } from 'lucide-react';
 import AverLogo from './AverLogo';
 import PolicyReader from './PolicyReader';
-import tradingBgImg from '../assets/images/trading_bg_v1.jpg';
 import { useAuth, auth } from '../contexts/AuthContext';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 
@@ -91,7 +90,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
     } catch (error: any) {
-      setErrorMsg(error.message);
+      setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -109,7 +108,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
     } catch (error: any) {
-      setErrorMsg(error.message);
+      setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -124,7 +123,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       setSuccessMsg("Password reset email sent successfully. Check your inbox and spam folder for further instructions.");
       setAuthSuccess(true);
     } catch (error: any) {
-      setErrorMsg(error.message);
+      setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -140,7 +139,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
     } catch (error: any) {
-      setErrorMsg(error.message);
+      setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -287,11 +286,8 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   {/* Google Button */}
                   <button 
                     type="button"
-                    disabled={loading}
                     onClick={handleGoogleSignIn}
-                    className={`w-full py-3.5 px-4 rounded-xl border font-sans font-bold text-xs flex items-center justify-center space-x-2 transition-all ${
-                      loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02] cursor-pointer'
-                    } ${
+                    className={`w-full py-3.5 px-4 rounded-xl border font-sans font-bold text-xs flex items-center justify-center space-x-2 transition-all hover:scale-[1.02] cursor-pointer ${
                       isDark 
                         ? 'bg-[#0f111a] border-white/10 hover:bg-white/5 hover:border-emerald-500/30' 
                         : 'bg-white border-slate-200 hover:bg-slate-50'
@@ -317,11 +313,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
                 {/* Email Registration Form */}
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                  {errorMsg && (
-                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
-                      {errorMsg}
-                    </div>
-                  )}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Full Name</label>
                     <input 
@@ -617,12 +608,18 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     )}
                   </div>
 
+
+                  {errorMsg && (
+                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                      {errorMsg}
+                    </div>
+                  )}
                   {/* Create Account Button */}
                   <button 
                     type="submit"
                     disabled={!isFormValid || loading}
                     className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 mt-6 cursor-pointer ${
-                      isFormValid && !loading
+                      isFormValid && !loading 
                         ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/25 active:scale-[0.99]' 
                         : isDark
                           ? 'bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed'
@@ -720,11 +717,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
                 {/* Email Login Form */}
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
-                  {errorMsg && (
-                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
-                      {errorMsg}
-                    </div>
-                  )}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Email Address</label>
                     <input 
@@ -775,12 +767,18 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     </div>
                   </div>
 
+
+                  {errorMsg && (
+                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                      {errorMsg}
+                    </div>
+                  )}
                   {/* Continue Button */}
                   <button 
                     type="submit"
                     disabled={!isLoginFormValid || loading}
                     className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 mt-6 cursor-pointer ${
-                      isLoginFormValid && !loading
+                      isLoginFormValid && !loading 
                         ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/25 active:scale-[0.99]' 
                         : isDark
                           ? 'bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed'
@@ -832,11 +830,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </p>
                 </div>
                 <form onSubmit={handleForgotPassword} className="space-y-4">
-                  {errorMsg && (
-                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
-                      {errorMsg}
-                    </div>
-                  )}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Email Address</label>
                     <input 
@@ -852,20 +845,18 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       }`}
                     />
                   </div>
+
+                  {errorMsg && (
+                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                      {errorMsg}
+                    </div>
+                  )}
                   <button 
                     type="submit"
                     disabled={loading || !forgotEmail}
-                    className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 ${
-                      loading || !forgotEmail
-                        ? 'bg-white/5 text-gray-600 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer'
-                    }`}
+                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer"
                   >
-                    {loading ? (
-                      <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                    ) : (
-                      <span>Send Reset Link</span>
-                    )}
+                    Send Reset Link
                   </button>
                   <button 
                     type="button"
@@ -892,7 +883,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         
         {/* Dynamic backdrop grid */}
         <div className="absolute inset-0 z-0">
-          <img src={tradingBgImg} alt="Trading Background" className="w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
+          <img src="https://images.unsplash.com/photo-1640340434855-6084b1f4901c?q=80&w=1200&auto=format&fit=crop" alt="Trading Background" className="w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
         </div>
         <div className="absolute inset-0 bg-radial-gradient from-transparent via-[#020508]/60 to-[#020508] z-0" />
         <div className="absolute bottom-[20%] right-[10%] w-64 h-64 bg-blue-500/10 rounded-full blur-[90px] pointer-events-none" />

@@ -116,7 +116,7 @@ export default function Hero({ theme, onShowcase, onGetStarted }: HeroProps) {
             
             {/* Background Image: Institutional Trader Workstation with charts */}
             <img
-              src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200"
+              src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop"
               alt="Aver Premium Command Interface Workstation"
               className="absolute inset-0 w-full h-full object-cover brightness-[0.45] saturate-[0.8] contrast-[1.1] scale-100"
               referrerPolicy="no-referrer"
