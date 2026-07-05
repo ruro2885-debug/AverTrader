@@ -10,6 +10,7 @@ import QuickHub from './components/QuickHub';
 import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
+import Dashboard from './components/Dashboard';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 
@@ -157,7 +158,7 @@ export default function App() {
 
       <AnimatePresence mode="wait">
         {currentView === 'dashboard' ? (
-          <div key="dashboard" className="p-10 text-center text-3xl font-bold">Dashboard (Placeholder)</div>
+          <Dashboard theme={theme} />
         ) : currentView === 'showcase' ? (
           <PlatformShowcase
             key="showcase"
@@ -167,7 +168,6 @@ export default function App() {
           />
         ) : currentView === 'auth' ? (
           <AuthPage
-            key="auth"
             theme={theme}
             onBack={() => setCurrentView('home')}
             onSuccess={() => setCurrentView('dashboard')}

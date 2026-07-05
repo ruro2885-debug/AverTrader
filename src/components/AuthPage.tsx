@@ -15,9 +15,10 @@ interface AuthPageProps {
 
 export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
-  const { signInWithGoogle } = useAuth();
-  const [view, setView] = useState<'register' | 'login'>('register');
+  const { signInWithGoogle, signUp, signIn, forgotPassword } = useAuth();
+  const [view, setView] = useState<'register' | 'login' | 'forgot-password'>('register');
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
   
   // Registration Form Fields
   const [fullName, setFullName] = useState('');
@@ -82,7 +83,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     if (!isFormValid) return;
     setLoading(true);
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      await signUp(email, password, fullName);
       setSuccessMsg(`Welcome aboard! Establishing secure session...`);
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
@@ -99,10 +100,24 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     if (!isLoginFormValid) return;
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      await signIn(loginEmail, loginPassword);
       setSuccessMsg(`Access Authorized. Resuming connection to AverCore AI™ nodes...`);
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
+    } catch (error: any) {
+      setSuccessMsg(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await forgotPassword(forgotEmail);
+      setSuccessMsg("Password reset email sent successfully. Check your inbox and spam folder for further instructions.");
+      setAuthSuccess(true);
     } catch (error: any) {
       setSuccessMsg(error.message);
     } finally {
@@ -632,7 +647,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </p>
                 </div>
               </motion.div>
-            ) : (
+            ) : view === 'login' ? (
               <motion.div
                 key="login"
                 initial={{ opacity: 0, x: 15 }}
@@ -701,7 +716,13 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   <div className="space-y-1.5 relative">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Security Password</label>
-                      <button type="button" className="text-[10px] font-mono font-bold text-emerald-400 hover:underline">FORGOT PASSWORD?</button>
+                      <button 
+                        type="button" 
+                        onClick={() => setView('forgot-password')}
+                        className="text-[10px] font-mono font-bold text-emerald-400 hover:underline cursor-pointer"
+                      >
+                        FORGOT PASSWORD?
+                      </button>
                     </div>
                     <div className="relative">
                       <input 
@@ -760,6 +781,53 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     </button>
                   </p>
                 </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="forgot-password"
+                initial={{ opacity: 0, x: 15 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -15 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-6"
+              >
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-display font-black tracking-tighter">Reset Your Password</h2>
+                  <p className={`text-base font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
+                    Enter the email address associated with your Aver account. We’ll send you a secure password reset link.
+                  </p>
+                </div>
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Email Address</label>
+                    <input 
+                      type="email" 
+                      required
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="john.doe@enterprise.com" 
+                      className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
+                        isDark 
+                          ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
+                          : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
+                      }`}
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    disabled={loading || !forgotEmail}
+                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer"
+                  >
+                    Send Reset Link
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setView('login')}
+                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all bg-white/5 text-gray-400 hover:text-white cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </form>
               </motion.div>
             )}
           </AnimatePresence>
