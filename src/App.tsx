@@ -11,18 +11,32 @@ import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import { usePreferences } from './contexts/PreferencesContext';
+import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard'>('home');
   const { preferences, updatePreference } = usePreferences();
+  const { user, loading: authLoading } = useAuth();
   const { theme, language, currency } = preferences;
 
   // Navigation section tracker
   const [activeSection, setActiveSection] = useState('hero');
 
+  // Handle auto-redirect if authenticated
+  useEffect(() => {
+    if (!authLoading) {
+      if (user) {
+        setCurrentView('dashboard');
+      } else if (currentView === 'dashboard') {
+        setCurrentView('home');
+      }
+    }
+  }, [user, authLoading, currentView]);
+
   // Update dynamically browser favicon
   useEffect(() => {
+    // ... (rest of favicon code remains the same)
     const canvas = document.createElement('canvas');
     canvas.width = 32;
     canvas.height = 32;
@@ -65,7 +79,7 @@ export default function App() {
 
   // Handle intersection observer to highlight active navbar item on scroll
   useEffect(() => {
-    if (loading) return;
+    if (loading || authLoading) return;
 
     const sections = ['hero', 'tech', 'features', 'stats', 'preview', 'dashboard'];
     const observers = sections.map((secId) => {
@@ -90,7 +104,7 @@ export default function App() {
         if (obs) obs.observer.unobserve(obs.el);
       });
     };
-  }, [loading]);
+  }, [loading, authLoading]);
 
   // Preference Toggle callback
   const handlePreferenceChange = (key: 'theme' | 'language' | 'currency', value: any) => {
@@ -106,7 +120,7 @@ export default function App() {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return <Loader onComplete={() => setLoading(false)} />;
   }
 
@@ -123,7 +137,7 @@ export default function App() {
           src="/images/premium_trading_bg.jpg" 
           alt="Aver Premium Background" 
           className={`w-full h-full object-cover object-center transition-opacity duration-700 ${
-            theme === 'dark' ? 'opacity-[0.24] mix-blend-lighten' : 'opacity-[0.14] mix-blend-multiply'
+            theme === 'dark' ? 'opacity-[0.4] mix-blend-lighten' : 'opacity-[0.25] mix-blend-multiply'
           }`}
           referrerPolicy="no-referrer"
         />
@@ -142,7 +156,9 @@ export default function App() {
       </div>
 
       <AnimatePresence mode="wait">
-        {currentView === 'showcase' ? (
+        {currentView === 'dashboard' ? (
+          <div key="dashboard" className="p-10 text-center text-3xl font-bold">Dashboard (Placeholder)</div>
+        ) : currentView === 'showcase' ? (
           <PlatformShowcase
             key="showcase"
             theme={theme}
@@ -154,6 +170,7 @@ export default function App() {
             key="auth"
             theme={theme}
             onBack={() => setCurrentView('home')}
+            onSuccess={() => setCurrentView('dashboard')}
           />
         ) : (
           <motion.div
@@ -182,7 +199,7 @@ export default function App() {
 
               {/* Technology Innovations */}
               <TechInnovations theme={theme} />
-
+              
               {/* Features Showcase */}
               <Features theme={theme} />
 

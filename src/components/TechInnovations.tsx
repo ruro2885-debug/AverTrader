@@ -167,7 +167,7 @@ export default function TechInnovations({ theme }: TechInnovationsProps) {
               isDark ? 'bg-slate-950 border-white/10' : 'bg-slate-900 border-slate-800'
             }`}>
               {/* Subtle tech background grid */}
-              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none" />
+              <div className="absolute inset-0 bg-slate-900/50 opacity-20 pointer-events-none" />
               
               <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
                 <div>

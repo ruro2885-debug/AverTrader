@@ -3,21 +3,24 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Shield, ArrowLeft, ArrowRight, Eye, EyeOff, Check, X, Bell, TrendingUp, Monitor as MonitorIcon, Tablet as TabletIcon, Phone as PhoneIcon, Cpu, Zap, Lock, DollarSign, Globe } from 'lucide-react';
 import AverLogo from './AverLogo';
 import PolicyReader from './PolicyReader';
+import { useAuth, auth } from '../contexts/AuthContext';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 
 interface AuthPageProps {
   theme: 'light' | 'dark';
   onBack: () => void;
+  onSuccess: () => void;
   key?: string;
 }
 
-export default function AuthPage({ theme, onBack }: AuthPageProps) {
+export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
+  const { signInWithGoogle } = useAuth();
   const [view, setView] = useState<'register' | 'login'>('register');
   const [showPassword, setShowPassword] = useState(false);
   
   // Registration Form Fields
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -33,6 +36,7 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
   // Success screen state after creating account or logging in
   const [authSuccess, setAuthSuccess] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [loading, setLoading] = useState(false);
 
   // Password validation state
   const pwdCriteria = useMemo(() => {
@@ -57,14 +61,13 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
 
   const isFormValid = useMemo(() => {
     return (
-      firstName.trim() !== '' &&
-      lastName.trim() !== '' &&
+      fullName.trim() !== '' &&
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
       Object.values(pwdCriteria).every(Boolean) &&
       password === confirmPassword &&
       password !== ''
     );
-  }, [firstName, lastName, email, pwdCriteria, password, confirmPassword]);
+  }, [fullName, email, pwdCriteria, password, confirmPassword]);
 
   const isLoginFormValid = useMemo(() => {
     return (
@@ -74,25 +77,52 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
   }, [loginEmail, loginPassword]);
 
   // Handle Register Form Submission
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFormValid) return;
-    setSuccessMsg(`Welcome aboard, ${firstName}! Your institutional sandbox credentials have been generated and isolated successfully.`);
-    setAuthSuccess(true);
+    setLoading(true);
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      setSuccessMsg(`Welcome aboard! Establishing secure session...`);
+      setAuthSuccess(true);
+      setTimeout(onSuccess, 3000);
+    } catch (error: any) {
+      setSuccessMsg(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handle Login Form Submission
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoginFormValid) return;
-    setSuccessMsg(`Access Authorized. Resuming connection to AverCore AI™ nodes...`);
-    setAuthSuccess(true);
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      setSuccessMsg(`Access Authorized. Resuming connection to AverCore AI™ nodes...`);
+      setAuthSuccess(true);
+      setTimeout(onSuccess, 3000);
+    } catch (error: any) {
+      setSuccessMsg(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handle Google Sign In
-  const handleGoogleSignIn = () => {
-    setSuccessMsg(`Access Authorized via Google. Resuming connection to AverCore AI™ nodes...`);
-    setAuthSuccess(true);
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+      setSuccessMsg(`Access Authorized via Google. Resuming connection to AverCore AI™ nodes...`);
+      setAuthSuccess(true);
+      setTimeout(onSuccess, 3000);
+    } catch (error: any) {
+      setSuccessMsg(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Simulated live-updating statistics inside Device Mockups
@@ -223,10 +253,10 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
               >
                 {/* Welcome headings */}
                 <div className="space-y-2">
-                  <h2 className="text-3xl sm:text-4xl font-display font-extrabold tracking-tight">
+                  <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tighter">
                     Create Your Aver Account
                   </h2>
-                  <p className={`text-sm leading-relaxed font-sans font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  <p className={`text-base leading-relaxed font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
                     Join Aver and experience an AI-powered trading platform built for intelligent investing, advanced analytics, and professional market insights.
                   </p>
                 </div>
@@ -263,37 +293,20 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
 
                 {/* Email Registration Form */}
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">First Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        placeholder="John" 
-                        className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
-                          isDark 
-                            ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
-                            : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
-                        }`}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Last Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        placeholder="Doe" 
-                        className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
-                          isDark 
-                            ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
-                            : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
-                        }`}
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Full Name</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="John Doe" 
+                      className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
+                        isDark 
+                          ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
+                          : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
+                      }`}
+                    />
                   </div>
 
                   <div className="space-y-1.5">
@@ -587,19 +600,18 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
                           : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
                     }`}
                   >
-                    <span>Create Account</span>
+                    <span className="font-extrabold text-base">Create Account</span>
                     <ArrowRight className="w-4.5 h-4.5" />
                   </button>
 
                   {/* Legal disclosures */}
                   <p className="text-[10px] leading-relaxed text-gray-500 font-medium text-center pt-2 max-w-lg mx-auto">
-                    By continuing, you acknowledge that you have read and agree to Aver's{' '}
-                    <button type="button" onClick={() => setActivePolicyId('terms')} className="text-emerald-400 font-bold hover:underline">Terms of Service</button>,{' '}
-                    <button type="button" onClick={() => setActivePolicyId('privacy')} className="text-emerald-400 font-bold hover:underline">Privacy Policy</button>,{' '}
-                    <button type="button" onClick={() => setActivePolicyId('cookie')} className="text-emerald-400 font-bold hover:underline">Cookie Policy</button>,{' '}
-                    <button type="button" onClick={() => setActivePolicyId('risk')} className="text-emerald-400 font-bold hover:underline">Risk Disclosure</button>,{' '}
-                    <button type="button" onClick={() => setActivePolicyId('aml')} className="text-emerald-400 font-bold hover:underline">AML & KYC Policy</button>, and{' '}
-                    <button type="button" onClick={() => setActivePolicyId('electronic')} className="text-emerald-400 font-bold hover:underline">Electronic Communications Agreement</button>. We recommend reviewing these documents before creating your account.
+                    By continuing, you agree to Aver's{' '}
+                    <button type="button" onClick={() => setActivePolicyId('terms')} className="text-emerald-400 font-bold hover:underline">Terms of Service</button>{' '}
+                    and acknowledge our{' '}
+                    <button type="button" onClick={() => setActivePolicyId('privacy')} className="text-emerald-400 font-bold hover:underline">Privacy Policy</button>.
+                    Additional legal information is available in the{' '}
+                    <button type="button" onClick={() => setActivePolicyId('legal-center')} className="text-gray-400 hover:text-gray-300 hover:underline">Legal Center</button>.
                   </p>
                 </form>
 
@@ -631,10 +643,10 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
               >
                 {/* Welcome headings */}
                 <div className="space-y-2">
-                  <h2 className="text-3xl sm:text-4xl font-display font-extrabold tracking-tight">
+                  <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tighter">
                     Sign In to Aver
                   </h2>
-                  <p className={`text-sm leading-relaxed font-sans font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  <p className={`text-base leading-relaxed font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
                     Welcome back. Enter your secure credentials to resume institutional execution.
                   </p>
                 </div>
@@ -726,7 +738,7 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
                           : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
                     }`}
                   >
-                    <span>Sign In</span>
+                    <span className="font-extrabold text-base">Sign In</span>
                     <ArrowRight className="w-4.5 h-4.5" />
                   </button>
                 </form>
@@ -764,11 +776,10 @@ export default function AuthPage({ theme, onBack }: AuthPageProps) {
       <div className="lg:col-span-6 hidden lg:flex flex-col items-center justify-center relative bg-gradient-to-br from-[#020508] via-slate-950 to-black overflow-hidden px-8 select-none border-l border-white/5 py-12">
         
         {/* Dynamic backdrop grid */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.01)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:40px_40px] z-0" />
-        <div className="absolute inset-0 bg-radial-gradient from-transparent via-[#020508]/40 to-[#020508] z-0" />
-
-        {/* Interactive glow nodes */}
-        <div className="absolute top-[25%] left-[20%] w-72 h-72 bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute inset-0 z-0">
+          <img src="/images/trading_bg_v1.jpg" alt="Trading Background" className="w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
+        </div>
+        <div className="absolute inset-0 bg-radial-gradient from-transparent via-[#020508]/60 to-[#020508] z-0" />
         <div className="absolute bottom-[20%] right-[10%] w-64 h-64 bg-blue-500/10 rounded-full blur-[90px] pointer-events-none" />
 
         {/* THREE DEVICES WRAPPER WITH MOTION STAGGER */}

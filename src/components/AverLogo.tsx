@@ -1,8 +1,10 @@
+import React from 'react';
+
 interface AverLogoProps {
   className?: string;
   size?: number;
   showText?: boolean;
-  theme?: 'light' | 'dark';
+  theme?: 'dark' | 'light';
 }
 
 export default function AverLogo({ className = '', size = 32, showText = true, theme = 'dark' }: AverLogoProps) {
@@ -168,30 +170,13 @@ export default function AverLogo({ className = '', size = 32, showText = true, t
         />
         <path d="M 84 55 L 91 66 L 96 66 L 88 55 Z" fill="url(#silverGloss)" />
 
-        {/* "TRADING BOT" functional labels */}
-        <text
-          x="60"
-          y="74"
-          fill="#34d399"
-          fontSize="5"
-          fontFamily="monospace"
-          fontWeight="bold"
-          letterSpacing="1"
-          textAnchor="middle"
-          filter="url(#greenGlow)"
-        >
-          TRADING BOT
-        </text>
       </svg>
       
       {/* Brand Text */}
       {showText && (
         <div className="flex flex-col items-start leading-none">
-          <span className={`font-sans font-extrabold tracking-widest text-lg ${textColor}`}>
+          <span className={`font-display font-black tracking-tighter text-2xl ${textColor}`}>
             AVER<span className="text-emerald-400">.</span>
-          </span>
-          <span className="text-[8px] font-mono tracking-widest text-emerald-400 font-bold uppercase">
-            TRADING BOT
           </span>
         </div>
       )}

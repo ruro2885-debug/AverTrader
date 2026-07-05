@@ -1,6 +1,5 @@
 import { Zap, ShieldCheck, BarChart3, Database, Globe, Network, Lock, Layers } from 'lucide-react';
 import { usePreferences } from '../contexts/PreferencesContext';
-import tradingDashboardImg from '../assets/images/trading_dashboard_1783193671029.jpg';
 
 interface FeaturesProps {
   theme: 'light' | 'dark';
@@ -96,10 +95,9 @@ export default function Features({ theme }: FeaturesProps) {
             <div className="relative group rounded-3xl overflow-hidden shadow-2xl border border-white/10 aspect-[16/10]">
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent z-10" />
               <img
-                src={tradingDashboardImg}
+                src="/images/trading_dashboard.jpg"
                 alt="Aver Trading Optimization Dashboards"
                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                referrerPolicy="no-referrer"
               />
               <div className="absolute bottom-6 left-6 z-20">
                 <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold font-mono uppercase tracking-wider">
