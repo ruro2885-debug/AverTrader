@@ -132,6 +132,8 @@ export default function App() {
 
   return (
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`}>
+      {/* Platform Version Identifier */}
+      <div className="hidden" aria-hidden="true" data-version="1.0.1"></div>
       
       {/* Premium fixed trading background image with high-end overlay blending */}
       <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
