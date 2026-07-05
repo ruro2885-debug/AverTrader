@@ -85,7 +85,6 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
   const formatCurrency = (usdValue: number, compact: boolean = false): string => {
     const rate = EXCHANGE_RATES[preferences.currency];
-    const symbol = CURRENCY_SYMBOLS[preferences.currency];
     const convertedValue = usdValue * rate;
 
     // Use Intl.NumberFormat for proper localization based on the selected language
@@ -97,29 +96,23 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       case 'ZH': locale = 'zh-CN'; break;
     }
 
+    // Crypto doesn't work with Intl.NumberFormat(..., { style: 'currency' })
+    if (preferences.currency === 'BTC' || preferences.currency === 'USDT') {
+       const formatter = new Intl.NumberFormat(locale, {
+           notation: compact ? 'compact' : 'standard',
+           maximumFractionDigits: preferences.currency === 'BTC' ? 4 : 2,
+       });
+       return `${CURRENCY_SYMBOLS[preferences.currency]}${formatter.format(convertedValue)}`;
+    }
+
     const formatter = new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: preferences.currency,
       notation: compact ? 'compact' : 'standard',
-      maximumFractionDigits: preferences.currency === 'BTC' ? 4 : 2,
+      maximumFractionDigits: 2,
     });
 
-    // We can also let Intl.NumberFormat handle the symbol automatically, 
-    // but sometimes crypto symbols are tricky, so let's rely on Intl for formatting, 
-    // but we can enforce the symbol if needed. Wait, Intl.NumberFormat handles USD, EUR, GBP fine.
-    // Let's just use it, except maybe replace the currency code for BTC/USDT with the symbol if it formats as code.
-    
-    let formatted = formatter.format(convertedValue);
-    
-    // Quick fix for crypto if Intl uses the currency code instead of symbol
-    if (preferences.currency === 'BTC' && !formatted.includes('₿')) {
-        formatted = formatted.replace('BTC', '₿');
-    }
-    if (preferences.currency === 'USDT' && !formatted.includes('₮')) {
-        formatted = formatted.replace('USDT', '₮');
-    }
-
-    return formatted;
+    return formatter.format(convertedValue);
   };
 
   if (!isLoaded) return null;
