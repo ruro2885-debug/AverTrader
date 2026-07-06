@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Cpu, Shield, Activity, TrendingUp } from 'lucide-react';
+import AverLogo from './AverLogo';
 
 interface LoaderProps {
   onComplete: () => void;
@@ -223,46 +224,7 @@ export default function Loader({ onComplete }: LoaderProps) {
               />
 
               {/* Vector Logo Structure */}
-              <svg
-                className="w-20 h-20 text-emerald-400"
-                viewBox="0 0 100 100"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                {/* Sharp high-contrast outer framing hexagon */}
-                <motion.path
-                  d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z"
-                  stroke="#10b981"
-                  strokeWidth="1.5"
-                  className="opacity-25"
-                  initial={{ pathLength: 0 }}
-                  animate={{ pathLength: 1 }}
-                  transition={{ duration: 1.8, ease: "easeInOut" }}
-                />
-
-                {/* Main stylized "A" core with smooth glass gradient fill */}
-                <motion.path
-                  d="M50 18 L80 78 L65 78 L50 48 L35 78 L20 78 Z"
-                  fill="url(#averLogoGrad)"
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
-                  style={{
-                    filter: 'drop-shadow(0 0 15px rgba(16,185,129,0.35))'
-                  }}
-                />
-
-                {/* Glowing central matrix core */}
-                <circle cx="50" cy="48" r="4.5" fill="#34d399" className="animate-pulse" />
-                <circle cx="50" cy="48" r="2.5" fill="#10b981" />
-
-                <defs>
-                  <linearGradient id="averLogoGrad" x1="50" y1="18" x2="50" y2="78" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#34d399" />
-                    <stop offset="100%" stopColor="#047857" />
-                  </linearGradient>
-                </defs>
-              </svg>
+              <AverLogo size={85} showText={false} theme="dark" />
             </motion.div>
 
             {/* Platform Brand Name using ExtraBold Premium Typography */}

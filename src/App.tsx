@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import Loader from './components/Loader';
 import Navbar from './components/Navbar';
+import CryptoTicker from './components/CryptoTicker';
 import Hero from './components/Hero';
+import CoinLogo from './components/CoinLogo';
 import TechInnovations from './components/TechInnovations';
 import Features from './components/Features';
 import Stats from './components/Stats';
@@ -135,10 +137,10 @@ export default function App() {
       {/* Premium fixed trading background image with high-end overlay blending */}
       <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
         <img 
-          src="https://images.unsplash.com/photo-1640340434855-6084b1f4901c?q=80&w=2000&auto=format&fit=crop" 
+          src="https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2000&auto=format&fit=crop" 
           alt="Aver Premium Background" 
           className={`w-full h-full object-cover object-center transition-opacity duration-700 ${
-            theme === 'dark' ? 'opacity-[0.4] mix-blend-lighten' : 'opacity-[0.25] mix-blend-multiply'
+            theme === 'dark' ? 'opacity-[0.65] mix-blend-lighten' : 'opacity-[0.42] mix-blend-multiply'
           }`}
           referrerPolicy="no-referrer"
         />
@@ -148,6 +150,42 @@ export default function App() {
             theme === 'dark' ? 'bg-radial-gradient-dark' : 'bg-radial-gradient-light'
           }`} 
         />
+
+        {/* Premium floating glassmorphic cryptocurrency background tokens */}
+        <div className="absolute inset-0 w-full h-full overflow-hidden hidden lg:block">
+          
+          {/* Bitcoin (₿) Floating Token */}
+          <div className="absolute top-[18%] left-[5%] w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400/10 to-orange-500/5 border border-amber-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.08)] animate-float-1">
+            <CoinLogo symbol="BTC" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+          </div>
+
+          {/* Ethereum (Ξ) Floating Token */}
+          <div className="absolute top-[42%] right-[4%] w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500/10 to-violet-600/5 border border-indigo-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_40px_rgba(99,102,241,0.08)] animate-float-2">
+            <CoinLogo symbol="ETH" size={40} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+          </div>
+
+          {/* Solana (🆂) Floating Token */}
+          <div className="absolute bottom-[22%] left-[6%] w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-400/10 to-teal-500/5 border border-emerald-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(16,185,129,0.08)] animate-float-3">
+            <CoinLogo symbol="SOL" size={26} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+          </div>
+
+          {/* Aver Platform Token (AVR) */}
+          <div className="absolute top-[28%] right-[18%] w-24 h-24 rounded-3xl bg-gradient-to-br from-emerald-500/15 to-teal-400/5 border border-emerald-400/25 backdrop-blur-md flex flex-col items-center justify-center shadow-[0_0_50px_rgba(52,211,153,0.15)] animate-float-1">
+            <CoinLogo symbol="AVR" size={48} className="opacity-40 hover:opacity-90 transition-opacity duration-300" />
+            <span className="text-[9px] font-mono font-bold tracking-widest text-emerald-400/50 mt-1">AVR</span>
+          </div>
+
+          {/* Ripple / XRP Floating Token */}
+          <div className="absolute top-[68%] left-[15%] w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-400/10 to-blue-500/5 border border-sky-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(56,189,248,0.08)] animate-float-2">
+            <CoinLogo symbol="XRP" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+          </div>
+
+          {/* Cardano (₳) Floating Token */}
+          <div className="absolute bottom-[16%] right-[14%] w-16 h-16 rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-600/5 border border-blue-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.08)] animate-float-3">
+            <CoinLogo symbol="ADA" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+          </div>
+
+        </div>
       </div>
 
       {/* Background visual light leak for premium depth */}
@@ -180,6 +218,9 @@ export default function App() {
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
           >
+            {/* Top Live Crypto Ticker */}
+            <CryptoTicker />
+
             {/* Navigation */}
             <Navbar
               theme={theme}

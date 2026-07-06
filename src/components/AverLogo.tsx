@@ -7,176 +7,188 @@ interface AverLogoProps {
   theme?: 'dark' | 'light';
 }
 
-export default function AverLogo({ className = '', size = 32, showText = true, theme = 'dark' }: AverLogoProps) {
-  const textColor = theme === 'dark' ? 'text-white' : 'text-gray-900';
+export default function AverLogo({ className = '', size = 44, showText = true, theme = 'dark' }: AverLogoProps) {
+  const isDark = theme === 'dark';
+  const textColor = isDark ? 'text-white' : 'text-slate-900';
   
   return (
-    <div className={`flex items-center space-x-2.5 ${className}`}>
-      {/* High-Fidelity Custom "Aver TRADING BOT" Logo SVG */}
+    <div className={`flex items-center space-x-3.5 ${className}`}>
+      {/* Textured Hexagonal "Aver" Original Logo with Physical & Digital Grain */}
       <svg
         width={size}
         height={size}
-        viewBox="0 0 120 120"
+        viewBox="0 0 100 100"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        className="flex-shrink-0"
+        className="flex-shrink-0 select-none filter drop-shadow-[0_2px_10px_rgba(16,185,129,0.2)]"
       >
         <defs>
-          {/* Metallic Silver Gradients */}
-          <linearGradient id="silverGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#FFFFFF" />
-            <stop offset="30%" stopColor="#F1F5F9" />
-            <stop offset="70%" stopColor="#94A3B8" />
-            <stop offset="100%" stopColor="#475569" />
-          </linearGradient>
-          
-          <linearGradient id="silverGloss" x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#cbd5e1" />
-            <stop offset="50%" stopColor="#FFFFFF" />
-            <stop offset="100%" stopColor="#64748b" />
-          </linearGradient>
+          {/* Noise / Grain Texture Filter to simulate physical bead-blasted metal */}
+          <filter id="averMetalNoise" x="-10%" y="-10%" width="120%" height="120%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="3" result="noise" />
+            <feColorMatrix type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.12 0" />
+            <feComposite operator="in" in2="SourceGraphic" result="textured" />
+            <feBlend mode="multiply" in="SourceGraphic" in2="textured" />
+          </filter>
 
-          {/* Emerald Green Gradient */}
-          <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#34d399" />
-            <stop offset="100%" stopColor="#059669" />
-          </linearGradient>
-
-          {/* Green Glow filter */}
-          <filter id="greenGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="2.5" result="blur" />
+          {/* Glowing Green Filter */}
+          <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
 
-          {/* Ambient Background Glow */}
-          <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#064e3b" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="#000000" stopOpacity="0" />
-          </radialGradient>
+          {/* Micro-perforated carbon fiber or tech mesh texture pattern */}
+          <pattern id="carbonMesh" width="3" height="3" patternUnits="userSpaceOnUse">
+            <rect width="3" height="3" fill="#022c22" fillOpacity="0.1" />
+            <circle cx="1.5" cy="1.5" r="0.6" fill="#10b981" fillOpacity="0.25" />
+          </pattern>
+
+          {/* Left Facet Bright Brushed Metal Gradient */}
+          <linearGradient id="leftBrushedGrad" x1="20" y1="18" x2="50" y2="78" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#34d399" />
+            <stop offset="40%" stopColor="#10b981" />
+            <stop offset="100%" stopColor="#047857" />
+          </linearGradient>
+
+          {/* Right Facet Dark/Anodized Metal Gradient */}
+          <linearGradient id="rightAnodizedGrad" x1="80" y1="18" x2="50" y2="78" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#10b981" />
+            <stop offset="50%" stopColor="#065f46" />
+            <stop offset="100%" stopColor="#022c22" />
+          </linearGradient>
+
+          {/* Hexagon Bevel Frame Gradients */}
+          <linearGradient id="hexBevelBright" x1="11" y1="5" x2="89" y2="95" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.4" />
+            <stop offset="30%" stopColor="#10b981" stopOpacity="0.8" />
+            <stop offset="70%" stopColor="#047857" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#022c22" stopOpacity="0.9" />
+          </linearGradient>
+
+          <linearGradient id="hexBevelDark" x1="11" y1="5" x2="89" y2="95" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#065f46" />
+            <stop offset="50%" stopColor="#022c22" />
+            <stop offset="100%" stopColor="#000000" />
+          </linearGradient>
+
+          {/* Horizontal Milled Lines Clip Paths to apply realistic grooves */}
+          <clipPath id="leftFacetClip">
+            <path d="M50 18 L50 48 L35 78 L20 78 Z" />
+          </clipPath>
+          <clipPath id="rightFacetClip">
+            <path d="M50 18 L80 78 L65 78 L50 48 Z" />
+          </clipPath>
+          <clipPath id="hexClip">
+            <path d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z" />
+          </clipPath>
         </defs>
 
-        {/* Ambient Back Glow */}
-        <circle cx="60" cy="60" r="50" fill="url(#bgGlow)" />
-
-        {/* Outer Tech Glowing Ring */}
-        <circle
-          cx="60"
-          cy="60"
-          r="48"
+        {/* 1. Technical Grid/Mesh Background Inside Hexagon */}
+        <path
+          d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z"
+          fill="url(#carbonMesh)"
           stroke="#10b981"
-          strokeWidth="1.5"
-          strokeOpacity="0.8"
-          strokeDasharray="8 4 2 4 12 6"
-          filter="url(#greenGlow)"
-          className="animate-[spin_40s_linear_infinite]"
+          strokeWidth="1"
+          strokeOpacity="0.2"
         />
 
-        {/* Inner Tech Accent Ring */}
-        <circle
-          cx="60"
-          cy="60"
-          r="42"
-          stroke="#047857"
-          strokeWidth="0.75"
-          strokeOpacity="0.4"
-          strokeDasharray="3 3"
+        {/* 2. Textured Double Outer Hexagon Frame (With Beveled Edge and Milled Lines) */}
+        {/* Outer Shadowed Ring */}
+        <path
+          d="M50 3 L91 26.5 L91 73.5 L50 97 L9 73.5 L9 26.5 Z"
+          fill="url(#hexBevelDark)"
+          filter="url(#averMetalNoise)"
+          opacity="0.95"
+        />
+        {/* Inner Highlight Ring with Metal Grain */}
+        <path
+          d="M50 5 L89 27.5 L89 72.5 L50 95 L11 72.5 L11 27.5 Z"
+          stroke="url(#hexBevelBright)"
+          strokeWidth="2.5"
+          filter="url(#averMetalNoise)"
         />
 
-        {/* Candlestick Chart Pattern (Top Arc Background) */}
-        <g opacity="0.35" stroke="#10b981" strokeWidth="0.75">
-          {/* Bar 1 */}
-          <line x1="38" y1="26" x2="38" y2="34" />
-          <rect x="36" y="28" width="4" height="4" fill="#047857" stroke="none" />
-          {/* Bar 2 */}
-          <line x1="46" y1="21" x2="46" y2="31" />
-          <rect x="44" y="23" width="4" height="5" fill="#10b981" stroke="none" />
-          {/* Bar 3 */}
-          <line x1="54" y1="18" x2="54" y2="29" />
-          <rect x="52" y="20" width="4" height="6" fill="#10b981" stroke="none" />
-          {/* Bar 4 */}
-          <line x1="62" y1="16" x2="62" y2="26" />
-          <rect x="60" y="17" width="4" height="6" fill="#10b981" stroke="none" />
-          {/* Bar 5 */}
-          <line x1="70" y1="13" x2="70" y2="23" />
-          <rect x="68" y="15" width="4" height="5" fill="#10b981" stroke="none" />
-          {/* Bar 6 */}
-          <line x1="78" y1="10" x2="78" y2="20" />
-          <rect x="76" y="11" width="4" height="6" fill="#10b981" stroke="none" />
+        {/* Inner Tech Tick Marks for Watch-Bezel Texture */}
+        <g stroke="#10b981" strokeWidth="1" strokeOpacity="0.45" filter="url(#neonGlow)">
+          <line x1="50" y1="5" x2="50" y2="9" />
+          <line x1="50" y1="95" x2="50" y2="91" />
+          <line x1="11" y1="27.5" x2="14" y2="29" />
+          <line x1="89" y1="27.5" x2="86" y2="29" />
+          <line x1="11" y1="72.5" x2="14" y2="71" />
+          <line x1="89" y1="72.5" x2="86" y2="71" />
         </g>
 
-        {/* Dynamic Upward Trend Arrow */}
+        {/* 3. Splendid Faceted 3D Beveled "A" Core */}
+        {/* LEFT FACET - Anodized Light Emerald with Grain */}
         <path
-          d="M 46 44 L 80 16 M 80 16 L 70 16 M 80 16 L 80 26"
-          stroke="#34d399"
-          strokeWidth="2"
+          d="M50 18 L50 48 L35 78 L20 78 Z"
+          fill="url(#leftBrushedGrad)"
+          filter="url(#averMetalNoise)"
+        />
+
+        {/* Left Facet Fine Grooves / Lathe Milled Lines */}
+        <g clipPath="url(#leftFacetClip)" opacity="0.25">
+          {Array.from({ length: 30 }).map((_, i) => (
+            <line
+              key={`left-groove-${i}`}
+              x1="10"
+              y1={18 + i * 2}
+              x2="60"
+              y2={18 + i * 2}
+              stroke="#ffffff"
+              strokeWidth="0.65"
+            />
+          ))}
+        </g>
+
+        {/* RIGHT FACET - Darker Deep Green with Grain */}
+        <path
+          d="M50 18 L80 78 L65 78 L50 48 Z"
+          fill="url(#rightAnodizedGrad)"
+          filter="url(#averMetalNoise)"
+        />
+
+        {/* Right Facet Fine Grooves / Lathe Milled Lines */}
+        <g clipPath="url(#rightFacetClip)" opacity="0.2">
+          {Array.from({ length: 30 }).map((_, i) => (
+            <line
+              key={`right-groove-${i}`}
+              x1="40"
+              y1={18 + i * 2}
+              x2="90"
+              y2={18 + i * 2}
+              stroke="#000000"
+              strokeWidth="0.75"
+            />
+          ))}
+        </g>
+
+        {/* Subtle Highlight line running down the 3D Spine */}
+        <line
+          x1="50"
+          y1="18"
+          x2="50"
+          y2="48"
+          stroke="#ffffff"
+          strokeWidth="1"
           strokeLinecap="round"
-          strokeLinejoin="round"
-          filter="url(#greenGlow)"
+          opacity="0.6"
+          filter="url(#neonGlow)"
         />
 
-        {/* Coin Medallions (Bottom Layer) */}
-        {/* Left Coin: Ethereum */}
-        <circle cx="44" cy="88" r="8" fill="#0b1329" stroke="#10b981" strokeWidth="0.75" strokeOpacity="0.5" />
-        <path d="M 44 83 L 47 87 L 44 89 L 41 87 Z" fill="#94a3b8" />
-        <path d="M 44 93 L 47 90 L 44 89 L 41 90 Z" fill="#64748b" />
-
-        {/* Right Coin: BNB Grid */}
-        <circle cx="76" cy="88" r="8" fill="#0b1329" stroke="#10b981" strokeWidth="0.75" strokeOpacity="0.5" />
-        <path d="M 76 83.5 L 79.5 87 L 76 90.5 L 72.5 87 Z" fill="#f59e0b" opacity="0.6" />
-        <circle cx="76" cy="87" r="1.5" fill="#0b1329" />
-
-        {/* Central Glowing Bitcoin Medallion */}
-        <circle cx="60" cy="88" r="11" fill="#022c22" stroke="#34d399" strokeWidth="1.2" filter="url(#greenGlow)" />
-        <text
-          x="60"
-          y="92"
-          fill="#34d399"
-          fontSize="11"
-          fontWeight="bold"
-          fontFamily="monospace"
-          textAnchor="middle"
-        >
-          ₿
-        </text>
-
-        {/* Stylized "AVer" Text Layer */}
-        {/* A: Metallic */}
-        <path
-          d="M 22 66 L 31 46 L 39 46 L 43 55 L 38 55 L 34 49 L 29 66 Z"
-          fill="url(#silverGrad)"
-        />
-        <path d="M 26 61 L 34 61 L 35 63 L 25 63 Z" fill="url(#silverGloss)" />
-        
-        {/* V: Futuristic Green Arrow Extension */}
-        <path
-          d="M 41 46 L 47 66 L 53 66 L 64 39 L 59 39 L 50 59 L 46 46 Z"
-          fill="url(#emeraldGrad)"
-          filter="url(#greenGlow)"
-        />
-
-        {/* E: Metallic */}
-        <path
-          d="M 60 46 L 73 46 L 73 49 L 65 49 L 65 53 L 71 53 L 71 56 L 65 56 L 65 62 L 74 62 L 74 66 L 60 66 Z"
-          fill="url(#silverGrad)"
-        />
-
-        {/* R: Metallic */}
-        <path
-          d="M 77 46 L 88 46 C 92 46 94 48 94 51 C 94 54 92 56 88 56 L 82 56 L 82 66 L 77 66 Z M 82 50 L 82 53 L 87 53 C 88.5 53 89 52.5 89 51.5 C 89 50.5 88.5 50 L 87 50 Z"
-          fill="url(#silverGrad)"
-        />
-        <path d="M 84 55 L 91 66 L 96 66 L 88 55 Z" fill="url(#silverGloss)" />
-
+        {/* 4. Glowing Quantum Pulse Center Core */}
+        <circle cx="50" cy="48" r="4.5" fill="#34d399" className="animate-pulse" filter="url(#neonGlow)" />
+        <circle cx="50" cy="48" r="2.2" fill="#ffffff" />
       </svg>
       
-      {/* Brand Text */}
+      {/* Premium Brand Title Text */}
       {showText && (
-        <div className="flex flex-col items-start leading-none">
-          <span className={`font-display font-black tracking-tighter text-2xl ${textColor}`}>
-            AVER<span className="text-emerald-400">.</span>
+        <div className="flex flex-col items-start leading-none select-none">
+          <span className={`font-display font-black tracking-tight text-[22px] sm:text-2xl ${textColor}`}>
+            AVER<span className="text-emerald-400 font-extrabold animate-pulse">.</span>
           </span>
         </div>
       )}
