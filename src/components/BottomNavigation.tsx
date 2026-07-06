@@ -23,38 +23,56 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 p-4 pb-safe">
-      <div className="bg-slate-950/80 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl flex items-center justify-around p-2">
+    <div className="fixed bottom-0 left-0 right-0 z-50 p-4 pb-safe flex justify-center pointer-events-none">
+      <motion.div 
+        initial={{ y: 50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-md h-[76px] bg-slate-950/70 backdrop-blur-2xl border border-white/10 rounded-[30px] shadow-[0_10px_40px_rgba(0,0,0,0.5)] flex items-center justify-between px-6 pointer-events-auto"
+      >
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           if (item.id === 'ai') {
             return (
-              <motion.button
-                key={item.id}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => onTabChange(item.id)}
-                className="relative -mt-10 p-3 rounded-full bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)] border-4 border-slate-950"
-              >
-                <item.icon className="w-8 h-8 text-black" />
-                <span className="absolute -bottom-6 text-[10px] font-medium text-emerald-500">AI</span>
-              </motion.button>
+              <div key={item.id} className="relative flex justify-center w-16">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => onTabChange(item.id)}
+                  className="absolute -bottom-6 w-[58px] h-[58px] rounded-full bg-gradient-to-tr from-emerald-600 to-emerald-400 shadow-[0_4px_20px_rgba(16,185,129,0.4)] flex items-center justify-center z-10"
+                >
+                  <motion.div 
+                    animate={{ boxShadow: ['0 0 0 0 rgba(16,185,129,0.4)', '0 0 0 10px rgba(16,185,129,0)'] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="absolute inset-0 rounded-full"
+                  />
+                  <item.icon className="w-6 h-6 text-white stroke-2" />
+                </motion.button>
+              </div>
             );
           }
           return (
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={`flex flex-col items-center space-y-1 p-2 transition-colors duration-200 ${
-                isActive ? 'text-emerald-400' : 'text-gray-500'
-              }`}
+              className="flex flex-col items-center justify-center space-y-1 w-14 transition-colors duration-200 group"
             >
-              <item.icon className={`w-7 h-7 ${isActive ? 'stroke-[2.5px]' : 'stroke-2'}`} />
-              <span className="text-[10px] font-medium">{item.name}</span>
+              <item.icon 
+                className={`w-[26px] h-[26px] transition-colors duration-300 ${
+                  isActive ? 'text-emerald-500 stroke-[2.5px]' : 'text-slate-400 group-hover:text-slate-300 stroke-[1.5px]'
+                }`} 
+              />
+              <span 
+                className={`text-[11px] font-medium transition-colors duration-300 ${
+                  isActive ? 'text-emerald-500' : 'text-slate-400 group-hover:text-slate-300'
+                }`}
+              >
+                {item.name}
+              </span>
             </button>
           );
         })}
-      </div>
+      </motion.div>
     </div>
   );
 }

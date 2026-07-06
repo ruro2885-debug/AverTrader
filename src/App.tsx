@@ -13,12 +13,13 @@ import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
+import Onboarding from './components/Onboarding';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'onboarding'>('home');
   const { preferences, updatePreference } = usePreferences();
   const { user, loading: authLoading } = useAuth();
   const { theme, language, currency } = preferences;
@@ -29,10 +30,24 @@ export default function App() {
   // Handle auto-redirect if authenticated
   useEffect(() => {
     if (!authLoading) {
-      if (user) {
-        setCurrentView('dashboard');
-      } else if (currentView === 'dashboard') {
+      if (!user && (currentView === 'dashboard' || currentView === 'onboarding')) {
         setCurrentView('home');
+      }
+      
+      if (user) {
+        // On initial load, if user is already logged in, redirect them from home
+        if (currentView === 'home') {
+          if (user.onboardingCompleted === false) {
+            setCurrentView('onboarding');
+          } else {
+            setCurrentView('dashboard');
+          }
+        }
+        
+        // Auto-redirect to dashboard when onboarding is completed
+        if (currentView === 'onboarding' && user.onboardingCompleted === true) {
+          setCurrentView('dashboard');
+        }
       }
     }
   }, [user, authLoading, currentView]);
@@ -135,68 +150,76 @@ export default function App() {
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.4">
       
       {/* Premium fixed trading background image with high-end overlay blending */}
-      <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
-        <img 
-          src="https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2000&auto=format&fit=crop" 
-          alt="Aver Premium Background" 
-          className={`w-full h-full object-cover object-center transition-opacity duration-700 ${
-            theme === 'dark' ? 'opacity-[0.65] mix-blend-lighten' : 'opacity-[0.42] mix-blend-multiply'
-          }`}
-          referrerPolicy="no-referrer"
-        />
-        {/* Ambient radial vignette overlay to keep contrast around active panels */}
-        <div 
-          className={`absolute inset-0 ${
-            theme === 'dark' ? 'bg-radial-gradient-dark' : 'bg-radial-gradient-light'
-          }`} 
-        />
+      {currentView !== 'dashboard' && (
+        <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
+          <img 
+            src="https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2000&auto=format&fit=crop" 
+            alt="Aver Premium Background" 
+            className={`w-full h-full object-cover object-center transition-opacity duration-700 ${
+              theme === 'dark' ? 'opacity-[0.65] mix-blend-lighten' : 'opacity-[0.42] mix-blend-multiply'
+            }`}
+            referrerPolicy="no-referrer"
+          />
+          {/* Ambient radial vignette overlay to keep contrast around active panels */}
+          <div 
+            className={`absolute inset-0 ${
+              theme === 'dark' ? 'bg-radial-gradient-dark' : 'bg-radial-gradient-light'
+            }`} 
+          />
 
-        {/* Premium floating glassmorphic cryptocurrency background tokens */}
-        <div className="absolute inset-0 w-full h-full overflow-hidden hidden lg:block">
-          
-          {/* Bitcoin (₿) Floating Token */}
-          <div className="absolute top-[18%] left-[5%] w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400/10 to-orange-500/5 border border-amber-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.08)] animate-float-1">
-            <CoinLogo symbol="BTC" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+          {/* Premium floating glassmorphic cryptocurrency background tokens */}
+          <div className="absolute inset-0 w-full h-full overflow-hidden hidden lg:block">
+            
+            {/* Bitcoin (₿) Floating Token */}
+            <div className="absolute top-[18%] left-[5%] w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400/10 to-orange-500/5 border border-amber-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.08)] animate-float-1">
+              <CoinLogo symbol="BTC" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+            </div>
+
+            {/* Ethereum (Ξ) Floating Token */}
+            <div className="absolute top-[42%] right-[4%] w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500/10 to-violet-600/5 border border-indigo-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_40px_rgba(99,102,241,0.08)] animate-float-2">
+              <CoinLogo symbol="ETH" size={40} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+            </div>
+
+            {/* Solana (🆂) Floating Token */}
+            <div className="absolute bottom-[22%] left-[6%] w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-400/10 to-teal-500/5 border border-emerald-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(16,185,129,0.08)] animate-float-3">
+              <CoinLogo symbol="SOL" size={26} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+            </div>
+
+            {/* Aver Platform Token (AVR) */}
+            <div className="absolute top-[28%] right-[18%] w-24 h-24 rounded-3xl bg-gradient-to-br from-emerald-500/15 to-teal-400/5 border border-emerald-400/25 backdrop-blur-md flex flex-col items-center justify-center shadow-[0_0_50px_rgba(52,211,153,0.15)] animate-float-1">
+              <CoinLogo symbol="AVR" size={48} className="opacity-40 hover:opacity-90 transition-opacity duration-300" />
+              <span className="text-[9px] font-mono font-bold tracking-widest text-emerald-400/50 mt-1">AVR</span>
+            </div>
+
+            {/* Ripple / XRP Floating Token */}
+            <div className="absolute top-[68%] left-[15%] w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-400/10 to-blue-500/5 border border-sky-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(56,189,248,0.08)] animate-float-2">
+              <CoinLogo symbol="XRP" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+            </div>
+
+            {/* Cardano (₳) Floating Token */}
+            <div className="absolute bottom-[16%] right-[14%] w-16 h-16 rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-600/5 border border-blue-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.08)] animate-float-3">
+              <CoinLogo symbol="ADA" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
+            </div>
+
           </div>
-
-          {/* Ethereum (Ξ) Floating Token */}
-          <div className="absolute top-[42%] right-[4%] w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500/10 to-violet-600/5 border border-indigo-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_40px_rgba(99,102,241,0.08)] animate-float-2">
-            <CoinLogo symbol="ETH" size={40} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
-          </div>
-
-          {/* Solana (🆂) Floating Token */}
-          <div className="absolute bottom-[22%] left-[6%] w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-400/10 to-teal-500/5 border border-emerald-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(16,185,129,0.08)] animate-float-3">
-            <CoinLogo symbol="SOL" size={26} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
-          </div>
-
-          {/* Aver Platform Token (AVR) */}
-          <div className="absolute top-[28%] right-[18%] w-24 h-24 rounded-3xl bg-gradient-to-br from-emerald-500/15 to-teal-400/5 border border-emerald-400/25 backdrop-blur-md flex flex-col items-center justify-center shadow-[0_0_50px_rgba(52,211,153,0.15)] animate-float-1">
-            <CoinLogo symbol="AVR" size={48} className="opacity-40 hover:opacity-90 transition-opacity duration-300" />
-            <span className="text-[9px] font-mono font-bold tracking-widest text-emerald-400/50 mt-1">AVR</span>
-          </div>
-
-          {/* Ripple / XRP Floating Token */}
-          <div className="absolute top-[68%] left-[15%] w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-400/10 to-blue-500/5 border border-sky-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(56,189,248,0.08)] animate-float-2">
-            <CoinLogo symbol="XRP" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
-          </div>
-
-          {/* Cardano (₳) Floating Token */}
-          <div className="absolute bottom-[16%] right-[14%] w-16 h-16 rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-600/5 border border-blue-500/20 backdrop-blur-sm flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.08)] animate-float-3">
-            <CoinLogo symbol="ADA" size={32} imgClassName="opacity-30 mix-blend-luminosity hover:opacity-80 transition-opacity duration-300" />
-          </div>
-
         </div>
-      </div>
+      )}
 
       {/* Background visual light leak for premium depth */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-screen pointer-events-none overflow-hidden z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-900/20 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
-      </div>
+      {currentView !== 'dashboard' && (
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-screen pointer-events-none overflow-hidden z-0">
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-900/20 rounded-full blur-[120px] pointer-events-none" />
+          <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {currentView === 'dashboard' ? (
           <Dashboard theme={theme} />
+        ) : currentView === 'onboarding' ? (
+          <div key="onboarding" className="w-full h-full">
+            <Onboarding theme={theme} />
+          </div>
         ) : currentView === 'showcase' ? (
           <PlatformShowcase
             key="showcase"
@@ -208,7 +231,13 @@ export default function App() {
           <AuthPage
             theme={theme}
             onBack={() => setCurrentView('home')}
-            onSuccess={() => setCurrentView('dashboard')}
+            onSuccess={() => {
+              if (user && user.onboardingCompleted === false) {
+                setCurrentView('onboarding');
+              } else {
+                setCurrentView('dashboard');
+              }
+            }}
           />
         ) : (
           <motion.div

@@ -1,44 +1,23 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  getAuth, 
-  onAuthStateChanged, 
-  User, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signOut,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile,
-  sendPasswordResetEmail
-} from 'firebase/auth';
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import fallbackConfig from '../../firebase-applet-config.json';
 
-// Support both AI Studio preview and production Vercel environments
-const activeConfig = {
-  apiKey: (import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_API_KEY.trim() !== '') ? import.meta.env.VITE_FIREBASE_API_KEY : fallbackConfig.apiKey,
-  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN && import.meta.env.VITE_FIREBASE_AUTH_DOMAIN.trim() !== '') ? import.meta.env.VITE_FIREBASE_AUTH_DOMAIN : fallbackConfig.authDomain,
-  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.VITE_FIREBASE_PROJECT_ID.trim() !== '') ? import.meta.env.VITE_FIREBASE_PROJECT_ID : fallbackConfig.projectId,
-  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET && import.meta.env.VITE_FIREBASE_STORAGE_BUCKET.trim() !== '') ? import.meta.env.VITE_FIREBASE_STORAGE_BUCKET : fallbackConfig.storageBucket,
-  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID && import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID.trim() !== '') ? import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID : fallbackConfig.messagingSenderId,
-  appId: (import.meta.env.VITE_FIREBASE_APP_ID && import.meta.env.VITE_FIREBASE_APP_ID.trim() !== '') ? import.meta.env.VITE_FIREBASE_APP_ID : fallbackConfig.appId,
-  firestoreDatabaseId: (import.meta.env.VITE_FIREBASE_DATABASE_ID && import.meta.env.VITE_FIREBASE_DATABASE_ID.trim() !== '') ? import.meta.env.VITE_FIREBASE_DATABASE_ID : (fallbackConfig.firestoreDatabaseId || ''),
-};
-
-const app = initializeApp(activeConfig);
-export const db = getFirestore(app, activeConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
+export interface User {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string;
+  onboardingCompleted?: boolean;
+}
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signOutUser: () => Promise<void>;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, referralCode?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
+  updateProfilePhoto: (photoURL: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -49,6 +28,8 @@ const AuthContext = createContext<AuthContextType>({
   signUp: async () => {},
   signIn: async () => {},
   forgotPassword: async () => {},
+  completeOnboarding: async () => {},
+  updateProfilePhoto: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -56,85 +37,146 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
-      console.log('Auth state changed:', user);
-    });
-    return unsubscribe;
+    // Check local storage for mock session
+    const storedUser = localStorage.getItem('mockUser');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+    setLoading(false);
   }, []);
 
-  const signUp = async (email: string, password: string, fullName: string) => {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await updateProfile(userCredential.user, { displayName: fullName });
-      
-      // Store user profile in Firestore
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        uid: userCredential.user.uid,
-        fullName,
-        email,
-        createdAt: serverTimestamp(),
-        lastLogin: serverTimestamp(),
-        status: 'active',
-        settings: { theme: 'dark', currency: 'USD', language: 'EN' }
-      });
-      console.log('User registered and profile created');
-    } catch (error) {
-      console.error('Sign-up error:', error);
-      throw error;
-    }
+  const loginUser = (newUser: User) => {
+    setUser(newUser);
+    localStorage.setItem('mockUser', JSON.stringify(newUser));
+  };
+
+  const getUsers = () => {
+    const usersStr = localStorage.getItem('mockUsers');
+    return usersStr ? JSON.parse(usersStr) : [];
+  };
+
+  const saveUsers = (users: any[]) => {
+    localStorage.setItem('mockUsers', JSON.stringify(users));
+  };
+
+  const signUp = async (email: string, password: string, fullName: string, referralCode?: string) => {
+    return new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        const emailLower = email.trim().toLowerCase();
+        const users = getUsers();
+        if (users.find((u: any) => u.email === emailLower)) {
+          reject(new Error("Account already exists. Please sign in or use a different email address."));
+          return;
+        }
+
+        const newUser = { 
+          uid: Math.random().toString(36).substr(2, 9), 
+          email: emailLower, 
+          displayName: fullName,
+          password,
+          photoURL: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName || emailLower)}`,
+          onboardingCompleted: false
+        };
+        
+        users.push(newUser);
+        saveUsers(users);
+        loginUser(newUser);
+        resolve();
+      }, 800);
+    });
   };
 
   const signIn = async (email: string, password: string) => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      // Update last login
-      await updateDoc(doc(db, 'users', userCredential.user.uid), {
-        lastLogin: serverTimestamp()
-      });
-      console.log('Sign-in successful');
-    } catch (error) {
-      console.error('Sign-in error:', error);
-      throw error;
+    return new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        const emailLower = email.trim().toLowerCase();
+        const users = getUsers();
+        const existingUser = users.find((u: any) => u.email === emailLower);
+        
+        if (!existingUser) {
+          reject(new Error("Account does not exist. Please create an account first."));
+          return;
+        }
+        
+        if (existingUser.password !== password) {
+            reject(new Error("Invalid email or password."));
+            return;
+        }
+
+        loginUser(existingUser);
+        resolve();
+      }, 800);
+    });
+  };
+
+  const completeOnboarding = async () => {
+    if (user) {
+      const updatedUser = { ...user, onboardingCompleted: true };
+      loginUser(updatedUser);
+      
+      const users = getUsers();
+      const existingUserIndex = users.findIndex((u: any) => u.email === user.email);
+      if (existingUserIndex >= 0) {
+        users[existingUserIndex].onboardingCompleted = true;
+        saveUsers(users);
+      }
+    }
+  };
+
+  const updateProfilePhoto = async (photoURL: string) => {
+    if (user) {
+      const updatedUser = { ...user, photoURL };
+      loginUser(updatedUser);
+      
+      const users = getUsers();
+      const existingUserIndex = users.findIndex((u: any) => u.email === user.email);
+      if (existingUserIndex >= 0) {
+        users[existingUserIndex].photoURL = photoURL;
+        saveUsers(users);
+      }
     }
   };
 
   const forgotPassword = async (email: string) => {
-    try {
-      await sendPasswordResetEmail(auth, email);
-      console.log('Password reset email sent');
-    } catch (error) {
-      console.error('Password reset error:', error);
-      throw error;
-    }
+    return new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        const emailLower = email.trim().toLowerCase();
+        const users = getUsers();
+        const existingUser = users.find((u: any) => u.email === emailLower);
+        if (!existingUser) {
+          reject(new Error("Account does not exist. Please check your email or create a new account."));
+          return;
+        }
+        resolve();
+      }, 800);
+    });
   };
 
   const signInWithGoogle = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-      console.log('Google Sign-In successful');
-    } catch (error) {
-      console.error('Google Sign-In error:', error);
-      throw error;
-    }
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        loginUser({ uid: Math.random().toString(36).substr(2, 9), email: 'googleuser@example.com', displayName: 'Google User', photoURL: `https://api.dicebear.com/7.x/avataaars/svg?seed=googleuser`, onboardingCompleted: true });
+        resolve();
+      }, 800);
+    });
   };
 
   const signOutUser = async () => {
-    try {
-      await signOut(auth);
-      console.log('Sign-out successful');
-    } catch (error) {
-      console.error('Sign-out error:', error);
-      throw error;
-    }
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        setUser(null);
+        localStorage.removeItem('mockUser');
+        resolve();
+      }, 400);
+    });
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOutUser, signUp, signIn, forgotPassword }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOutUser, signUp, signIn, forgotPassword, completeOnboarding, updateProfilePhoto }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => useContext(AuthContext);
+

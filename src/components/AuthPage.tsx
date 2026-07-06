@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, ArrowLeft, ArrowRight, Eye, EyeOff, Check, X, Bell, TrendingUp, Monitor as MonitorIcon, Tablet as TabletIcon, Phone as PhoneIcon, Cpu, Zap, Lock, DollarSign, Globe } from 'lucide-react';
 import AverLogo from './AverLogo';
 import PolicyReader from './PolicyReader';
-import { useAuth, auth } from '../contexts/AuthContext';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import WelcomeBonusCard from './WelcomeBonusCard';
+import { useAuth } from '../contexts/AuthContext';
 
 interface AuthPageProps {
   theme: 'light' | 'dark';
@@ -15,10 +15,11 @@ interface AuthPageProps {
 
 export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
-  const { signInWithGoogle, signUp, signIn, forgotPassword } = useAuth();
-  const [view, setView] = useState<'register' | 'login' | 'forgot-password'>('register');
+  const { signUp, signIn, forgotPassword } = useAuth();
+  const [view, setView] = useState<'register' | 'login' | 'forgot-password' | 'forgot-password-code'>('register');
   const [showPassword, setShowPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
   
   // Registration Form Fields
   const [fullName, setFullName] = useState('');
@@ -26,6 +27,16 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [referralCode, setReferralCode] = useState('');
+
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCtaClick = () => {
+    if (nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
   
   // Login Form Fields
   const [loginEmail, setLoginEmail] = useState('');
@@ -85,7 +96,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setLoading(true);
     setErrorMsg('');
     try {
-      await signUp(email, password, fullName);
+      await signUp(email, password, fullName, referralCode);
       setSuccessMsg(`Welcome aboard! Establishing secure session...`);
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
@@ -120,8 +131,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setErrorMsg('');
     try {
       await forgotPassword(forgotEmail);
-      setSuccessMsg("Password reset email sent successfully. Check your inbox and spam folder for further instructions.");
-      setAuthSuccess(true);
+      setView('forgot-password-code');
     } catch (error: any) {
       setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
@@ -129,21 +139,41 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     }
   };
 
-  // Handle Google Sign In
-  const handleGoogleSignIn = async () => {
+  const handleCodeValidation = (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setErrorMsg('');
-    try {
-      await signInWithGoogle();
-      setSuccessMsg(`Access Authorized via Google. Resuming connection to AverCore AI™ nodes...`);
+    
+    const code = resetCode.toUpperCase();
+    
+    const hasTenChars = code.length === 10;
+    const letterMatches = code.match(/[A-Z]/g);
+    const hasTwoLetters = letterMatches && letterMatches.length >= 2;
+    
+    const digitMatches = code.match(/\d/g);
+    let hasDoubleNumbers = false;
+    if (digitMatches) {
+      const digitCounts: Record<string, number> = {};
+      for (const digit of digitMatches) {
+        digitCounts[digit] = (digitCounts[digit] || 0) + 1;
+        if (digitCounts[digit] >= 2) {
+          hasDoubleNumbers = true;
+          break;
+        }
+      }
+    }
+
+    if (hasTenChars && hasTwoLetters && hasDoubleNumbers) {
+      setSuccessMsg("Account recovered successfully. Establishing secure session...");
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
-    } catch (error: any) {
-      setErrorMsg(error.message || 'An error occurred during authentication.');
-    } finally {
+    } else {
+      setErrorMsg("Invalid code please try again");
       setLoading(false);
     }
   };
+
+
 
   // Simulated live-updating statistics inside Device Mockups
   const [btcPrice, setBtcPrice] = useState(84291.45);
@@ -274,42 +304,16 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 {/* Welcome headings */}
                 <div className="space-y-2">
                   <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tighter">
-                    Create Your Aver Account
+                    Create Account
                   </h2>
-                  <p className={`text-base leading-relaxed font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
-                    Join Aver and experience an AI-powered trading platform built for intelligent investing, advanced analytics, and professional market insights.
-                  </p>
                 </div>
 
-                {/* Social Authentication */}
-                <div className="w-full">
-                  {/* Google Button */}
-                  <button 
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    className={`w-full py-3.5 px-4 rounded-xl border font-sans font-bold text-xs flex items-center justify-center space-x-2 transition-all hover:scale-[1.02] cursor-pointer ${
-                      isDark 
-                        ? 'bg-[#0f111a] border-white/10 hover:bg-white/5 hover:border-emerald-500/30' 
-                        : 'bg-white border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
-                      <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.51 15.01 1 12 1 7.24 1 3.19 3.73 1.24 7.73l3.87 3C6.01 7.42 8.78 5.04 12 5.04z" />
-                      <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.72 2.88c2.18-2.01 3.71-4.97 3.71-8.61z" />
-                      <path fill="#FBBC05" d="M5.11 14.73c-.24-.73-.38-1.5-.38-2.3s.14-1.57.38-2.3L1.24 7.13C.45 8.75 0 10.57 0 12.5s.45 3.75 1.24 5.37l3.87-3.14z" />
-                      <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.72-2.88c-1.04.7-2.38 1.12-4.24 1.12-3.22 0-5.99-2.38-6.89-5.69l-3.87 3.14C3.19 20.27 7.24 23 12 23z" />
-                    </svg>
-                    <span className="truncate">Continue with Google</span>
-                  </button>
+                {/* Mobile Welcome Bonus Promo Card (Teaser) */}
+                <div className="lg:hidden w-full pt-1 pb-2">
+                  <WelcomeBonusCard theme={theme} onCtaClick={handleCtaClick} />
                 </div>
 
-                <div className="relative flex py-2 items-center">
-                  <div className="flex-grow border-t border-white/5"></div>
-                  <span className="flex-shrink mx-4 text-[10px] font-mono font-bold tracking-wider text-gray-500 uppercase">
-                    or continue with email
-                  </span>
-                  <div className="flex-grow border-t border-white/5"></div>
-                </div>
+
 
                 {/* Email Registration Form */}
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
@@ -318,9 +322,10 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     <input 
                       type="text" 
                       required
+                      ref={nameInputRef}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      placeholder="John Doe" 
+                      placeholder="Your full name" 
                       className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
                         isDark 
                           ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
@@ -336,7 +341,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="john.doe@enterprise.com" 
+                      placeholder="user@example.com" 
                       className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
                         isDark 
                           ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
@@ -608,6 +613,25 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     )}
                   </div>
 
+                  {/* Referral Code (Optional) Field */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Referral Code (Optional)</label>
+                    <input 
+                      type="text" 
+                      value={referralCode}
+                      onChange={(e) => setReferralCode(e.target.value)}
+                      placeholder="Enter referral code" 
+                      className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
+                        isDark 
+                          ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
+                          : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
+                      }`}
+                    />
+                    <p className="text-[10px] text-gray-500 font-semibold font-sans">
+                      Have a referral code? Enter it to unlock eligible welcome rewards.
+                    </p>
+                  </div>
+
 
                   {errorMsg && (
                     <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
@@ -676,44 +700,11 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 {/* Welcome headings */}
                 <div className="space-y-2">
                   <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tighter">
-                    Sign In to Aver
+                    Sign In To Aver
                   </h2>
-                  <p className={`text-base leading-relaxed font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
-                    Welcome back. Enter your secure credentials to resume institutional execution.
-                  </p>
                 </div>
 
-                {/* Social Authentication */}
-                <div className="w-full">
-                  <button 
-                    type="button"
-                    disabled={loading}
-                    onClick={handleGoogleSignIn}
-                    className={`w-full py-3.5 px-4 rounded-xl border font-sans font-bold text-xs flex items-center justify-center space-x-2 transition-all ${
-                      loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02] cursor-pointer'
-                    } ${
-                      isDark 
-                        ? 'bg-[#0f111a] border-white/10 hover:bg-white/5 hover:border-emerald-500/30' 
-                        : 'bg-white border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
-                      <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.67 1.51 15.01 1 12 1 7.24 1 3.19 3.73 1.24 7.73l3.87 3C6.01 7.42 8.78 5.04 12 5.04z" />
-                      <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.72 2.88c2.18-2.01 3.71-4.97 3.71-8.61z" />
-                      <path fill="#FBBC05" d="M5.11 14.73c-.24-.73-.38-1.5-.38-2.3s.14-1.57.38-2.3L1.24 7.13C.45 8.75 0 10.57 0 12.5s.45 3.75 1.24 5.37l3.87-3.14z" />
-                      <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.92l-3.72-2.88c-1.04.7-2.38 1.12-4.24 1.12-3.22 0-5.99-2.38-6.89-5.69l-3.87 3.14C3.19 20.27 7.24 23 12 23z" />
-                    </svg>
-                    <span>Continue with Google</span>
-                  </button>
-                </div>
 
-                <div className="relative flex py-2 items-center">
-                  <div className="flex-grow border-t border-white/5"></div>
-                  <span className="flex-shrink mx-4 text-[10px] font-mono font-bold tracking-wider text-gray-500 uppercase">
-                    or continue with email
-                  </span>
-                  <div className="flex-grow border-t border-white/5"></div>
-                </div>
 
                 {/* Email Login Form */}
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -724,7 +715,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       required
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
-                      placeholder="john.doe@enterprise.com" 
+                      placeholder="user@example.com" 
                       className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
                         isDark 
                           ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
@@ -814,7 +805,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </p>
                 </div>
               </motion.div>
-            ) : (
+            ) : view === 'forgot-password' ? (
               <motion.div
                 key="forgot-password"
                 initial={{ opacity: 0, x: 15 }}
@@ -837,7 +828,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       required
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
-                      placeholder="john.doe@enterprise.com" 
+                      placeholder="user@example.com" 
                       className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
                         isDark 
                           ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
@@ -865,6 +856,93 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   >
                     Cancel
                   </button>
+                  
+                  {/* Having trouble support link */}
+                  <div className="text-center pt-4">
+                    <p className="text-[11px] font-sans font-medium text-gray-500">
+                      Having trouble retrieving your account?{' '}
+                      <a 
+                        href="https://t.me/AverAssistancebot" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-emerald-400 font-bold hover:underline"
+                      >
+                        Contact Support
+                      </a>
+                    </p>
+                  </div>
+                </form>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="forgot-password-code"
+                initial={{ opacity: 0, x: 15 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -15 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-6"
+              >
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-display font-black tracking-tighter">Enter Reset Code</h2>
+                  <p className={`text-base font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
+                    A ten digit code has been sent to your email.
+                  </p>
+                </div>
+                <form onSubmit={handleCodeValidation} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Recovery Code</label>
+                    <input 
+                      type="text" 
+                      required
+                      maxLength={10}
+                      value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value.toUpperCase())}
+                      placeholder="Insert code here." 
+                      className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all uppercase tracking-widest ${
+                        isDark 
+                          ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
+                          : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
+                      }`}
+                    />
+                  </div>
+
+                  {errorMsg && (
+                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                      {errorMsg}
+                    </div>
+                  )}
+                  <button 
+                    type="submit"
+                    disabled={loading || resetCode.length !== 10}
+                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer"
+                  >
+                    Verify Code
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setView('forgot-password');
+                      setResetCode('');
+                    }}
+                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all bg-white/5 text-gray-400 hover:text-white cursor-pointer"
+                  >
+                    Go Back
+                  </button>
+
+                  {/* Having trouble support link */}
+                  <div className="text-center pt-4">
+                    <p className="text-[11px] font-sans font-medium text-gray-500">
+                      Having trouble retrieving your account?{' '}
+                      <a 
+                        href="https://t.me/AverAssistancebot" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-emerald-400 font-bold hover:underline"
+                      >
+                        Contact Support
+                      </a>
+                    </p>
+                  </div>
                 </form>
               </motion.div>
             )}
@@ -878,7 +956,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         </div>
       </div>
 
-      {/* RIGHT SIDE: Gorgeous, immersive 3D Device mockups showcasing live platform features */}
+      {/* RIGHT SIDE: Dynamic contextual presentation pane */}
       <div className="lg:col-span-6 hidden lg:flex flex-col items-center justify-center relative bg-gradient-to-br from-[#020508] via-slate-950 to-black overflow-hidden px-8 select-none border-l border-white/5 py-12">
         
         {/* Dynamic backdrop grid */}
@@ -888,8 +966,27 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         <div className="absolute inset-0 bg-radial-gradient from-transparent via-[#020508]/60 to-[#020508] z-0" />
         <div className="absolute bottom-[20%] right-[10%] w-64 h-64 bg-blue-500/10 rounded-full blur-[90px] pointer-events-none" />
 
-        {/* THREE DEVICES WRAPPER WITH MOTION STAGGER */}
-        <div className="w-full max-w-xl flex flex-col space-y-10 z-10 relative items-center">
+        <AnimatePresence mode="wait">
+          {view === 'register' ? (
+            <motion.div
+              key="register-welcome"
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -15 }}
+              transition={{ duration: 0.45 }}
+              className="z-10 relative w-full flex justify-center items-center"
+            >
+              <WelcomeBonusCard theme={theme} onCtaClick={handleCtaClick} />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="mockups"
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -15 }}
+              transition={{ duration: 0.45 }}
+              className="w-full max-w-xl flex flex-col space-y-10 z-10 relative items-center"
+            >
           
           {/* TITLE BADGE FOR THE PREVIEW SECTION */}
           <div className="text-center space-y-1 max-w-md animate-fade-in">
@@ -1171,7 +1268,9 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
             </span>
           </div>
 
-        </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       </div>
 
