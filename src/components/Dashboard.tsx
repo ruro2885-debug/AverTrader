@@ -9,6 +9,7 @@ import BottomNavigation from './BottomNavigation';
 import CoinLogo from './CoinLogo';
 import ProfileView from './ProfileView';
 import DiscoverView from './DiscoverView';
+import MarketNewsTicker from './MarketNewsTicker';
 import { useAuth } from '../contexts/AuthContext';
 
 const portfolioData = {
@@ -82,7 +83,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
 
       <div className="relative z-10 p-4 sm:p-6 lg:max-w-5xl lg:mx-auto pt-safe">
         
-        <header className="flex justify-between items-center mb-6 pt-4">
+        <header className="flex justify-between items-center mb-4 pt-4">
           <div className="flex items-center space-x-3">
             <button 
               onClick={() => setActiveTab('profile')}
@@ -107,6 +108,8 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
             <Bell className={`w-5 h-5 ${textPrimary}`} />
           </button>
         </header>
+
+        <MarketNewsTicker theme={theme} />
 
         <AnimatePresence mode="wait">
           {activeTab === 'home' && (

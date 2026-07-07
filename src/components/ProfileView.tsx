@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import React, { useRef } from 'react';
 import { motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -15,11 +15,19 @@ export default function ProfileView({ theme }: { theme: 'light' | 'dark' }) {
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 1024 * 1024) { // 1MB limit
+        alert('Image too large. Please upload an image under 1MB.');
+        return;
+      }
+      
       const reader = new FileReader();
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
           updateProfilePhoto(reader.result);
         }
+      };
+      reader.onerror = () => {
+        alert('Failed to upload image.');
       };
       reader.readAsDataURL(file);
     }

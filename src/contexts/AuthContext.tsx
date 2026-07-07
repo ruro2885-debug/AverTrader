@@ -1,4 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { auth, db } from '../lib/firebase';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut,
+  sendPasswordResetEmail,
+  GoogleAuthProvider,
+  signInWithPopup
+} from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { generateInitialsAvatar } from '../utils/avatarUtils';
 
 export interface User {
   uid: string;
@@ -37,138 +49,83 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check local storage for mock session
-    const storedUser = localStorage.getItem('mockUser');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Fetch additional user data from Firestore
+        try {
+          const userDocRef = doc(db, 'users', firebaseUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          
+          if (userDoc.exists()) {
+            setUser({ uid: firebaseUser.uid, email: firebaseUser.email, ...userDoc.data() } as User);
+          } else {
+            // Create user doc if it doesn't exist
+            const newUser = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName || 'User',
+              photoURL: firebaseUser.photoURL || generateInitialsAvatar(firebaseUser.displayName || 'U'),
+              onboardingCompleted: false
+            };
+            await setDoc(userDocRef, newUser);
+            setUser(newUser);
+          }
+        } catch (error) {
+          console.error("Error fetching user data", error);
+        }
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+    return unsubscribe;
   }, []);
 
-  const loginUser = (newUser: User) => {
+  const signUp = async (email: string, password: string, fullName: string) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    
+    const newUser = {
+      uid: user.uid,
+      email: email,
+      displayName: fullName,
+      photoURL: generateInitialsAvatar(fullName),
+      onboardingCompleted: false
+    };
+    
+    await setDoc(doc(db, 'users', user.uid), newUser);
     setUser(newUser);
-    localStorage.setItem('mockUser', JSON.stringify(newUser));
-  };
-
-  const getUsers = () => {
-    const usersStr = localStorage.getItem('mockUsers');
-    return usersStr ? JSON.parse(usersStr) : [];
-  };
-
-  const saveUsers = (users: any[]) => {
-    localStorage.setItem('mockUsers', JSON.stringify(users));
-  };
-
-  const signUp = async (email: string, password: string, fullName: string, referralCode?: string) => {
-    return new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        const emailLower = email.trim().toLowerCase();
-        const users = getUsers();
-        if (users.find((u: any) => u.email === emailLower)) {
-          reject(new Error("Account already exists. Please sign in or use a different email address."));
-          return;
-        }
-
-        const newUser = { 
-          uid: Math.random().toString(36).substr(2, 9), 
-          email: emailLower, 
-          displayName: fullName,
-          password,
-          photoURL: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName || emailLower)}`,
-          onboardingCompleted: false
-        };
-        
-        users.push(newUser);
-        saveUsers(users);
-        loginUser(newUser);
-        resolve();
-      }, 800);
-    });
   };
 
   const signIn = async (email: string, password: string) => {
-    return new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        const emailLower = email.trim().toLowerCase();
-        const users = getUsers();
-        const existingUser = users.find((u: any) => u.email === emailLower);
-        
-        if (!existingUser) {
-          reject(new Error("Account does not exist. Please create an account first."));
-          return;
-        }
-        
-        if (existingUser.password !== password) {
-            reject(new Error("Invalid email or password."));
-            return;
-        }
-
-        loginUser(existingUser);
-        resolve();
-      }, 800);
-    });
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
   const completeOnboarding = async () => {
     if (user) {
-      const updatedUser = { ...user, onboardingCompleted: true };
-      loginUser(updatedUser);
-      
-      const users = getUsers();
-      const existingUserIndex = users.findIndex((u: any) => u.email === user.email);
-      if (existingUserIndex >= 0) {
-        users[existingUserIndex].onboardingCompleted = true;
-        saveUsers(users);
-      }
+      await updateDoc(doc(db, 'users', user.uid), { onboardingCompleted: true });
+      setUser({ ...user, onboardingCompleted: true });
     }
   };
 
   const updateProfilePhoto = async (photoURL: string) => {
     if (user) {
-      const updatedUser = { ...user, photoURL };
-      loginUser(updatedUser);
-      
-      const users = getUsers();
-      const existingUserIndex = users.findIndex((u: any) => u.email === user.email);
-      if (existingUserIndex >= 0) {
-        users[existingUserIndex].photoURL = photoURL;
-        saveUsers(users);
-      }
+      await updateDoc(doc(db, 'users', user.uid), { photoURL });
+      setUser({ ...user, photoURL });
     }
   };
 
   const forgotPassword = async (email: string) => {
-    return new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        const emailLower = email.trim().toLowerCase();
-        const users = getUsers();
-        const existingUser = users.find((u: any) => u.email === emailLower);
-        if (!existingUser) {
-          reject(new Error("Account does not exist. Please check your email or create a new account."));
-          return;
-        }
-        resolve();
-      }, 800);
-    });
+    await sendPasswordResetEmail(auth, email);
   };
 
   const signInWithGoogle = async () => {
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        loginUser({ uid: Math.random().toString(36).substr(2, 9), email: 'googleuser@example.com', displayName: 'Google User', photoURL: `https://api.dicebear.com/7.x/avataaars/svg?seed=googleuser`, onboardingCompleted: true });
-        resolve();
-      }, 800);
-    });
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
   };
 
   const signOutUser = async () => {
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        setUser(null);
-        localStorage.removeItem('mockUser');
-        resolve();
-      }, 400);
-    });
+    await signOut(auth);
   };
 
   return (

@@ -89,6 +89,29 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     );
   }, [loginEmail, loginPassword]);
 
+  const getFriendlyErrorMessage = (error: any) => {
+    console.error("Full Firebase Auth Error Object:", error);
+    console.error("Firebase Auth Error Code:", error.code);
+    console.error("Firebase Auth Error Message:", error.message);
+    
+    switch (error.code) {
+      case 'auth/operation-not-allowed': 
+        return `Authentication service is not enabled: ${error.message}`;
+      case 'auth/email-already-in-use': 
+        return "This email is already registered.";
+      case 'auth/user-not-found': 
+        return "No account found with this email.";
+      case 'auth/wrong-password': 
+        return "Incorrect password.";
+      case 'auth/invalid-email': 
+        return "Invalid email address format.";
+      case 'auth/too-many-requests': 
+        return "Too many attempts. Please try again later.";
+      default: 
+        return `${error.code || 'Error'}: ${error.message || 'An unexpected error occurred.'}`;
+    }
+  };
+
   // Handle Register Form Submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +124,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
     } catch (error: any) {
-      setErrorMsg(error.message || 'An error occurred during authentication.');
+      setErrorMsg(getFriendlyErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -119,7 +142,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       setAuthSuccess(true);
       setTimeout(onSuccess, 3000);
     } catch (error: any) {
-      setErrorMsg(error.message || 'An error occurred during authentication.');
+      setErrorMsg(getFriendlyErrorMessage(error));
     } finally {
       setLoading(false);
     }
