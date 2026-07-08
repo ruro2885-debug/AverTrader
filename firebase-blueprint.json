@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account profile and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "onboardingCompleted": { "type": "boolean" },
+        "subscriptionPlan": { "type": "string", "enum": ["Free", "Pro", "Enterprise"] },
+        "referralCode": { "type": "string" },
+        "referredBy": { "type": "string" },
+        "referralRewards": { "type": "number" },
+        "aiTradingStatus": { "type": "string", "enum": ["active", "paused", "stopped"] },
+        "kycStatus": { "type": "string", "enum": ["unverified", "pending", "verified", "rejected"] },
+        "kycDocumentURL": { "type": "string" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "language": { "type": "string" },
+            "theme": { "type": "string" },
+            "currency": { "type": "string" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Portfolio": {
+      "title": "Portfolio",
+      "description": "Portfolio balances and statistics",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "balance": { "type": "number" },
+        "totalDeposits": { "type": "number" },
+        "totalWithdrawals": { "type": "number" },
+        "todayPnL": { "type": "number" },
+        "todayPnLPercent": { "type": "number" },
+        "overallReturn": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "balance"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Deposits, withdrawals, and trades",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["deposit", "withdrawal", "trade"] },
+        "asset": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "txHash": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "amount", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notifications and alerts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["trade", "deposit", "withdrawal", "profit", "maintenance", "security"] },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "type", "title", "message", "read", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Individual user profiles and system settings"
+    },
+    "/users/{userId}/portfolio/main": {
+      "schema": "Portfolio",
+      "description": "User portfolio statistics"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Deposits, withdrawals, and trades history"
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Alerts and activity updates"
+    }
+  }
+}
