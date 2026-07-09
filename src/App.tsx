@@ -13,46 +13,50 @@ import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
-import Onboarding from './components/Onboarding';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
-  const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'onboarding'>('home');
-  const { preferences, updatePreference } = usePreferences();
   const { user, loading: authLoading } = useAuth();
+  
+  // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard'>(() => {
+    const storedUser = localStorage.getItem('mockUser');
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        if (parsed && parsed.uid) {
+          return 'dashboard';
+        }
+      } catch (e) {}
+    }
+    return 'home';
+  });
+
+  const { preferences, updatePreference } = usePreferences();
   const { theme, language, currency } = preferences;
 
   // Navigation section tracker
   const [activeSection, setActiveSection] = useState('hero');
 
-  // Handle auto-redirect if authenticated
+  // Unified startup and session management
   useEffect(() => {
-    if (!authLoading) {
-      if (!user && (currentView === 'dashboard' || currentView === 'onboarding')) {
-        setCurrentView('home');
+    if (authLoading) return;
+
+    // Handle session restoration and view management
+    if (user) {
+      if (currentView === 'home' || currentView === 'auth' || currentView === 'onboarding') {
+        setCurrentView('dashboard');
       }
-      
-      if (user) {
-        // On initial load, if user is already logged in, redirect them from home
-        if (currentView === 'home') {
-          if (user.onboardingCompleted === false) {
-            setCurrentView('onboarding');
-          } else {
-            setCurrentView('dashboard');
-          }
-        }
-        
-        // Auto-redirect to dashboard when onboarding is completed
-        if (currentView === 'onboarding' && user.onboardingCompleted === true) {
-          setCurrentView('dashboard');
-        }
+    } else {
+      // If no user and we were on a protected view, go home
+      if (currentView === 'dashboard' || currentView === 'onboarding') {
+        setCurrentView('home');
       }
     }
   }, [user, authLoading, currentView]);
 
-  // Update dynamically browser favicon
+  // Preference Toggle callback
   useEffect(() => {
     // ... (rest of favicon code remains the same)
     const canvas = document.createElement('canvas');
@@ -97,7 +101,7 @@ export default function App() {
 
   // Handle intersection observer to highlight active navbar item on scroll
   useEffect(() => {
-    if (loading || authLoading) return;
+    if (authLoading) return;
 
     const sections = ['hero', 'tech', 'features', 'stats', 'preview', 'dashboard'];
     const observers = sections.map((secId) => {
@@ -122,7 +126,7 @@ export default function App() {
         if (obs) obs.observer.unobserve(obs.el);
       });
     };
-  }, [loading, authLoading]);
+  }, [authLoading]);
 
   // Preference Toggle callback
   const handlePreferenceChange = (key: 'theme' | 'language' | 'currency', value: any) => {
@@ -138,8 +142,8 @@ export default function App() {
     }
   };
 
-  if (loading || authLoading) {
-    return <Loader onComplete={() => setLoading(false)} />;
+  if (authLoading) {
+    return <Loader onComplete={() => {}} />;
   }
 
   const containerBg = theme === 'dark' 
@@ -216,10 +220,6 @@ export default function App() {
       <AnimatePresence mode="wait">
         {currentView === 'dashboard' ? (
           <Dashboard theme={theme} />
-        ) : currentView === 'onboarding' ? (
-          <div key="onboarding" className="w-full h-full">
-            <Onboarding theme={theme} />
-          </div>
         ) : currentView === 'showcase' ? (
           <PlatformShowcase
             key="showcase"
@@ -232,11 +232,7 @@ export default function App() {
             theme={theme}
             onBack={() => setCurrentView('home')}
             onSuccess={() => {
-              if (user && user.onboardingCompleted === false) {
-                setCurrentView('onboarding');
-              } else {
-                setCurrentView('dashboard');
-              }
+              setCurrentView('dashboard');
             }}
           />
         ) : (

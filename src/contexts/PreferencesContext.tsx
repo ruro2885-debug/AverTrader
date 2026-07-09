@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Language, Theme, Currency, Preferences } from '../types';
 import { translations } from '../i18n/translations';
+import { useAuth } from './AuthContext';
 
 interface PreferencesContextType {
   preferences: Preferences;
@@ -37,26 +38,48 @@ const PreferencesContext = createContext<PreferencesContextType | undefined>(und
 export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [isLoaded, setIsLoaded] = useState(false);
+  const { user, updateUserPreferences } = useAuth();
 
-  // Load preferences from local storage
+  // Synchronize preferences with currently logged in user or global fallback
   useEffect(() => {
-    const savedLanguage = localStorage.getItem('aver_language') as Language;
-    const savedTheme = localStorage.getItem('aver_theme') as Theme;
-    const savedCurrency = localStorage.getItem('aver_currency') as Currency;
-    
-    const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
-    const validThemes: Theme[] = ['light', 'dark'];
-    const validCurrencies: Currency[] = ['USD', 'EUR', 'GBP', 'BTC', 'USDT'];
+    if (user && user.preferences) {
+      const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
+      const validThemes: Theme[] = ['light', 'dark'];
+      const validCurrencies: Currency[] = ['USD', 'EUR', 'GBP', 'BTC', 'USDT'];
 
-    setPreferences(prev => ({
-      language: validLanguages.includes(savedLanguage) ? savedLanguage : prev.language,
-      theme: validThemes.includes(savedTheme) ? savedTheme : prev.theme,
-      currency: validCurrencies.includes(savedCurrency) ? savedCurrency : prev.currency,
-    }));
+      const userLang = user.preferences.language as Language;
+      const userTheme = user.preferences.theme as Theme;
+      const userCurrency = user.preferences.currency as Currency;
+
+      setPreferences({
+        ...user.preferences,
+        language: validLanguages.includes(userLang) ? userLang : 'EN',
+        theme: validThemes.includes(userTheme) ? userTheme : 'dark',
+        currency: validCurrencies.includes(userCurrency) ? userCurrency : 'USD',
+      });
+    } else {
+      const savedLanguage = localStorage.getItem('aver_language') as Language;
+      const savedTheme = localStorage.getItem('aver_theme') as Theme;
+      const savedCurrency = localStorage.getItem('aver_currency') as Currency;
+      
+      const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
+      const validThemes: Theme[] = ['light', 'dark'];
+      const validCurrencies: Currency[] = ['USD', 'EUR', 'GBP', 'BTC', 'USDT'];
+
+      setPreferences(prev => ({
+        language: validLanguages.includes(savedLanguage) ? savedLanguage : prev.language,
+        theme: validThemes.includes(savedTheme) ? savedTheme : prev.theme,
+        currency: validCurrencies.includes(savedCurrency) ? savedCurrency : prev.currency,
+      }));
+    }
     setIsLoaded(true);
+  }, [user]);
 
-    // Listen for storage events to synchronize across tabs
+  // Keep a local storage listener to synchronize across tabs for global settings
+  useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
+      if (user) return; // Ignore global storage events if a user is explicitly logged in
+      
       if (e.key === 'aver_language') {
         setPreferences(prev => ({ ...prev, language: e.newValue as Language || prev.language }));
       }
@@ -70,11 +93,16 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  }, [user]);
 
   const updatePreference = (key: keyof Preferences, value: any) => {
     setPreferences(prev => ({ ...prev, [key]: value }));
     localStorage.setItem(`aver_${key}`, value);
+    
+    // Save to user profile persistently if logged in
+    if (user && updateUserPreferences) {
+      updateUserPreferences({ [key]: value });
+    }
   };
 
   const t = (key: string): string => {

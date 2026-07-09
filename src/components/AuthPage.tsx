@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, ArrowLeft, ArrowRight, Eye, EyeOff, Check, X, Bell, TrendingUp, Monitor as MonitorIcon, Tablet as TabletIcon, Phone as PhoneIcon, Cpu, Zap, Lock, DollarSign, Globe } from 'lucide-react';
+import { Shield, ArrowLeft, ArrowRight, Eye, EyeOff, Check, X, Bell, TrendingUp, Monitor as MonitorIcon, Tablet as TabletIcon, Phone as PhoneIcon, Cpu, Zap, Lock, DollarSign, Globe, Camera, ZoomIn, ZoomOut } from 'lucide-react';
 import AverLogo from './AverLogo';
 import PolicyReader from './PolicyReader';
 import WelcomeBonusCard from './WelcomeBonusCard';
@@ -15,11 +15,22 @@ interface AuthPageProps {
 
 export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
-  const { signUp, signIn, forgotPassword, signInWithGoogle } = useAuth();
-  const [view, setView] = useState<'register' | 'login' | 'forgot-password' | 'forgot-password-code'>('register');
+  const { signUp, signIn, forgotPassword, updatePasswordByEmail } = useAuth();
+  const [view, setView] = useState<'register' | 'login' | 'forgot-password' | 'forgot-password-verify' | 'forgot-password-reset' | 'forgot-password-success'>('register');
   const [showPassword, setShowPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
+  
+  // Forgot Password System States
+  const [codeDigits, setCodeDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [timeLeft, setTimeLeft] = useState<number>(300);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [simulatedToast, setSimulatedToast] = useState<{ show: boolean; code: string; email: string } | null>(null);
+  const [resendAttempts, setResendAttempts] = useState<number>(0);
+  const codeDigitInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   
   // Registration Form Fields
   const [fullName, setFullName] = useState('');
@@ -72,6 +83,27 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     return { score, text: 'Very Strong', color: 'bg-emerald-500 shadow-emerald-500/50 animate-pulse' };
   }, [password, pwdCriteria]);
 
+  // New Password Reset validation states
+  const newPwdCriteria = useMemo(() => {
+    return {
+      length: newPassword.length >= 8,
+      uppercase: /[A-Z]/.test(newPassword),
+      lowercase: /[a-z]/.test(newPassword),
+      number: /[0-9]/.test(newPassword),
+      special: /[!@#$%^&*(),.?":{}|<>]/.test(newPassword),
+    };
+  }, [newPassword]);
+
+  const newPasswordStrength = useMemo(() => {
+    if (!newPassword) return { score: 0, text: 'No Password', color: 'bg-gray-500' };
+    const score = Object.values(newPwdCriteria).filter(Boolean).length;
+    if (score <= 1) return { score, text: 'Weak', color: 'bg-red-500 shadow-red-500/30' };
+    if (score === 2) return { score, text: 'Fair', color: 'bg-amber-500 shadow-amber-500/30' };
+    if (score === 3) return { score, text: 'Good', color: 'bg-blue-500 shadow-blue-500/30' };
+    if (score === 4) return { score, text: 'Strong', color: 'bg-emerald-400 shadow-emerald-400/30' };
+    return { score, text: 'Very Strong', color: 'bg-emerald-500 shadow-emerald-500/50 animate-pulse' };
+  }, [newPassword, newPwdCriteria]);
+
   const isFormValid = useMemo(() => {
     return (
       fullName.trim() !== '' &&
@@ -96,26 +128,10 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setLoading(true);
     setErrorMsg('');
     try {
-      await signUp(email, password, fullName, referralCode);
-      setSuccessMsg(`Welcome aboard! Establishing secure session...`);
-      setAuthSuccess(true);
-      setTimeout(onSuccess, 3000);
+      await signUp(email, password, fullName, referralCode, undefined);
+      onSuccess();
     } catch (error: any) {
-      console.error("Registration error:", error);
-      const errCode = error.code || '';
-      const errMsg = error.message || '';
-      let message = error.message || 'An error occurred during authentication.';
-      
-      if (errCode === 'auth/operation-not-allowed' || errMsg.includes('operation-not-allowed')) {
-        message = 'Email/Password Authentication is not yet enabled in your Firebase console. Please go to your Firebase Console -> Authentication -> Sign-In Method and enable Email/Password, or use Google Sign-In below!';
-      } else if (errCode === 'auth/email-already-in-use' || errMsg.includes('email-already-in-use')) {
-        message = 'Account already exists. Please sign in or use a different email address.';
-      } else if (errCode === 'auth/invalid-email' || errMsg.includes('invalid-email')) {
-        message = 'Please enter a valid email address.';
-      } else if (errCode === 'auth/weak-password' || errMsg.includes('weak-password')) {
-        message = 'Password is too weak. Please choose a stronger password.';
-      }
-      setErrorMsg(message);
+      setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -129,43 +145,9 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setErrorMsg('');
     try {
       await signIn(loginEmail, loginPassword);
-      setSuccessMsg(`Access Authorized. Resuming connection to AverCore AI™ nodes...`);
-      setAuthSuccess(true);
-      setTimeout(onSuccess, 3000);
+      onSuccess();
     } catch (error: any) {
-      console.error("Login error:", error);
-      const errCode = error.code || '';
-      const errMsg = error.message || '';
-      let message = error.message || 'An error occurred during authentication.';
-      
-      if (errCode === 'auth/operation-not-allowed' || errMsg.includes('operation-not-allowed')) {
-        message = 'Email/Password Authentication is not yet enabled in your Firebase console. Please go to your Firebase Console -> Authentication -> Sign-In Method and enable Email/Password, or use Google Sign-In below!';
-      } else if (errCode === 'auth/invalid-credential' || errMsg.includes('invalid-credential') || errMsg.includes('wrong-password') || errCode === 'auth/wrong-password') {
-        message = 'Invalid email or password. Please verify and try again.';
-      } else if (errCode === 'auth/user-not-found' || errMsg.includes('user-not-found')) {
-        message = 'No account associated with this email address. Register to get started!';
-      } else if (errCode === 'auth/invalid-email' || errMsg.includes('invalid-email')) {
-        message = 'Please enter a valid email address.';
-      } else if (errCode === 'auth/too-many-requests' || errMsg.includes('too-many-requests')) {
-        message = 'Too many failed login attempts. Access is temporarily locked. Please try again later or reset your password.';
-      }
-      setErrorMsg(message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    setLoading(true);
-    setErrorMsg('');
-    try {
-      await signInWithGoogle();
-      setSuccessMsg('Access Authorized. Resuming connection to AverCore AI™ nodes...');
-      setAuthSuccess(true);
-      setTimeout(onSuccess, 3000);
-    } catch (error: any) {
-      console.error("Google sign in error:", error);
-      setErrorMsg(error.message || 'Failed to authenticate via Google.');
+      setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -176,48 +158,162 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setLoading(true);
     setErrorMsg('');
     try {
-      await forgotPassword(forgotEmail);
-      setView('forgot-password-code');
+      const emailLower = forgotEmail.trim().toLowerCase();
+      const usersStr = localStorage.getItem('mockUsers');
+      const users = usersStr ? JSON.parse(usersStr) : [];
+      const existingUser = users.find((u: any) => u.email === emailLower);
+      
+      if (!existingUser) {
+        throw new Error("Account not found.");
+      }
+      
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      const resetSession = {
+        email: emailLower,
+        code,
+        expiresAt: Date.now() + 5 * 60 * 1000 // 5 minutes
+      };
+      localStorage.setItem('resetSession', JSON.stringify(resetSession));
+      
+      setCodeDigits(['', '', '', '', '', '']);
+      setTimeLeft(300);
+      setResendAttempts(0);
+      
+      setSimulatedToast({ show: true, code, email: emailLower });
+      setView('forgot-password-verify');
     } catch (error: any) {
-      setErrorMsg(error.message || 'An error occurred during authentication.');
+      setErrorMsg("Account not found.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCodeValidation = (e: React.FormEvent) => {
+  const handleVerifyCode = (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
     
-    const code = resetCode.toUpperCase();
-    
-    const hasTenChars = code.length === 10;
-    const letterMatches = code.match(/[A-Z]/g);
-    const hasTwoLetters = letterMatches && letterMatches.length >= 2;
-    
-    const digitMatches = code.match(/\d/g);
-    let hasDoubleNumbers = false;
-    if (digitMatches) {
-      const digitCounts: Record<string, number> = {};
-      for (const digit of digitMatches) {
-        digitCounts[digit] = (digitCounts[digit] || 0) + 1;
-        if (digitCounts[digit] >= 2) {
-          hasDoubleNumbers = true;
-          break;
-        }
-      }
+    const submittedCode = codeDigits.join('');
+    if (submittedCode.length !== 6) {
+      setErrorMsg("Please enter the full 6-digit code.");
+      setLoading(false);
+      return;
     }
+    
+    const sessionStr = localStorage.getItem('resetSession');
+    if (!sessionStr) {
+      setErrorMsg("No active reset session. Please request a code.");
+      setLoading(false);
+      return;
+    }
+    
+    const session = JSON.parse(sessionStr);
+    
+    if (Date.now() > session.expiresAt || timeLeft === 0) {
+      setErrorMsg("This verification code has expired. Please request a new one.");
+      setLoading(false);
+      return;
+    }
+    
+    if (submittedCode !== session.code) {
+      setErrorMsg("Invalid verification code.");
+      setLoading(false);
+      return;
+    }
+    
+    setErrorMsg('');
+    setLoading(false);
+    setView('forgot-password-reset');
+  };
 
-    if (hasTenChars && hasTwoLetters && hasDoubleNumbers) {
-      setSuccessMsg("Account recovered successfully. Establishing secure session...");
-      setAuthSuccess(true);
-      setTimeout(onSuccess, 3000);
-    } else {
-      setErrorMsg("Invalid code please try again");
+  const handleResendCode = () => {
+    if (resendAttempts >= 3) {
+      setErrorMsg("Too many password reset requests. Please try again later.");
+      return;
+    }
+    
+    setErrorMsg('');
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const emailLower = forgotEmail.trim().toLowerCase();
+    
+    const resetSession = {
+      email: emailLower,
+      code,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    };
+    localStorage.setItem('resetSession', JSON.stringify(resetSession));
+    
+    setCodeDigits(['', '', '', '', '', '']);
+    setTimeLeft(300);
+    setResendAttempts(prev => prev + 1);
+    
+    setSimulatedToast({ show: true, code, email: emailLower });
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg('');
+    
+    const isCriteriaMet = Object.values(newPwdCriteria).every(Boolean);
+    if (!isCriteriaMet) {
+      setErrorMsg("Please satisfy all password security requirements.");
+      setLoading(false);
+      return;
+    }
+    
+    if (newPassword !== confirmNewPassword) {
+      setErrorMsg("Passwords do not match.");
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const sessionStr = localStorage.getItem('resetSession');
+      if (!sessionStr) {
+        throw new Error("No active password reset session found.");
+      }
+      const session = JSON.parse(sessionStr);
+      const emailLower = session.email;
+      
+      await updatePasswordByEmail(emailLower, newPassword);
+      localStorage.removeItem('resetSession');
+      
+      setView('forgot-password-success');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to update password.");
+    } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (view !== 'forgot-password-verify') return;
+    
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [view]);
+
+  useEffect(() => {
+    if (view === 'forgot-password-success') {
+      const redirectTimer = setTimeout(() => {
+        setView('login');
+      }, 3500);
+      return () => clearTimeout(redirectTimer);
+    }
+  }, [view]);
 
 
 
@@ -281,6 +377,54 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     <div className={`min-h-screen grid grid-cols-1 lg:grid-cols-12 overflow-x-hidden relative ${
       isDark ? 'bg-[#050505] text-slate-100' : 'bg-slate-50 text-slate-900'
     }`}>
+      
+      {/* Simulated Email Toast notification for password reset code */}
+      <AnimatePresence>
+        {simulatedToast && simulatedToast.show && (
+          <motion.div
+            initial={{ y: -80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -80, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 200, damping: 22 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md pointer-events-auto"
+          >
+            <div 
+              style={{
+                backgroundColor: isDark ? 'rgba(8, 10, 15, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)',
+                boxShadow: isDark 
+                  ? '0 16px 36px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15)' 
+                  : '0 16px 36px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
+              }}
+              className="backdrop-blur-xl border rounded-2xl p-4 flex items-start space-x-3 shadow-2xl"
+            >
+              <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 flex-shrink-0 animate-pulse">
+                <Bell className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold font-mono tracking-wider text-emerald-400 uppercase font-extrabold">Aver Secure Node Verification</span>
+                  <span className="text-[8px] font-mono text-gray-500 uppercase">Simulated Email</span>
+                </div>
+                <p className={`text-xs mt-1 font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+                  Reset code sent to <span className={`font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>{simulatedToast.email}</span>
+                </p>
+                <div className="mt-2.5 p-2 bg-black/40 rounded-xl border border-white/5 flex items-center justify-between">
+                  <span className="text-[11px] font-mono text-gray-400">Security Access Code:</span>
+                  <span className="text-lg font-mono font-black tracking-widest text-emerald-400 select-all">{simulatedToast.code}</span>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setSimulatedToast(prev => prev ? { ...prev, show: false } : null)}
+                className="text-gray-500 hover:text-white transition-colors p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       
       {/* Background premium glow effects */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-0 select-none">
@@ -363,6 +507,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
                 {/* Email Registration Form */}
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
+
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Full Name</label>
                     <input 
@@ -680,21 +825,8 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
 
                   {errorMsg && (
-                    <div className="p-4 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium flex flex-col items-center justify-center space-y-2 text-center">
-                      <span>{errorMsg}</span>
-                      {(errorMsg.includes('already exists') || errorMsg.includes('email-already-in-use')) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setView('login');
-                            setLoginEmail(email); // prefill email!
-                            setErrorMsg('');
-                          }}
-                          className="mt-1 px-4 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-white font-bold text-xs rounded-lg transition-all border border-red-500/30 cursor-pointer"
-                        >
-                          Switch to Sign In
-                        </button>
-                      )}
+                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                      {errorMsg}
                     </div>
                   )}
                   {/* Create Account Button */}
@@ -717,47 +849,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                         <ArrowRight className="w-4.5 h-4.5" />
                       </>
                     )}
-                  </button>
-
-                  {/* Google Login Option */}
-                  <div className="relative my-4 flex items-center justify-center">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className={`w-full border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}></div>
-                    </div>
-                    <span className={`relative px-3 text-[10px] font-mono uppercase tracking-wider text-gray-500 z-10 ${
-                      isDark ? 'bg-[#050505]' : 'bg-[#f8fafc]'
-                    }`}>Or continue with</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={loading}
-                    className={`w-full py-3.5 px-4 rounded-xl font-sans font-bold text-sm transition-all border flex items-center justify-center space-x-3 cursor-pointer ${
-                      isDark 
-                        ? 'border-white/10 text-white hover:border-white/20 hover:bg-white/5 bg-transparent' 
-                        : 'border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 bg-white shadow-sm'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 mr-1" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                      />
-                    </svg>
-                    <span>Google Secure Sign-In</span>
                   </button>
 
                   {/* Legal disclosures */}
@@ -860,21 +951,8 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
 
                   {errorMsg && (
-                    <div className="p-4 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium flex flex-col items-center justify-center space-y-2 text-center">
-                      <span>{errorMsg}</span>
-                      {(errorMsg.includes('No account') || errorMsg.includes('not associated') || errorMsg.includes('user-not-found')) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setView('register');
-                            setEmail(loginEmail); // prefill email!
-                            setErrorMsg('');
-                          }}
-                          className="mt-1 px-4 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 font-bold text-xs rounded-lg transition-all border border-emerald-500/30 cursor-pointer"
-                        >
-                          Switch to Register
-                        </button>
-                      )}
+                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                      {errorMsg}
                     </div>
                   )}
                   {/* Continue Button */}
@@ -897,47 +975,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                         <ArrowRight className="w-4.5 h-4.5" />
                       </>
                     )}
-                  </button>
-
-                  {/* Google Login Option */}
-                  <div className="relative my-4 flex items-center justify-center">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className={`w-full border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}></div>
-                    </div>
-                    <span className={`relative px-3 text-[10px] font-mono uppercase tracking-wider text-gray-500 z-10 ${
-                      isDark ? 'bg-[#050505]' : 'bg-[#f8fafc]'
-                    }`}>Or continue with</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={loading}
-                    className={`w-full py-3.5 px-4 rounded-xl font-sans font-bold text-sm transition-all border flex items-center justify-center space-x-3 cursor-pointer ${
-                      isDark 
-                        ? 'border-white/10 text-white hover:border-white/20 hover:bg-white/5 bg-transparent' 
-                        : 'border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 bg-white shadow-sm'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 mr-1" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                      />
-                    </svg>
-                    <span>Google Secure Sign-In</span>
                   </button>
                 </form>
 
@@ -969,9 +1006,9 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 className="space-y-6"
               >
                 <div className="space-y-2">
-                  <h2 className="text-4xl font-display font-black tracking-tighter">Reset Your Password</h2>
+                  <h2 className="text-4xl font-display font-black tracking-tighter text-white">Reset Your Password</h2>
                   <p className={`text-base font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
-                    Enter the email address associated with your Aver account. We’ll send you a secure password reset link.
+                    Enter the email address associated with your account.
                   </p>
                 </div>
                 <form onSubmit={handleForgotPassword} className="space-y-4">
@@ -992,27 +1029,40 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </div>
 
                   {errorMsg && (
-                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                    <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center animate-shake">
                       {errorMsg}
                     </div>
                   )}
-                  <button 
-                    type="submit"
-                    disabled={loading || !forgotEmail}
-                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer"
-                  >
-                    Send Reset Link
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setView('login')}
-                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all bg-white/5 text-gray-400 hover:text-white cursor-pointer"
-                  >
-                    Cancel
-                  </button>
+                  
+                  <div className="space-y-3 pt-2">
+                    <button 
+                      type="submit"
+                      disabled={loading || !forgotEmail}
+                      className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer font-extrabold flex items-center justify-center space-x-2"
+                    >
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <>
+                          <span>Continue</span>
+                          <ArrowRight className="w-4.5 h-4.5" />
+                        </>
+                      )}
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setView('login');
+                        setErrorMsg('');
+                      }}
+                      className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all bg-white/5 text-gray-400 hover:text-white cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                   
                   {/* Having trouble support link */}
-                  <div className="text-center pt-4">
+                  <div className="text-center pt-4 border-t border-white/5 mt-4">
                     <p className="text-[11px] font-sans font-medium text-gray-500">
                       Having trouble retrieving your account?{' '}
                       <a 
@@ -1027,9 +1077,9 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </div>
                 </form>
               </motion.div>
-            ) : (
+            ) : view === 'forgot-password-verify' ? (
               <motion.div
-                key="forgot-password-code"
+                key="forgot-password-verify"
                 initial={{ opacity: 0, x: 15 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -15 }}
@@ -1037,27 +1087,260 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 className="space-y-6"
               >
                 <div className="space-y-2">
-                  <h2 className="text-4xl font-display font-black tracking-tighter">Enter Reset Code</h2>
+                  <h2 className="text-4xl font-display font-black tracking-tighter text-white">Verification</h2>
                   <p className={`text-base font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
-                    A ten digit code has been sent to your email.
+                    A 6-digit verification code has been sent to your email.
                   </p>
                 </div>
-                <form onSubmit={handleCodeValidation} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Recovery Code</label>
-                    <input 
-                      type="text" 
-                      required
-                      maxLength={10}
-                      value={resetCode}
-                      onChange={(e) => setResetCode(e.target.value.toUpperCase())}
-                      placeholder="Insert code here." 
-                      className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all uppercase tracking-widest ${
-                        isDark 
-                          ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
-                          : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
+                <form onSubmit={handleVerifyCode} className="space-y-6">
+                  {/* Six Individual Input Boxes */}
+                  <div className="flex justify-between items-center gap-2 py-2">
+                    {codeDigits.map((digit, idx) => (
+                      <input
+                        key={idx}
+                        ref={(el) => {
+                          codeDigitInputRefs.current[idx] = el;
+                        }}
+                        type="text"
+                        maxLength={1}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={digit}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const cleanVal = val.replace(/[^0-9]/g, '');
+                          if (cleanVal.length === 0) {
+                            const newDigits = [...codeDigits];
+                            newDigits[idx] = '';
+                            setCodeDigits(newDigits);
+                            return;
+                          }
+                          const singleDigit = cleanVal[cleanVal.length - 1];
+                          const newDigits = [...codeDigits];
+                          newDigits[idx] = singleDigit;
+                          setCodeDigits(newDigits);
+                          
+                          // Auto focus next box
+                          if (idx < 5 && singleDigit) {
+                            codeDigitInputRefs.current[idx + 1]?.focus();
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Backspace') {
+                            if (!codeDigits[idx] && idx > 0) {
+                              const newDigits = [...codeDigits];
+                              newDigits[idx - 1] = '';
+                              setCodeDigits(newDigits);
+                              codeDigitInputRefs.current[idx - 1]?.focus();
+                            } else {
+                              const newDigits = [...codeDigits];
+                              newDigits[idx] = '';
+                              setCodeDigits(newDigits);
+                            }
+                          }
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pastedData = e.clipboardData.getData('text').trim().replace(/[^0-9]/g, '');
+                          if (pastedData.length >= 6) {
+                            const pastedDigits = pastedData.slice(0, 6).split('');
+                            const newDigits = [...codeDigits];
+                            for (let i = 0; i < 6; i++) {
+                              newDigits[i] = pastedDigits[i] || '';
+                            }
+                            setCodeDigits(newDigits);
+                            codeDigitInputRefs.current[5]?.focus();
+                          }
+                        }}
+                        className={`w-12 h-14 text-center text-xl font-mono font-bold rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-all ${
+                          isDark 
+                            ? 'bg-[#08090e]/90 border-white/10 text-white' 
+                            : 'bg-white border-slate-200 text-slate-900'
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Countdown Timer HUD */}
+                  <div className="flex items-center justify-between text-xs font-sans">
+                    <span className="text-gray-500 font-medium">Code Expiration:</span>
+                    <span className={`font-mono font-bold tracking-wider px-2.5 py-1 rounded-lg bg-black/30 border border-white/5 ${timeLeft === 0 ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>
+                      {timeLeft === 0 ? 'Expired' : `${Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')}`}
+                    </span>
+                  </div>
+
+                  {errorMsg && (
+                    <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">
+                      {errorMsg}
+                    </div>
+                  )}
+
+                  <div className="space-y-3 pt-2">
+                    <button 
+                      type="submit"
+                      disabled={loading || codeDigits.some(d => !d)}
+                      className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 cursor-pointer ${
+                        !codeDigits.some(d => !d) && !loading
+                          ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/25 active:scale-[0.99]' 
+                          : 'bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed'
                       }`}
-                    />
+                    >
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <>
+                          <span>Verify Code</span>
+                          <Shield className="w-4.5 h-4.5" />
+                        </>
+                      )}
+                    </button>
+                    
+                    {/* Resend button */}
+                    <button 
+                      type="button"
+                      disabled={timeLeft > 0 || resendAttempts >= 3}
+                      onClick={handleResendCode}
+                      className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all border flex items-center justify-center space-x-2 ${
+                        timeLeft > 0 || resendAttempts >= 3
+                          ? 'bg-transparent border-white/5 text-gray-600 cursor-not-allowed'
+                          : 'bg-white/5 border-white/10 text-emerald-400 hover:text-emerald-300 hover:bg-white/10 cursor-pointer'
+                      }`}
+                    >
+                      <span>Resend Code</span>
+                      {timeLeft > 0 && <span className="text-[10px] text-gray-500 font-mono">({Math.floor(timeLeft / 60).toString().padStart(2, '0')}:${(timeLeft % 60).toString().padStart(2, '0')})</span>}
+                    </button>
+
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setView('forgot-password');
+                        setErrorMsg('');
+                        setCodeDigits(['', '', '', '', '', '']);
+                      }}
+                      className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all bg-white/5 text-gray-400 hover:text-white cursor-pointer"
+                    >
+                      Go Back
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            ) : view === 'forgot-password-reset' ? (
+              <motion.div
+                key="forgot-password-reset"
+                initial={{ opacity: 0, x: 15 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -15 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-6"
+              >
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-display font-black tracking-tighter text-white">Create New Password</h2>
+                  <p className={`text-base font-sans font-semibold ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
+                    Choose a strong, unique password to secure your account.
+                  </p>
+                </div>
+                <form onSubmit={handleResetPassword} className="space-y-4">
+                  {/* New Password input */}
+                  <div className="space-y-1.5 relative">
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">New Password</label>
+                    <div className="relative">
+                      <input 
+                        type={showNewPassword ? "text" : "password"} 
+                        required
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••••••" 
+                        className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border pr-12 focus:outline-none transition-all ${
+                          isDark 
+                            ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
+                            : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-500 hover:text-emerald-400 transition-colors cursor-pointer"
+                      >
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Confirm New Password input */}
+                  <div className="space-y-1.5 relative">
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Confirm New Password</label>
+                    <div className="relative">
+                      <input 
+                        type={showConfirmNewPassword ? "text" : "password"} 
+                        required
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        placeholder="••••••••••••" 
+                        className={`w-full px-4 py-3 rounded-xl text-sm font-sans font-medium border pr-12 focus:outline-none transition-all ${
+                          isDark 
+                            ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
+                            : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-500 hover:text-emerald-400 transition-colors cursor-pointer"
+                      >
+                        {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Live Password Strength Indicator */}
+                  {newPassword && (
+                    <div className="space-y-2 pt-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400 font-medium font-sans">Security Rating:</span>
+                        <span className={`font-bold font-mono ${
+                          newPasswordStrength.score <= 1 ? 'text-red-400' :
+                          newPasswordStrength.score === 2 ? 'text-amber-400' :
+                          newPasswordStrength.score === 3 ? 'text-blue-400' : 'text-emerald-400'
+                        }`}>{newPasswordStrength.text}</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden flex gap-1">
+                        {[1, 2, 3, 4, 5].map((level) => (
+                          <div 
+                            key={level} 
+                            className={`h-full flex-1 transition-all duration-300 ${
+                              level <= newPasswordStrength.score ? newPasswordStrength.color : 'bg-white/5'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Password Security Requirement Check List */}
+                  <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-2">
+                    <span className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400 block mb-1">Security Criteria</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] font-sans font-medium">
+                      <div className="flex items-center space-x-2">
+                        {newPwdCriteria.length ? <Check className="w-3.5 h-3.5 text-emerald-400 animate-fade-in" /> : <div className="w-3.5 h-3.5 rounded-full border border-gray-600 flex-shrink-0" />}
+                        <span className={newPwdCriteria.length ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>Min 8 characters</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {newPwdCriteria.uppercase ? <Check className="w-3.5 h-3.5 text-emerald-400 animate-fade-in" /> : <div className="w-3.5 h-3.5 rounded-full border border-gray-600 flex-shrink-0" />}
+                        <span className={newPwdCriteria.uppercase ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>1 uppercase letter</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {newPwdCriteria.lowercase ? <Check className="w-3.5 h-3.5 text-emerald-400 animate-fade-in" /> : <div className="w-3.5 h-3.5 rounded-full border border-gray-600 flex-shrink-0" />}
+                        <span className={newPwdCriteria.lowercase ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>1 lowercase letter</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {newPwdCriteria.number ? <Check className="w-3.5 h-3.5 text-emerald-400 animate-fade-in" /> : <div className="w-3.5 h-3.5 rounded-full border border-gray-600 flex-shrink-0" />}
+                        <span className={newPwdCriteria.number ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>1 number (0-9)</span>
+                      </div>
+                      <div className="flex items-center space-x-2 md:col-span-2 border-t border-white/5 pt-1.5 mt-1.5">
+                        {newPwdCriteria.special ? <Check className="w-3.5 h-3.5 text-emerald-400 animate-fade-in" /> : <div className="w-3.5 h-3.5 rounded-full border border-gray-600 flex-shrink-0" />}
+                        <span className={newPwdCriteria.special ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>1 special character (!@#$%^&*)</span>
+                      </div>
+                    </div>
                   </div>
 
                   {errorMsg && (
@@ -1065,39 +1348,79 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       {errorMsg}
                     </div>
                   )}
-                  <button 
-                    type="submit"
-                    disabled={loading || resetCode.length !== 10}
-                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer"
-                  >
-                    Verify Code
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setView('forgot-password');
-                      setResetCode('');
-                    }}
-                    className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all bg-white/5 text-gray-400 hover:text-white cursor-pointer"
-                  >
-                    Go Back
-                  </button>
 
-                  {/* Having trouble support link */}
-                  <div className="text-center pt-4">
-                    <p className="text-[11px] font-sans font-medium text-gray-500">
-                      Having trouble retrieving your account?{' '}
-                      <a 
-                        href="https://t.me/AverAssistancebot" 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="text-emerald-400 font-bold hover:underline"
-                      >
-                        Contact Support
-                      </a>
-                    </p>
+                  {/* Submit and go back */}
+                  <div className="space-y-3 pt-2">
+                    <button 
+                      type="submit"
+                      disabled={loading || !newPassword || !confirmNewPassword || newPassword !== confirmNewPassword || !Object.values(newPwdCriteria).every(Boolean)}
+                      className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 cursor-pointer ${
+                        newPassword && confirmNewPassword && newPassword === confirmNewPassword && Object.values(newPwdCriteria).every(Boolean) && !loading
+                          ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/25 active:scale-[0.99] font-extrabold' 
+                          : 'bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed'
+                      }`}
+                    >
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <>
+                          <span>Update Password</span>
+                          <ArrowRight className="w-4.5 h-4.5" />
+                        </>
+                      )}
+                    </button>
+                    
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setView('forgot-password-verify');
+                        setErrorMsg('');
+                        setNewPassword('');
+                        setConfirmNewPassword('');
+                      }}
+                      className="w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all bg-white/5 text-gray-400 hover:text-white cursor-pointer"
+                    >
+                      Go Back
+                    </button>
                   </div>
                 </form>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="forgot-password-success"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.4 }}
+                className="space-y-6 text-center py-6"
+              >
+                <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center border border-emerald-500/30 text-emerald-400 mx-auto animate-bounce mb-2">
+                  <Check className="w-8 h-8" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-3xl font-display font-black tracking-tighter text-white">Password Updated!</h2>
+                  <p className="text-base font-sans font-semibold text-emerald-400">
+                    Password updated successfully.
+                  </p>
+                  <p className="text-sm font-sans text-gray-400 mt-2">
+                    Establishing secure, encrypted keys...
+                  </p>
+                </div>
+                
+                {/* Redirect countdown progress bar or animated circle */}
+                <div className="pt-6 max-w-xs mx-auto">
+                  <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 3.5, ease: "linear" }}
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]"
+                    />
+                  </div>
+                  <p className="text-[10px] font-mono font-bold tracking-wider text-gray-500 uppercase mt-3">
+                    Redirecting to Secure Access Terminal...
+                  </p>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

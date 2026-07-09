@@ -1,15 +1,37 @@
 export const generateInitialsAvatar = (name: string): string => {
   const initials = name
     .split(' ')
+    .filter(Boolean)
     .map((n) => n[0])
     .join('')
     .toUpperCase()
-    .substring(0, 2);
+    .substring(0, 2) || '?';
   
-  // Simple deterministic color generation
-  const colors = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#818cf8', '#c084fc', '#f472b6'];
-  const index = name.length % colors.length;
-  const backgroundColor = colors[index];
+  // Beautiful dynamic gradients matching the Aver theme (emerald, teal, blue, indigo, violet)
+  const gradientPairs = [
+    { start: '#10b981', end: '#059669' }, // Emerald to Dark Emerald
+    { start: '#06b6d4', end: '#0891b2' }, // Cyan to Dark Cyan
+    { start: '#3b82f6', end: '#1d4ed8' }, // Blue to Dark Blue
+    { start: '#6366f1', end: '#4338ca' }, // Indigo to Dark Indigo
+    { start: '#8b5cf6', end: '#6d28d9' }, // Violet to Dark Violet
+    { start: '#ec4899', end: '#be185d' }, // Pink to Dark Pink
+    { start: '#f43f5e', end: '#be123c' }, // Rose to Dark Rose
+    { start: '#14b8a6', end: '#0d9488' }, // Teal to Dark Teal
+  ];
+  
+  const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % gradientPairs.length;
+  const gradient = gradientPairs[index];
+  
+  const svg = `<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" style="stop-color:${gradient.start};stop-opacity:1" />
+        <stop offset="100%" style="stop-color:${gradient.end};stop-opacity:1" />
+      </linearGradient>
+    </defs>
+    <rect width="100" height="100" fill="url(#grad)" />
+    <text x="50%" y="50%" font-family="system-ui, -apple-system, sans-serif" font-weight="bold" font-size="38" fill="white" text-anchor="middle" dy=".3em">${initials}</text>
+  </svg>`;
 
-  return `data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22100%22%20height%3D%22100%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%22%20height%3D%22100%22%20fill%3D%22${encodeURIComponent(backgroundColor)}%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Arial%22%20font-size%3D%2240%22%20fill%3D%22white%22%20text-anchor%3D%22middle%22%20dy%3D%22.3em%22%3E${initials}%3C%2Ftext%3E%3C%2Fsvg%3E`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 };

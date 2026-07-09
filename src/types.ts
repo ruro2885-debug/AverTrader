@@ -6,6 +6,21 @@ export interface Preferences {
   language: Language;
   theme: Theme;
   currency: Currency;
+  rememberMeEnabled?: boolean;
+  biometricsEnabled?: boolean;
+  notifications?: {
+    master?: boolean;
+    security?: boolean;
+    profile?: boolean;
+    deposits?: boolean;
+    withdrawals?: boolean;
+    trading?: boolean;
+    signals?: boolean;
+    system?: boolean;
+    referrals?: boolean;
+    marketing?: boolean;
+    criticalAlertsSound?: boolean;
+  };
 }
 
 export interface FAQItem {
