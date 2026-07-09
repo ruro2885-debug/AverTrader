@@ -3,9 +3,11 @@ import {
   TrendingUp, Bot, Users, Sparkles, Flame, Calendar, BookOpen, ChevronRight, PlayCircle
 } from 'lucide-react';
 import CoinLogo from './CoinLogo';
+import { usePreferences } from '../contexts/PreferencesContext';
 
 export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
   const isDark = theme === 'dark';
+  const { t } = usePreferences();
   
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
@@ -29,8 +31,8 @@ export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
     >
       <div className="flex justify-between items-end mb-2">
         <div>
-          <h2 className={`text-2xl font-black tracking-tight ${textPrimary}`}>Discover</h2>
-          <p className={`text-sm ${textSecondary} mt-1`}>Explore opportunities and insights</p>
+          <h2 className={`text-2xl font-black tracking-tight ${textPrimary}`}>{t('common.discover_title')}</h2>
+          <p className={`text-sm ${textSecondary} mt-1`}>{t('common.discover_subtitle')}</p>
         </div>
       </div>
 
@@ -55,9 +57,9 @@ export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
           <div className="flex justify-between items-end mb-3">
             <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
               <Flame className="w-5 h-5 mr-2 text-orange-500" />
-              Trending Assets
+              {t('common.trending_assets')}
             </h3>
-            <button className={`text-xs font-bold text-orange-500 hover:text-orange-400`}>View All</button>
+            <button className={`text-xs font-bold text-orange-500 hover:text-orange-400`}>{t('common.view_all')}</button>
           </div>
           <div className={`rounded-[20px] overflow-hidden ${cardClasses}`}>
             {trendingAssets.map((asset, i) => (
@@ -85,7 +87,7 @@ export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
           <div className="flex justify-between items-end mb-3">
             <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
               <Bot className="w-5 h-5 mr-2 text-emerald-500" />
-              Featured AI Strategies
+              {t('common.ai_strategies')}
             </h3>
           </div>
           <div className={`rounded-[20px] p-5 ${cardClasses}`}>
@@ -111,7 +113,7 @@ export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
             <button className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${
               isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
             }`}>
-              Analyze Strategy
+              {t('common.analyze_strategy')}
             </button>
           </div>
         </div>

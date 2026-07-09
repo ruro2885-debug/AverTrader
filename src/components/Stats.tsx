@@ -233,7 +233,7 @@ export default function Stats({ theme }: StatsProps) {
           isDark ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-black/5 shadow-sm'
         }`}>
           <p className="text-xs text-gray-500 font-mono">
-            * All operational telemetry metrics are validated independently by external security auditors in accordance with SEC-C42 standards.
+            {t('stats.footnote')}
           </p>
         </div>
       </div>

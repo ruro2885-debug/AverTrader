@@ -195,7 +195,7 @@ export default function QuickHub({
                     {t('qh.lang')}
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {(['EN', 'ES', 'FR', 'DE', 'ZH'] as Language[]).map((lang) => (
+                    {(['EN', 'ES', 'FR', 'DE', 'ZH', 'PT'] as Language[]).map((lang) => (
                       <button
                         key={lang}
                         onClick={() => handleUpdate('language', lang)}
@@ -210,6 +210,7 @@ export default function QuickHub({
                         {lang === 'FR' && 'Français'}
                         {lang === 'DE' && 'Deutsch'}
                         {lang === 'ZH' && '中文'}
+                        {lang === 'PT' && 'Português'}
                       </button>
                     ))}
                   </div>

@@ -5,10 +5,32 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { 
   User, Mail, Edit3, Key, ShieldCheck, 
   Bell, Share2, Wallet, Settings, HelpCircle, 
-  FileText, LogOut, ChevronRight, Camera, X, Check, Copy, AlertTriangle, Medal
+  FileText, LogOut, ChevronRight, Camera, X, Check, Copy, AlertTriangle, Medal,
+  Volume2, Shield, TrendingUp, ArrowDownCircle, ArrowUpCircle, Gift, Cpu, Megaphone, Zap
 } from 'lucide-react';
 
-export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'light' | 'dark', onOpenBonusCenter?: () => void }) {
+const ToggleSwitch = ({ checked, onChange, disabled }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) => {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+        checked ? 'bg-[#10b981]' : 'bg-white/10'
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+    >
+      <motion.span
+        layout
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  );
+};
+
+export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCentre, onOpenPreferences }: { theme: 'light' | 'dark', onOpenBonusCenter?: () => void, onOpenReferralCentre?: () => void, onOpenPreferences?: () => void }) {
   const { 
     user, 
     signOutUser, 
@@ -20,7 +42,7 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
     verifyCurrentPassword,
     hashPassword
   } = useAuth();
-  const { preferences, updatePreference } = usePreferences();
+  const { preferences, updatePreference, t } = usePreferences();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
@@ -36,6 +58,14 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
   const [username, setUsername] = useState(user?.username || '');
   const [email, setEmail] = useState(user?.email || '');
 
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.displayName || '');
+      setUsername(user.username || '');
+      setEmail(user.email || '');
+    }
+  }, [user, activeModal]);
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,6 +76,194 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [passwordUpdateSuccess, setPasswordUpdateSuccess] = useState(false);
   const [simulatedEmailToast, setSimulatedEmailToast] = useState<{ show: boolean; email: string; subject: string; body: string } | null>(null);
+  const [profileToast, setProfileToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (profileToast?.show) {
+      const timer = setTimeout(() => {
+        setProfileToast(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [profileToast]);
+
+  const [twoFactorFlowStep, setTwoFactorFlowStep] = useState<'intro' | 'confirm_identity' | 'sending' | 'enter_code' | 'verified'>('intro');
+  const [twoFactorFlowType, setTwoFactorFlowType] = useState<'activate' | 'deactivate'>('activate');
+  const [twoFactorGeneratedCode, setTwoFactorGeneratedCode] = useState('');
+  const [twoFactorEnteredCode, setTwoFactorEnteredCode] = useState<string[]>(['', '', '', '', '', '']);
+  const [twoFactorResendCountdown, setTwoFactorResendCountdown] = useState(0);
+  const [twoFactorFailedAttempts, setTwoFactorFailedAttempts] = useState(0);
+  const [twoFactorDisabledUntil, setTwoFactorDisabledUntil] = useState<number | null>(null);
+  const [twoFactorShakeInputs, setTwoFactorShakeInputs] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+
+  const twoFactorInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    let interval: any;
+    if (twoFactorResendCountdown > 0) {
+      interval = setInterval(() => {
+        setTwoFactorResendCountdown(prev => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [twoFactorResendCountdown]);
+
+  const generate2FACode = () => {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const l1 = letters[Math.floor(Math.random() * letters.length)];
+    const l2 = letters[Math.floor(Math.random() * letters.length)];
+    const doubles = ['22', '44', '88', '11'];
+    const d1 = doubles[Math.floor(Math.random() * doubles.length)];
+    const d2 = doubles[Math.floor(Math.random() * doubles.length)];
+    return `${l1}${l2}${d1}${d2}`;
+  };
+
+  const handleSend2FACode = () => {
+    // Check if lockout is active
+    if (twoFactorDisabledUntil && Date.now() < twoFactorDisabledUntil) {
+      const timeLeft = Math.ceil((twoFactorDisabledUntil - Date.now()) / 1000);
+      const minLeft = Math.floor(timeLeft / 60);
+      const secLeft = timeLeft % 60;
+      setErrorMsg(`Too many failed attempts. Verification is temporarily disabled. Please try again in ${minLeft}m ${secLeft}s.`);
+      return;
+    }
+
+    setErrorMsg('');
+    setIsSendingCode(true);
+    setTwoFactorFlowStep('sending');
+
+    setTimeout(() => {
+      const generated = generate2FACode();
+      setTwoFactorGeneratedCode(generated);
+      setTwoFactorEnteredCode(['', '', '', '', '', '']);
+      setTwoFactorResendCountdown(60);
+      setIsSendingCode(false);
+      setTwoFactorFlowStep('enter_code');
+      setSuccessMsg('✅ Verification code sent successfully.');
+
+      const userEmail = user?.email || 'user@example.com';
+      setSimulatedEmailToast({
+        show: true,
+        email: userEmail,
+        subject: "🔒 Account Security - 2FA Verification Code",
+        body: `Hello,\n\nYour 6-character Two-Factor Authentication verification code is: ${generated}.\n\nDo not share this code with anyone. It is valid for 10 minutes.`
+      });
+    }, 2500);
+  };
+
+  const handleVerify2FACode = (codeArray: string[]) => {
+    const fullCode = codeArray.join('').toUpperCase();
+    if (fullCode.length < 6) return;
+
+    if (twoFactorDisabledUntil && Date.now() < twoFactorDisabledUntil) {
+      const timeLeft = Math.ceil((twoFactorDisabledUntil - Date.now()) / 1000);
+      const minLeft = Math.floor(timeLeft / 60);
+      const secLeft = timeLeft % 60;
+      setErrorMsg(`Verification is temporarily disabled. Please try again in ${minLeft}m ${secLeft}s.`);
+      return;
+    }
+
+    if (fullCode === twoFactorGeneratedCode) {
+      setErrorMsg('');
+      setTwoFactorFlowStep('verified');
+      setTwoFactorFailedAttempts(0);
+      setTwoFactorDisabledUntil(null);
+    } else {
+      setTwoFactorShakeInputs(true);
+      setTimeout(() => setTwoFactorShakeInputs(false), 500);
+
+      const nextAttempts = twoFactorFailedAttempts + 1;
+      setTwoFactorFailedAttempts(nextAttempts);
+
+      if (nextAttempts >= 5) {
+        const lockTime = Date.now() + 5 * 60 * 1000;
+        setTwoFactorDisabledUntil(lockTime);
+        setErrorMsg('❌ Too many failed attempts. Verification is temporarily disabled for 5 minutes.');
+        setTwoFactorEnteredCode(['', '', '', '', '', '']);
+      } else {
+        setErrorMsg(`❌ Incorrect verification code. Please try again. (${5 - nextAttempts} attempts remaining)`);
+        setTwoFactorEnteredCode(['', '', '', '', '', '']);
+        // Auto focus the first slot
+        setTimeout(() => {
+          twoFactorInputRefs.current[0]?.focus();
+        }, 50);
+      }
+    }
+  };
+
+  const handleFinish2FA = async () => {
+    try {
+      if (twoFactorFlowType === 'activate') {
+        await updateUserPreferences({ twoFactorEnabled: true });
+        updatePreference('twoFactorEnabled', true);
+        setProfileToast({ show: true, message: 'Security upgraded successfully.', type: 'success' });
+        if (addNotification) {
+          await addNotification(
+            'security',
+            'high',
+            'Two-Factor Auth Enabled',
+            'Two-Factor Authentication was enabled for your account.'
+          );
+        }
+      } else {
+        await updateUserPreferences({ twoFactorEnabled: false });
+        updatePreference('twoFactorEnabled', false);
+        setProfileToast({ show: true, message: 'Security downgraded. Two-Factor Authentication disabled.', type: 'success' });
+        if (addNotification) {
+          await addNotification(
+            'security',
+            'high',
+            'Two-Factor Auth Disabled',
+            'Two-Factor Authentication was disabled for your account.'
+          );
+        }
+      }
+      closeModal();
+    } catch (err: any) {
+      setErrorMsg('Failed to update 2FA configuration.');
+    }
+  };
+
+  const handleInputChange = (index: number, val: string) => {
+    const cleanVal = val.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (!cleanVal) {
+      const newCode = [...twoFactorEnteredCode];
+      newCode[index] = '';
+      setTwoFactorEnteredCode(newCode);
+      return;
+    }
+
+    const char = cleanVal[cleanVal.length - 1];
+    const newCode = [...twoFactorEnteredCode];
+    newCode[index] = char;
+    setTwoFactorEnteredCode(newCode);
+
+    if (index < 5 && char) {
+      twoFactorInputRefs.current[index + 1]?.focus();
+    }
+
+    const completeCode = [...newCode];
+    completeCode[index] = char;
+    if (completeCode.every(c => c !== '')) {
+      handleVerify2FACode(completeCode);
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!twoFactorEnteredCode[index] && index > 0) {
+        const newCode = [...twoFactorEnteredCode];
+        newCode[index - 1] = '';
+        setTwoFactorEnteredCode(newCode);
+        twoFactorInputRefs.current[index - 1]?.focus();
+      } else {
+        const newCode = [...twoFactorEnteredCode];
+        newCode[index] = '';
+        setTwoFactorEnteredCode(newCode);
+      }
+    }
+  };
 
   const closeModal = () => {
     setActiveModal(null);
@@ -58,6 +276,13 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
     setPasswordUpdateSuccess(false);
     setErrorMsg('');
     setSuccessMsg('');
+    
+    // 2FA Reset
+    setTwoFactorFlowStep('intro');
+    setTwoFactorGeneratedCode('');
+    setTwoFactorEnteredCode(['', '', '', '', '', '']);
+    setTwoFactorResendCountdown(0);
+    setTwoFactorShakeInputs(false);
   };
 
   const [twoFactorCode, setTwoFactorCode] = useState('');
@@ -328,23 +553,23 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
     {
       title: 'Account Settings',
       items: [
-        { icon: Edit3, label: 'Edit Profile', id: 'edit' },
-        { icon: Key, label: 'Change Password', id: 'password' },
+        { icon: Edit3, label: t('common.edit_profile'), id: 'edit' },
+        { icon: Key, label: t('common.change_password'), id: 'password' },
         { icon: ShieldCheck, label: `Two-Factor Auth (${user?.preferences?.twoFactorEnabled ? 'On' : 'Off'})`, id: '2fa' },
-        { icon: Bell, label: 'Notification Settings', id: 'notifications' },
+        { icon: Bell, label: t('common.notification_settings'), id: 'notifications' },
       ]
     },
     {
       title: 'Network & Assets',
       items: [
-        { icon: Share2, label: 'Referral Program', id: 'referral' },
-        { icon: Wallet, label: 'Linked Crypto Wallets', id: 'wallets' },
+        { icon: Share2, label: t('common.referral_program'), id: 'referral' },
+        { icon: Wallet, label: t('common.linked_wallets'), id: 'wallets' },
       ]
     },
     {
       title: 'App Settings',
       items: [
-        { icon: Settings, label: 'Preferences', id: 'preferences' },
+        { icon: Settings, label: t('common.preferences'), id: 'preferences' },
       ]
     }
   ];
@@ -371,7 +596,7 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
             {isPhotoLoading && (
               <div className="absolute inset-0 bg-slate-950/70 flex flex-col items-center justify-center space-y-1 backdrop-blur-[1px]">
                 <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-[8px] font-extrabold text-emerald-400 uppercase tracking-wider">Saving</span>
+                <span className="text-[8px] font-extrabold text-emerald-400 uppercase tracking-wider">{t('common.saving').replace('...', '')}</span>
               </div>
             )}
           </div>
@@ -386,7 +611,7 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
             
             {!isPhotoLoading && (
               <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-[10px] font-bold rounded opacity-0 group-hover/cam:opacity-100 whitespace-nowrap pointer-events-none transition-opacity">
-                Change Photo
+                {t('common.edit_profile').replace('Profile', 'Photo')}
               </div>
             )}
           </button>
@@ -446,7 +671,13 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
                   onClick={() => {
                     setErrorMsg('');
                     setSuccessMsg('');
-                    setActiveModal(item.id);
+                    if (item.id === 'referral' && onOpenReferralCentre) {
+                      onOpenReferralCentre();
+                    } else if (item.id === 'preferences' && onOpenPreferences) {
+                      onOpenPreferences();
+                    } else {
+                      setActiveModal(item.id);
+                    }
                   }}
                   className={`w-full flex items-center justify-between p-4 transition-colors cursor-pointer ${itemHover} ${
                     i !== section.items.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''
@@ -482,7 +713,7 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
             }`}>
               <LogOut className="w-4 h-4" />
             </div>
-            <span className="font-bold text-sm">Log Out</span>
+            <span className="font-bold text-sm">{t('common.logout')}</span>
           </div>
         </button>
       </div>
@@ -500,7 +731,7 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
               initial={{ scale: 0.95, y: 20 }} 
               animate={{ scale: 1, y: 0 }} 
               exit={{ scale: 0.95, y: 20 }}
-              className={`w-full max-w-md rounded-[28px] p-6 max-h-[85vh] overflow-y-auto flex flex-col ${modalBgClasses}`}
+              className={`w-full ${activeModal === 'notifications' ? 'max-w-xl md:max-w-2xl' : 'max-w-md'} rounded-[28px] p-6 max-h-[85vh] overflow-y-auto flex flex-col transition-all duration-300 ${modalBgClasses}`}
             >
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-black tracking-tight flex items-center">
@@ -512,13 +743,17 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
                   {activeModal === 'notifications' && <Bell className="w-5 h-5 mr-2 text-emerald-500" />}
                   {activeModal === 'preferences' && <Settings className="w-5 h-5 mr-2 text-emerald-500" />}
                   
-                  {activeModal === 'edit' && 'Edit Profile'}
-                  {activeModal === 'password' && 'Change Password'}
-                  {activeModal === '2fa' && 'Two-Factor Auth'}
-                  {activeModal === 'referral' && 'Referral Program'}
-                  {activeModal === 'wallets' && 'Linked Crypto Wallets'}
-                  {activeModal === 'notifications' && 'Notification Toggles'}
-                  {activeModal === 'preferences' && 'User Preferences'}
+                  {activeModal === 'edit' && t('common.edit_profile')}
+                  {activeModal === 'password' && t('common.change_password')}
+                  {activeModal === '2fa' && (
+                    twoFactorFlowStep === 'confirm_identity' ? (twoFactorFlowType === 'activate' ? 'Confirm Your Identity' : 'Disable Two-Factor Auth') :
+                    twoFactorFlowStep === 'enter_code' ? 'Verify Code' :
+                    twoFactorFlowStep === 'verified' ? 'Identity Verified' :
+                    'Two-Factor Auth'
+                  )}
+                  {activeModal === 'referral' && t('common.referral_program')}
+                  {activeModal === 'wallets' && t('common.linked_wallets')}
+                  {activeModal === 'notifications' && t('common.notification_settings')}
                 </h3>
                 <button 
                   onClick={closeModal} 
@@ -545,6 +780,18 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
               {/* Edit Profile Modal Content */}
               {activeModal === 'edit' && (
                 <form onSubmit={handleProfileUpdateSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">Full Name</label>
+                    <input 
+                      type="text" 
+                      value={displayName} 
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Enter your full name"
+                      className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
+                        isDark ? 'bg-slate-950 border-white/10 text-white' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">Username</label>
                     <div className="relative">
@@ -730,52 +977,282 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
 
               {/* Two-Factor Auth Configuration */}
               {activeModal === '2fa' && (
-                <div className="space-y-4 text-center">
-                  <div className="flex justify-center mb-2">
-                    <div className={`p-4 rounded-full ${isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
-                      <ShieldCheck className="w-10 h-10" />
-                    </div>
-                  </div>
-                  <p className={`text-xs leading-relaxed ${textSecondary}`}>
-                    Two-Factor Authentication adds an extra layer of protection by requiring a security code on logins.
-                  </p>
-                  
-                  <div className={`p-4 rounded-2xl border text-left ${isDark ? 'bg-slate-950 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
-                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Aver 2FA Backup Key</p>
-                    <div className="flex justify-between items-center bg-black/10 px-3 py-2 rounded-lg border border-white/5">
-                      <span className="font-mono text-xs font-bold text-emerald-400">AV7X-98PQ-LK52-MS90</span>
-                      <button onClick={() => {
-                        navigator.clipboard.writeText("AV7X-98PQ-LK52-MS90");
-                        alert('Backup key copied to clipboard.');
-                      }} className="text-gray-400 hover:text-white cursor-pointer"><Copy className="w-3.5 h-3.5" /></button>
-                    </div>
-                  </div>
+                <div className="space-y-5">
+                  {/* STEP 1: intro */}
+                  {twoFactorFlowStep === 'intro' && (
+                    <div className="space-y-4 text-center">
+                      <div className="flex justify-center mb-2">
+                        {preferences.twoFactorEnabled ? (
+                          <div className="flex justify-center">
+                            <div className={`p-4 rounded-full relative ${isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
+                              <ShieldCheck className="w-10 h-10 animate-pulse" />
+                              <span className="absolute top-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-slate-950 rounded-full animate-ping" />
+                              <span className="absolute top-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-slate-950 rounded-full" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className={`p-4 rounded-full ${isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
+                            <ShieldCheck className="w-10 h-10" />
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-center">
+                          {preferences.twoFactorEnabled ? (
+                            <div className="flex items-center space-x-1.5 py-1 px-3 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              <span>2FA ENABLED</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1.5 py-1 px-3 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                              <span>2FA DISABLED</span>
+                            </div>
+                          )}
+                        </div>
+                        <p className={`text-xs leading-relaxed ${textSecondary}`}>
+                          {preferences.twoFactorEnabled 
+                            ? 'Your account is fully secured. Two-Factor Authentication is currently active, safeguarding your transactions and personal details.'
+                            : 'Two-Factor Authentication adds an extra layer of protection by requiring a 6-character verification code sent to your email whenever you log in or change settings.'
+                          }
+                        </p>
+                      </div>
 
-                  <form onSubmit={handleToggle2FA} className="space-y-4 pt-2">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">Verification Code</label>
-                      <input 
-                        type="text" 
-                        placeholder="Enter 123456 to verify"
-                        maxLength={6}
-                        value={twoFactorCode} 
-                        onChange={(e) => setTwoFactorCode(e.target.value)}
-                        className={`w-full text-center tracking-widest font-mono font-bold text-lg px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
-                          isDark ? 'bg-slate-950 border-white/10 text-white' : 'bg-slate-50 border-slate-200'
+                      <button 
+                        onClick={() => {
+                          setErrorMsg('');
+                          setSuccessMsg('');
+                          if (preferences.twoFactorEnabled) {
+                            setTwoFactorFlowType('deactivate');
+                          } else {
+                            setTwoFactorFlowType('activate');
+                          }
+                          setTwoFactorFlowStep('confirm_identity');
+                        }}
+                        className={`w-full py-3 font-extrabold rounded-xl transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-lg ${
+                          preferences.twoFactorEnabled 
+                            ? 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-500/20' 
+                            : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/20'
                         }`}
-                      />
+                      >
+                        {preferences.twoFactorEnabled ? 'Disable 2FA Security' : 'Activate 2FA Security'}
+                      </button>
                     </div>
-                    <button 
-                      type="submit"
-                      className={`w-full py-3 font-bold rounded-xl mt-4 hover:scale-[1.02] transition-transform active:scale-95 cursor-pointer ${
-                        preferences.twoFactorEnabled 
-                          ? 'bg-rose-500 text-white' 
-                          : 'bg-emerald-500 text-black'
-                      }`}
-                    >
-                      {preferences.twoFactorEnabled ? 'Deactivate 2FA Security' : 'Activate 2FA Security'}
-                    </button>
-                  </form>
+                  )}
+
+                  {/* STEP 2: confirm_identity */}
+                  {twoFactorFlowStep === 'confirm_identity' && (
+                    <div className="space-y-5 text-left">
+                      {twoFactorFlowType === 'activate' ? (
+                        <>
+                          <p className={`text-xs leading-relaxed ${textSecondary}`}>
+                            Before enabling Two-Factor Authentication, please verify that you are the owner of this account.
+                          </p>
+                          
+                          {/* User Info Card */}
+                          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-white/5' : 'bg-slate-50 border-slate-100'} space-y-2.5 text-xs font-mono`}>
+                            <div className="flex justify-between">
+                              <span className={textSecondary}>• Username</span>
+                              <span className={`${textPrimary} font-bold`}>@{user?.username || 'user'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className={textSecondary}>• Email Address</span>
+                              <span className={`${textPrimary} font-bold`}>{user?.email || 'user@example.com'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className={textSecondary}>• Member Tier</span>
+                              <span className="text-[#e6a865] font-extrabold flex items-center space-x-1">
+                                <span>🥉</span>
+                                <span>Bronze Member</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2 pt-1">
+                            <h4 className={`text-[10px] font-bold uppercase tracking-wider ${textSecondary}`}>Verification Method</h4>
+                            <div className={`p-4 rounded-2xl border flex items-start space-x-3 bg-emerald-500/5 border-emerald-500/20`}>
+                              <span className="text-xl mt-0.5">📧</span>
+                              <div>
+                                <span className={`block text-xs font-bold ${textPrimary}`}>Email Verification</span>
+                                <span className={`block text-[10px] leading-normal ${textSecondary} mt-0.5`}>
+                                  A 6-character security code will be sent to your registered email address.
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex justify-center my-2">
+                            <div className="p-3 bg-rose-500/10 text-rose-400 rounded-full border border-rose-500/20">
+                              <AlertTriangle className="w-8 h-8" />
+                            </div>
+                          </div>
+                          <div className="text-center space-y-2">
+                            <p className={`text-xs leading-relaxed ${textSecondary}`}>
+                              Disabling Two-Factor Authentication will reduce the security of your account. To continue, verify your identity.
+                            </p>
+                          </div>
+                          
+                          <div className={`p-3.5 rounded-xl border text-center ${isDark ? 'bg-slate-950 border-white/5' : 'bg-slate-50 border-slate-100'} text-xs font-mono`}>
+                            <span className={textSecondary}>Registered Email: </span>
+                            <span className={`${textPrimary} font-bold`}>{user?.email || 'user@example.com'}</span>
+                          </div>
+                        </>
+                      )}
+
+                      <button 
+                        onClick={handleSend2FACode}
+                        className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold rounded-xl transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-2 mt-4"
+                      >
+                        <span>Send Verification Code</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* STEP 3: sending */}
+                  {twoFactorFlowStep === 'sending' && (
+                    <div className="text-center py-8 space-y-6">
+                      <div className="flex justify-center">
+                        <div className="relative w-16 h-16">
+                          <div className="absolute inset-0 rounded-full border-2 border-emerald-500/10 animate-ping" />
+                          <div className="absolute inset-0 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className={`text-base font-extrabold tracking-tight ${textPrimary}`}>
+                          Generating Secure Key...
+                        </h4>
+                        <p className={`text-xs ${textSecondary}`}>
+                          A highly secure 2FA token is being routed to your registered mailbox. Please hold...
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 4: enter_code */}
+                  {twoFactorFlowStep === 'enter_code' && (
+                    <div className="space-y-5 text-center">
+                      <div className="space-y-1.5">
+                        <p className={`text-xs leading-relaxed ${textSecondary}`}>
+                          We have dispatched a 6-character security code to <span className={`${textPrimary} font-bold`}>{user?.email}</span>. Please enter it below.
+                        </p>
+                      </div>
+
+                      {/* Six Alphanumeric Inputs */}
+                      <motion.div 
+                        animate={twoFactorShakeInputs ? { x: [-8, 8, -6, 6, -4, 4, 0] } : {}}
+                        transition={{ duration: 0.4 }}
+                        className="flex justify-center space-x-2.5 py-2"
+                      >
+                        {twoFactorEnteredCode.map((char, index) => (
+                          <input 
+                            key={index}
+                            type="text"
+                            maxLength={1}
+                            value={char}
+                            ref={(el) => { twoFactorInputRefs.current[index] = el; }}
+                            onChange={(e) => handleInputChange(index, e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(index, e)}
+                            disabled={!!(twoFactorDisabledUntil && Date.now() < twoFactorDisabledUntil)}
+                            className={`w-11 h-13 text-center text-lg font-black font-mono rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
+                              isDark ? 'bg-slate-950 border-white/10 text-white' : 'bg-slate-50 border-slate-200'
+                            } ${
+                              twoFactorDisabledUntil && Date.now() < twoFactorDisabledUntil ? 'opacity-40 cursor-not-allowed' : ''
+                            }`}
+                          />
+                        ))}
+                      </motion.div>
+
+                      {/* Resend status */}
+                      <div className="text-xs">
+                        {twoFactorResendCountdown > 0 ? (
+                          <p className={textSecondary}>
+                            Resend available in <span className="font-bold text-emerald-400 font-mono">{twoFactorResendCountdown}s</span>
+                          </p>
+                        ) : (
+                          <button 
+                            onClick={handleSend2FACode}
+                            disabled={!!(twoFactorDisabledUntil && Date.now() < twoFactorDisabledUntil)}
+                            className={`text-emerald-400 hover:text-emerald-300 font-bold transition-colors cursor-pointer ${
+                              twoFactorDisabledUntil && Date.now() < twoFactorDisabledUntil ? 'opacity-40 cursor-not-allowed' : ''
+                            }`}
+                          >
+                            Resend Verification Code
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 5: verified */}
+                  {twoFactorFlowStep === 'verified' && (
+                    <div className="text-center py-4 space-y-6">
+                      <div className="flex justify-center">
+                        <motion.div 
+                          initial={{ scale: 0.5, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                          className="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center border border-emerald-500/20 relative"
+                        >
+                          <ShieldCheck className="w-8 h-8 text-emerald-400" />
+                          <motion.div 
+                            initial={{ scale: 1, opacity: 0.4 }}
+                            animate={{ scale: 1.5, opacity: 0 }}
+                            transition={{ repeat: Infinity, duration: 2, ease: "easeOut" }}
+                            className="absolute inset-0 bg-emerald-500/20 rounded-full"
+                          />
+                        </motion.div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <h4 className={`text-base font-extrabold tracking-tight ${textPrimary}`}>
+                          Identity Verified
+                        </h4>
+                        <p className={`text-xs leading-relaxed ${textSecondary} max-w-sm mx-auto`}>
+                          {twoFactorFlowType === 'activate' 
+                            ? "Your account is now fully protected with Two-Factor Authentication." 
+                            : "Two-Factor Authentication has been successfully disabled for your account."}
+                        </p>
+                      </div>
+
+                      <button 
+                        onClick={handleFinish2FA}
+                        className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold rounded-xl transition-all hover:scale-[1.02] active:scale-95 cursor-pointer shadow-lg shadow-emerald-500/20"
+                      >
+                        Finish
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Extra Polish Security Summary Footer */}
+                  {['intro', 'confirm_identity', 'enter_code'].includes(twoFactorFlowStep) && (
+                    <div className={`mt-4 pt-4 border-t text-left ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
+                      <h4 className="text-[10px] font-bold text-emerald-400 flex items-center space-x-1.5 mb-2.5 uppercase tracking-wider">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>🟢 Security Status</span>
+                      </h4>
+                      <ul className="space-y-1.5 text-xs font-mono">
+                        <li className="flex justify-between items-center">
+                          <span className={`${textSecondary} text-[11px]`}>• Email Verified</span>
+                          <span className="text-emerald-400 font-extrabold">✓</span>
+                        </li>
+                        <li className="flex justify-between items-center">
+                          <span className={`${textSecondary} text-[11px]`}>• Password Protected</span>
+                          <span className="text-emerald-400 font-extrabold">✓</span>
+                        </li>
+                        <li className="flex justify-between items-center">
+                          <span className={`${textSecondary} text-[11px]`}>• Two-Factor Authentication</span>
+                          {preferences.twoFactorEnabled ? (
+                            <span className="text-emerald-400 font-extrabold">✓</span>
+                          ) : (
+                            <span className="text-rose-400 font-extrabold">✗</span>
+                          )}
+                        </li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -862,185 +1339,164 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
 
               {/* Notification Toggles */}
               {activeModal === 'notifications' && (
-                <div className="space-y-4 pt-2">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center py-2">
+                <div className="space-y-6 pt-2">
+                  {/* Master Switch Card */}
+                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="flex justify-between items-center">
                       <div>
-                        <p className={`text-sm font-bold ${textPrimary}`}>Enable All Notifications</p>
-                        <p className="text-[10px] text-gray-500">Master switch for all notifications.</p>
+                        <h4 className={`text-base font-black ${textPrimary}`}>Notifications</h4>
+                        <p className="text-xs text-gray-400 mt-0.5">Choose how Aver communicates with you.</p>
                       </div>
-                      <input 
-                        type="checkbox" 
+                      <ToggleSwitch 
                         checked={preferences.notifications?.master ?? true}
-                        onChange={(e) => {
-                          const val = e.target.checked;
+                        onChange={(val) => {
                           updatePreference('notifications', {
                             ...preferences.notifications,
                             master: val
                           });
                         }}
-                        className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
                       />
                     </div>
-                    
-                    <div className={`space-y-3 pt-2 ${(preferences.notifications?.master ?? true) ? '' : 'opacity-50 pointer-events-none'}`}>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>Security Alerts</p>
-                          <p className="text-[10px] text-gray-500">Logins, password changes, key security events.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.security ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            security: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>Profile Updates</p>
-                          <p className="text-[10px] text-gray-500">Changes to your account settings.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.profile ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            profile: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>Deposits</p>
-                          <p className="text-[10px] text-gray-500">When funds arrive in your account.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.deposits ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            deposits: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>Withdrawals</p>
-                          <p className="text-[10px] text-gray-500">Updates on your withdrawal requests.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.withdrawals ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            withdrawals: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>Trading Activity</p>
-                          <p className="text-[10px] text-gray-500">Updates on your open positions.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.trading ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            trading: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>AI Signals</p>
-                          <p className="text-[10px] text-gray-500">Real-time alerts for optimizer entry & exit points.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.signals ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            signals: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>System Updates</p>
-                          <p className="text-[10px] text-gray-500">Maintenance and new feature announcements.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.system ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            system: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>Referral Updates</p>
-                          <p className="text-[10px] text-gray-500">When your invites join or you earn fees.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.referrals ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            referrals: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <div>
-                          <p className={`text-sm font-bold ${textPrimary}`}>Marketing Messages</p>
-                          <p className="text-[10px] text-gray-500">Platform updates, promotions, staking rewards.</p>
-                        </div>
-                        <input 
-                          type="checkbox" 
-                          checked={preferences.notifications?.marketing ?? true}
-                          onChange={(e) => updatePreference('notifications', {
-                            ...preferences.notifications,
-                            marketing: e.target.checked
-                          })}
-                          className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
-                        />
-                      </div>
+                  </div>
 
-                      {/* Divider and Sound Settings */}
-                      <div className="border-t border-white/5 mt-4 pt-3">
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Sound Settings</p>
-                        <div className="flex justify-between items-center py-1">
+                  {/* Settings Sections */}
+                  <div className={`space-y-4 ${(preferences.notifications?.master ?? true) ? '' : 'opacity-50 pointer-events-none'}`}>
+                    
+                    {/* Security Alerts */}
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><Shield className="w-5 h-5 text-emerald-500" /></div>
                           <div>
-                            <p className={`text-sm font-bold ${textPrimary}`}>Critical Alert Sounds</p>
-                            <p className="text-[10px] text-gray-500">Play an elegant synth chime when a new critical market alert arrives.</p>
+                            <p className={`text-sm font-bold ${textPrimary}`}>Security Alerts</p>
+                            <p className="text-[10px] text-gray-500">Receive notifications for important security events.</p>
                           </div>
-                          <input 
-                            type="checkbox" 
-                            checked={preferences.notifications?.criticalAlertsSound ?? true}
-                            onChange={(e) => updatePreference('notifications', {
-                              ...preferences.notifications,
-                              criticalAlertsSound: e.target.checked
-                            })}
-                            className="w-10 h-5 accent-emerald-500 bg-slate-900 border-white/5 rounded cursor-pointer"
+                        </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.security ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, security: val })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Account Activity */}
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><User className="w-5 h-5 text-emerald-500" /></div>
+                          <div>
+                            <p className={`text-sm font-bold ${textPrimary}`}>Account Activity</p>
+                            <p className="text-[10px] text-gray-500">Notifications for profile and account changes.</p>
+                          </div>
+                        </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.profile ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, profile: val })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Trading Activity */}
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><TrendingUp className="w-5 h-5 text-emerald-500" /></div>
+                          <div>
+                            <p className={`text-sm font-bold ${textPrimary}`}>Trading Activity</p>
+                            <p className="text-[10px] text-gray-500">Updates on your trades and portfolio.</p>
+                          </div>
+                        </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.trading ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, trading: val })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Deposits & Withdrawals */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex flex-col gap-2">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg self-start"><ArrowDownCircle className="w-5 h-5 text-emerald-500" /></div>
+                          <div>
+                            <p className={`text-sm font-bold ${textPrimary}`}>Deposits</p>
+                            <p className="text-[10px] text-gray-500">Funds arrival alerts.</p>
+                          </div>
+                          <ToggleSwitch 
+                            checked={preferences.notifications?.deposits ?? true}
+                            onChange={(val) => updatePreference('notifications', { ...preferences.notifications, deposits: val })}
+                          />
+                        </div>
+                      </div>
+                      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex flex-col gap-2">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg self-start"><ArrowUpCircle className="w-5 h-5 text-emerald-500" /></div>
+                          <div>
+                            <p className={`text-sm font-bold ${textPrimary}`}>Withdrawals</p>
+                            <p className="text-[10px] text-gray-500">Status updates.</p>
+                          </div>
+                          <ToggleSwitch 
+                            checked={preferences.notifications?.withdrawals ?? true}
+                            onChange={(val) => updatePreference('notifications', { ...preferences.notifications, withdrawals: val })}
                           />
                         </div>
                       </div>
                     </div>
+
+                    {/* Rewards */}
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><Gift className="w-5 h-5 text-emerald-500" /></div>
+                          <div>
+                            <p className={`text-sm font-bold ${textPrimary}`}>Rewards</p>
+                            <p className="text-[10px] text-gray-500">Updates on bonuses and referral rewards.</p>
+                          </div>
+                        </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.rewards ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, rewards: val })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* System Updates */}
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><Cpu className="w-5 h-5 text-emerald-500" /></div>
+                          <div>
+                            <p className={`text-sm font-bold ${textPrimary}`}>System Updates</p>
+                            <p className="text-[10px] text-gray-500">Maintenance and new features.</p>
+                          </div>
+                        </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.system ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, system: val })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Marketing */}
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><Megaphone className="w-5 h-5 text-emerald-500" /></div>
+                          <div>
+                            <p className={`text-sm font-bold ${textPrimary}`}>Marketing</p>
+                            <p className="text-[10px] text-gray-500">Promotions and newsletters.</p>
+                          </div>
+                        </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.marketing ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, marketing: val })}
+                        />
+                      </div>
+                    </div>
+
                   </div>
+                  
+                  <p className="text-center text-[10px] text-gray-500 pt-4">All changes are saved automatically.</p>
                 </div>
               )}
 
@@ -1183,6 +1639,36 @@ export default function ProfileView({ theme, onOpenBonusCenter }: { theme: 'ligh
                 </pre>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Application Success Toast */}
+      <AnimatePresence>
+        {profileToast?.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className={`fixed bottom-6 left-6 z-50 max-w-sm w-full p-4 rounded-2xl shadow-2xl flex items-center space-x-3 border ${
+              isDark 
+                ? 'bg-[#0f172a] border-white/10 text-white shadow-emerald-500/5' 
+                : 'bg-white border-slate-200 text-slate-900 shadow-slate-200/50'
+            }`}
+          >
+            <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center bg-emerald-500/10 text-emerald-400">
+              <Check className="w-4 h-4" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-bold font-mono text-emerald-400 uppercase tracking-wider">System Update</p>
+              <p className="text-xs font-medium mt-0.5 leading-snug">{profileToast.message}</p>
+            </div>
+            <button 
+              onClick={() => setProfileToast(null)}
+              className="text-gray-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

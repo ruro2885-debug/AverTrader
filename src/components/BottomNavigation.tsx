@@ -1,6 +1,7 @@
 import React from 'react';
 import { House, ChartCandlestick, Bot, Wallet, Compass } from 'lucide-react';
 import { motion } from 'motion/react';
+import { usePreferences } from '../contexts/PreferencesContext';
 
 interface NavItem {
   name: string;
@@ -14,12 +15,13 @@ interface BottomNavigationProps {
 }
 
 export default function BottomNavigation({ activeTab, onTabChange }: BottomNavigationProps) {
+  const { t } = usePreferences();
   const navItems: NavItem[] = [
-    { name: 'Home', icon: House, id: 'home' },
-    { name: 'Markets', icon: ChartCandlestick, id: 'markets' },
-    { name: 'AI', icon: Bot, id: 'ai' },
-    { name: 'Portfolio', icon: Wallet, id: 'portfolio' },
-    { name: 'Discover', icon: Compass, id: 'discover' },
+    { name: t('common.home'), icon: House, id: 'home' },
+    { name: t('common.market'), icon: ChartCandlestick, id: 'markets' },
+    { name: t('common.ai'), icon: Bot, id: 'ai' },
+    { name: t('common.portfolio'), icon: Wallet, id: 'portfolio' },
+    { name: t('common.discover'), icon: Compass, id: 'discover' },
   ];
 
   return (

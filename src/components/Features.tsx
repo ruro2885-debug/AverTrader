@@ -69,14 +69,12 @@ export default function Features({ theme }: FeaturesProps) {
             <h3 className={`font-display text-2xl sm:text-3xl font-bold tracking-tight ${
               isDark ? 'text-white' : 'text-slate-900'
             }`}>
-              Sub-Millisecond Algorithmic Routing.
+              {t('feat.routing_title')}
             </h3>
             <p className={`text-sm sm:text-base font-light leading-relaxed font-sans ${
               isDark ? 'text-gray-400' : 'text-gray-600'
             }`}>
-              Aver bypasses conventional retail gateways, utilizing direct co-location pathways to 
-              major decentralized liquidity pools. This architecture eliminates middleman latency, 
-              ensuring your autonomous systems execute precisely at the projected entry price.
+              {t('feat.routing_desc')}
             </p>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
@@ -117,13 +115,12 @@ export default function Features({ theme }: FeaturesProps) {
             <h3 className={`font-display text-2xl sm:text-3xl font-bold tracking-tight ${
               isDark ? 'text-white' : 'text-slate-900'
             }`}>
-              Zero-Knowledge Defense Vault.
+              {t('feat.security_title')}
             </h3>
             <p className={`text-sm sm:text-base font-light leading-relaxed font-sans ${
               isDark ? 'text-gray-400' : 'text-gray-600'
             }`}>
-              Aver protects client capital and secure parameters using an advanced cryptographic shell. 
-              With full zero-knowledge key isolation, no personal identifiers or access keys are ever stored on-chain or on centralized databases, insulating you from breach vectors.
+              {t('feat.security_desc')}
             </p>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
@@ -165,13 +162,12 @@ export default function Features({ theme }: FeaturesProps) {
             <h3 className={`font-display text-2xl sm:text-3xl font-bold tracking-tight ${
               isDark ? 'text-white' : 'text-slate-900'
             }`}>
-              Quantum Predictive Modeling.
+              {t('feat.quantum_title')}
             </h3>
             <p className={`text-sm sm:text-base font-light leading-relaxed font-sans ${
               isDark ? 'text-gray-400' : 'text-gray-600'
             }`}>
-              Gain access to rich analytical models designed by top-tier financial researchers. 
-              The platform produces live visual metrics, heatmaps, and trend projections powered by neural training, revealing market structure anomalies before they materialize.
+              {t('feat.quantum_desc')}
             </p>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">

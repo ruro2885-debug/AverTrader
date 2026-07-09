@@ -10,6 +10,8 @@ import CoinLogo from './CoinLogo';
 import ProfileView from './ProfileView';
 import DiscoverView from './DiscoverView';
 import BonusCenter from './BonusCenter';
+import ReferralCentre from './ReferralCentre';
+import Preferences from './Preferences';
 import { NotificationCenter } from './NotificationCenter';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
@@ -39,7 +41,7 @@ const news = [
 export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   const [activeTab, setActiveTab] = useState('home');
   const { user, addDeposit, addWithdrawal, clearNotifications } = useAuth();
-  const { formatCurrency } = usePreferences();
+  const { formatCurrency, t } = usePreferences();
   const isDark = theme === 'dark';
 
   // Interactive transaction state
@@ -174,7 +176,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               </div>
             </button>
             <div>
-              <p className={`text-xs ${textSecondary}`}>Hello there,</p>
+              <p className={`text-xs ${textSecondary}`}>{t('val.loading').replace('...', '')}</p>
               <h1 className={`text-lg font-bold tracking-tight ${textPrimary}`}>
                 @{user?.username || user?.email?.split('@')[0] || 'user'}
               </h1>
@@ -207,7 +209,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               <motion.div variants={itemVariants} className={`rounded-[24px] p-6 relative overflow-hidden ${cardClasses}`}>
                 <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[40px] rounded-full" />
                 
-                <p className={`text-sm font-medium ${textSecondary} mb-1`}>Total Portfolio Value</p>
+                <p className={`text-sm font-medium ${textSecondary} mb-1`}>{t('stats.volume').replace('Quarterly Volume', 'Portfolio Value')}</p>
                 <h2 className={`text-3xl sm:text-4xl font-black tracking-tight ${textPrimary} mb-4`}>
                   {totalValueFormatted}
                 </h2>
@@ -234,7 +236,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                     className="flex flex-col items-center justify-center p-3 rounded-2xl bg-emerald-500 text-slate-950 font-bold text-sm transition-transform hover:scale-[1.02] active:scale-95 shadow-[0_4px_14px_rgba(16,185,129,0.3)] cursor-pointer"
                   >
                     <ArrowDownRight className="w-5 h-5 mb-1" />
-                    Deposit
+                    {t('common.deposit')}
                   </button>
                   <button 
                     onClick={() => {
@@ -246,14 +248,14 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                     className={`flex flex-col items-center justify-center p-3 rounded-2xl font-bold text-sm transition-transform hover:scale-[1.02] active:scale-95 border cursor-pointer ${isDark ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-50'}`}
                   >
                     <ArrowUpRight className="w-5 h-5 mb-1" />
-                    Withdraw
+                    {t('common.withdrawal')}
                   </button>
                   <button 
                     onClick={() => alert('Trade module integration is coming in the next release.')}
                     className={`flex flex-col items-center justify-center p-3 rounded-2xl font-bold text-sm transition-transform hover:scale-[1.02] active:scale-95 border cursor-pointer ${isDark ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-50'}`}
                   >
                     <ArrowRightLeft className="w-5 h-5 mb-1" />
-                    Trade
+                    {t('common.market').replace('Marché', 'Trade')}
                   </button>
                 </div>
               </motion.div>
@@ -262,8 +264,8 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               <motion.div variants={itemVariants}>
                 <div className="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
                   {[
-                    { name: 'Deposit', icon: ArrowDownRight, action: () => setShowDepositModal(true) },
-                    { name: 'Withdraw', icon: ArrowUpRight, action: () => setShowWithdrawModal(true) },
+                    { name: t('common.deposit'), icon: ArrowDownRight, action: () => setShowDepositModal(true) },
+                    { name: t('common.withdrawal'), icon: ArrowUpRight, action: () => setShowWithdrawModal(true) },
                     { name: 'Swap', icon: ArrowRightLeft, action: () => alert('Swap features coming soon.') },
                     { name: 'Copy Trade', icon: Copy, action: () => alert('Copy Trading system is currently being simulated.') },
                     { name: 'Transfer', icon: Zap, action: () => alert('Inter-account transfer available soon.') },
@@ -288,7 +290,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                 <div className="flex justify-between items-end mb-3">
                   <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
                     <Brain className="w-5 h-5 mr-2 text-emerald-500" />
-                    AI Signals
+                    {t('hero.badge.ai').replace('Powered by ', '')}
                   </h3>
                   <button className={`text-xs font-bold text-emerald-500 hover:text-emerald-400 flex items-center`}>
                     View All <ChevronRight className="w-3 h-3 ml-0.5" />
@@ -333,7 +335,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                   <div className="flex justify-between items-end mb-3">
                     <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
                       <Activity className="w-5 h-5 mr-2 text-blue-500" />
-                      Market Overview
+                      {t('common.market')}
                     </h3>
                     <button className={`text-xs font-bold text-blue-500 hover:text-blue-400 flex items-center`}>
                       More <ChevronRight className="w-3 h-3 ml-0.5" />
@@ -458,10 +460,12 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
           )}
 
           {activeTab === 'discover' && <DiscoverView theme={theme} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => setActiveTab('bonus-center')} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => setActiveTab('bonus-center')} onOpenReferralCentre={() => setActiveTab('referral-centre')} onOpenPreferences={() => setActiveTab('preferences')} />}
           {activeTab === 'bonus-center' && <BonusCenter theme={theme} onBack={() => setActiveTab('profile')} />}
+          {activeTab === 'referral-centre' && <ReferralCentre theme={theme} onBack={() => setActiveTab('profile')} />}
+          {activeTab === 'preferences' && <Preferences theme={theme} onBack={() => setActiveTab('profile')} />}
           
-          {activeTab !== 'home' && activeTab !== 'discover' && activeTab !== 'profile' && activeTab !== 'bonus-center' && (
+          {activeTab !== 'home' && activeTab !== 'discover' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}
@@ -506,7 +510,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               className={`w-full max-w-md rounded-[28px] p-6 ${modalBgClasses}`}
             >
               <div className="flex justify-between items-center mb-6">
-                <h3 className={`text-lg font-black tracking-tight ${textPrimary}`}>Deposit Capital</h3>
+                <h3 className={`text-lg font-black tracking-tight ${textPrimary}`}>{t('common.deposit')}</h3>
                 <button 
                   onClick={() => setShowDepositModal(false)}
                   className={`p-1.5 rounded-full hover:bg-white/5 ${textSecondary} cursor-pointer`}
@@ -517,7 +521,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
 
               <form onSubmit={handleDepositSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Amount to Deposit (USD)</label>
+                  <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('common.amount_deposit')}</label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
                     <input 
@@ -557,7 +561,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                   {txLoading ? (
                     <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <span>Confirm Deposit</span>
+                    <span>{t('common.confirm_deposit')}</span>
                   )}
                 </button>
               </form>
@@ -582,7 +586,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               className={`w-full max-w-md rounded-[28px] p-6 ${modalBgClasses}`}
             >
               <div className="flex justify-between items-center mb-6">
-                <h3 className={`text-lg font-black tracking-tight ${textPrimary}`}>Withdraw Funds</h3>
+                <h3 className={`text-lg font-black tracking-tight ${textPrimary}`}>{t('common.withdrawal')}</h3>
                 <button 
                   onClick={() => setShowWithdrawModal(false)}
                   className={`p-1.5 rounded-full hover:bg-white/5 ${textSecondary} cursor-pointer`}
@@ -594,7 +598,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               <form onSubmit={handleWithdrawalSubmit} className="space-y-4">
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Amount to Withdraw (USD)</label>
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('common.amount_withdrawal')}</label>
                     <span className="text-[10px] text-gray-500 font-semibold font-mono">Max: {totalValueFormatted}</span>
                   </div>
                   <div className="relative">
@@ -636,7 +640,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                   {txLoading ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <span>Confirm Withdrawal</span>
+                    <span>{t('common.confirm_withdrawal')}</span>
                   )}
                 </button>
               </form>

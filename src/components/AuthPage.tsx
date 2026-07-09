@@ -5,6 +5,7 @@ import AverLogo from './AverLogo';
 import PolicyReader from './PolicyReader';
 import WelcomeBonusCard from './WelcomeBonusCard';
 import { useAuth } from '../contexts/AuthContext';
+import { usePreferences } from '../contexts/PreferencesContext';
 
 interface AuthPageProps {
   theme: 'light' | 'dark';
@@ -16,6 +17,7 @@ interface AuthPageProps {
 export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
   const { signUp, signIn, forgotPassword, updatePasswordByEmail } = useAuth();
+  const { t } = usePreferences();
   const [view, setView] = useState<'register' | 'login' | 'forgot-password' | 'forgot-password-verify' | 'forgot-password-reset' | 'forgot-password-success'>('register');
   const [showPassword, setShowPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -446,7 +448,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
             }`}
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Go Back</span>
+            <span>{t('common.back')}</span>
           </button>
           
           <AverLogo theme={theme} size={36} showText={true} />
@@ -494,7 +496,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 {/* Welcome headings */}
                 <div className="space-y-2">
                   <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tighter">
-                    Create Account
+                    {t('auth.create_account')}
                   </h2>
                 </div>
 
@@ -509,7 +511,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Full Name</label>
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('auth.full_name')}</label>
                     <input 
                       type="text" 
                       required
@@ -526,7 +528,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Email Address</label>
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('auth.email')}</label>
                     <input 
                       type="email" 
                       required
@@ -542,7 +544,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </div>
 
                   <div className="space-y-1.5 relative">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Secure Password</label>
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('auth.password')}</label>
                     <div className="relative">
                       <input 
                         type={showPassword ? "text" : "password"} 
@@ -759,7 +761,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
                   {/* Confirm Password Field */}
                   <div className="space-y-1.5 relative">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Confirm Password</label>
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('auth.confirm_password')}</label>
                     <div className="relative">
                       <input 
                         type={showConfirmPassword ? "text" : "password"} 
@@ -845,7 +847,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
                     ) : (
                       <>
-                        <span className="font-extrabold text-base">Create Account</span>
+                        <span className="font-extrabold text-base">{t('auth.create_account')}</span>
                         <ArrowRight className="w-4.5 h-4.5" />
                       </>
                     )}
@@ -865,7 +867,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 {/* Switch view footer */}
                 <div className="text-center pt-4 border-t border-white/5">
                   <p className="text-xs font-sans font-bold text-gray-500">
-                    Already have an account?{' '}
+                    {t('auth.already_account')}{' '}
                     <button 
                       onClick={() => {
                         setView('login');
@@ -874,7 +876,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       }} 
                       className="text-emerald-400 hover:text-emerald-300 font-extrabold focus:outline-none cursor-pointer"
                     >
-                      Sign In
+                      {t('auth.sign_in')}
                     </button>
                   </p>
                 </div>
@@ -891,7 +893,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 {/* Welcome headings */}
                 <div className="space-y-2">
                   <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tighter">
-                    Sign In To Aver
+                    {t('auth.welcome_back')}
                   </h2>
                 </div>
 
@@ -900,7 +902,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 {/* Email Login Form */}
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Email Address</label>
+                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('auth.email')}</label>
                     <input 
                       type="email" 
                       required
@@ -917,13 +919,13 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
                   <div className="space-y-1.5 relative">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">Security Password</label>
+                      <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('auth.password').replace('Secure', 'Security')}</label>
                       <button 
                         type="button" 
                         onClick={() => setView('forgot-password')}
                         className="text-[10px] font-mono font-bold text-emerald-400 hover:underline cursor-pointer"
                       >
-                        FORGOT PASSWORD?
+                        {t('auth.forgot_password').toUpperCase()}?
                       </button>
                     </div>
                     <div className="relative">
@@ -971,7 +973,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
                     ) : (
                       <>
-                        <span className="font-extrabold text-base">Sign In</span>
+                        <span className="font-extrabold text-base">{t('auth.sign_in')}</span>
                         <ArrowRight className="w-4.5 h-4.5" />
                       </>
                     )}
@@ -981,7 +983,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 {/* Switch view footer */}
                 <div className="text-center pt-4 border-t border-white/5">
                   <p className="text-xs font-sans font-bold text-gray-500">
-                    Don't have an account?{' '}
+                    {t('auth.no_account')}{' '}
                     <button 
                       onClick={() => {
                         setView('register');
@@ -991,7 +993,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       }} 
                       className="text-emerald-400 hover:text-emerald-300 font-extrabold focus:outline-none cursor-pointer"
                     >
-                      Create Account
+                      {t('auth.create_account')}
                     </button>
                   </p>
                 </div>

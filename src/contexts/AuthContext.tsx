@@ -108,6 +108,13 @@ export interface HistoryItem {
   status: string;
 }
 
+export interface ReferralStats {
+  totalReferrals: number;
+  successfulReferrals: number;
+  pendingReferrals: number;
+  totalRewardsEarned: number;
+}
+
 export interface User {
   uid: string;
   email: string | null;
@@ -116,6 +123,7 @@ export interface User {
   password?: string;
   photoURL?: string;
   referralCode?: string;
+  referralStats?: ReferralStats;
   dateCreated: string;
   lastLogin: string;
   onboardingCompleted?: boolean;
@@ -238,7 +246,7 @@ const createDefaultHistory = (): HistoryItem[] => [
 ];
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(() => {
+  const [user, setUserState] = useState<User | null>(() => {
     try {
       const stored = localStorage.getItem('mockUser');
       if (stored) {
@@ -250,6 +258,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return null;
   });
   const [loading, setLoading] = useState(true);
+
+  // Keep a ref to always point to the absolute latest user state to bypass stale closures in async blocks
+  const userRef = useRef<User | null>(user);
+  const setUser = useCallback((val: User | null | ((prev: User | null) => User | null)) => {
+    setUserState((prev) => {
+      const next = typeof val === 'function' ? (val as Function)(prev) : val;
+      userRef.current = next;
+      return next;
+    });
+  }, []);
 
   // Use a ref to track if we've already tried restoring the session to avoid race conditions
   const restoreAttempted = useRef(false);
@@ -263,15 +281,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const restoreSession = async () => {
       try {
+        const isSessionActive = sessionStorage.getItem('aver_session_active');
         const storedUserRaw = localStorage.getItem('mockUser');
+        
         if (storedUserRaw) {
           const parsedUser = JSON.parse(storedUserRaw);
           
+          // If remember me is disabled and this is a new browser session (not a refresh), clear the stored user
+          if (!isSessionActive && parsedUser.preferences?.rememberMeEnabled === false) {
+            localStorage.removeItem('mockUser');
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+
           const usersStr = localStorage.getItem('mockUsers');
           const users = usersStr ? JSON.parse(usersStr) : [];
           const latestUser = users.find((u: any) => u.uid === parsedUser.uid);
           
           if (latestUser) {
+            // Re-validate session if we have multi-session tracking
             if (latestUser.activeSessions && parsedUser.sessionId && !latestUser.activeSessions.includes(parsedUser.sessionId)) {
               localStorage.removeItem('mockUser');
               setUser(null);
@@ -285,6 +314,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setUser(parsedUser);
           }
         }
+        
+        // Mark session as active so refreshes don't logout if Remember Me is off
+        sessionStorage.setItem('aver_session_active', 'true');
       } catch (e) {
         console.error('Failed to restore session', e);
       } finally {
@@ -335,10 +367,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const saveUsers = (users: any[]) => {
+    const latestUser = userRef.current;
     // Keep photoURL ONLY for the currently logged-in user!
     // Strip photoURL for all other users to save up to 100% of the localStorage limit.
     const optimizedUsers = users.map((u: any) => {
-      if (user && u.uid !== user.uid && u.photoURL && u.photoURL.startsWith('data:')) {
+      if (latestUser && u.uid !== latestUser.uid && u.photoURL && u.photoURL.startsWith('data:')) {
         return { ...u, photoURL: undefined };
       }
       return u;
@@ -349,7 +382,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (e) {
       console.error('Failed to save users due to storage limit. Cleaning up all other avatars first...');
       const fallbackUsers = users.map((u: any) => {
-        if (user && u.uid !== user.uid) {
+        if (latestUser && u.uid !== latestUser.uid) {
           return { ...u, photoURL: undefined };
         }
         return u;
@@ -398,12 +431,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (user) {
       const prefs = user.preferences?.notifications || {};
       if (prefs.master === false) return; // Master switch
+      // Category Mapping & Filtering
       if (category === 'security' && prefs.security === false) return;
       if (category === 'account' && prefs.profile === false) return;
       if (category === 'deposit' && prefs.deposits === false) return;
       if (category === 'withdrawal' && prefs.withdrawals === false) return;
-      if (category === 'trading' && prefs.trading === false) return;
-      if (category === 'system' && prefs.system === false) return;
+      if (['trading', 'portfolio', 'copy_trading', 'swap'].includes(category) && prefs.trading === false) return;
+      if (['referral', 'vault'].includes(category) && prefs.rewards === false) return;
+      if (['system'].includes(category) && prefs.system === false) return;
       
       const newNotification: NotificationItem = {
         id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -583,27 +618,36 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [user, loginUser]);
 
   const updateProfilePhoto = useCallback(async (photoURL: string) => {
-    if (user) {
-      const updatedUser = { ...user, photoURL };
+    const latestUser = userRef.current;
+    if (latestUser) {
+      const updatedUser = { ...latestUser, photoURL };
       loginUser(updatedUser);
       
       const users = getUsers();
-      const existingUserIndex = users.findIndex((u: any) => u.uid === user.uid);
+      const existingUserIndex = users.findIndex((u: any) => u.uid === latestUser.uid);
       if (existingUserIndex >= 0) {
         users[existingUserIndex].photoURL = photoURL;
         saveUsers(users);
       }
+
+      await addNotification(
+        'account',
+        'medium',
+        'Profile Picture Updated',
+        'Your profile picture was successfully updated.'
+      );
     }
-  }, [user, loginUser]);
+  }, [loginUser, addNotification]);
 
   const updateProfile = useCallback(async (displayName: string, username: string, email: string) => {
-    if (user) {
-      const originalDisplayName = user.displayName;
-      const originalUsername = user.username;
-      const originalEmail = user.email;
+    const latestUser = userRef.current;
+    if (latestUser) {
+      const originalDisplayName = latestUser.displayName;
+      const originalUsername = latestUser.username;
+      const originalEmail = latestUser.email;
 
       const updatedUser: User = {
-        ...user,
+        ...latestUser,
         displayName,
         username,
         email,
@@ -612,7 +656,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       loginUser(updatedUser);
 
       const users = getUsers();
-      const existingUserIndex = users.findIndex((u: any) => u.uid === user.uid);
+      const existingUserIndex = users.findIndex((u: any) => u.uid === latestUser.uid);
       if (existingUserIndex >= 0) {
         users[existingUserIndex].displayName = displayName;
         users[existingUserIndex].username = username;
@@ -645,7 +689,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         );
       }
     }
-  }, [user, loginUser, addNotification]);
+  }, [loginUser, addNotification]);
 
   const verifyCurrentPassword = useCallback(async (passwordToVerify: string): Promise<boolean> => {
     if (!user) return false;
@@ -703,8 +747,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         users[existingUserIndex].preferences = updatedUser.preferences;
         saveUsers(users);
       }
+
+      // Generate preferences updated notification for general preference changes
+      const isNotifUpdate = 'notifications' in newPrefs;
+      
+      if (!isNotifUpdate) {
+        if ('rememberMeEnabled' in newPrefs) {
+          const enabled = newPrefs.rememberMeEnabled;
+          await addNotification(
+            'security',
+            'medium',
+            `Remember Me ${enabled ? 'Enabled' : 'Disabled'}`,
+            `Remember Me was ${enabled ? 'enabled' : 'disabled'} on this device.`
+          );
+        } else if ('biometricsEnabled' in newPrefs) {
+          const enabled = newPrefs.biometricsEnabled;
+          await addNotification(
+            'security',
+            'medium',
+            `Biometric Login ${enabled ? 'Enabled' : 'Disabled'}`,
+            `Biometric Login was ${enabled ? 'enabled' : 'disabled'}.`
+          );
+        } else {
+          await addNotification(
+            'account',
+            'low',
+            'Preferences Updated',
+            'Your general account preferences have been successfully updated.'
+          );
+        }
+      }
     }
-  }, [user, loginUser]);
+  }, [user, loginUser, addNotification]);
 
   const addDeposit = useCallback(async (amount: number) => {
     if (user) {

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { NotificationCategory, NotificationItem } from '../contexts/AuthContext';
+import { usePreferences } from '../contexts/PreferencesContext';
 
 interface NotificationCenterProps {
   onClose: () => void;
@@ -343,6 +344,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
     pinNotification, 
     archiveNotification 
   } = useAuth();
+  const { preferences } = usePreferences();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<NotificationCategory | 'all'>('all');
@@ -379,6 +381,24 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
   const filteredAndSorted = useMemo(() => {
     let result = localNotifications.filter(n => showArchived ? !!n.archived : !n.archived);
 
+    const notifPrefs = preferences?.notifications || {};
+    const isMasterOn = notifPrefs.master ?? true;
+
+    if (isMasterOn) {
+      result = result.filter(n => {
+        const cat = n.category;
+        if (cat === 'security' && notifPrefs.security === false) return false;
+        if (cat === 'account' && notifPrefs.profile === false) return false;
+        if (cat === 'deposit' && notifPrefs.deposits === false) return false;
+        if (cat === 'withdrawal' && notifPrefs.withdrawals === false) return false;
+        if (['trading', 'portfolio', 'copy_trading', 'swap'].includes(cat) && notifPrefs.trading === false) return false;
+        if (['referral', 'vault'].includes(cat) && notifPrefs.rewards === false) return false;
+        if (['system'].includes(cat) && notifPrefs.system === false) return false;
+        if (['marketing'].includes(cat) && notifPrefs.marketing === false) return false;
+        return true;
+      });
+    }
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
@@ -404,15 +424,32 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
     });
 
     return result;
-  }, [localNotifications, searchQuery, categoryFilter, showUnreadOnly, sortOrder, showArchived]);
+  }, [localNotifications, searchQuery, categoryFilter, showUnreadOnly, sortOrder, showArchived, preferences]);
 
   const textPrimary = 'text-white';
   const textSecondary = 'text-gray-400';
 
   // Instant unread badge count updates
   const unreadCount = useMemo(() => {
-    return localNotifications.filter(n => !n.read && !n.archived).length;
-  }, [localNotifications]);
+    const notifPrefs = preferences?.notifications || {};
+    const isMasterOn = notifPrefs.master ?? true;
+    if (!isMasterOn) return 0;
+
+    const filtered = localNotifications.filter(n => {
+      const cat = n.category;
+      if (cat === 'security' && notifPrefs.security === false) return false;
+      if (cat === 'account' && notifPrefs.profile === false) return false;
+      if (cat === 'deposit' && notifPrefs.deposits === false) return false;
+      if (cat === 'withdrawal' && notifPrefs.withdrawals === false) return false;
+      if (['trading', 'portfolio', 'copy_trading', 'swap'].includes(cat) && notifPrefs.trading === false) return false;
+      if (['referral', 'vault'].includes(cat) && notifPrefs.rewards === false) return false;
+      if (['system'].includes(cat) && notifPrefs.system === false) return false;
+      if (['marketing'].includes(cat) && notifPrefs.marketing === false) return false;
+      return true;
+    });
+
+    return filtered.filter(n => !n.read && !n.archived).length;
+  }, [localNotifications, preferences]);
 
   const archivedCount = useMemo(() => {
     return localNotifications.filter(n => !!n.archived).length;

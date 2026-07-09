@@ -1,4 +1,4 @@
-export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR';
+export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';
 export type Theme = 'light' | 'dark';
 export type Currency = 'USD' | 'EUR' | 'GBP' | 'BTC' | 'USDT';
 

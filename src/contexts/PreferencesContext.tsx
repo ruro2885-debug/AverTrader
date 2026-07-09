@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 interface PreferencesContextType {
   preferences: Preferences;
   updatePreference: (key: keyof Preferences, value: any) => void;
+  resetPreferences: () => void;
   t: (key: string) => string;
   formatCurrency: (usdValue: number, compact?: boolean) => string;
 }
@@ -14,6 +15,8 @@ const defaultPreferences: Preferences = {
   language: 'EN',
   theme: 'dark',
   currency: 'USD',
+  rememberMeEnabled: false,
+  biometricsEnabled: false,
 };
 
 // Mock exchange rates relative to USD
@@ -97,11 +100,24 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
   const updatePreference = (key: keyof Preferences, value: any) => {
     setPreferences(prev => ({ ...prev, [key]: value }));
-    localStorage.setItem(`aver_${key}`, value);
+    localStorage.setItem(`aver_${key}`, typeof value === 'object' ? JSON.stringify(value) : value);
     
     // Save to user profile persistently if logged in
     if (user && updateUserPreferences) {
       updateUserPreferences({ [key]: value });
+    }
+  };
+
+  const resetPreferences = () => {
+    setPreferences(defaultPreferences);
+    
+    // Clear individual local storage items
+    Object.keys(defaultPreferences).forEach(key => {
+      localStorage.removeItem(`aver_${key}`);
+    });
+
+    if (user && updateUserPreferences) {
+      updateUserPreferences(defaultPreferences);
     }
   };
 
@@ -126,31 +142,52 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       case 'FR': locale = 'fr-FR'; break;
       case 'DE': locale = 'de-DE'; break;
       case 'ZH': locale = 'zh-CN'; break;
+      case 'PT': locale = 'pt-PT'; break;
     }
 
-    // Crypto doesn't work with Intl.NumberFormat(..., { style: 'currency' })
-    if (preferences.currency === 'BTC' || preferences.currency === 'USDT') {
+    // Custom handling for BTC to ensure 8 decimal places and symbol at front
+    if (preferences.currency === 'BTC') {
        const formatter = new Intl.NumberFormat(locale, {
+           minimumFractionDigits: 8,
+           maximumFractionDigits: 8,
            notation: compact ? 'compact' : 'standard',
-           maximumFractionDigits: preferences.currency === 'BTC' ? 4 : 2,
        });
        return `${CURRENCY_SYMBOLS[preferences.currency]}${formatter.format(convertedValue)}`;
     }
 
+    // Standard currencies (USD, EUR, GBP)
+    // We explicitly set currencyDisplay: 'symbol' to ensure we get $, €, £
     const formatter = new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: preferences.currency,
+      currencyDisplay: 'symbol',
       notation: compact ? 'compact' : 'standard',
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
 
-    return formatter.format(convertedValue);
+    let result = formatter.format(convertedValue);
+
+    // Ensure symbol is at the front for USD, EUR, GBP regardless of locale defaults
+    // Some European locales put the symbol at the end by default.
+    // The user specifically requested symbol before the number for these.
+    if (['USD', 'EUR', 'GBP'].includes(preferences.currency)) {
+        const symbol = CURRENCY_SYMBOLS[preferences.currency];
+        // If the symbol is not at the start, move it.
+        if (!result.startsWith(symbol)) {
+            // Remove the symbol from wherever it is (and any non-breaking spaces)
+            const numericPart = result.replace(symbol, '').replace(/\u00A0/g, ' ').trim();
+            result = `${symbol}${numericPart}`;
+        }
+    }
+
+    return result;
   };
 
   if (!isLoaded) return null;
 
   return (
-    <PreferencesContext.Provider value={{ preferences, updatePreference, t, formatCurrency }}>
+    <PreferencesContext.Provider value={{ preferences, updatePreference, resetPreferences, t, formatCurrency }}>
       {children}
     </PreferencesContext.Provider>
   );
