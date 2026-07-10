@@ -1,3 +1,35 @@
+export interface UserProfile {
+  uid: string;
+  username: string;
+  email: string;
+  profilePhotoURL: string;
+  country: string;
+  phoneNumber?: string;
+  accountType: string;
+  accountStatus: string;
+  portfolioBalance: number;
+  availableBalance: number;
+  totalProfit: number;
+  totalLoss: number;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  referralCode: string;
+  referredBy?: string | null;
+  referralCount: number;
+  preferredLanguage: string;
+  theme: string;
+  notificationSettings: Record<string, boolean>;
+  biometricEnabled: boolean;
+  aiTradingEnabled: boolean;
+  riskPreference: string;
+  currency?: string;
+  rememberMeEnabled?: boolean;
+  createdAt: any;
+  lastLogin: any;
+  lastUpdated: any;
+  onboardingCompleted?: boolean;
+}
+
 export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';
 export type Theme = 'light' | 'dark';
 export type Currency = 'USD' | 'EUR' | 'GBP' | 'BTC' | 'USDT';

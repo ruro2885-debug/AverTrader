@@ -20,18 +20,7 @@ export default function App() {
   const { user, loading: authLoading } = useAuth();
   
   // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard'>(() => {
-    const storedUser = localStorage.getItem('mockUser');
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        if (parsed && parsed.uid) {
-          return 'dashboard';
-        }
-      } catch (e) {}
-    }
-    return 'home';
-  });
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard'>('home');
 
   const { preferences, updatePreference } = usePreferences();
   const { theme, language, currency } = preferences;
@@ -45,13 +34,13 @@ export default function App() {
 
     // Handle session restoration and view management
     if (user) {
-      if (currentView === 'home' || currentView === 'auth' || currentView === 'onboarding') {
+      if (currentView === 'home' || currentView === 'auth') {
         setCurrentView('dashboard');
       }
     } else {
-      // If no user and we were on a protected view, go home
-      if (currentView === 'dashboard' || currentView === 'onboarding') {
-        setCurrentView('home');
+      // If no user and we were on a protected view, go to login
+      if (currentView === 'dashboard') {
+        setCurrentView('auth');
       }
     }
   }, [user, authLoading, currentView]);

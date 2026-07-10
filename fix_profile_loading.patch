@@ -1,0 +1,22 @@
+--- src/components/ProfileView.tsx
++++ src/components/ProfileView.tsx
+@@ -401,6 +401,7 @@
+     e.preventDefault();
+     setErrorMsg('');
+     setSuccessMsg('');
++    setIsUpdatingProfile(true);
+     if (!username.trim() || !email.trim()) {
+       setErrorMsg('All fields are required.');
++      setIsUpdatingProfile(false);
+       return;
+     }
+     try {
+       await updateProfile(displayName.trim() || user?.displayName || '', username.trim().toLowerCase().replace(/\s+/g, ''), email.trim());
+       setSuccessMsg('Profile updated successfully!');
+       setTimeout(() => setActiveModal(null), 1200);
+     } catch (err: any) {
+       setErrorMsg(err.message || 'Failed to update profile.');
+     } finally {
++      setIsUpdatingProfile(false);
+     }
+   };

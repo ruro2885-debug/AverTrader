@@ -45,20 +45,22 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
   // Synchronize preferences with currently logged in user or global fallback
   useEffect(() => {
-    if (user && user.preferences) {
+    if (user) {
       const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
       const validThemes: Theme[] = ['light', 'dark'];
       const validCurrencies: Currency[] = ['USD', 'EUR', 'GBP', 'BTC', 'USDT'];
 
-      const userLang = user.preferences.language as Language;
-      const userTheme = user.preferences.theme as Theme;
-      const userCurrency = user.preferences.currency as Currency;
+      const userLang = user.preferredLanguage as Language;
+      const userTheme = user.theme as Theme;
+      const userCurrency = user.currency as Currency;
 
       setPreferences({
-        ...user.preferences,
         language: validLanguages.includes(userLang) ? userLang : 'EN',
         theme: validThemes.includes(userTheme) ? userTheme : 'dark',
         currency: validCurrencies.includes(userCurrency) ? userCurrency : 'USD',
+        biometricsEnabled: user.biometricEnabled,
+        rememberMeEnabled: user.rememberMeEnabled,
+        notifications: user.notificationSettings,
       });
     } else {
       const savedLanguage = localStorage.getItem('aver_language') as Language;

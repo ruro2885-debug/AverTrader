@@ -397,6 +397,8 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
     }
   };
 
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
   const handleProfileUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -405,12 +407,15 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
       setErrorMsg('All fields are required.');
       return;
     }
+    setIsUpdatingProfile(true);
     try {
       await updateProfile(displayName.trim() || user?.displayName || '', username.trim().toLowerCase().replace(/\s+/g, ''), email.trim());
       setSuccessMsg('Profile updated successfully!');
       setTimeout(() => setActiveModal(null), 1200);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update profile.');
+    } finally {
+      setIsUpdatingProfile(false);
     }
   };
 
@@ -544,7 +549,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
   };
 
   const handleCopyReferral = () => {
-    navigator.clipboard.writeText(user?.referralCode || 'AVER-7788-X9');
+    navigator.clipboard.writeText(user?.referralCode || '');
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -819,9 +824,14 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
                   </div>
                   <button 
                     type="submit"
-                    className="w-full py-3 bg-emerald-500 text-black font-bold rounded-xl mt-6 hover:scale-[1.02] transition-transform active:scale-95 cursor-pointer"
+                    disabled={isUpdatingProfile}
+                    className="w-full py-3 bg-emerald-500 text-black font-bold rounded-xl mt-6 hover:scale-[1.02] transition-transform active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-2"
                   >
-                    Save Profile Changes
+                    {isUpdatingProfile ? (
+                      <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <span>Save Profile Changes</span>
+                    )}
                   </button>
                 </form>
               )}
@@ -1282,7 +1292,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
                   <div className={`p-4 rounded-2xl border text-left ${isDark ? 'bg-slate-950 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Your Referral Code</p>
                     <div className="flex justify-between items-center bg-black/10 px-3 py-2.5 rounded-xl border border-white/5">
-                      <span className="font-mono text-sm font-bold text-emerald-400">{user?.referralCode || 'AVER-7788-X9'}</span>
+                      <span className="font-mono text-sm font-bold text-emerald-400">{user?.referralCode || ''}</span>
                       <button 
                         onClick={handleCopyReferral} 
                         className={`flex items-center space-x-1 text-xs font-bold font-mono uppercase tracking-wider px-2 py-1 rounded-md transition-all ${

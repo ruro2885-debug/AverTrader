@@ -109,9 +109,6 @@ export default function Preferences({ theme, onBack }: { theme: 'light' | 'dark'
         showToast(`Remember Me ${value ? 'enabled' : 'disabled'}.`);
         return;
     }
-
-    updatePreference(key, value);
-    showToast(`${key === 'rememberMeEnabled' ? t('common.remember_me') : 'Biometric Login'} ${value ? 'enabled' : 'disabled'}.`);
   };
 
   const handleReset = () => {
