@@ -17,10 +17,17 @@ import {
   setDoc, 
   updateDoc, 
   serverTimestamp, 
-  onSnapshot 
+  onSnapshot,
+  collection,
+  addDoc,
+  query,
+  where,
+  orderBy,
+  deleteDoc,
+  writeBatch
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { auth, db, storage } from '../lib/firebase';
+import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
 import { generateInitialsAvatar } from '../utils/avatarUtils';
 import { UserProfile, Theme, Language } from '../types';
 
@@ -133,16 +140,16 @@ interface AuthContextType {
   addDeposit: (amount: number) => Promise<void>;
   addWithdrawal: (amount: number) => Promise<void>;
   
-  // New Notification Engine Methods
   addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string) => Promise<void>;
-  markNotificationRead: (id: string) => Promise<void>;
+  markNotificationRead: (id: string, readState?: boolean) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   deleteNotification: (id: string) => Promise<void>;
   clearNotifications: () => Promise<void>;
   pinNotification: (id: string) => Promise<void>;
   archiveNotification: (id: string) => Promise<void>;
 
-  updateProfile: (data: Partial<User>) => Promise<void>;
+  notifications: NotificationItem[];
+  updateProfile: (dataOrDisplayName: Partial<User> | string, username?: string, email?: string) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
   verifyCurrentPassword: (password: string) => Promise<boolean>;
 }
@@ -213,6 +220,7 @@ const defaultUserPreferences: UserPreferences = {
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const userRef = useRef<User | null>(null);
 
@@ -221,27 +229,74 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [user]);
 
   useEffect(() => {
+    let unsubUserDoc: (() => void) | null = null;
+    let unsubNotifications: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (unsubUserDoc) {
+        unsubUserDoc();
+        unsubUserDoc = null;
+      }
+      if (unsubNotifications) {
+        unsubNotifications();
+        unsubNotifications = null;
+      }
+
       if (firebaseUser) {
         // User is signed in, fetch their profile from Firestore
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         
         // Listen for real-time updates to the user profile
-        const unsubDoc = onSnapshot(userDocRef, (docSnap) => {
+        unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
             const userData = docSnap.data() as User;
-            setUser(userData);
+            setUser({
+              ...userData,
+              notificationsList: userData.notificationsList || [],
+              history: userData.history || [],
+              deposits: userData.deposits || [],
+              withdrawals: userData.withdrawals || [],
+            });
           } else {
             // Profile doc doesn't exist yet, might be in the middle of registration
             console.warn("User profile document not found in Firestore");
           }
           setLoading(false);
         }, (error) => {
-          console.error("Error listening to user doc:", error);
+          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
           setLoading(false);
         });
 
-        // Update lastLogin only if the document exists
+        // Listen for real-time updates to notifications
+        const notifPath = 'notifications';
+        const notifQuery = query(
+          collection(db, notifPath),
+          where('userId', '==', firebaseUser.uid),
+          orderBy('createdAt', 'desc')
+        );
+
+        unsubNotifications = onSnapshot(notifQuery, (snapshot) => {
+          const notifs: NotificationItem[] = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              category: data.category || data.type || 'system',
+              priority: data.priority || 'medium',
+              title: data.title || '',
+              body: data.body || data.message || '',
+              date: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
+              read: data.read || false,
+              actionUrl: data.actionUrl || '',
+              pinned: data.pinned || false,
+              archived: data.archived || false,
+            };
+          });
+          setNotifications(notifs);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, notifPath);
+        });
+
+        // Update lastLogin
         try {
           const docSnap = await getDoc(userDocRef);
           if (docSnap.exists()) {
@@ -253,21 +308,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         } catch (err) {
           console.error("Error updating lastLogin:", err);
         }
-
-        return () => unsubDoc();
       } else {
         // User is signed out
         setUser(null);
+        setNotifications([]);
         setLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubUserDoc) unsubUserDoc();
+      if (unsubNotifications) unsubNotifications();
+    };
   }, []);
 
   const signUp = useCallback(async (data: SignUpData) => {
     try {
-      // 1. Create Firebase Auth Account
+      // 1. Create Firebase Auth Account client-side
       const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
       const firebaseUser = userCredential.user;
 
@@ -322,7 +380,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
 
-      // 4. Send Email Verification
+      // Add Welcome Notifications
+      await addNotification(
+        'account',
+        'medium',
+        'Welcome to AverNoxTrader',
+        'Welcome to AverNoxTrader! Your professional trading account is successfully initialized. Explore the market terminal and configure your AI settings to begin.'
+      );
+
+      await addNotification(
+        'vault',
+        'high',
+        'Welcome Bonus Available',
+        'Congratulations! A standard $150 sign-up promotional bonus has been successfully credited to your locked vaults. Complete onboarding and platform activities to begin unlocking rules.'
+      );
+
+      await addNotification(
+        'account',
+        'medium',
+        'Account Created',
+        `Welcome to AvernoxTrader, ${data.username}! Your account has been successfully created and secured.`
+      );
+
+      // 4. Grant $150 locked bonus directly to Firestore client-side
+      try {
+        const bonusPath = `userBonuses/${firebaseUser.uid}/instances/signup-150`;
+        await setDoc(doc(db, 'userBonuses', firebaseUser.uid, 'instances', 'signup-150'), {
+          bonusId: 'signup-150',
+          title: 'Sign-Up Bonus',
+          description: '$150 Sign-Up Bonus',
+          rewardAmount: 150,
+          rewardCurrency: 'USD',
+          status: 'locked',
+          locked: true,
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `userBonuses/${firebaseUser.uid}`);
+      }
+
+      // 5. Send Email Verification
       await sendEmailVerification(firebaseUser).catch(err => console.error("Error sending verification email:", err));
 
     } catch (error: any) {
@@ -344,22 +441,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         throw new Error("Authentication service is temporarily unavailable.");
       }
       
-      throw new Error("Unable to create account. Please try again later.");
+      throw new Error(error.message || "Unable to create account. Please try again later.");
     }
   }, []);
 
   const signIn = useCallback(async (email: string, password: string, rememberMe: boolean = true) => {
     try {
-      // Set persistence based on Remember Me
-      await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+      // Set persistence based on Remember Me, catching any storage-unsupported error in iframe
+      try {
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+      } catch (pError) {
+        console.warn("Failed to set auth persistence (possibly blocked in iframe):", pError);
+      }
       await signInWithEmailAndPassword(auth, email, password);
     } catch (error: any) {
+      console.error("Auth signIn error:", error);
       if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential' || error.code === 'auth/invalid-email') {
         throw new Error("Password or Email Incorrect.");
       } else if (error.code === 'auth/network-request-failed') {
         throw new Error("Network connection unavailable. Please try again.");
       }
-      throw new Error("Something went wrong. Please try again.");
+      throw new Error(error.message || "Something went wrong. Please try again.");
     }
   }, []);
 
@@ -368,6 +470,136 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       await signOut(auth);
     } catch (error) {
       console.error("Error signing out:", error);
+    }
+  }, []);
+
+  const addNotification = useCallback(async (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string) => {
+    if (userRef.current) {
+      const notifPath = 'notifications';
+      try {
+        await addDoc(collection(db, notifPath), {
+          userId: userRef.current.uid,
+          category,
+          priority,
+          title,
+          body,
+          message: body, // requested field name
+          type: category, // requested field name
+          createdAt: serverTimestamp(),
+          read: false,
+          actionUrl: actionUrl || '',
+          pinned: false,
+          archived: false,
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, notifPath);
+      }
+    }
+  }, []);
+
+  const markNotificationRead = useCallback(async (id: string, readState?: boolean) => {
+    if (userRef.current) {
+      const notifPath = `notifications/${id}`;
+      try {
+        const notifRef = doc(db, 'notifications', id);
+        const docSnap = await getDoc(notifRef);
+        if (docSnap.exists()) {
+          await updateDoc(notifRef, {
+            read: readState !== undefined ? readState : !docSnap.data().read
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+      }
+    }
+  }, []);
+
+  const markAllNotificationsRead = useCallback(async () => {
+    if (userRef.current) {
+      const notifPath = 'notifications';
+      try {
+        const { getDocs } = await import('firebase/firestore');
+        const batch = writeBatch(db);
+        const q = query(
+          collection(db, notifPath),
+          where('userId', '==', userRef.current.uid),
+          where('read', '==', false)
+        );
+        const snapshot = await getDocs(q);
+        snapshot.forEach((docSnap) => {
+          batch.update(docSnap.ref, { read: true });
+        });
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+      }
+    }
+  }, []);
+
+  const deleteNotification = useCallback(async (id: string) => {
+    if (userRef.current) {
+      const notifPath = `notifications/${id}`;
+      try {
+        await deleteDoc(doc(db, 'notifications', id));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, notifPath);
+      }
+    }
+  }, []);
+
+  const clearNotifications = useCallback(async () => {
+    if (userRef.current) {
+      const notifPath = 'notifications';
+      try {
+        const { getDocs } = await import('firebase/firestore');
+        const batch = writeBatch(db);
+        const q = query(
+          collection(db, notifPath),
+          where('userId', '==', userRef.current.uid),
+          where('pinned', '==', false)
+        );
+        const snapshot = await getDocs(q);
+        snapshot.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, notifPath);
+      }
+    }
+  }, []);
+
+  const pinNotification = useCallback(async (id: string) => {
+    if (userRef.current) {
+      const notifPath = `notifications/${id}`;
+      try {
+        const notifRef = doc(db, 'notifications', id);
+        const docSnap = await getDoc(notifRef);
+        if (docSnap.exists()) {
+          await updateDoc(notifRef, {
+            pinned: !docSnap.data().pinned
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+      }
+    }
+  }, []);
+
+  const archiveNotification = useCallback(async (id: string) => {
+    if (userRef.current) {
+      const notifPath = `notifications/${id}`;
+      try {
+        const notifRef = doc(db, 'notifications', id);
+        const docSnap = await getDoc(notifRef);
+        if (docSnap.exists()) {
+          await updateDoc(notifRef, {
+            archived: !docSnap.data().archived
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+      }
     }
   }, []);
 
@@ -394,8 +626,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         onboardingCompleted: completed,
         lastUpdated: serverTimestamp()
       });
+      if (completed) {
+        await addNotification(
+          'account',
+          'medium',
+          'Onboarding Completed',
+          'Thank you for completing your account onboarding! Your profile is now fully verified and prepared for standard trading activities.'
+        );
+      }
     }
-  }, []);
+  }, [addNotification]);
 
   const updateProfilePhoto = useCallback(async (file: File) => {
     if (userRef.current) {
@@ -408,8 +648,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         profilePhotoURL: photoURL,
         lastUpdated: serverTimestamp()
       });
+
+      await addNotification(
+        'account',
+        'low',
+        'Profile Picture Changed',
+        'Your profile picture has been successfully updated.'
+      );
     }
-  }, []);
+  }, [addNotification]);
 
   const updateUserPreferences = useCallback(async (prefs: Partial<UserPreferences>) => {
     if (userRef.current) {
@@ -507,100 +754,56 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  const addNotification = useCallback(async (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string) => {
+  const updateProfile = useCallback(async (dataOrDisplayName: Partial<User> | string, username?: string, email?: string) => {
     if (userRef.current) {
       const userDocRef = doc(db, 'users', userRef.current.uid);
-      const newNotification: NotificationItem = {
-        id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        category,
-        priority,
-        title,
-        body,
-        date: new Date().toISOString(),
-        read: false,
-        actionUrl,
+      
+      let updates: any = {
+        lastUpdated: serverTimestamp()
       };
 
-      await updateDoc(userDocRef, {
-        notificationsList: [newNotification, ...(userRef.current.notificationsList || [])],
-        lastUpdated: serverTimestamp()
-      });
-    }
-  }, []);
+      if (typeof dataOrDisplayName === 'string') {
+        updates.displayName = dataOrDisplayName;
+        if (username) updates.username = username;
+        if (email) updates.email = email;
+      } else {
+        updates = {
+          ...updates,
+          ...dataOrDisplayName
+        };
+      }
 
-  const markNotificationRead = useCallback(async (id: string) => {
-    if (userRef.current) {
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      const updatedList = userRef.current.notificationsList.map(n => 
-        n.id === id ? { ...n, read: true } : n
+      await updateDoc(userDocRef, updates);
+
+      await addNotification(
+        'account',
+        'medium',
+        'Profile Updated',
+        'Your profile information has been successfully updated.'
       );
-      await updateDoc(userDocRef, { notificationsList: updatedList });
     }
-  }, []);
-
-  const markAllNotificationsRead = useCallback(async () => {
-    if (userRef.current) {
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      const updatedList = userRef.current.notificationsList.map(n => ({ ...n, read: true }));
-      await updateDoc(userDocRef, { notificationsList: updatedList });
-    }
-  }, []);
-
-  const deleteNotification = useCallback(async (id: string) => {
-    if (userRef.current) {
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      const updatedList = userRef.current.notificationsList.filter(n => n.id !== id);
-      await updateDoc(userDocRef, { notificationsList: updatedList });
-    }
-  }, []);
-
-  const clearNotifications = useCallback(async () => {
-    if (userRef.current) {
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      const updatedList = userRef.current.notificationsList.filter(n => n.pinned);
-      await updateDoc(userDocRef, { notificationsList: updatedList });
-    }
-  }, []);
-
-  const pinNotification = useCallback(async (id: string) => {
-    if (userRef.current) {
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      const updatedList = userRef.current.notificationsList.map(n => 
-        n.id === id ? { ...n, pinned: !n.pinned } : n
-      );
-      await updateDoc(userDocRef, { notificationsList: updatedList });
-    }
-  }, []);
-
-  const archiveNotification = useCallback(async (id: string) => {
-    if (userRef.current) {
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      const updatedList = userRef.current.notificationsList.map(n => 
-        n.id === id ? { ...n, archived: !n.archived } : n
-      );
-      await updateDoc(userDocRef, { notificationsList: updatedList });
-    }
-  }, []);
-
-  const updateProfile = useCallback(async (data: Partial<User>) => {
-    if (userRef.current) {
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      await updateDoc(userDocRef, { 
-        ...data,
-        lastUpdated: serverTimestamp()
-      });
-    }
-  }, []);
+  }, [addNotification]);
 
   const changePassword = useCallback(async (newPassword: string) => {
     // Firebase Auth handles password change via updatePassword on the currentUser
     const firebaseUser = auth.currentUser;
     if (firebaseUser) {
-      // Note: Re-authentication might be required for this sensitive operation
-      // But we'll try directly as per simplified prompt requirements
-      // throw new Error("Re-authentication required for password change.");
+      try {
+        const { updatePassword } = await import('firebase/auth');
+        await updatePassword(firebaseUser, newPassword);
+        
+        await addNotification(
+          'security',
+          'high',
+          'Password Changed',
+          'Your account password has been successfully changed. If you did not perform this action, please contact support immediately.'
+        );
+      } catch (err: any) {
+        console.error("Error changing password:", err);
+        throw err;
+      }
     }
-  }, []);
+  }, [addNotification]);
 
   const verifyCurrentPassword = useCallback(async (password: string) => {
     // This usually requires re-authenticating with the current credentials
@@ -610,6 +813,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const contextValue = useMemo(() => ({
     user,
     loading,
+    notifications,
     signOutUser,
     signUp,
     signIn,
@@ -632,6 +836,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }), [
     user,
     loading,
+    notifications,
     signOutUser,
     signUp,
     signIn,

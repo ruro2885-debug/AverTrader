@@ -8,7 +8,9 @@ import {
 import BottomNavigation from './BottomNavigation';
 import CoinLogo from './CoinLogo';
 import ProfileView from './ProfileView';
+import MarketsPage from './MarketsPage';
 import DiscoverView from './DiscoverView';
+import CoinDetailsPage from './CoinDetailsPage';
 import BonusCenter from './BonusCenter';
 import ReferralCentre from './ReferralCentre';
 import Preferences from './Preferences';
@@ -40,7 +42,8 @@ const news = [
 
 export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   const [activeTab, setActiveTab] = useState('home');
-  const { user, addDeposit, addWithdrawal, clearNotifications } = useAuth();
+  const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
+  const { user, notifications, loading: authLoading, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { formatCurrency, t } = usePreferences();
   const isDark = theme === 'dark';
 
@@ -168,18 +171,33 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-[2px] hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
             >
               <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${isDark ? 'bg-slate-950' : 'bg-white'}`}>
-                <img 
-                  src={user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
-                  alt="Profile" 
-                  className="w-full h-full object-cover"
-                />
+                {authLoading ? (
+                  <div className="w-full h-full animate-pulse bg-slate-700" />
+                ) : (
+                  <img 
+                    src={user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
+                    alt="Profile" 
+                    className="w-full h-full object-cover"
+                  />
+                )}
               </div>
             </button>
             <div>
-              <p className={`text-xs ${textSecondary}`}>{t('val.loading').replace('...', '')}</p>
-              <h1 className={`text-lg font-bold tracking-tight ${textPrimary}`}>
-                @{user?.username || user?.email?.split('@')[0] || 'user'}
-              </h1>
+              {authLoading ? (
+                <div className="space-y-1">
+                  <div className="w-16 h-3 rounded animate-pulse bg-slate-700" />
+                  <div className="w-24 h-4 rounded animate-pulse bg-slate-700" />
+                </div>
+              ) : (
+                <>
+                  <p className={`text-xs ${textSecondary}`}>
+                    {user?.username ? `@${user.username}` : (user?.email ? user.email.split('@')[0] : 'Welcome')}
+                  </p>
+                  <h1 className={`text-lg font-bold tracking-tight ${textPrimary}`}>
+                    {user?.username || user?.email?.split('@')[0] || 'User'}
+                  </h1>
+                </>
+              )}
             </div>
           </div>
           
@@ -188,8 +206,10 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
             className={`w-10 h-10 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
           >
             <Bell className={`w-5 h-5 ${textPrimary}`} />
-            {user?.notificationsList && user.notificationsList.some(n => !n.read) && (
-              <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-rose-500 rounded-full" />
+            {notifications && notifications.some(n => !n.read) && (
+              <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white ring-2 ring-slate-950">
+                {notifications.filter(n => !n.read).length}
+              </span>
             )}
           </button>
         </header>
@@ -459,9 +479,18 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
             </motion.div>
           )}
 
+          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
+          {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
           {activeTab === 'discover' && <DiscoverView theme={theme} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => setActiveTab('bonus-center')} onOpenReferralCentre={() => setActiveTab('referral-centre')} onOpenPreferences={() => setActiveTab('preferences')} />}
-          {activeTab === 'bonus-center' && <BonusCenter theme={theme} onBack={() => setActiveTab('profile')} />}
+          {activeTab === 'bonus-center' && (
+            <BonusCenter 
+              theme={theme} 
+              onBack={() => setActiveTab('profile')} 
+              onNavigate={(tab) => setActiveTab(tab)}
+              onOpenDeposit={() => setShowDepositModal(true)}
+            />
+          )}
           {activeTab === 'referral-centre' && <ReferralCentre theme={theme} onBack={() => setActiveTab('profile')} />}
           {activeTab === 'preferences' && <Preferences theme={theme} onBack={() => setActiveTab('profile')} />}
           

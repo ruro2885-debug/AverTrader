@@ -337,6 +337,7 @@ NotificationRow.displayName = 'NotificationRow';
 export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose, isDark }) => {
   const { 
     user, 
+    notifications: authNotifications,
     markNotificationRead, 
     markAllNotificationsRead, 
     deleteNotification, 
@@ -363,10 +364,18 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
 
   // Sync with context whenever notifications list changes
   useEffect(() => {
-    if (user?.notificationsList) {
-      setLocalNotifications(user.notificationsList);
+    if (authNotifications) {
+      setLocalNotifications(authNotifications);
     }
-  }, [user?.notificationsList]);
+  }, [authNotifications]);
+
+  // Mark all as read when opening the notification center
+  useEffect(() => {
+    const hasUnread = authNotifications && authNotifications.some(n => !n.read);
+    if (hasUnread) {
+      markAllNotificationsRead().catch(err => console.error("Error marking all read on mount:", err));
+    }
+  }, []);
 
   // Progressive infinite scroll loader
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -457,8 +466,15 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
 
   // Optimistic event handlers
   const handleMarkRead = (id: string) => {
-    setLocalNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-    markNotificationRead(id).catch(err => console.error("Error marking read", err));
+    let toggledRead = true;
+    setLocalNotifications(prev => prev.map(n => {
+      if (n.id === id) {
+        toggledRead = !n.read;
+        return { ...n, read: toggledRead };
+      }
+      return n;
+    }));
+    markNotificationRead(id, toggledRead).catch(err => console.error("Error marking read", err));
   };
 
   const handleMarkAllRead = () => {
@@ -724,9 +740,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                 <div className="w-14 h-14 rounded-full bg-white/[0.03] border border-white/10 flex items-center justify-center mb-4 text-gray-500">
                   <Bell className="w-6 h-6" />
                 </div>
-                <h3 className="text-sm font-semibold text-white">No activities found</h3>
+                <h3 className="text-sm font-semibold text-white">You're all caught up</h3>
                 <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
-                  You're all caught up! When things happen on your account, they'll show up here.
+                  You’re all caught up. New notifications will appear here.
                 </p>
               </motion.div>
             ) : (

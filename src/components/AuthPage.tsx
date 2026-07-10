@@ -756,11 +756,11 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   <div className="space-y-4 pt-8 pb-4">
                     <motion.div 
                       whileTap={{ scale: 0.98 }}
-                      className="flex items-start space-x-3 cursor-pointer group select-none"
+                      className="flex items-center space-x-3 cursor-pointer group select-none"
                       onClick={() => setAcceptTerms(!acceptTerms)}
                     >
-                      <div className="w-11 h-11 flex items-center justify-center shrink-0 -ml-2 -mt-2">
-                        <div className={`w-6 h-6 rounded-lg border-[1.5px] transition-colors duration-200 flex items-center justify-center overflow-hidden ${
+                      <div className="w-9 h-6 flex items-center justify-center shrink-0">
+                        <div className={`w-5 h-5 rounded-lg border-[1.5px] transition-colors duration-200 flex items-center justify-center overflow-hidden ${
                           acceptTerms 
                             ? 'border-emerald-500 bg-emerald-500' 
                             : isDark ? 'border-white/20 bg-white/5 group-hover:border-white/40' : 'border-slate-300 bg-white group-hover:border-slate-400'
@@ -773,13 +773,13 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                                 exit={{ scale: 0, opacity: 0 }}
                                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                               >
-                                <Check className="w-4 h-4 text-black stroke-[3]" />
+                                <Check className="w-3.5 h-3.5 text-black stroke-[3]" />
                               </motion.div>
                             )}
                           </AnimatePresence>
                         </div>
                       </div>
-                      <div className={`text-sm font-medium font-sans leading-relaxed pt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <div className={`text-sm font-medium font-sans leading-relaxed ${isDark ? 'text-white' : 'text-slate-900'}`}>
                         I agree to the{' '}
                         <motion.button 
                           whileTap={{ scale: 0.95 }}
@@ -804,11 +804,11 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     {/* Remember Me Checkbox */}
                     <motion.div 
                       whileTap={{ scale: 0.98 }}
-                      className="flex items-start space-x-3 cursor-pointer group select-none"
+                      className="flex items-center space-x-3 cursor-pointer group select-none"
                       onClick={() => setRememberMe(!rememberMe)}
                     >
-                      <div className="w-11 h-11 flex items-center justify-center shrink-0 -ml-2 -mt-2">
-                        <div className={`w-6 h-6 rounded-lg border-[1.5px] transition-colors duration-200 flex items-center justify-center overflow-hidden ${
+                      <div className="w-9 h-6 flex items-center justify-center shrink-0">
+                        <div className={`w-5 h-5 rounded-lg border-[1.5px] transition-colors duration-200 flex items-center justify-center overflow-hidden ${
                           rememberMe 
                             ? 'border-emerald-500 bg-emerald-500' 
                             : isDark ? 'border-white/20 bg-white/5 group-hover:border-white/40' : 'border-slate-300 bg-white group-hover:border-slate-400'
@@ -821,13 +821,13 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                                 exit={{ scale: 0, opacity: 0 }}
                                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                               >
-                                <Check className="w-4 h-4 text-black stroke-[3]" />
+                                <Check className="w-3.5 h-3.5 text-black stroke-[3]" />
                               </motion.div>
                             )}
                           </AnimatePresence>
                         </div>
                       </div>
-                      <div className={`text-sm font-medium font-sans leading-relaxed pt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <div className={`text-sm font-medium font-sans leading-relaxed ${isDark ? 'text-white' : 'text-slate-900'}`}>
                         Remember Me
                       </div>
                     </motion.div>
@@ -841,19 +841,13 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   {/* Create Account Button */}
                   <button 
                     type="submit"
-                    disabled={loading}
-                    onClick={(e) => {
-                      if (!acceptTerms) {
-                        e.preventDefault();
-                        setErrorMsg("You must accept the Terms of Service and Privacy Policy before creating an account.");
-                      }
-                    }}
+                    disabled={!isFormValid || !acceptTerms || loading}
                     className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 mt-6 cursor-pointer ${
                       (isFormValid && acceptTerms) && !loading 
                         ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/25 active:scale-[0.99]' 
                         : isDark
-                          ? 'bg-white/5 text-gray-400 border border-white/5'
-                          : 'bg-slate-200 text-slate-400 border border-slate-300'
+                          ? 'bg-white/5 text-gray-400 border border-white/5 cursor-not-allowed'
+                          : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
                     }`}
                   >
                     {loading ? (

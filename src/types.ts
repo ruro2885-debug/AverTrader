@@ -28,6 +28,8 @@ export interface UserProfile {
   lastLogin: any;
   lastUpdated: any;
   onboardingCompleted?: boolean;
+  bonuses?: any[];
+  kycStatus?: 'unverified' | 'pending' | 'verified';
 }
 
 export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';

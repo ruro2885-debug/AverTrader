@@ -1,35 +1,84 @@
 {
-  "collections": [
-    {
-      "name": "users",
-      "description": "User profiles and account data",
-      "fields": [
-        { "name": "uid", "type": "string", "description": "Unique identifier for the user" },
-        { "name": "username", "type": "string", "description": "Display name" },
-        { "name": "email", "type": "string", "description": "Email address" },
-        { "name": "profilePhotoURL", "type": "string", "description": "URL to profile photo in Storage" },
-        { "name": "country", "type": "string", "description": "User's country" },
-        { "name": "phoneNumber", "type": "string", "description": "Optional phone number" },
-        { "name": "accountType", "type": "string", "description": "Type of account (e.g., standard, premium)" },
-        { "name": "accountStatus", "type": "string", "description": "Current status (e.g., active, suspended)" },
-        { "name": "portfolioBalance", "type": "number", "description": "Total value of assets" },
-        { "name": "availableBalance", "type": "number", "description": "Spendable balance" },
-        { "name": "totalProfit", "type": "number", "description": "Cumulative profit" },
-        { "name": "totalLoss", "type": "number", "description": "Cumulative loss" },
-        { "name": "totalDeposits", "type": "number", "description": "Total deposited amount" },
-        { "name": "totalWithdrawals", "type": "number", "description": "Total withdrawn amount" },
-        { "name": "referralCode", "type": "string", "description": "Unique referral code" },
-        { "name": "referralCount", "type": "number", "description": "Number of users referred" },
-        { "name": "preferredLanguage", "type": "string", "description": "Language code (e.g., en, es)" },
-        { "name": "theme", "type": "string", "description": "Visual theme (light/dark)" },
-        { "name": "notificationSettings", "type": "map", "description": "Preference for various notification types" },
-        { "name": "biometricEnabled", "type": "boolean", "description": "If biometric login is enabled" },
-        { "name": "aiTradingEnabled", "type": "boolean", "description": "If AI trading features are active" },
-        { "name": "riskPreference", "type": "string", "description": "User's risk tolerance level" },
-        { "name": "createdAt", "type": "timestamp", "description": "Record creation time" },
-        { "name": "lastLogin", "type": "timestamp", "description": "Time of last sign-in" },
-        { "name": "lastUpdated", "type": "timestamp", "description": "Last time the profile was modified" }
-      ]
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "Bonus": {
+      "title": "Bonus",
+      "description": "Bonus definitions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "rewardAmount": { "type": "number" },
+        "rewardCurrency": { "type": "string" },
+        "type": { "type": "string" },
+        "unlockRequirements": { "type": "object" }
+      },
+      "required": ["id", "title", "rewardAmount", "type"]
+    },
+    "UserBonus": {
+      "title": "UserBonus",
+      "description": "Bonus instance for a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "bonusId": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" },
+        "locked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "bonusId", "status", "locked", "createdAt"]
+    },
+    "BonusHistory": {
+      "title": "BonusHistory",
+      "description": "Bonus event audit trail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "bonusId": { "type": "string" },
+        "event": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "bonusId", "event", "timestamp"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "category": { "type": "string" },
+        "priority": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" },
+        "actionUrl": { "type": "string" },
+        "pinned": { "type": "boolean" },
+        "archived": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "category", "priority", "title", "body", "createdAt", "read"]
     }
-  ]
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/bonuses/{bonusId}": { "schema": "Bonus", "description": "Bonus templates" },
+    "/userBonuses/{uid}/{bonusId}": { "schema": "UserBonus", "description": "User bonus status" },
+    "/bonusHistory/{eventId}": { "schema": "BonusHistory", "description": "Bonus audit log" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" }
+  }
 }
