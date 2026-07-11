@@ -162,57 +162,59 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
         </div>
       )}
 
-      <div className="relative z-10 p-4 sm:p-6 lg:max-w-5xl lg:mx-auto pt-safe">
+      <div className={`relative z-10 p-0 sm:p-0 lg:max-w-none lg:mx-0 pt-safe ${activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover' ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
         
-        <header className="flex justify-between items-center mb-6 pt-4">
-          <div className="flex items-center space-x-3">
-            <button 
-              onClick={() => setActiveTab('profile')}
-              className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-[2px] hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
-            >
-              <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${isDark ? 'bg-slate-950' : 'bg-white'}`}>
+        {activeTab !== 'markets' && activeTab !== 'coin-details' && (
+          <header className="flex justify-between items-center mb-6 pt-4 px-4 sm:px-0">
+            <div className="flex items-center space-x-3">
+              <button 
+                onClick={() => setActiveTab('profile')}
+                className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-[2px] hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
+              >
+                <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${isDark ? 'bg-slate-950' : 'bg-white'}`}>
+                  {authLoading ? (
+                    <div className="w-full h-full animate-pulse bg-slate-700" />
+                  ) : (
+                    <img 
+                      src={user?.profilePhotoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
+                      alt="Profile" 
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                </div>
+              </button>
+              <div>
                 {authLoading ? (
-                  <div className="w-full h-full animate-pulse bg-slate-700" />
+                  <div className="space-y-1">
+                    <div className="w-16 h-3 rounded animate-pulse bg-slate-700" />
+                    <div className="w-24 h-4 rounded animate-pulse bg-slate-700" />
+                  </div>
                 ) : (
-                  <img 
-                    src={user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
-                    alt="Profile" 
-                    className="w-full h-full object-cover"
-                  />
+                  <>
+                    <p className={`text-xs ${textSecondary} font-medium`}>
+                      Hey there 👋
+                    </p>
+                    <h1 className={`text-xl font-black tracking-tight ${textPrimary}`}>
+                      {user?.username || user?.email?.split('@')[0] || 'User'}
+                    </h1>
+                  </>
                 )}
               </div>
-            </button>
-            <div>
-              {authLoading ? (
-                <div className="space-y-1">
-                  <div className="w-16 h-3 rounded animate-pulse bg-slate-700" />
-                  <div className="w-24 h-4 rounded animate-pulse bg-slate-700" />
-                </div>
-              ) : (
-                <>
-                  <p className={`text-xs ${textSecondary}`}>
-                    {user?.username ? `@${user.username}` : (user?.email ? user.email.split('@')[0] : 'Welcome')}
-                  </p>
-                  <h1 className={`text-lg font-bold tracking-tight ${textPrimary}`}>
-                    {user?.username || user?.email?.split('@')[0] || 'User'}
-                  </h1>
-                </>
-              )}
             </div>
-          </div>
-          
-          <button 
-            onClick={() => setShowNotificationsModal(true)}
-            className={`w-10 h-10 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
-          >
-            <Bell className={`w-5 h-5 ${textPrimary}`} />
-            {notifications && notifications.some(n => !n.read) && (
-              <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white ring-2 ring-slate-950">
-                {notifications.filter(n => !n.read).length}
-              </span>
-            )}
-          </button>
-        </header>
+            
+            <button 
+              onClick={() => setShowNotificationsModal(true)}
+              className={`w-10 h-10 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
+            >
+              <Bell className={`w-5 h-5 ${textPrimary}`} />
+              {notifications && notifications.filter(n => !n.read).length > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white ring-2 ring-slate-950">
+                  {notifications.filter(n => !n.read).length}
+                </span>
+              )}
+            </button>
+          </header>
+        )}
 
         <AnimatePresence mode="wait">
           {activeTab === 'home' && (
@@ -494,7 +496,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
           {activeTab === 'referral-centre' && <ReferralCentre theme={theme} onBack={() => setActiveTab('profile')} />}
           {activeTab === 'preferences' && <Preferences theme={theme} onBack={() => setActiveTab('profile')} />}
           
-          {activeTab !== 'home' && activeTab !== 'discover' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
+          {activeTab !== 'home' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}

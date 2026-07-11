@@ -159,7 +159,12 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       });
       onSuccess();
     } catch (error: any) {
-      setErrorMsg(error.message || 'An error occurred during authentication.');
+      let displayError = error.message;
+      try {
+        const parsed = JSON.parse(error.message);
+        if (parsed.error) displayError = parsed.error;
+      } catch (e) { }
+      setErrorMsg(displayError || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -175,7 +180,12 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       await signIn(loginEmail, loginPassword, rememberMe);
       onSuccess();
     } catch (error: any) {
-      setErrorMsg(error.message || 'Password or Email Incorrect.');
+      let displayError = error.message;
+      try {
+        const parsed = JSON.parse(error.message);
+        if (parsed.error) displayError = parsed.error;
+      } catch (e) { }
+      setErrorMsg(displayError || 'Password or Email Incorrect.');
     } finally {
       setLoading(false);
     }
@@ -985,6 +995,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       </>
                     )}
                   </button>
+
                 </form>
 
                 {/* Switch view footer */}

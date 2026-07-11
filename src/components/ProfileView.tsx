@@ -594,7 +594,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
         <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-1 mb-4 relative group">
           <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center relative ${isDark ? 'bg-slate-950' : 'bg-white'}`}>
             <img 
-              src={user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
+              src={user?.profilePhotoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
               alt="Profile" 
               className="w-full h-full object-cover"
             />

@@ -740,9 +740,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                 <div className="w-14 h-14 rounded-full bg-white/[0.03] border border-white/10 flex items-center justify-center mb-4 text-gray-500">
                   <Bell className="w-6 h-6" />
                 </div>
-                <h3 className="text-sm font-semibold text-white">You're all caught up</h3>
-                <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
-                  You’re all caught up. New notifications will appear here.
+                <h3 className="text-sm font-semibold text-white">You’re all caught up.</h3>
+                <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed px-4">
+                  We’ll notify you about deposits, withdrawals, referrals, membership progress, AI trading updates and important account activity.
                 </p>
               </motion.div>
             ) : (

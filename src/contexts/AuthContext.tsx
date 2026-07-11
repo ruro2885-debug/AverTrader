@@ -26,7 +26,7 @@ import {
   deleteDoc,
   writeBatch
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, uploadString, getDownloadURL } from "firebase/storage";
 import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
 import { generateInitialsAvatar } from '../utils/avatarUtils';
 import { UserProfile, Theme, Language } from '../types';
@@ -135,7 +135,7 @@ interface AuthContextType {
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   updateOnboarding: (completed: boolean) => Promise<void>;
-  updateProfilePhoto: (file: File) => Promise<void>;
+  updateProfilePhoto: (file: File | string) => Promise<void>;
   updateUserPreferences: (prefs: Partial<UserPreferences>) => Promise<void>;
   addDeposit: (amount: number) => Promise<void>;
   addWithdrawal: (amount: number) => Promise<void>;
@@ -220,6 +220,7 @@ const defaultUserPreferences: UserPreferences = {
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const userRef = useRef<User | null>(null);
@@ -227,6 +228,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  const userWithPreview = useMemo(() => {
+    if (!user) return null;
+    if (!previewPhotoURL) return user;
+    return {
+      ...user,
+      profilePhotoURL: previewPhotoURL
+    };
+  }, [user, previewPhotoURL]);
 
   useEffect(() => {
     let unsubUserDoc: (() => void) | null = null;
@@ -256,6 +266,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               history: userData.history || [],
               deposits: userData.deposits || [],
               withdrawals: userData.withdrawals || [],
+              portfolio: userData.portfolio || {
+                totalValue: 0,
+                todayPnL: 0,
+                todayPnLPercent: 0,
+                overallReturn: 0
+              }
             });
           } else {
             // Profile doc doesn't exist yet, might be in the middle of registration
@@ -271,13 +287,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const notifPath = 'notifications';
         const notifQuery = query(
           collection(db, notifPath),
-          where('userId', '==', firebaseUser.uid),
-          orderBy('createdAt', 'desc')
+          where('userId', '==', firebaseUser.uid)
         );
 
         unsubNotifications = onSnapshot(notifQuery, (snapshot) => {
-          const notifs: NotificationItem[] = snapshot.docs.map(doc => {
+          console.log(`[DEBUG_NOTIFICATION] Real-time updates: received ${snapshot.docs.length} notifications`);
+          const notifs = snapshot.docs.map(doc => {
             const data = doc.data();
+            const createdAtTimestamp = data.createdAt?.toDate ? data.createdAt.toDate().getTime() : (data.createdAt?.seconds ? data.createdAt.seconds * 1000 : Date.now());
             return {
               id: doc.id,
               category: data.category || data.type || 'system',
@@ -289,10 +306,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               actionUrl: data.actionUrl || '',
               pinned: data.pinned || false,
               archived: data.archived || false,
+              createdAtTimestamp,
             };
           });
+          // Sort client-side by date descending
+          notifs.sort((a, b) => b.createdAtTimestamp - a.createdAtTimestamp);
           setNotifications(notifs);
         }, (error) => {
+          console.error("[DEBUG_NOTIFICATION_ERROR] Failed in real-time notification listener:", error);
           handleFirestoreError(error, OperationType.GET, notifPath);
         });
 
@@ -312,6 +333,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         // User is signed out
         setUser(null);
         setNotifications([]);
+        setPreviewPhotoURL(null);
         setLoading(false);
       }
     });
@@ -330,12 +352,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const firebaseUser = userCredential.user;
 
       // 2. Profile Photo
-      let profilePhotoURL = generateInitialsAvatar(data.username || data.email);
+      const username = data.username || data.email.split('@')[0];
+      let profilePhotoURL = generateInitialsAvatar(username);
 
       // 3. Create Firestore Document
       const newUser: User = {
         uid: firebaseUser.uid,
-        username: data.username,
+        username: username,
         email: data.email,
         profilePhotoURL,
         country: data.country,
@@ -420,7 +443,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       // 5. Send Email Verification
-      await sendEmailVerification(firebaseUser).catch(err => console.error("Error sending verification email:", err));
+      await sendEmailVerification(firebaseUser).then(() => {
+        addNotification(
+          'security',
+          'medium',
+          'Email Verification Sent',
+          'A verification link has been sent to your email address. Please verify your account to access all features.'
+        );
+      }).catch(err => console.error("Error sending verification email:", err));
 
     } catch (error: any) {
       // Log for development
@@ -460,6 +490,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         throw new Error("Password or Email Incorrect.");
       } else if (error.code === 'auth/network-request-failed') {
         throw new Error("Network connection unavailable. Please try again.");
+      } else if (error.code === 'auth/operation-not-allowed') {
+        throw new Error("Email/Password sign-in is not enabled in the Firebase Console.");
       }
       throw new Error(error.message || "Something went wrong. Please try again.");
     }
@@ -476,6 +508,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const addNotification = useCallback(async (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string) => {
     if (userRef.current) {
       const notifPath = 'notifications';
+      console.log(`[DEBUG_NOTIFICATION] Creating notification: "${title}" - "${body}" (category: ${category}, priority: ${priority})`);
       try {
         await addDoc(collection(db, notifPath), {
           userId: userRef.current.uid,
@@ -491,9 +524,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           pinned: false,
           archived: false,
         });
+        console.log(`[DEBUG_NOTIFICATION_SUCCESS] Notification successfully saved to Firestore for user ${userRef.current.uid}`);
       } catch (err) {
+        console.error(`[DEBUG_NOTIFICATION_ERROR] Failed to write notification to Firestore for user ${userRef.current.uid}:`, err);
         handleFirestoreError(err, OperationType.CREATE, notifPath);
       }
+    } else {
+      console.warn(`[DEBUG_NOTIFICATION_WARN] Could not create notification "${title}" because userRef is null/not logged in`);
     }
   }, []);
 
@@ -637,24 +674,54 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [addNotification]);
 
-  const updateProfilePhoto = useCallback(async (file: File) => {
+  const updateProfilePhoto = useCallback(async (file: File | string) => {
     if (userRef.current) {
-      const storageRef = ref(storage, `profile_photos/${userRef.current.uid}`);
-      await uploadBytes(storageRef, file);
-      const photoURL = await getDownloadURL(storageRef);
-      
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      await updateDoc(userDocRef, { 
-        profilePhotoURL: photoURL,
-        lastUpdated: serverTimestamp()
-      });
+      if (typeof file === 'string') {
+        if (file.startsWith('blob:')) {
+          // Set local preview URL immediately for instantaneous UI updates
+          setPreviewPhotoURL(file);
+          return;
+        }
 
-      await addNotification(
-        'account',
-        'low',
-        'Profile Picture Changed',
-        'Your profile picture has been successfully updated.'
-      );
+        const storageRef = ref(storage, `profile_photos/${userRef.current.uid}`);
+        await uploadString(storageRef, file, 'data_url');
+        const photoURL = await getDownloadURL(storageRef);
+        
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        await updateDoc(userDocRef, { 
+          profilePhotoURL: photoURL,
+          lastUpdated: serverTimestamp()
+        });
+
+        // Reset the local preview URL now that the Firebase storage is synced
+        setPreviewPhotoURL(null);
+
+        await addNotification(
+          'account',
+          'low',
+          'Profile Picture Changed',
+          'Your profile picture has been successfully updated.'
+        );
+      } else {
+        const storageRef = ref(storage, `profile_photos/${userRef.current.uid}`);
+        await uploadBytes(storageRef, file);
+        const photoURL = await getDownloadURL(storageRef);
+        
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        await updateDoc(userDocRef, { 
+          profilePhotoURL: photoURL,
+          lastUpdated: serverTimestamp()
+        });
+
+        setPreviewPhotoURL(null);
+
+        await addNotification(
+          'account',
+          'low',
+          'Profile Picture Changed',
+          'Your profile picture has been successfully updated.'
+        );
+      }
     }
   }, [addNotification]);
 
@@ -674,8 +741,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (prefs.rememberMeEnabled !== undefined) updates.rememberMeEnabled = prefs.rememberMeEnabled;
 
       await updateDoc(userDocRef, updates);
+
+      await addNotification(
+        'system',
+        'low',
+        'Security Settings Changed',
+        'Your account security preferences have been successfully updated.'
+      );
     }
-  }, []);
+  }, [addNotification]);
 
   const addDeposit = useCallback(async (amount: number) => {
     if (userRef.current) {
@@ -710,9 +784,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         lastUpdated: serverTimestamp()
       });
 
-      await addNotification('deposit', 'medium', 'Deposit Successful', `Successfully deposited $${amount.toLocaleString()}.`);
+      await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} has been submitted for processing.`);
+      await addNotification('deposit', 'medium', 'Deposit Approved', `Successfully deposited $${amount.toLocaleString()} to your wallet.`);
     }
-  }, []);
+  }, [addNotification]);
 
   const addWithdrawal = useCallback(async (amount: number) => {
     if (userRef.current) {
@@ -750,9 +825,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         lastUpdated: serverTimestamp()
       });
 
-      await addNotification('withdrawal', 'medium', 'Withdrawal Successful', `Successfully withdrew $${amount.toLocaleString()}.`);
+      await addNotification('withdrawal', 'medium', 'Withdrawal Requested', `Your withdrawal request of $${amount.toLocaleString()} has been received.`);
+      await addNotification('withdrawal', 'medium', 'Withdrawal Completed', `Successfully withdrew $${amount.toLocaleString()} from your wallet.`);
     }
-  }, []);
+  }, [addNotification]);
 
   const updateProfile = useCallback(async (dataOrDisplayName: Partial<User> | string, username?: string, email?: string) => {
     if (userRef.current) {
@@ -811,7 +887,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const contextValue = useMemo(() => ({
-    user,
+    user: userWithPreview,
     loading,
     notifications,
     signOutUser,
@@ -834,7 +910,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     changePassword,
     verifyCurrentPassword,
   }), [
-    user,
+    userWithPreview,
     loading,
     notifications,
     signOutUser,

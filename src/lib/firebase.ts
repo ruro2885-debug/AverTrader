@@ -4,20 +4,19 @@ import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDKulFQUoMzBT5_R9f1yoNNdGIs10PqpeM",
-  authDomain: "gen-lang-client-0551399062.firebaseapp.com",
-  projectId: "gen-lang-client-0551399062",
-  storageBucket: "gen-lang-client-0551399062.firebasestorage.app",
-  messagingSenderId: "435870229762",
-  appId: "1:435870229762:web:ead26d90720df84f48ce1b",
-  firestoreDatabaseId: "ai-studio-averplatform-fddb2c11-375a-4504-ade5-7e9fb39c2b12"
+  apiKey: "AIzaSyDA2AcnxhGzSCdNClHFpF3rn2Af0ucWF94",
+  authDomain: "aver-d2136.firebaseapp.com",
+  projectId: "aver-d2136",
+  storageBucket: "aver-d2136.firebasestorage.app",
+  messagingSenderId: "813693230408",
+  appId: "1:813693230408:web:be51499481b3fe0b0e277d"
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app);
 export const storage = getStorage(app);
 
 export enum OperationType {
