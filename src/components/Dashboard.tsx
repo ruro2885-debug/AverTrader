@@ -11,12 +11,15 @@ import ProfileView from './ProfileView';
 import MarketsPage from './MarketsPage';
 import DiscoverView from './DiscoverView';
 import CoinDetailsPage from './CoinDetailsPage';
+import PortfolioViewV2 from './portfolio_v2/PortfolioViewV2';
 import BonusCenter from './BonusCenter';
+
 import ReferralCentre from './ReferralCentre';
 import Preferences from './Preferences';
 import { NotificationCenter } from './NotificationCenter';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
+import UserAvatar from './UserAvatar';
 
 const marketData = [
   { symbol: 'BTC', name: 'Bitcoin', price: 64230.00, change: '+2.4%', isPositive: true },
@@ -124,15 +127,15 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   const containerClasses = isDark 
-    ? "bg-gradient-to-br from-[#020617] via-[#000000] to-[#022c22]" 
-    : "bg-gradient-to-br from-slate-50 via-white to-emerald-50";
+    ? "bg-[#000000]" 
+    : "bg-slate-50";
 
   const cardClasses = isDark
     ? "bg-slate-900/40 backdrop-blur-md border border-white/5 shadow-xl"
     : "bg-white/60 backdrop-blur-md border border-slate-200/50 shadow-lg";
 
   const modalBgClasses = isDark
-    ? "bg-[#0b0f19] border border-white/10 shadow-2xl"
+    ? "bg-[#000000] border border-white/10 shadow-2xl"
     : "bg-white border border-slate-200 shadow-2xl";
 
   const textPrimary = isDark ? "text-white" : "text-slate-900";
@@ -152,7 +155,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   return (
-    <div className={`min-h-screen pb-28 ${containerClasses} transition-colors duration-500 overflow-x-hidden font-sans`}>
+    <div className={`min-h-screen pb-32 ${containerClasses} transition-colors duration-500 overflow-x-hidden font-sans`}>
       
       {/* Animated subtle background gradients */}
       {isDark && (
@@ -162,53 +165,41 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
         </div>
       )}
 
-      <div className={`relative z-10 p-0 sm:p-0 lg:max-w-none lg:mx-0 pt-safe ${activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover' ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
+      <div className={`relative z-10 p-0 sm:p-0 lg:max-w-none lg:mx-0 pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' ? 'pt-[60px]' : ''} ${activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover' ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
         
-        {activeTab !== 'markets' && activeTab !== 'coin-details' && (
-          <header className="flex justify-between items-center mb-6 pt-4 px-4 sm:px-0">
+        {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && (
+          <header className={`fixed top-0 left-0 right-0 h-[50px] flex justify-between items-center px-4 z-50 ${isDark ? 'bg-[#000000]/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
             <div className="flex items-center space-x-3">
               <button 
                 onClick={() => setActiveTab('profile')}
-                className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-[2px] hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
+                className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-[1.5px] hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
               >
-                <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${isDark ? 'bg-slate-950' : 'bg-white'}`}>
+                <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${isDark ? 'bg-black' : 'bg-white'}`}>
                   {authLoading ? (
                     <div className="w-full h-full animate-pulse bg-slate-700" />
                   ) : (
-                    <img 
-                      src={user?.profilePhotoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
-                      alt="Profile" 
-                      className="w-full h-full object-cover"
-                    />
+                    <UserAvatar user={user} sizeClass="w-full h-full" isDark={isDark} />
                   )}
                 </div>
               </button>
               <div>
                 {authLoading ? (
-                  <div className="space-y-1">
-                    <div className="w-16 h-3 rounded animate-pulse bg-slate-700" />
-                    <div className="w-24 h-4 rounded animate-pulse bg-slate-700" />
-                  </div>
+                  <div className="w-20 h-4 rounded animate-pulse bg-slate-700" />
                 ) : (
-                  <>
-                    <p className={`text-xs ${textSecondary} font-medium`}>
-                      Hey there 👋
-                    </p>
-                    <h1 className={`text-xl font-black tracking-tight ${textPrimary}`}>
-                      {user?.username || user?.email?.split('@')[0] || 'User'}
-                    </h1>
-                  </>
+                  <h1 className={`text-sm font-bold tracking-tight ${textPrimary}`}>
+                    {user?.username || user?.email?.split('@')[0] || 'User'}
+                  </h1>
                 )}
               </div>
             </div>
             
             <button 
               onClick={() => setShowNotificationsModal(true)}
-              className={`w-10 h-10 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
+              className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
             >
-              <Bell className={`w-5 h-5 ${textPrimary}`} />
+              <Bell className={`w-4 h-4 ${textPrimary}`} />
               {notifications && notifications.filter(n => !n.read).length > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white ring-2 ring-slate-950">
+                <span className="absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-2 ring-slate-950">
                   {notifications.filter(n => !n.read).length}
                 </span>
               )}
@@ -231,7 +222,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               <motion.div variants={itemVariants} className={`rounded-[24px] p-6 relative overflow-hidden ${cardClasses}`}>
                 <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[40px] rounded-full" />
                 
-                <p className={`text-sm font-medium ${textSecondary} mb-1`}>{t('stats.volume').replace('Quarterly Volume', 'Portfolio Value')}</p>
+                <p className={`text-sm font-medium ${textSecondary} mb-1`}>Net Balance</p>
                 <h2 className={`text-3xl sm:text-4xl font-black tracking-tight ${textPrimary} mb-4`}>
                   {totalValueFormatted}
                 </h2>
@@ -247,7 +238,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="flex justify-center gap-4">
                   <button 
                     onClick={() => {
                       setAmount('');
@@ -255,10 +246,10 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                       setTxSuccess('');
                       setShowDepositModal(true);
                     }}
-                    className="flex flex-col items-center justify-center p-3 rounded-2xl bg-emerald-500 text-slate-950 font-bold text-sm transition-transform hover:scale-[1.02] active:scale-95 shadow-[0_4px_14px_rgba(16,185,129,0.3)] cursor-pointer"
+                    className="flex-1 max-w-[140px] flex flex-col items-center justify-center p-4 rounded-2xl bg-[#1a1a1a] border border-white/10 text-white font-bold text-xs sm:text-sm transition-all duration-300 hover:scale-105 hover:border-emerald-500/50 active:scale-95 shadow-lg cursor-pointer"
                   >
-                    <ArrowDownRight className="w-5 h-5 mb-1" />
-                    {t('common.deposit')}
+                    <img src="https://cdn-icons-png.flaticon.com/512/3050/3050249.png" alt="Deposit" className="w-6 h-6 mb-2 invert" />
+                    <span>Deposit</span>
                   </button>
                   <button 
                     onClick={() => {
@@ -267,43 +258,11 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                       setTxSuccess('');
                       setShowWithdrawModal(true);
                     }}
-                    className={`flex flex-col items-center justify-center p-3 rounded-2xl font-bold text-sm transition-transform hover:scale-[1.02] active:scale-95 border cursor-pointer ${isDark ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-50'}`}
+                    className="flex-1 max-w-[140px] flex flex-col items-center justify-center p-4 rounded-2xl bg-[#1a1a1a] border border-white/10 text-white font-bold text-xs sm:text-sm transition-all duration-300 hover:scale-105 hover:border-emerald-500/50 active:scale-95 shadow-lg cursor-pointer"
                   >
-                    <ArrowUpRight className="w-5 h-5 mb-1" />
-                    {t('common.withdrawal')}
+                    <img src="https://cdn-icons-png.flaticon.com/512/3050/3050250.png" alt="Withdraw" className="w-6 h-6 mb-2 invert" />
+                    <span>Withdraw</span>
                   </button>
-                  <button 
-                    onClick={() => alert('Trade module integration is coming in the next release.')}
-                    className={`flex flex-col items-center justify-center p-3 rounded-2xl font-bold text-sm transition-transform hover:scale-[1.02] active:scale-95 border cursor-pointer ${isDark ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-white border-slate-200 text-slate-900 hover:bg-slate-50'}`}
-                  >
-                    <ArrowRightLeft className="w-5 h-5 mb-1" />
-                    {t('common.market').replace('Marché', 'Trade')}
-                  </button>
-                </div>
-              </motion.div>
-
-              {/* Section 6: Quick Actions */}
-              <motion.div variants={itemVariants}>
-                <div className="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
-                  {[
-                    { name: t('common.deposit'), icon: ArrowDownRight, action: () => setShowDepositModal(true) },
-                    { name: t('common.withdrawal'), icon: ArrowUpRight, action: () => setShowWithdrawModal(true) },
-                    { name: 'Swap', icon: ArrowRightLeft, action: () => alert('Swap features coming soon.') },
-                    { name: 'Copy Trade', icon: Copy, action: () => alert('Copy Trading system is currently being simulated.') },
-                    { name: 'Transfer', icon: Zap, action: () => alert('Inter-account transfer available soon.') },
-                    { name: 'History', icon: History, action: () => setShowHistoryModal(true) },
-                  ].map((action, i) => (
-                    <button 
-                      key={i} 
-                      onClick={action.action}
-                      className="flex flex-col items-center flex-shrink-0 space-y-2 group w-16 cursor-pointer"
-                    >
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${isDark ? 'bg-slate-800/50 hover:bg-slate-700/50 border border-white/5' : 'bg-white hover:bg-slate-50 border border-slate-200 shadow-sm'}`}>
-                        <action.icon className={`w-6 h-6 ${isDark ? 'text-emerald-400' : 'text-emerald-600'} transition-transform group-hover:scale-110`} />
-                      </div>
-                      <span className={`text-[11px] text-center font-medium ${textSecondary}`}>{action.name}</span>
-                    </button>
-                  ))}
                 </div>
               </motion.div>
 
@@ -481,6 +440,16 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
             </motion.div>
           )}
 
+          {activeTab === 'portfolio' && (
+            <PortfolioViewV2 
+              theme={theme} 
+              onBack={() => setActiveTab('home')} 
+              onNavigate={(tab) => setActiveTab(tab)}
+              onOpenDeposit={() => setShowDepositModal(true)}
+              onOpenWithdraw={() => setShowWithdrawModal(true)}
+            />
+          )}
+
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
           {activeTab === 'discover' && <DiscoverView theme={theme} />}
@@ -496,7 +465,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
           {activeTab === 'referral-centre' && <ReferralCentre theme={theme} onBack={() => setActiveTab('profile')} />}
           {activeTab === 'preferences' && <Preferences theme={theme} onBack={() => setActiveTab('profile')} />}
           
-          {activeTab !== 'home' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
+          {activeTab !== 'home' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}
@@ -510,7 +479,6 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                 <div className={`w-16 h-16 rounded-full mb-4 flex items-center justify-center ${isDark ? 'bg-white/5' : 'bg-slate-100'}`}>
                   {activeTab === 'markets' && <Activity className={`w-8 h-8 ${textSecondary}`} />}
                   {activeTab === 'ai' && <Brain className={`w-8 h-8 ${textSecondary}`} />}
-                  {activeTab === 'portfolio' && <Wallet className={`w-8 h-8 ${textSecondary}`} />}
                 </div>
                 <p className={`${textSecondary} font-medium`}>
                   {activeTab} module is coming soon.

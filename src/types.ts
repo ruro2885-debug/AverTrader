@@ -3,6 +3,7 @@ export interface UserProfile {
   username: string;
   email: string;
   profilePhotoURL: string;
+  avatarUrl?: string;
   country: string;
   phoneNumber?: string;
   accountType: string;
@@ -19,6 +20,7 @@ export interface UserProfile {
   preferredLanguage: string;
   theme: string;
   notificationSettings: Record<string, boolean>;
+  hasCustomPhoto?: boolean;
   biometricEnabled: boolean;
   aiTradingEnabled: boolean;
   riskPreference: string;
@@ -84,4 +86,52 @@ export interface Position {
   pnl: number;
   pnlPercent: number;
   pnlStatus: 'profit' | 'loss';
+}
+
+export interface Holding {
+  id: string;
+  ticker: string;
+  name: string;
+  quantity: number;
+  avgEntry: number;
+  currentPrice: number;
+  marketValue: number;
+  pnl: number;
+  change24H: number;
+  allocationPct: number;
+  logoColor: string;
+  logoText: string;
+  aiDetails: string;
+  trend: number[];
+  riskRating: 'Low' | 'Medium' | 'High';
+  confidenceScore: number;
+  lastAiDecision: string;
+  targetAllocation?: number;
+}
+
+export interface TradeHistoryItem {
+  id: string;
+  ticker: string;
+  side: 'buy' | 'sell' | 'deposit' | 'withdrawal' | 'rebalance';
+  quantity: number;
+  price: number;
+  amount?: number;
+  timestamp: any;
+  type: 'manual' | 'ai' | 'system';
+  pnl?: number;
+  status: 'Completed' | 'Pending' | 'Cancelled';
+  reason?: string;
+  tradeId?: string;
+  txHash?: string;
+}
+
+export interface PortfolioSnapshot {
+  id: string;
+  timestamp: any;
+  totalValue: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  exposure: number;
+  holdings: Record<string, number>;
+  cash: number;
 }

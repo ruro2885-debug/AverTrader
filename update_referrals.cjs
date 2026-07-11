@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+const fs = require('fs');
+
+const code = `import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Copy, Share2, Check, Users, Gift, TrendingUp, DollarSign, ChevronRight, Bot } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { QRCodeSVG } from 'qrcode.react';
 
 export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'dark', onBack: () => void }) {
   const { user } = useAuth();
@@ -38,7 +39,7 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
     fetchReferrals();
   }, [user]);
 
-  const referralLink = `https://avernox.com/signup?ref=${user?.referralCode || ''}`;
+  const referralLink = \`https://avernox.com/signup?ref=\${user?.referralCode || ''}\`;
 
   const copyToClipboard = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -51,7 +52,7 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
       try {
         await navigator.share({
           title: 'Join AverNoxTrader',
-          text: `Use my referral code ${user?.referralCode} to join AverNoxTrader!`,
+          text: \`Use my referral code \${user?.referralCode} to join AverNoxTrader!\`,
           url: referralLink,
         });
       } catch (err) {
@@ -70,16 +71,16 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className={`min-h-screen w-full ${isDark ? 'bg-[#000000] text-white' : 'bg-slate-50 text-slate-900'} font-sans pb-24`}
+      className={\`min-h-screen w-full \${isDark ? 'bg-[#000000] text-white' : 'bg-slate-50 text-slate-900'} font-sans pb-24\`}
     >
-      <header className={`sticky top-0 z-40 flex items-center justify-between p-5 border-b backdrop-blur-md ${isDark ? 'border-white/5 bg-[#000000]/80' : 'border-slate-200 bg-slate-50/80'}`}>
+      <header className={\`sticky top-0 z-40 flex items-center justify-between p-5 border-b backdrop-blur-md \${isDark ? 'border-white/5 bg-[#000000]/80' : 'border-slate-200 bg-slate-50/80'}\`}>
         <div className="flex items-center gap-3">
-          <button onClick={onBack} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}>
+          <button onClick={onBack} className={\`p-2 rounded-xl transition-colors \${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}\`}>
             <ArrowLeft size={20} />
           </button>
           <h2 className="text-xl font-bold tracking-tight">Referral Program</h2>
         </div>
-        <button onClick={handleShare} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}>
+        <button onClick={handleShare} className={\`p-2 rounded-xl transition-colors \${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}\`}>
           <Share2 size={20} />
         </button>
       </header>
@@ -119,61 +120,30 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
 
       <div className="px-4 sm:px-6 w-full max-w-5xl mx-auto space-y-10">
         {/* 2. Stats Dashboard (Three Columns with Glassmorphism) */}
-        <div className={`flex flex-row justify-between items-stretch gap-4 p-5 rounded-3xl border ${isDark ? 'bg-white/[0.03] border-white/10 backdrop-blur-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <div className={\`flex flex-row justify-between items-stretch gap-4 p-5 rounded-3xl border \${isDark ? 'bg-white/[0.03] border-white/10 backdrop-blur-xl' : 'bg-white border-slate-200 shadow-sm'}\`}>
             
             <div className="flex-1 text-center flex flex-col justify-center">
-                <span className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total Earnings</span>
-                <span className="text-2xl sm:text-3xl font-black text-emerald-500">${totalEarned.toFixed(2)}</span>
+                <span className={\`text-xs font-bold uppercase tracking-wider mb-2 \${isDark ? 'text-white/60' : 'text-slate-500'}\`}>Total Earnings</span>
+                <span className="text-2xl sm:text-3xl font-black text-emerald-500">\${totalEarned.toFixed(2)}</span>
             </div>
             
-            <div className={`w-[1px] ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}></div>
+            <div className={\`w-[1px] \${isDark ? 'bg-white/10' : 'bg-slate-200'}\`}></div>
             
             <div className="flex-1 text-center flex flex-col justify-center">
-                <span className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Referral Level</span>
+                <span className={\`text-xs font-bold uppercase tracking-wider mb-2 \${isDark ? 'text-white/60' : 'text-slate-500'}\`}>Referral Level</span>
                 <span className="text-2xl sm:text-3xl font-black">Level 1</span>
                 <div className="w-full max-w-[80px] h-1.5 bg-black/20 rounded-full mx-auto mt-3 overflow-hidden">
                     <div className="w-[20%] h-full bg-emerald-500 rounded-full"></div>
                 </div>
             </div>
 
-            <div className={`w-[1px] ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}></div>
+            <div className={\`w-[1px] \${isDark ? 'bg-white/10' : 'bg-slate-200'}\`}></div>
 
             <div className="flex-1 text-center flex flex-col justify-center">
-                <span className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total Invites</span>
+                <span className={\`text-xs font-bold uppercase tracking-wider mb-2 \${isDark ? 'text-white/60' : 'text-slate-500'}\`}>Total Invites</span>
                 <span className="text-2xl sm:text-3xl font-black">{referrals.length}</span>
             </div>
 
-        </div>
-
-        {/* Share Section */}
-        <div className={`flex flex-col md:flex-row items-center justify-center gap-8 p-8 rounded-3xl border ${isDark ? 'bg-white/[0.02] border-white/5' : 'bg-white border-slate-200 shadow-sm'}`}>
-            {/* Copyable Code Area */}
-            <div className="flex flex-col flex-1 max-w-sm w-full gap-2">
-                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Your Referral Code</span>
-                <div className={`flex justify-between items-center p-4 rounded-xl border border-dashed border-emerald-500 ${isDark ? 'bg-white/5' : 'bg-slate-50'}`}>
-                    <span className="font-mono font-bold text-lg text-emerald-500 tracking-wider">{user?.referralCode}</span>
-                    <button 
-                        onClick={() => copyToClipboard(user?.referralCode || '')} 
-                        className="bg-emerald-500 text-black px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-                    >
-                        {copiedCode ? <Check size={16} /> : <Copy size={16} />} Copy
-                    </button>
-                </div>
-            </div>
-
-            {/* QR Code Area */}
-            <div className="flex flex-col items-center gap-4">
-                <div className="p-4 bg-white rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                    <QRCodeSVG 
-                        value={referralLink} 
-                        size={128} 
-                        bgColor={"#ffffff"}
-                        fgColor={"#000000"}
-                        level={"Q"}
-                    />
-                </div>
-                <p className={`text-sm font-bold ${isDark ? 'text-white/80' : 'text-slate-600'}`}>Scan to invite friends</p>
-            </div>
         </div>
 
         {/* 3. Empty State or History */}
@@ -193,7 +163,7 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
                         <Bot size={64} className="text-emerald-500 opacity-80" />
                     </motion.div>
                     <h3 className="text-xl font-black mb-3">Your network is waiting!</h3>
-                    <p className={`text-sm max-w-xs mx-auto leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                    <p className={\`text-sm max-w-xs mx-auto leading-relaxed \${isDark ? 'text-white/50' : 'text-slate-500'}\`}>
                         Invite your first friend to start earning rewards from the Aver Referral Program.
                     </p>
                 </div>
@@ -201,7 +171,7 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
                 <div className="space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-wider opacity-60 ml-2 mb-4">Recent Activity</h3>
                     {referrals.map((ref, idx) => (
-                        <div key={idx} className={`flex items-center justify-between p-5 rounded-2xl border transition-all hover:scale-[1.01] ${isDark ? 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]' : 'bg-white border-slate-200 shadow-sm'}`}>
+                        <div key={idx} className={\`flex items-center justify-between p-5 rounded-2xl border transition-all hover:scale-[1.01] \${isDark ? 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]' : 'bg-white border-slate-200 shadow-sm'}\`}>
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center text-emerald-500 border border-emerald-500/20">
                                     <Users size={20} />
@@ -212,7 +182,7 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className={`font-black text-lg ${ref.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                <p className={\`font-black text-lg \${ref.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}\`}>
                                     {ref.status === 'completed' ? '+$50.00' : 'Pending'}
                                 </p>
                                 <p className="text-[10px] font-bold uppercase tracking-wider opacity-50 mt-1">{ref.status}</p>
@@ -227,3 +197,6 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
     </motion.div>
   );
 }
+`;
+
+fs.writeFileSync('src/components/ReferralCentre.tsx', code);

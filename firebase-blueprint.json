@@ -72,10 +72,61 @@
         "archived": { "type": "boolean" }
       },
       "required": ["id", "userId", "category", "priority", "title", "body", "createdAt", "read"]
+    },
+    "Holding": {
+      "title": "Holding",
+      "description": "User portfolio holding",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticker": { "type": "string" },
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "avgEntry": { "type": "number" },
+        "currentPrice": { "type": "number" },
+        "marketValue": { "type": "number" },
+        "pnl": { "type": "number" },
+        "change24H": { "type": "number" },
+        "allocationPct": { "type": "number" }
+      },
+      "required": ["id", "ticker", "quantity", "avgEntry"]
+    },
+    "Trade": {
+      "title": "Trade",
+      "description": "User trade record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticker": { "type": "string" },
+        "side": { "type": "string" },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "type": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "ticker", "side", "quantity", "price", "timestamp", "type", "status"]
+    },
+    "Snapshot": {
+      "title": "Snapshot",
+      "description": "User portfolio snapshot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "totalValue": { "type": "number" },
+        "realizedPnl": { "type": "number" },
+        "unrealizedPnl": { "type": "number" },
+        "exposure": { "type": "number" }
+      },
+      "required": ["id", "timestamp", "totalValue"]
     }
   },
   "firestore": {
     "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/users/{uid}/holdings/{holdingId}": { "schema": "Holding", "description": "User portfolio holdings" },
+    "/users/{uid}/trades/{tradeId}": { "schema": "Trade", "description": "User trade records" },
+    "/users/{uid}/snapshots/{snapshotId}": { "schema": "Snapshot", "description": "User portfolio history snapshots" },
     "/bonuses/{bonusId}": { "schema": "Bonus", "description": "Bonus templates" },
     "/userBonuses/{uid}/{bonusId}": { "schema": "UserBonus", "description": "User bonus status" },
     "/bonusHistory/{eventId}": { "schema": "BonusHistory", "description": "Bonus audit log" },

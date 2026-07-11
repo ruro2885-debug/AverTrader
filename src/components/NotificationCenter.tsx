@@ -279,7 +279,7 @@ const NotificationRow = React.memo(({
                 }} 
               />
               <div 
-                className="absolute right-0 top-7 w-36 bg-[#121420]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl py-1 z-20 overflow-hidden text-xs"
+                className="absolute right-0 top-7 w-36 bg-[#000000]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl py-1 z-20 overflow-hidden text-xs"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button 
@@ -377,16 +377,6 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
     }
   }, []);
 
-  // Progressive infinite scroll loader
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 150) {
-      if (visibleCount < filteredAndSorted.length) {
-        setVisibleCount(prev => prev + 15);
-      }
-    }
-  };
-
   const filteredAndSorted = useMemo(() => {
     let result = localNotifications.filter(n => showArchived ? !!n.archived : !n.archived);
 
@@ -432,8 +422,40 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
       return sortOrder === 'newest' ? timeB - timeA : timeA - timeB;
     });
 
-    return result;
+    const grouped = {
+      today: [] as NotificationItem[],
+      yesterday: [] as NotificationItem[],
+      earlier: [] as NotificationItem[],
+    };
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    result.forEach(n => {
+      const date = new Date(n.date);
+      if (date >= today) grouped.today.push(n);
+      else if (date >= yesterday) grouped.yesterday.push(n);
+      else grouped.earlier.push(n);
+    });
+    
+    return grouped;
   }, [localNotifications, searchQuery, categoryFilter, showUnreadOnly, sortOrder, showArchived, preferences]);
+
+  const totalCount = useMemo(() => {
+    return filteredAndSorted.today.length + filteredAndSorted.yesterday.length + filteredAndSorted.earlier.length;
+  }, [filteredAndSorted]);
+
+  // Progressive infinite scroll loader
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 150) {
+      if (visibleCount < totalCount) {
+        setVisibleCount(prev => prev + 15);
+      }
+    }
+  };
 
   const textPrimary = 'text-white';
   const textSecondary = 'text-gray-400';
@@ -531,7 +553,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 26, stiffness: 210 }}
-        className="w-full md:w-[98%] max-w-4xl h-[92vh] rounded-t-[24px] border-t border-x border-white/[0.12] bg-[#0b0c13]/85 backdrop-blur-2xl flex flex-col overflow-hidden shadow-[0_-15px_50px_-10px_rgba(0,0,0,0.85),0_0_50px_rgba(16,185,129,0.06)] relative text-white"
+        className="w-full md:w-[98%] max-w-4xl h-[92vh] rounded-t-[24px] border-t border-x border-white/[0.12] bg-[#000000]/85 backdrop-blur-2xl flex flex-col overflow-hidden shadow-[0_-15px_50px_-10px_rgba(0,0,0,0.85),0_0_50px_rgba(16,185,129,0.06)] relative text-white"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Ambient emerald glow decoration */}
@@ -587,7 +609,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
         </div>
 
         {/* Search and Filters (Sticky below header) */}
-        <div className="px-6 py-4 space-y-3.5 flex-shrink-0 border-b border-white/[0.06] bg-[#0c0e16]/40 relative z-20">
+        <div className="px-6 py-4 space-y-3.5 flex-shrink-0 border-b border-white/[0.06] bg-[#000000]/40 relative z-20">
           {/* Search Bar - Sleek Glass Pill */}
           <div className="relative w-full h-11 rounded-full bg-white/[0.03] border border-white/10 flex items-center px-4 focus-within:border-emerald-500/30 transition-all focus-within:bg-white/[0.05] shadow-[inset_0_1.5px_3px_rgba(255,255,255,0.02)]">
             <Search className="w-4 h-4 text-gray-500 mr-2 shrink-0" />
@@ -624,7 +646,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
               {categoryDropdownOpen && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setCategoryDropdownOpen(false)} />
-                  <div className="absolute left-0 mt-2 w-48 bg-[#121420]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl py-1 z-40 overflow-hidden">
+                  <div className="absolute left-0 mt-2 w-48 bg-[#000000]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl py-1 z-40 overflow-hidden">
                     {categories.map((cat) => (
                       <button
                         key={cat.id}
@@ -730,7 +752,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                   </div>
                 ))}
               </div>
-            ) : filteredAndSorted.length === 0 ? (
+            ) : totalCount === 0 ? (
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -746,24 +768,36 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                 </p>
               </motion.div>
             ) : (
-              <div className="space-y-2.5">
-                {filteredAndSorted.slice(0, visibleCount).map((not) => {
-                  const dateObj = new Date(not.date);
-                  const exactTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                  
+              <div className="space-y-6">
+                {(Object.entries(filteredAndSorted) as [string, NotificationItem[]][]).map(([key, list]) => {
+                  if (list.length === 0) return null;
                   return (
-                    <NotificationRow
-                      key={not.id}
-                      not={not}
-                      isDark={isDark}
-                      textPrimary={textPrimary}
-                      textSecondary={textSecondary}
-                      exactTime={exactTime}
-                      onMarkRead={handleMarkRead}
-                      onPin={handlePin}
-                      onArchive={handleArchive}
-                      onDelete={handleDelete}
-                    />
+                    <div key={key}>
+                      <h3 className="text-[10px] font-bold text-gray-500 uppercase px-6 py-3 tracking-wider">
+                        {key}
+                      </h3>
+                      <div className="space-y-2.5">
+                        {list.slice(0, visibleCount).map((not) => {
+                          const dateObj = new Date(not.date);
+                          const exactTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                          
+                          return (
+                            <NotificationRow
+                              key={not.id}
+                              not={not}
+                              isDark={isDark}
+                              textPrimary={textPrimary}
+                              textSecondary={textSecondary}
+                              exactTime={exactTime}
+                              onMarkRead={handleMarkRead}
+                              onPin={handlePin}
+                              onArchive={handleArchive}
+                              onDelete={handleDelete}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -780,7 +814,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
               exit={{ opacity: 0 }}
               className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-black/85 backdrop-blur-[4px]"
             >
-              <div className="p-6 rounded-2xl max-w-sm w-full border border-white/10 bg-[#0e1017] shadow-2xl text-center">
+              <div className="p-6 rounded-2xl max-w-sm w-full border border-white/10 bg-[#000000] shadow-2xl text-center">
                 <div className="w-12 h-12 rounded-full bg-rose-500/10 flex items-center justify-center mb-4 text-rose-500 mx-auto">
                   <AlertCircle className="w-6 h-6" />
                 </div>
@@ -819,7 +853,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
               exit={{ opacity: 0 }}
               className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-black/85 backdrop-blur-[4px]"
             >
-              <div className="p-6 rounded-2xl max-w-sm w-full border border-white/10 bg-[#0e1017] shadow-2xl text-center">
+              <div className="p-6 rounded-2xl max-w-sm w-full border border-white/10 bg-[#000000] shadow-2xl text-center">
                 <div className="w-12 h-12 rounded-full bg-rose-500/10 flex items-center justify-center mb-4 text-rose-500 mx-auto">
                   <AlertCircle className="w-6 h-6" />
                 </div>

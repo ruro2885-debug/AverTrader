@@ -26,9 +26,8 @@ import {
   deleteDoc,
   writeBatch
 } from "firebase/firestore";
-import { ref, uploadBytes, uploadString, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
-import { generateInitialsAvatar } from '../utils/avatarUtils';
 import { UserProfile, Theme, Language } from '../types';
 
 export interface UserPreferences {
@@ -63,6 +62,16 @@ export interface PortfolioData {
   todayPnL: number;
   todayPnLPercent: number;
   overallReturn: number;
+  realizedPnL: number;
+  unrealizedPnL: number;
+  healthScore: number;
+  diversificationScore: number;
+  volatility: number;
+  sharpeRatio: number;
+  winRate: number;
+  maxDrawdown: number;
+  recoveryFactor: number;
+  riskAdjustedReturn: number;
 }
 
 export interface DepositItem {
@@ -102,6 +111,7 @@ export interface NotificationItem {
   priority: NotificationPriority;
   title: string;
   body: string;
+  createdAtTimestamp: number;
   date: string;
   read: boolean;
   actionUrl?: string;
@@ -121,10 +131,13 @@ export interface HistoryItem {
 
 export interface User extends UserProfile {
   notificationsList: NotificationItem[];
-  history: HistoryItem[];
+  history: HistoryItem[]; // Kept for legacy if needed, but we'll use trades subcollection
   deposits: DepositItem[];
   withdrawals: WithdrawalItem[];
   portfolio: PortfolioData;
+  holdings: Holding[];
+  trades: TradeHistoryItem[];
+  snapshots: PortfolioSnapshot[];
 }
 
 interface AuthContextType {
@@ -135,12 +148,12 @@ interface AuthContextType {
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   updateOnboarding: (completed: boolean) => Promise<void>;
-  updateProfilePhoto: (file: File | string) => Promise<void>;
+  updateProfilePhoto: (file: File | string | null) => Promise<void>;
   updateUserPreferences: (prefs: Partial<UserPreferences>) => Promise<void>;
   addDeposit: (amount: number) => Promise<void>;
   addWithdrawal: (amount: number) => Promise<void>;
   
-  addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string) => Promise<void>;
+  addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string, action?: string, metadata?: Record<string, any>, userId?: string) => Promise<void>;
   markNotificationRead: (id: string, readState?: boolean) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   deleteNotification: (id: string) => Promise<void>;
@@ -231,16 +244,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const userWithPreview = useMemo(() => {
     if (!user) return null;
-    if (!previewPhotoURL) return user;
+    
+    // Determine the effective avatar: preview (if set) -> user.avatarUrl -> user.profilePhotoURL
+    let effectiveAvatar = user.avatarUrl || user.profilePhotoURL || "";
+    let hasCustomPhoto = !!user.avatarUrl || !!user.profilePhotoURL;
+    
+    if (previewPhotoURL) {
+      effectiveAvatar = previewPhotoURL;
+      hasCustomPhoto = true;
+    }
+    
     return {
       ...user,
-      profilePhotoURL: previewPhotoURL
+      profilePhotoURL: effectiveAvatar,
+      avatarUrl: effectiveAvatar,
+      hasCustomPhoto
     };
   }, [user, previewPhotoURL]);
 
   useEffect(() => {
     let unsubUserDoc: (() => void) | null = null;
     let unsubNotifications: (() => void) | null = null;
+    let unsubHoldings: (() => void) | null = null;
+    let unsubTrades: (() => void) | null = null;
+    let unsubSnapshots: (() => void) | null = null;
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (unsubUserDoc) {
@@ -251,8 +278,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         unsubNotifications();
         unsubNotifications = null;
       }
+      if (unsubHoldings) {
+        unsubHoldings();
+        unsubHoldings = null;
+      }
+      if (unsubTrades) {
+        unsubTrades();
+        unsubTrades = null;
+      }
+      if (unsubSnapshots) {
+        unsubSnapshots();
+        unsubSnapshots = null;
+      }
 
       if (firebaseUser) {
+        // Retrieve and apply cached user profile immediately to avoid flickering
+        const cachedUserStr = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
+        if (cachedUserStr) {
+          try {
+            const cachedUser = JSON.parse(cachedUserStr);
+            setUser(cachedUser);
+            const notifs = cachedUser.notificationsList || [];
+            setNotifications(notifs);
+            setLoading(false);
+          } catch (e) {
+            console.error("Error loading cached user:", e);
+          }
+        }
+
         // User is signed in, fetch their profile from Firestore
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         
@@ -260,7 +313,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
             const userData = docSnap.data() as User;
-            setUser({
+            const updatedUser = {
               ...userData,
               notificationsList: userData.notificationsList || [],
               history: userData.history || [],
@@ -270,9 +323,33 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 totalValue: 0,
                 todayPnL: 0,
                 todayPnLPercent: 0,
-                overallReturn: 0
+                overallReturn: 0,
+                realizedPnL: 0,
+                unrealizedPnL: 0,
+                healthScore: 0,
+                diversificationScore: 0,
+                volatility: 0,
+                sharpeRatio: 0,
+                winRate: 0,
+                maxDrawdown: 0,
+                recoveryFactor: 0,
+                riskAdjustedReturn: 0
               }
+            } as User;
+            setUser(prev => {
+              const merged = {
+                ...updatedUser,
+                holdings: prev?.holdings || [],
+                trades: prev?.trades || [],
+                snapshots: prev?.snapshots || []
+              } as User;
+              localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(merged));
+              return merged;
             });
+            
+            const notifs = userData.notificationsList || [];
+            notifs.sort((a, b) => b.createdAtTimestamp - a.createdAtTimestamp);
+            setNotifications(notifs);
           } else {
             // Profile doc doesn't exist yet, might be in the middle of registration
             console.warn("User profile document not found in Firestore");
@@ -283,39 +360,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setLoading(false);
         });
 
-        // Listen for real-time updates to notifications
-        const notifPath = 'notifications';
-        const notifQuery = query(
-          collection(db, notifPath),
-          where('userId', '==', firebaseUser.uid)
-        );
-
-        unsubNotifications = onSnapshot(notifQuery, (snapshot) => {
-          console.log(`[DEBUG_NOTIFICATION] Real-time updates: received ${snapshot.docs.length} notifications`);
-          const notifs = snapshot.docs.map(doc => {
-            const data = doc.data();
-            const createdAtTimestamp = data.createdAt?.toDate ? data.createdAt.toDate().getTime() : (data.createdAt?.seconds ? data.createdAt.seconds * 1000 : Date.now());
-            return {
-              id: doc.id,
-              category: data.category || data.type || 'system',
-              priority: data.priority || 'medium',
-              title: data.title || '',
-              body: data.body || data.message || '',
-              date: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
-              read: data.read || false,
-              actionUrl: data.actionUrl || '',
-              pinned: data.pinned || false,
-              archived: data.archived || false,
-              createdAtTimestamp,
-            };
-          });
-          // Sort client-side by date descending
-          notifs.sort((a, b) => b.createdAtTimestamp - a.createdAtTimestamp);
-          setNotifications(notifs);
+        // Subcollection Listeners for Portfolio Intelligence
+        const holdingsRef = collection(db, 'users', firebaseUser.uid, 'holdings');
+        unsubHoldings = onSnapshot(holdingsRef, (snap) => {
+          const holdings = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Holding[];
+          setUser(prev => prev ? { ...prev, holdings } : null);
         }, (error) => {
-          console.error("[DEBUG_NOTIFICATION_ERROR] Failed in real-time notification listener:", error);
-          handleFirestoreError(error, OperationType.GET, notifPath);
+          handleFirestoreError(error, OperationType.LIST, `users/${firebaseUser.uid}/holdings`);
         });
+
+        const tradesRef = collection(db, 'users', firebaseUser.uid, 'trades');
+        unsubTrades = onSnapshot(query(tradesRef, orderBy('timestamp', 'desc')), (snap) => {
+          const trades = snap.docs.map(d => ({ id: d.id, ...d.data() })) as TradeHistoryItem[];
+          setUser(prev => prev ? { ...prev, trades } : null);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.LIST, `users/${firebaseUser.uid}/trades`);
+        });
+
+        const snapshotsRef = collection(db, 'users', firebaseUser.uid, 'snapshots');
+        unsubSnapshots = onSnapshot(query(snapshotsRef, orderBy('timestamp', 'desc')), (snap) => {
+          const snapshots = snap.docs.map(d => ({ id: d.id, ...d.data() })) as PortfolioSnapshot[];
+          setUser(prev => prev ? { ...prev, snapshots } : null);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.LIST, `users/${firebaseUser.uid}/snapshots`);
+        });
+
+        // Notifications are now parsed in the user document listener.
 
         // Update lastLogin
         try {
@@ -353,7 +423,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       // 2. Profile Photo
       const username = data.username || data.email.split('@')[0];
-      let profilePhotoURL = generateInitialsAvatar(username);
+      let profilePhotoURL = "";
 
       // 3. Create Firestore Document
       const newUser: User = {
@@ -361,6 +431,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         username: username,
         email: data.email,
         profilePhotoURL,
+        avatarUrl: "",
+        hasCustomPhoto: false,
         country: data.country,
         phoneNumber: data.phoneNumber || '',
         accountType: 'Standard',
@@ -394,35 +466,98 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         deposits: [],
         withdrawals: [],
         portfolio: {
-          totalValue: 0,
-          todayPnL: 0,
-          todayPnLPercent: 0,
-          overallReturn: 0
+          totalValue: 100000,
+          todayPnL: 1240.50,
+          todayPnLPercent: 1.25,
+          overallReturn: 15.4,
+          realizedPnL: 8450.20,
+          unrealizedPnL: 6950.30,
+          healthScore: 94,
+          diversificationScore: 88,
+          volatility: 12.4,
+          sharpeRatio: 2.1,
+          winRate: 68,
+          maxDrawdown: 8.5,
+          recoveryFactor: 3.2,
+          riskAdjustedReturn: 18.5
         }
       };
 
       await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+
+      // Seed initial holdings
+      const initialHoldings = [
+        { ticker: 'BTC', name: 'Bitcoin', quantity: 0.85, avgEntry: 52000, currentPrice: 58000, marketValue: 49300, pnl: 5100, change24H: 2.5, allocationPct: 49.3, logoColor: 'from-amber-500 to-orange-600', logoText: '₿', aiDetails: "BTC accumulation phase strong. Support at $55k.", riskRating: 'Low', confidenceScore: 94, lastAiDecision: 'HODL' },
+        { ticker: 'ETH', name: 'Ethereum', quantity: 12, avgEntry: 2800, currentPrice: 3100, marketValue: 37200, pnl: 3600, change24H: 1.8, allocationPct: 37.2, logoColor: 'from-slate-400 to-slate-600', logoText: 'Ξ', aiDetails: "ETH 2.0 staking rewards increasing.", riskRating: 'Low', confidenceScore: 88, lastAiDecision: 'ACCUMULATE' },
+        { ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", riskRating: 'Medium', confidenceScore: 82, lastAiDecision: 'REBALANCE' }
+      ];
+
+      for (const h of initialHoldings) {
+        await addDoc(collection(db, 'users', firebaseUser.uid, 'holdings'), h);
+      }
+
+      // Seed initial trades
+      const initialTrades = [
+        { ticker: 'BTC', side: 'buy', quantity: 0.85, price: 52000, timestamp: serverTimestamp(), type: 'ai', status: 'Completed', reason: 'Bullish divergence detected' },
+        { ticker: 'ETH', side: 'buy', quantity: 12, price: 2800, timestamp: serverTimestamp(), type: 'ai', status: 'Completed', reason: 'Support level bounce' },
+        { ticker: 'SOL', side: 'buy', quantity: 120, price: 110, timestamp: serverTimestamp(), type: 'manual', status: 'Completed' }
+      ];
+
+      for (const t of initialTrades) {
+        await addDoc(collection(db, 'users', firebaseUser.uid, 'trades'), t);
+      }
+
+      // Seed initial snapshots for chart
+      const initialSnapshots = [];
+      const now = new Date();
+      for (let i = 30; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+        initialSnapshots.push({
+          timestamp: d.toISOString(),
+          totalValue: 80000 + (30 - i) * 600 + Math.random() * 1000,
+          realizedPnl: 5000 + (30 - i) * 100,
+          unrealizedPnl: 2000 + (30 - i) * 150,
+          exposure: 0.8,
+          cash: 20000
+        });
+      }
+
+      for (const s of initialSnapshots) {
+        await addDoc(collection(db, 'users', firebaseUser.uid, 'snapshots'), s);
+      }
 
       // Add Welcome Notifications
       await addNotification(
         'account',
         'medium',
         'Welcome to AverNoxTrader',
-        'Welcome to AverNoxTrader! Your professional trading account is successfully initialized. Explore the market terminal and configure your AI settings to begin.'
+        'Welcome to AverNoxTrader! Your professional trading account is successfully initialized. Explore the market terminal and configure your AI settings to begin.',
+        undefined,
+        undefined,
+        undefined,
+        firebaseUser.uid
       );
 
       await addNotification(
         'vault',
         'high',
         'Welcome Bonus Available',
-        'Congratulations! A standard $150 sign-up promotional bonus has been successfully credited to your locked vaults. Complete onboarding and platform activities to begin unlocking rules.'
+        'Congratulations! A standard $150 sign-up promotional bonus has been successfully credited to your locked vaults. Complete onboarding and platform activities to begin unlocking rules.',
+        undefined,
+        undefined,
+        undefined,
+        firebaseUser.uid
       );
 
       await addNotification(
         'account',
         'medium',
         'Account Created',
-        `Welcome to AvernoxTrader, ${data.username}! Your account has been successfully created and secured.`
+        `Welcome to AvernoxTrader, ${data.username}! Your account has been successfully created and secured.`,
+        undefined,
+        undefined,
+        undefined,
+        firebaseUser.uid
       );
 
       // 4. Grant $150 locked bonus directly to Firestore client-side
@@ -505,137 +640,149 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  const addNotification = useCallback(async (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string) => {
-    if (userRef.current) {
-      const notifPath = 'notifications';
-      console.log(`[DEBUG_NOTIFICATION] Creating notification: "${title}" - "${body}" (category: ${category}, priority: ${priority})`);
+  const addNotification = useCallback(async (
+    category: NotificationCategory,
+    priority: NotificationPriority,
+    title: string,
+    body: string,
+    actionUrl?: string,
+    action?: string,
+    metadata?: Record<string, any>,
+    userId?: string
+  ) => {
+    const targetUserId = userId || userRef.current?.uid;
+    if (targetUserId) {
+      const userDocRef = doc(db, 'users', targetUserId);
+      console.log(`[DEBUG_NOTIFICATION] Creating notification for ${targetUserId}: "${title}" - "${body}" (category: ${category}, priority: ${priority})`);
       try {
-        await addDoc(collection(db, notifPath), {
-          userId: userRef.current.uid,
+        const newNotif = {
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+          userId: targetUserId,
           category,
           priority,
           title,
           body,
-          message: body, // requested field name
-          type: category, // requested field name
-          createdAt: serverTimestamp(),
           read: false,
+          date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          createdAtTimestamp: Date.now(),
           actionUrl: actionUrl || '',
+          action: action || null,
+          metadata: metadata || {},
           pinned: false,
           archived: false,
+        };
+        const { arrayUnion } = await import('firebase/firestore');
+        await updateDoc(userDocRef, {
+          notificationsList: arrayUnion(newNotif)
         });
-        console.log(`[DEBUG_NOTIFICATION_SUCCESS] Notification successfully saved to Firestore for user ${userRef.current.uid}`);
+        console.log(`[DEBUG_NOTIFICATION_SUCCESS] Notification successfully saved to Firestore for user ${targetUserId}`);
       } catch (err) {
-        console.error(`[DEBUG_NOTIFICATION_ERROR] Failed to write notification to Firestore for user ${userRef.current.uid}:`, err);
-        handleFirestoreError(err, OperationType.CREATE, notifPath);
+        console.error(`[DEBUG_NOTIFICATION_ERROR] Failed to write notification to Firestore for user ${targetUserId}:`, err);
+        handleFirestoreError(err, OperationType.UPDATE, `users/${targetUserId}`);
       }
     } else {
-      console.warn(`[DEBUG_NOTIFICATION_WARN] Could not create notification "${title}" because userRef is null/not logged in`);
+      console.warn(`[DEBUG_NOTIFICATION_WARN] Could not create notification "${title}" because no user ID is available`);
     }
   }, []);
 
   const markNotificationRead = useCallback(async (id: string, readState?: boolean) => {
     if (userRef.current) {
-      const notifPath = `notifications/${id}`;
       try {
-        const notifRef = doc(db, 'notifications', id);
-        const docSnap = await getDoc(notifRef);
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        const docSnap = await getDoc(userDocRef);
         if (docSnap.exists()) {
-          await updateDoc(notifRef, {
-            read: readState !== undefined ? readState : !docSnap.data().read
-          });
+          const data = docSnap.data();
+          const notifs = data.notificationsList || [];
+          const updatedNotifs = notifs.map(n => n.id === id ? { ...n, read: readState !== undefined ? readState : !n.read } : n);
+          await updateDoc(userDocRef, { notificationsList: updatedNotifs });
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+        handleFirestoreError(err, OperationType.UPDATE, `users/${userRef.current.uid}`);
       }
     }
   }, []);
 
   const markAllNotificationsRead = useCallback(async () => {
     if (userRef.current) {
-      const notifPath = 'notifications';
       try {
-        const { getDocs } = await import('firebase/firestore');
-        const batch = writeBatch(db);
-        const q = query(
-          collection(db, notifPath),
-          where('userId', '==', userRef.current.uid),
-          where('read', '==', false)
-        );
-        const snapshot = await getDocs(q);
-        snapshot.forEach((docSnap) => {
-          batch.update(docSnap.ref, { read: true });
-        });
-        await batch.commit();
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const notifs = data.notificationsList || [];
+          const updatedNotifs = notifs.map(n => ({ ...n, read: true }));
+          await updateDoc(userDocRef, { notificationsList: updatedNotifs });
+        }
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+        handleFirestoreError(err, OperationType.UPDATE, `users/${userRef.current.uid}`);
       }
     }
   }, []);
 
   const deleteNotification = useCallback(async (id: string) => {
     if (userRef.current) {
-      const notifPath = `notifications/${id}`;
       try {
-        await deleteDoc(doc(db, 'notifications', id));
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const notifs = data.notificationsList || [];
+          const updatedNotifs = notifs.filter(n => n.id !== id);
+          await updateDoc(userDocRef, { notificationsList: updatedNotifs });
+        }
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, notifPath);
+        handleFirestoreError(err, OperationType.UPDATE, `users/${userRef.current.uid}`);
       }
     }
   }, []);
 
   const clearNotifications = useCallback(async () => {
     if (userRef.current) {
-      const notifPath = 'notifications';
       try {
-        const { getDocs } = await import('firebase/firestore');
-        const batch = writeBatch(db);
-        const q = query(
-          collection(db, notifPath),
-          where('userId', '==', userRef.current.uid),
-          where('pinned', '==', false)
-        );
-        const snapshot = await getDocs(q);
-        snapshot.forEach((docSnap) => {
-          batch.delete(docSnap.ref);
-        });
-        await batch.commit();
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const notifs = data.notificationsList || [];
+          const updatedNotifs = notifs.filter(n => n.pinned); // Keep pinned ones
+          await updateDoc(userDocRef, { notificationsList: updatedNotifs });
+        }
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, notifPath);
+        handleFirestoreError(err, OperationType.UPDATE, `users/${userRef.current.uid}`);
       }
     }
   }, []);
 
   const pinNotification = useCallback(async (id: string) => {
     if (userRef.current) {
-      const notifPath = `notifications/${id}`;
       try {
-        const notifRef = doc(db, 'notifications', id);
-        const docSnap = await getDoc(notifRef);
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        const docSnap = await getDoc(userDocRef);
         if (docSnap.exists()) {
-          await updateDoc(notifRef, {
-            pinned: !docSnap.data().pinned
-          });
+          const data = docSnap.data();
+          const notifs = data.notificationsList || [];
+          const updatedNotifs = notifs.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n);
+          await updateDoc(userDocRef, { notificationsList: updatedNotifs });
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+        handleFirestoreError(err, OperationType.UPDATE, `users/${userRef.current.uid}`);
       }
     }
   }, []);
 
   const archiveNotification = useCallback(async (id: string) => {
     if (userRef.current) {
-      const notifPath = `notifications/${id}`;
       try {
-        const notifRef = doc(db, 'notifications', id);
-        const docSnap = await getDoc(notifRef);
+        const userDocRef = doc(db, 'users', userRef.current.uid);
+        const docSnap = await getDoc(userDocRef);
         if (docSnap.exists()) {
-          await updateDoc(notifRef, {
-            archived: !docSnap.data().archived
-          });
+          const data = docSnap.data();
+          const notifs = data.notificationsList || [];
+          const updatedNotifs = notifs.map(n => n.id === id ? { ...n, archived: !n.archived } : n);
+          await updateDoc(userDocRef, { notificationsList: updatedNotifs });
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, notifPath);
+        handleFirestoreError(err, OperationType.UPDATE, `users/${userRef.current.uid}`);
       }
     }
   }, []);
@@ -674,8 +821,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [addNotification]);
 
-  const updateProfilePhoto = useCallback(async (file: File | string) => {
+  const updateProfilePhoto = useCallback(async (file: File | string | null) => {
     if (userRef.current) {
+      const uid = userRef.current.uid;
+      const userDocRef = doc(db, 'users', uid);
+
+      if (file === null || file === '') {
+        // Delete avatar files from Firebase Storage if they exist
+        try {
+          const storageRefNew = ref(storage, `avatars/${uid}/profile.jpg`);
+          await deleteObject(storageRefNew);
+        } catch (e) {
+          console.log("No avatar found at avatars/ path or error deleting:", e);
+        }
+        try {
+          const storageRefOld = ref(storage, `profile_photos/${uid}`);
+          await deleteObject(storageRefOld);
+        } catch (e) {
+          console.log("No profile photo found at profile_photos/ path or error deleting:", e);
+        }
+
+        await updateDoc(userDocRef, { 
+          profilePhotoURL: "",
+          avatarUrl: "",
+          hasCustomPhoto: false,
+          lastUpdated: serverTimestamp()
+        });
+        setPreviewPhotoURL(null);
+        await addNotification(
+          'account',
+          'low',
+          'Profile Picture Removed',
+          'Your profile picture has been successfully removed.'
+        );
+        return;
+      }
+
       if (typeof file === 'string') {
         if (file.startsWith('blob:')) {
           // Set local preview URL immediately for instantaneous UI updates
@@ -683,13 +864,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        const storageRef = ref(storage, `profile_photos/${userRef.current.uid}`);
+        const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
         await uploadString(storageRef, file, 'data_url');
         const photoURL = await getDownloadURL(storageRef);
         
-        const userDocRef = doc(db, 'users', userRef.current.uid);
         await updateDoc(userDocRef, { 
           profilePhotoURL: photoURL,
+          avatarUrl: photoURL,
+          hasCustomPhoto: true,
           lastUpdated: serverTimestamp()
         });
 
@@ -703,13 +885,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           'Your profile picture has been successfully updated.'
         );
       } else {
-        const storageRef = ref(storage, `profile_photos/${userRef.current.uid}`);
+        const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
         await uploadBytes(storageRef, file);
         const photoURL = await getDownloadURL(storageRef);
         
-        const userDocRef = doc(db, 'users', userRef.current.uid);
         await updateDoc(userDocRef, { 
           profilePhotoURL: photoURL,
+          avatarUrl: photoURL,
+          hasCustomPhoto: true,
           lastUpdated: serverTimestamp()
         });
 
@@ -849,13 +1032,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         };
       }
 
+      const oldProfile = userRef.current;
       await updateDoc(userDocRef, updates);
+
+      let body = 'Your profile information has been successfully updated.';
+      if (email && email !== oldProfile.email) {
+        body = 'Your email address has been successfully updated.';
+      }
 
       await addNotification(
         'account',
         'medium',
         'Profile Updated',
-        'Your profile information has been successfully updated.'
+        body
       );
     }
   }, [addNotification]);

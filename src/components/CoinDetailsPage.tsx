@@ -8,7 +8,7 @@ export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, 
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
 
   return (
-    <div className={`min-h-screen pb-24 ${isDark ? 'bg-[#050505]' : 'bg-slate-50'}`}>
+    <div className={`min-h-screen pb-24 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'}`}>
       <header className="p-4 flex justify-between items-center">
         <button onClick={onBack} className="p-2 rounded-full bg-slate-800/50">
           <ArrowLeft size={20} className={textPrimary} />

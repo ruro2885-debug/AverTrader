@@ -1,8 +1,11 @@
 {
-  "projectId": "aver-d2136",
-  "appId": "1:813693230408:web:be51499481b3fe0b0e277d",
-  "apiKey": "AIzaSyDA2AcnxhGzSCdNClHFpF3rn2Af0ucWF94",
-  "authDomain": "aver-d2136.firebaseapp.com",
-  "storageBucket": "aver-d2136.firebasestorage.app",
-  "messagingSenderId": "813693230408"
+  "projectId": "gen-lang-client-0551399062",
+  "appId": "1:435870229762:web:ead26d90720df84f48ce1b",
+  "apiKey": "AIzaSyDKulFQUoMzBT5_R9f1yoNNdGIs10PqpeM",
+  "authDomain": "gen-lang-client-0551399062.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-averplatform-fddb2c11-375a-4504-ade5-7e9fb39c2b12",
+  "storageBucket": "gen-lang-client-0551399062.firebasestorage.app",
+  "messagingSenderId": "435870229762",
+  "measurementId": "",
+  "oAuthClientId": "435870229762-u0dohva2nrd31vmvooh7ia9m2fsjbovf.apps.googleusercontent.com"
 }

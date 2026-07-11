@@ -27,9 +27,9 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   ];
 
   return (
-    <div className={`min-h-screen pb-32 ${isDark ? 'bg-[#050505]' : 'bg-slate-50'}`}>
+    <div className={`min-h-screen pt-[73px] pb-32 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'}`}>
       {/* 1. FIXED HEADER */}
-      <header className={`sticky top-0 z-40 backdrop-blur-xl ${isDark ? 'bg-[#050505]/90' : 'bg-white/90'} border-b ${isDark ? 'border-white/5' : 'border-slate-200'} p-4 flex justify-between items-center`}>
+      <header className={`fixed top-0 left-0 right-0 w-full z-40 backdrop-blur-xl ${isDark ? 'bg-[#000000]/90' : 'bg-white/90'} border-b ${isDark ? 'border-white/5' : 'border-slate-200'} p-4 flex justify-between items-center box-border`}>
         <div>
           <h1 className={`text-xl font-black ${textPrimary}`}>Markets</h1>
           <div className="flex items-center gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider">

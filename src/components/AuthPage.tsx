@@ -159,11 +159,23 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       });
       onSuccess();
     } catch (error: any) {
-      let displayError = error.message;
-      try {
-        const parsed = JSON.parse(error.message);
-        if (parsed.error) displayError = parsed.error;
-      } catch (e) { }
+      console.error("Registration error:", error);
+      let displayError = '';
+      
+      if (error.code === 'auth/email-already-in-use') {
+        displayError = 'This email is already registered. Try logging in instead.';
+      } else if (error.code === 'auth/weak-password') {
+        displayError = 'The password is too weak.';
+      } else if (error.code === 'auth/invalid-email') {
+        displayError = 'The email address is invalid.';
+      } else {
+        displayError = error.message;
+        try {
+          const parsed = JSON.parse(error.message);
+          if (parsed.error) displayError = parsed.error;
+        } catch (e) { }
+      }
+      
       setErrorMsg(displayError || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
@@ -180,11 +192,23 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       await signIn(loginEmail, loginPassword, rememberMe);
       onSuccess();
     } catch (error: any) {
-      let displayError = error.message;
-      try {
-        const parsed = JSON.parse(error.message);
-        if (parsed.error) displayError = parsed.error;
-      } catch (e) { }
+      console.error("Login error:", error);
+      let displayError = '';
+      
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        displayError = 'Incorrect email or password. Please try again.';
+      } else if (error.code === 'auth/user-disabled') {
+        displayError = 'This account has been disabled. Please contact support.';
+      } else if (error.code === 'auth/too-many-requests') {
+        displayError = 'Too many failed login attempts. Please try again later.';
+      } else {
+        displayError = error.message;
+        try {
+          const parsed = JSON.parse(error.message);
+          if (parsed.error) displayError = parsed.error;
+        } catch (e) { }
+      }
+      
       setErrorMsg(displayError || 'Password or Email Incorrect.');
     } finally {
       setLoading(false);

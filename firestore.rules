@@ -5,24 +5,48 @@ service cloud.firestore {
 
     // Users Collection Rules
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
       allow list: if true;
+
+      // Portfolio subcollections
+      match /holdings/{holdingId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /trades/{tradeId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /snapshots/{snapshotId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /notifications/{notificationId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
 
     // User Bonuses Rules
-    match /userBonuses/{userId}/instances/{bonusId} {
+    match /userBonuses/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /userBonuses/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     // Referrals Rules
     match /referrals/{referralId} {
       allow read, write: if request.auth != null;
+      allow list: if request.auth != null;
+    }
+
+    // Bonuses Templates
+    match /bonuses/{bonusId} {
+      allow read: if request.auth != null;
     }
 
     // Notifications Rules
-    match /notifications/{notificationId} {
-      allow read, update, delete: if request.auth != null && (resource == null || resource.data.userId == request.auth.uid);
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    match /users/{userId}/notifications/{notificationId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     // Default deny for all other collections

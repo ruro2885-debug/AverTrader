@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
+import UserAvatar from './UserAvatar';
 import { 
   User, Mail, Edit3, Key, ShieldCheck, 
   Bell, Share2, Wallet, Settings, HelpCircle, 
@@ -52,6 +53,13 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
+
+  // Cropper Modal States
+  const [cropperSrc, setCropperSrc] = useState<string | null>(null);
+  const [cropZoom, setCropZoom] = useState<number>(1);
+  const [cropOffset, setCropOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Form States
   const [displayName, setDisplayName] = useState(user?.displayName || '');
@@ -294,7 +302,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
     ? "bg-slate-900/40 backdrop-blur-md border border-white/5"
     : "bg-white/60 backdrop-blur-md border border-slate-200/50";
   const modalBgClasses = isDark
-    ? "bg-[#0b0f19] border border-white/10 shadow-2xl text-white"
+    ? "bg-[#000000] border border-white/10 shadow-2xl text-white"
     : "bg-white border border-slate-200 shadow-2xl text-slate-950";
   const itemHover = isDark ? "hover:bg-white/5" : "hover:bg-slate-50";
 
@@ -339,6 +347,122 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
 
   const [isPhotoLoading, setIsPhotoLoading] = useState(false);
 
+  const handleDragStart = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - cropOffset.x, y: e.clientY - cropOffset.y });
+  };
+
+  const handleDragMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setCropOffset({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsDragging(true);
+      setDragStart({
+        x: e.touches[0].clientX - cropOffset.x,
+        y: e.touches[0].clientY - cropOffset.y
+      });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    setCropOffset({
+      x: e.touches[0].clientX - dragStart.x,
+      y: e.touches[0].clientY - dragStart.y
+    });
+  };
+
+  const handleCropSubmit = () => {
+    if (!cropperSrc) return;
+    setIsPhotoLoading(true);
+
+    const img = new Image();
+    img.src = cropperSrc;
+    img.onload = async () => {
+      const canvas = document.createElement('canvas');
+      const size = 400; // 400x400 high-res avatar
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // Background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, size, size);
+
+        // Map viewport (256x256 px on screen) onto the 400x400 canvas
+        const viewportSize = 256;
+        ctx.translate(size / 2, size / 2);
+        
+        const ratio = size / viewportSize;
+        ctx.scale(ratio, ratio);
+        ctx.translate(cropOffset.x, cropOffset.y);
+        ctx.scale(cropZoom, cropZoom);
+
+        const imgAspect = img.width / img.height;
+        let renderWidth = viewportSize;
+        let renderHeight = viewportSize;
+
+        if (imgAspect > 1) {
+          renderHeight = viewportSize;
+          renderWidth = viewportSize * imgAspect;
+        } else {
+          renderWidth = viewportSize;
+          renderHeight = viewportSize / imgAspect;
+        }
+
+        ctx.drawImage(img, -renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
+
+        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+        try {
+          await updateProfilePhoto(croppedDataUrl);
+          setIsPhotoLoading(false);
+          setCropperSrc(null);
+          setErrorMsg('');
+        } catch (err) {
+          console.error("Error saving cropped image:", err);
+          setErrorMsg("Failed to upload cropped image.");
+          setIsPhotoLoading(false);
+        }
+      } else {
+        setIsPhotoLoading(false);
+      }
+    };
+    img.onerror = () => {
+      setErrorMsg("Failed to load image for cropping.");
+      setIsPhotoLoading(false);
+    };
+  };
+
+  const handleRemovePhoto = async () => {
+    if (window.confirm("Are you sure you want to remove your profile photo?")) {
+      setIsPhotoLoading(true);
+      try {
+        await updateProfilePhoto(null);
+        setIsPhotoLoading(false);
+        setErrorMsg('');
+      } catch (err) {
+        console.error("Error removing profile photo:", err);
+        setErrorMsg("Failed to remove profile photo.");
+        setIsPhotoLoading(false);
+      }
+    }
+  };
+
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -358,37 +482,16 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
         return;
       }
       
-      // Update preview immediately via global auth context (under 1ms response time!)
-      const previewUrl = URL.createObjectURL(file);
-      updateProfilePhoto(previewUrl);
-      setIsPhotoLoading(true);
-      
       const reader = new FileReader();
-      reader.onloadend = async () => {
+      reader.onloadend = () => {
         if (typeof reader.result === 'string') {
-          try {
-            const resized = await resizeImage(reader.result, 800, 800);
-            await updateProfilePhoto(resized); // Await the persistence operation
-            setIsPhotoLoading(false); // Hide spinner
-            setErrorMsg('');
-            if (addNotification) {
-              addNotification( // Do not await
-                'account',
-                'medium',
-                'Profile Picture Updated',
-                'Your new profile picture was successfully uploaded and is now active.'
-              );
-            }
-          } catch (err) {
-            await updateProfilePhoto(reader.result);
-            setIsPhotoLoading(false);
-            setErrorMsg('');
-          }
+          setCropperSrc(reader.result);
+          setCropZoom(1);
+          setCropOffset({ x: 0, y: 0 });
         }
       };
       reader.onerror = () => {
         setErrorMsg("Failed to read image file.");
-        setIsPhotoLoading(false);
       };
       reader.readAsDataURL(file);
 
@@ -591,15 +694,11 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
       <div className={`rounded-[24px] p-6 ${cardClasses} flex flex-col items-center text-center relative overflow-hidden`}>
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[40px] rounded-full pointer-events-none" />
         
-        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-1 mb-4 relative group">
-          <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center relative ${isDark ? 'bg-slate-950' : 'bg-white'}`}>
-            <img 
-              src={user?.profilePhotoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'default'}`} 
-              alt="Profile" 
-              className="w-full h-full object-cover"
-            />
+        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-1 mb-2 relative group shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+          <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center relative ${isDark ? 'bg-black' : 'bg-white'}`}>
+            <UserAvatar user={user} sizeClass="w-full h-full" fontSizeClass="text-3xl" isDark={isDark} />
             {isPhotoLoading && (
-              <div className="absolute inset-0 bg-slate-950/70 flex flex-col items-center justify-center space-y-1 backdrop-blur-[1px]">
+              <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center space-y-1 backdrop-blur-[1px]">
                 <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-[8px] font-extrabold text-emerald-400 uppercase tracking-wider">{t('common.saving').replace('...', '')}</span>
               </div>
@@ -629,6 +728,17 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
             className="hidden" 
           />
         </div>
+
+        {user?.hasCustomPhoto && (
+          <button
+            type="button"
+            disabled={isPhotoLoading}
+            onClick={handleRemovePhoto}
+            className="mb-4 px-3 py-1 text-[11px] font-bold rounded-full border border-rose-500/20 text-rose-400 bg-rose-500/5 hover:bg-rose-500/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+          >
+            Remove Photo
+          </button>
+        )}
         
         {errorMsg && !activeModal && (
           <div className="mb-4 px-4 py-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-mono rounded-xl max-w-xs flex items-center justify-between">
@@ -1680,6 +1790,96 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
               <X className="w-4 h-4" />
             </button>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Interactive Crop Modal */}
+      <AnimatePresence>
+        {cropperSrc && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={`w-full max-w-md rounded-[32px] p-6 overflow-hidden ${modalBgClasses}`}
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className={`text-xl font-black tracking-tight ${textPrimary}`}>Crop Profile Photo</h3>
+                <button 
+                  onClick={() => {
+                    setCropperSrc(null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }} 
+                  className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer text-gray-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Viewport for cropping (circle) */}
+              <div 
+                className="relative w-64 h-64 mx-auto mb-6 rounded-full border-2 border-emerald-500 overflow-hidden cursor-move select-none bg-slate-950 shadow-inner"
+                onMouseDown={handleDragStart}
+                onMouseMove={handleDragMove}
+                onMouseUp={handleDragEnd}
+                onMouseLeave={handleDragEnd}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleDragEnd}
+              >
+                <img
+                  src={cropperSrc || undefined}
+                  alt="To Crop"
+                  style={{
+                    transform: `translate(${cropOffset.x}px, ${cropOffset.y}px) scale(${cropZoom})`,
+                    transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                  }}
+                  className="max-w-none max-h-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full object-contain pointer-events-none"
+                />
+                {/* Visual guidelines */}
+                <div className="absolute inset-0 border border-emerald-500/20 rounded-full pointer-events-none" />
+                <div className="absolute top-1/2 left-0 right-0 border-t border-dashed border-white/10 pointer-events-none" />
+                <div className="absolute left-1/2 top-0 bottom-0 border-l border-dashed border-white/10 pointer-events-none" />
+              </div>
+
+              {/* Zoom Controls */}
+              <div className="space-y-4 mb-6">
+                <div className="flex justify-between text-xs font-bold tracking-wider uppercase text-gray-400">
+                  <span>Zoom</span>
+                  <span>{Math.round(cropZoom * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="3"
+                  step="0.01"
+                  value={cropZoom}
+                  onChange={(e) => setCropZoom(parseFloat(e.target.value))}
+                  className="w-full accent-emerald-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              {/* Buttons */}
+              <div className="flex gap-4">
+                <button
+                  onClick={() => {
+                    setCropperSrc(null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCropSubmit}
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20 transition-all flex justify-center items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  Apply & Save
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </motion.div>
