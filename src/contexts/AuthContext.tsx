@@ -28,7 +28,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
-import { UserProfile, Theme, Language } from '../types';
+import { UserProfile, Theme, Language, Holding, TradeHistoryItem, PortfolioSnapshot } from '../types';
 
 export interface UserPreferences {
   language: string;
@@ -480,7 +480,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           maxDrawdown: 8.5,
           recoveryFactor: 3.2,
           riskAdjustedReturn: 18.5
-        }
+        },
+        holdings: [],
+        trades: [],
+        snapshots: []
       };
 
       await setDoc(doc(db, 'users', firebaseUser.uid), newUser);

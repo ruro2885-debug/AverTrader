@@ -38,17 +38,6 @@ export default function PortfolioHoldings({ theme, selectedTicker, onSelectTicke
     );
   }
 
-  const toggleRow = (ticker: string) => {
-    setExpandedTicker(prev => prev === ticker ? null : ticker);
-    if (onSelectTicker) {
-      onSelectTicker(ticker);
-    }
-  };
-
-  const formatVal = (val: number) => {
-    return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
   return (
     <div className={`p-6 rounded-[24px] border ${isDark ? 'bg-white/[0.03] border-white/5 backdrop-blur-md' : 'bg-white border-slate-200 shadow-sm'}`}>
       <div className="flex items-center space-x-2 mb-2">
