@@ -20,6 +20,8 @@ import { NotificationCenter } from './NotificationCenter';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import UserAvatar from './UserAvatar';
+import AverLogo from './AverLogo';
+import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
 
 const marketData = [
   { symbol: 'BTC', name: 'Bitcoin', price: 64230.00, change: '+2.4%', isPositive: true },
@@ -165,10 +167,75 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
         </div>
       )}
 
-      <div className={`relative z-10 p-0 sm:p-0 lg:max-w-none lg:mx-0 pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' ? 'pt-[60px]' : ''} ${activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover' ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
+      {/* Desktop Left Sidebar Navigation */}
+      <aside className={`fixed inset-y-0 left-0 w-64 hidden lg:flex flex-col z-30 border-r ${isDark ? 'bg-slate-950/45 border-white/5 backdrop-blur-xl' : 'bg-white/75 border-slate-200/50 backdrop-blur-xl'} transition-colors duration-500`}>
+        {/* Sidebar Header with branding */}
+        <div className="p-6 border-b border-white/5 flex items-center justify-between">
+          <AverLogo theme={theme} size={28} showText={true} />
+        </div>
         
-        {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && (
-          <header className={`fixed top-0 left-0 right-0 h-[50px] flex justify-between items-center px-4 z-50 ${isDark ? 'bg-[#000000]/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
+        {/* Navigation Items */}
+        <nav className="flex-1 px-4 py-6 space-y-2">
+          {[
+            { name: t('common.home') || 'Dashboard', id: 'home', icon: DashboardIcon },
+            { name: t('common.portfolio') || 'Wallet', id: 'portfolio', icon: WalletIcon },
+            { name: t('common.market') || 'Trades', id: 'markets', icon: TradesIcon },
+            { name: t('common.discover') || 'Analytics', id: 'discover', icon: AnalyticsIcon },
+          ].map((item) => {
+            const isActive = activeTab === item.id;
+            const IconComponent = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full flex items-center space-x-3.5 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
+                  isActive 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' 
+                    : `${isDark ? 'text-slate-400 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'} border border-transparent`
+                }`}
+              >
+                <IconComponent className={`w-5 h-5 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
+                <span>{item.name}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* User profile section at the bottom of sidebar */}
+        <div className={`p-4 border-t ${isDark ? 'border-white/5' : 'border-slate-200/50'} flex items-center justify-between`}>
+          <button 
+            onClick={() => setActiveTab('profile')}
+            className="flex items-center space-x-3 hover:opacity-80 transition-opacity cursor-pointer text-left"
+          >
+            <div className={`w-9 h-9 rounded-full overflow-hidden flex items-center justify-center border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+              <UserAvatar user={user} sizeClass="w-full h-full" isDark={isDark} />
+            </div>
+            <div className="truncate max-w-[120px]">
+              <p className={`text-xs font-bold ${textPrimary} truncate`}>
+                {user?.username || user?.email?.split('@')[0] || 'User'}
+              </p>
+              <p className="text-[10px] text-emerald-500 font-medium">Pro Account</p>
+            </div>
+          </button>
+          
+          <button
+            onClick={() => setActiveTab('preferences')}
+            className={`p-2 rounded-lg border transition-colors cursor-pointer ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${textSecondary}`}>
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content shifted left margin on desktop */}
+      <div className="lg:pl-64">
+        <div className={`relative z-10 p-0 sm:p-0 lg:max-w-none lg:mx-0 pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' ? 'pt-[60px]' : ''} ${activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover' ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
+          
+          {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && (
+            <header className={`fixed top-0 left-0 lg:left-64 right-0 h-[50px] flex justify-between items-center px-4 lg:px-8 z-40 ${isDark ? 'bg-[#000000]/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
             <div className="flex items-center space-x-3">
               <button 
                 onClick={() => setActiveTab('profile')}
@@ -488,6 +555,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
           )}
         </AnimatePresence>
       </div>
+    </div>
 
       <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
 

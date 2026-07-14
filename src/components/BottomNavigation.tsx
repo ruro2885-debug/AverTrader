@@ -1,7 +1,8 @@
 import React from 'react';
-import { House, ChartCandlestick, Bot, Wallet, Compass } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import { motion } from 'motion/react';
 import { usePreferences } from '../contexts/PreferencesContext';
+import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
 
 interface NavItem {
   name: string;
@@ -17,15 +18,15 @@ interface BottomNavigationProps {
 export default function BottomNavigation({ activeTab, onTabChange }: BottomNavigationProps) {
   const { t } = usePreferences();
   const navItems: NavItem[] = [
-    { name: t('common.home'), icon: House, id: 'home' },
-    { name: t('common.market'), icon: ChartCandlestick, id: 'markets' },
+    { name: t('common.home'), icon: DashboardIcon, id: 'home' },
+    { name: t('common.market'), icon: TradesIcon, id: 'markets' },
     { name: t('common.ai'), icon: Bot, id: 'ai' },
-    { name: t('common.portfolio'), icon: Wallet, id: 'portfolio' },
-    { name: t('common.discover'), icon: Compass, id: 'discover' },
+    { name: t('common.portfolio'), icon: WalletIcon, id: 'portfolio' },
+    { name: t('common.discover'), icon: AnalyticsIcon, id: 'discover' },
   ];
 
   return (
-    <div className="fixed bottom-[12px] left-[15px] right-[15px] z-50 flex justify-center pointer-events-none">
+    <div className="fixed bottom-[12px] left-[15px] right-[15px] z-50 flex lg:hidden justify-center pointer-events-none">
       <motion.div 
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}

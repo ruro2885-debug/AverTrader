@@ -1,22 +1,25 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import firebaseAppletConfig from "../../firebase-applet-config.json";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDA2AcnxhGzSCdNClHFpF3rn2Af0ucWF94",
-  authDomain: "aver-d2136.firebaseapp.com",
-  projectId: "aver-d2136",
-  storageBucket: "aver-d2136.firebasestorage.app",
-  messagingSenderId: "813693230408",
-  appId: "1:813693230408:web:be51499481b3fe0b0e277d"
+  apiKey: firebaseAppletConfig.apiKey,
+  authDomain: firebaseAppletConfig.authDomain,
+  projectId: firebaseAppletConfig.projectId,
+  storageBucket: firebaseAppletConfig.storageBucket,
+  messagingSenderId: firebaseAppletConfig.messagingSenderId,
+  appId: firebaseAppletConfig.appId
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = firebaseAppletConfig.firestoreDatabaseId
+  ? initializeFirestore(app, { localCache: memoryLocalCache() }, firebaseAppletConfig.firestoreDatabaseId)
+  : initializeFirestore(app, { localCache: memoryLocalCache() });
 export const storage = getStorage(app);
 
 export enum OperationType {
