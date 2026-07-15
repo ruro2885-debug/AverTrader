@@ -35,9 +35,9 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
           backgroundColor: 'rgba(255, 255, 255, 0.03)',
           backdropFilter: 'blur(25px)',
           WebkitBackdropFilter: 'blur(25px)',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderTop: '1px solid rgba(255, 255, 255, 0.3)',
-          boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 10px 20px rgba(0, 0, 0, 0.4)'
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.15)',
+          boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 10px 20px rgba(0, 0, 0, 0.4)'
         }}
         className="relative w-full max-w-md h-[44px] rounded-[22px] flex items-center justify-around px-4 pointer-events-auto"
       >

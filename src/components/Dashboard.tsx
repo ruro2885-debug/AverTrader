@@ -13,6 +13,7 @@ import DiscoverView from './DiscoverView';
 import CoinDetailsPage from './CoinDetailsPage';
 import PortfolioViewV2 from './portfolio_v2/PortfolioViewV2';
 import BonusCenter from './BonusCenter';
+import AiTradingModule from './AiTradingModule';
 
 import ReferralCentre from './ReferralCentre';
 import Preferences from './Preferences';
@@ -32,7 +33,8 @@ const marketData = [
 ];
 
 const aiSignals = [
-  { asset: 'BTC', signal: 'Strong Buy', confidence: 92, risk: 'Medium', movement: '+4.5% in 24h' },
+  { asset: 'BTC', signal: 'Tactical Long Momentum', confidence: 94, risk: 'Medium', movement: 'Target $65,500 (H4 Breakout confirmation)' },
+  { asset: 'ETH', signal: 'VWAP Mean Reversion (LONG)', confidence: 91, risk: 'Low', movement: 'Target midline $3,485 (Oversold standard deviation band)' },
 ];
 
 const watchlist = [
@@ -47,6 +49,13 @@ const news = [
 
 export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   const [activeTab, setActiveTab] = useState('home');
+  const [portfolioViewMode, setPortfolioViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+  const isFullScreen = activeTab === 'portfolio' && portfolioViewMode !== 'portfolio';
+
+  React.useEffect(() => {
+    setPortfolioViewMode('portfolio');
+  }, [activeTab]);
+
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   const { user, notifications, loading: authLoading, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { formatCurrency, t } = usePreferences();
@@ -129,15 +138,15 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   const containerClasses = isDark 
-    ? "bg-[#000000]" 
-    : "bg-slate-50";
+    ? "bg-black text-white" 
+    : "bg-slate-50 text-slate-900";
 
   const cardClasses = isDark
     ? "bg-slate-900/40 backdrop-blur-md border border-white/5 shadow-xl"
     : "bg-white/60 backdrop-blur-md border border-slate-200/50 shadow-lg";
 
   const modalBgClasses = isDark
-    ? "bg-[#000000] border border-white/10 shadow-2xl"
+    ? "bg-black border border-white/10 shadow-2xl"
     : "bg-white border border-slate-200 shadow-2xl";
 
   const textPrimary = isDark ? "text-white" : "text-slate-900";
@@ -157,7 +166,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   return (
-    <div className={`min-h-screen pb-32 ${containerClasses} transition-colors duration-500 overflow-x-hidden font-sans`}>
+    <div className={`min-h-screen flex flex-col ${containerClasses} transition-colors duration-500 overflow-x-hidden font-sans`}>
       
       {/* Animated subtle background gradients */}
       {isDark && (
@@ -168,7 +177,8 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
       )}
 
       {/* Desktop Left Sidebar Navigation */}
-      <aside className={`fixed inset-y-0 left-0 w-64 hidden lg:flex flex-col z-30 border-r ${isDark ? 'bg-slate-950/45 border-white/5 backdrop-blur-xl' : 'bg-white/75 border-slate-200/50 backdrop-blur-xl'} transition-colors duration-500`}>
+      {!isFullScreen && (
+        <aside className={`fixed inset-y-0 left-0 w-64 hidden lg:flex flex-col z-30 border-r ${isDark ? 'bg-slate-950/45 border-white/5 backdrop-blur-xl' : 'bg-white/75 border-slate-200/50 backdrop-blur-xl'} transition-colors duration-500`}>
         {/* Sidebar Header with branding */}
         <div className="p-6 border-b border-white/5 flex items-center justify-between">
           <AverLogo theme={theme} size={28} showText={true} />
@@ -229,13 +239,14 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
           </button>
         </div>
       </aside>
+      )}
 
       {/* Main content shifted left margin on desktop */}
-      <div className="lg:pl-64">
-        <div className={`relative z-10 p-0 sm:p-0 lg:max-w-none lg:mx-0 pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' ? 'pt-[60px]' : ''} ${activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover' ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
+      <div className={`${isFullScreen ? '' : 'lg:pl-64'} flex-1 flex flex-col`}>
+        <div className={`relative z-10 flex-1 flex flex-col p-0 sm:p-0 ${isFullScreen ? 'w-full max-w-none m-0' : 'lg:max-w-none lg:mx-0'} pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' ? 'pt-[60px]' : ''} ${!isFullScreen && (activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover') ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
           
-          {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && (
-            <header className={`fixed top-0 left-0 lg:left-64 right-0 h-[50px] flex justify-between items-center px-4 lg:px-8 z-40 ${isDark ? 'bg-[#000000]/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
+          {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' && (
+            <header className={`fixed top-0 left-0 lg:left-64 right-0 h-[50px] flex justify-between items-center px-4 lg:px-8 z-40 ${isDark ? 'bg-black/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
             <div className="flex items-center space-x-3">
               <button 
                 onClick={() => setActiveTab('profile')}
@@ -338,10 +349,10 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                 <div className="flex justify-between items-end mb-3">
                   <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
                     <Brain className="w-5 h-5 mr-2 text-emerald-500" />
-                    {t('hero.badge.ai').replace('Powered by ', '')}
+                    AI Trading Signals
                   </h3>
-                  <button className={`text-xs font-bold text-emerald-500 hover:text-emerald-400 flex items-center`}>
-                    View All <ChevronRight className="w-3 h-3 ml-0.5" />
+                  <button onClick={() => setActiveTab('ai')} className="text-xs font-bold text-[#00D09C] hover:text-emerald-400 flex items-center cursor-pointer">
+                    Open Institutional Desk <ChevronRight className="w-3 h-3 ml-0.5" />
                   </button>
                 </div>
                 
@@ -351,12 +362,12 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                       <div className="flex items-center space-x-3">
                         <CoinLogo symbol={signal.asset} size={36} />
                         <div>
-                          <h4 className={`font-bold ${textPrimary}`}>{signal.asset} Signal</h4>
+                          <h4 className={`font-bold ${textPrimary}`}>{signal.asset} Tactical Allocation</h4>
                           <div className="flex items-center mt-1">
                             <span className="text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-md mr-2">
                               {signal.signal}
                             </span>
-                            <span className={`text-xs ${textSecondary}`}>{signal.confidence}% Confidence</span>
+                            <span className={`text-xs ${textSecondary}`}>{signal.confidence}% Confidence Index</span>
                           </div>
                         </div>
                       </div>
@@ -366,11 +377,11 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                     </div>
                     <div className="flex justify-between items-center">
                       <div>
-                        <p className={`text-xs ${textSecondary}`}>Expected Movement</p>
+                        <p className={`text-xs ${textSecondary}`}>Dynamic Target Horizon</p>
                         <p className="text-sm font-bold text-emerald-500">{signal.movement}</p>
                       </div>
-                      <button className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'}`}>
-                        View Analysis
+                      <button onClick={() => setActiveTab('ai')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 cursor-pointer ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'}`}>
+                        View Analysis & Deploy
                       </button>
                     </div>
                   </div>
@@ -514,12 +525,14 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
               onNavigate={(tab) => setActiveTab(tab)}
               onOpenDeposit={() => setShowDepositModal(true)}
               onOpenWithdraw={() => setShowWithdrawModal(true)}
+              onViewModeChange={setPortfolioViewMode}
             />
           )}
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
           {activeTab === 'discover' && <DiscoverView theme={theme} />}
+          {activeTab === 'ai' && <AiTradingModule theme={theme} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => setActiveTab('bonus-center')} onOpenReferralCentre={() => setActiveTab('referral-centre')} onOpenPreferences={() => setActiveTab('preferences')} />}
           {activeTab === 'bonus-center' && (
             <BonusCenter 
@@ -532,7 +545,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
           {activeTab === 'referral-centre' && <ReferralCentre theme={theme} onBack={() => setActiveTab('profile')} />}
           {activeTab === 'preferences' && <Preferences theme={theme} onBack={() => setActiveTab('profile')} />}
           
-          {activeTab !== 'home' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
+          {activeTab !== 'home' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}
@@ -556,8 +569,13 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
         </AnimatePresence>
       </div>
     </div>
-
-      <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+      
+      {!isFullScreen && (
+        <>
+          <div className="h-32 flex-shrink-0 lg:hidden" aria-hidden="true" />
+          <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+        </>
+      )}
 
       {/* --- SLEEK FLOATING MODALS (SATISFIES ALL REQUIREMENTS FOR PERSISTENCE TESTABILITY) --- */}
 

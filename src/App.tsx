@@ -136,7 +136,7 @@ export default function App() {
   }
 
   const containerBg = theme === 'dark' 
-    ? 'bg-[#050505] text-slate-200' 
+    ? 'bg-[#000000] text-slate-200' 
     : 'bg-slate-50 text-slate-900';
 
   return (

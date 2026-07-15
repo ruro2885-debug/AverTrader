@@ -294,6 +294,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let unsubSnapshots: (() => void) | null = null;
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
       if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
       if (unsubNotifications) { unsubNotifications(); unsubNotifications = null; }
       if (unsubHoldings) { unsubHoldings(); unsubHoldings = null; }
@@ -320,52 +321,60 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         
         // Listen for real-time updates to the user profile
         unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
-          if (docSnap.exists()) {
-            const userData = docSnap.data() as User;
-            const updatedUser = {
-              ...userData,
-              notificationsList: userData.notificationsList || [],
-              history: userData.history || [],
-              deposits: userData.deposits || [],
-              withdrawals: userData.withdrawals || [],
-              portfolio: userData.portfolio || {
-                totalValue: 0,
-                todayPnL: 0,
-                todayPnLPercent: 0,
-                overallReturn: 0,
-                realizedPnL: 0,
-                unrealizedPnL: 0,
-                healthScore: 0,
-                diversificationScore: 0,
-                volatility: 0,
-                sharpeRatio: 0,
-                winRate: 0,
-                maxDrawdown: 0,
-                recoveryFactor: 0,
-                riskAdjustedReturn: 0
-              }
-            } as User;
-            setUser(prev => {
-              const merged = {
-                ...updatedUser,
-                holdings: prev?.holdings || [],
-                trades: prev?.trades || [],
-                snapshots: prev?.snapshots || []
+          console.log("[AuthContext] User document snapshot received");
+          try {
+            if (docSnap.exists()) {
+              const userData = docSnap.data() as User;
+              console.log("[AuthContext] User data updated from Firestore for uid:", firebaseUser.uid);
+              const updatedUser = {
+                ...userData,
+                notificationsList: userData.notificationsList || [],
+                history: userData.history || [],
+                deposits: userData.deposits || [],
+                withdrawals: userData.withdrawals || [],
+                portfolio: userData.portfolio || {
+                  totalValue: 0,
+                  todayPnL: 0,
+                  todayPnLPercent: 0,
+                  overallReturn: 0,
+                  realizedPnL: 0,
+                  unrealizedPnL: 0,
+                  healthScore: 0,
+                  diversificationScore: 0,
+                  volatility: 0,
+                  sharpeRatio: 0,
+                  winRate: 0,
+                  maxDrawdown: 0,
+                  recoveryFactor: 0,
+                  riskAdjustedReturn: 0
+                }
               } as User;
-              localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(merged));
-              return merged;
-            });
-            
-            const notifs = userData.notificationsList || [];
-            notifs.sort((a, b) => b.createdAtTimestamp - a.createdAtTimestamp);
-            setNotifications(notifs);
-          } else {
-            console.warn("User profile document not found in Firestore");
+              setUser(prev => {
+                const merged = {
+                  ...updatedUser,
+                  holdings: prev?.holdings || [],
+                  trades: prev?.trades || [],
+                  snapshots: prev?.snapshots || []
+                } as User;
+                localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(merged));
+                return merged;
+              });
+              
+              const notifs = userData.notificationsList || [];
+              notifs.sort((a, b) => b.createdAtTimestamp - a.createdAtTimestamp);
+              setNotifications(notifs);
+            } else {
+              console.warn("[AuthContext] User profile document not found in Firestore for uid:", firebaseUser.uid);
+            }
+          } catch (err) {
+            console.error("[AuthContext] Error processing user document snapshot:", err);
+          } finally {
+            setLoading(false);
           }
-          setLoading(false);
         }, (error) => {
+          console.error("[AuthContext] Firestore user document snapshot error:", error);
           if (isPermissionError(error)) {
-            console.warn("Firestore user document access denied due to permission/security rule configuration. Accessing cached/local profile as fallback.");
+            console.warn("[AuthContext] Firestore access denied. Using cached/local profile.");
             const cachedUserStr = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
             if (cachedUserStr) {
               try {
@@ -374,14 +383,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 const notifs = cachedUser.notificationsList || [];
                 setNotifications(notifs);
               } catch (e) {
-                console.error("Error loading cached user in fallback:", e);
+                console.error("[AuthContext] Error loading cached user in fallback:", e);
               }
             }
-            setLoading(false);
           } else {
             handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
-            setLoading(false);
           }
+          setLoading(false);
         });
 
         // Subcollection Listeners for Portfolio Intelligence
@@ -1132,107 +1140,141 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [addNotification]);
 
-  const updateProfilePhoto = useCallback(async (file: File | string | null) => {
+   const updateProfilePhoto = useCallback(async (file: File | string | null) => {
+    console.log("[AuthContext] updateProfilePhoto called with type:", typeof file);
     if (userRef.current) {
       const uid = userRef.current.uid;
-
-      if (!auth.currentUser) {
-        let photoURL = "";
-        if (typeof file === 'string') {
-          photoURL = file;
-        } else if (file instanceof File) {
-          photoURL = URL.createObjectURL(file);
-        }
-        setUser(prev => {
-          if (!prev) return null;
-          const updated = { 
-            ...prev, 
-            profilePhotoURL: photoURL, 
-            avatarUrl: photoURL, 
-            hasCustomPhoto: !!photoURL, 
-            lastUpdated: new Date().toISOString() 
-          } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
-
-          const dbList = getLocalDB();
-          const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
-          if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
-          return updated;
-        });
-        setPreviewPhotoURL(null);
-        await addNotification(
-          'account',
-          'low',
-          'Profile Picture Changed',
-          'Your profile picture has been successfully updated.'
-        );
-        return;
-      }
-
       const userDocRef = doc(db, 'users', uid);
 
-      if (file === null) {
-        await updateDoc(userDocRef, {
-          profilePhotoURL: "",
-          avatarUrl: "",
-          hasCustomPhoto: false,
-          lastUpdated: serverTimestamp()
-        });
-        setPreviewPhotoURL(null);
-        await addNotification(
-          'account',
-          'low',
-          'Profile Picture Removed',
-          'Your profile picture has been successfully removed.'
-        );
-        return;
-      }
+      try {
+        if (!auth.currentUser) {
+          console.log("[AuthContext] updateProfilePhoto: No current auth user, using local persistence");
+          let photoURL = "";
+          if (typeof file === 'string') {
+            photoURL = file;
+          } else if (file instanceof File) {
+            photoURL = URL.createObjectURL(file);
+          }
+          
+          setUser(prev => {
+            if (!prev) return null;
+            const updated = { 
+              ...prev, 
+              profilePhotoURL: photoURL, 
+              avatarUrl: photoURL, 
+              hasCustomPhoto: !!photoURL, 
+              lastUpdated: new Date().toISOString() 
+            } as User;
+            localStorage.setItem('aver_active_user', JSON.stringify(updated));
+            localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
 
-      if (typeof file === 'string') {
-        if (file.startsWith('blob:')) {
-          setPreviewPhotoURL(file);
+            const dbList = getLocalDB();
+            const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
+            if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
+            return updated;
+          });
+          
+          setPreviewPhotoURL(null);
+          await addNotification(
+            'account',
+            'low',
+            'Profile Picture Changed',
+            'Your profile picture has been successfully updated.'
+          );
           return;
         }
 
-        const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
-        await uploadString(storageRef, file, 'data_url');
-        const photoURL = await getDownloadURL(storageRef);
-        
-        await updateDoc(userDocRef, { 
-          profilePhotoURL: photoURL,
-          avatarUrl: photoURL,
-          hasCustomPhoto: true,
-          lastUpdated: serverTimestamp()
-        });
+        if (file === null) {
+          await updateDoc(userDocRef, {
+            profilePhotoURL: "",
+            avatarUrl: "",
+            hasCustomPhoto: false,
+            lastUpdated: serverTimestamp()
+          });
+          setPreviewPhotoURL(null);
+          await addNotification(
+            'account',
+            'low',
+            'Profile Picture Removed',
+            'Your profile picture has been successfully removed.'
+          );
+          return;
+        }
 
-        setPreviewPhotoURL(null);
+        let photoURL = "";
+        if (typeof file === 'string') {
+          if (file.startsWith('blob:')) {
+            console.log("[AuthContext] updateProfilePhoto: Handling blob URL for preview");
+            setPreviewPhotoURL(file);
+            return;
+          }
 
-        await addNotification(
-          'account',
-          'low',
-          'Profile Picture Changed',
-          'Your profile picture has been successfully updated.'
-        );
-      } else {
-        const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
-        await uploadBytes(storageRef, file);
-        const photoURL = await getDownloadURL(storageRef);
-        
-        await updateDoc(userDocRef, { 
-          profilePhotoURL: photoURL,
-          avatarUrl: photoURL,
-          hasCustomPhoto: true,
-          lastUpdated: serverTimestamp()
-        });
+          const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
+          console.log("[AuthContext] updateProfilePhoto: Converting data string to Blob for upload");
+          
+          try {
+            // More robust conversion of data URL to Blob
+            const response = await fetch(file);
+            const blob = await response.blob();
+            console.log("[AuthContext] updateProfilePhoto: Blob created, size:", blob.size);
+            
+            console.log("[AuthContext] updateProfilePhoto: Uploading Blob to storage");
+            await uploadBytes(storageRef, blob);
+            console.log("[AuthContext] updateProfilePhoto: Storage upload successful");
+          } catch (uploadErr) {
+            console.warn("[AuthContext] uploadBytes failed, falling back to uploadString:", uploadErr);
+            await uploadString(storageRef, file, 'data_url');
+            console.log("[AuthContext] updateProfilePhoto: uploadString fallback successful");
+          }
+          
+          photoURL = await getDownloadURL(storageRef);
+          console.log("[AuthContext] updateProfilePhoto: Download URL received:", photoURL);
+        } else {
+          const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
+          console.log("[AuthContext] updateProfilePhoto: Uploading bytes to storage");
+          await uploadBytes(storageRef, file);
+          console.log("[AuthContext] updateProfilePhoto: Storage upload successful");
+          photoURL = await getDownloadURL(storageRef);
+          console.log("[AuthContext] updateProfilePhoto: Download URL received:", photoURL);
+        }
 
-        setPreviewPhotoURL(null);
+        if (photoURL) {
+          console.log("[AuthContext] updateProfilePhoto: Updating Firestore doc");
+          // Update Firestore and also update the local state immediately for responsiveness
+          const updates = { 
+            profilePhotoURL: photoURL,
+            avatarUrl: photoURL,
+            hasCustomPhoto: true,
+            lastUpdated: serverTimestamp()
+          };
 
-        await addNotification(
-          'account',
-          'low',
-          'Profile Picture Changed',
-          'Your profile picture has been successfully updated.'
-        );
+          await updateDoc(userDocRef, updates);
+          console.log("[AuthContext] updateProfilePhoto: Firestore update successful");
+          
+          // Force an immediate UI update before the snapshot listener triggers
+          setUser(prev => {
+            if (!prev) return null;
+            const updated = { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
+            localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
+            return updated;
+          });
+
+          setPreviewPhotoURL(null);
+
+          await addNotification(
+            'account',
+            'low',
+            'Profile Picture Changed',
+            'Your profile picture has been successfully updated.'
+          );
+        }
+      } catch (err: any) {
+        console.error("[AuthContext] CRITICAL ERROR in updateProfilePhoto:", err);
+        if (auth.currentUser) {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${uid}/profile_photo`);
+        } else {
+          throw err;
+        }
       }
     }
   }, [addNotification]);

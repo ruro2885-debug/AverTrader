@@ -324,7 +324,7 @@ export interface WatchlistItem {
 export const initialWatchlistData: WatchlistItem[] = [
   {
     ticker: 'BTC',
-    name: 'Bitcoin Core Node',
+    name: 'Bitcoin',
     price: 64230.00,
     change: 2.45,
     allocation: 49.3,
@@ -336,11 +336,11 @@ export const initialWatchlistData: WatchlistItem[] = [
     logoText: '₿',
     quantity: 0.85,
     avgEntry: 52000,
-    aiDetails: 'Sovereign-grade asset accumulation phase complete. Support established at $58,000. AI node projects target breakout toward $68,500.'
+    aiDetails: 'Sovereign-grade asset accumulation phase complete. Support established at $58,000. AI models forecast breakout toward $68,500.'
   },
   {
     ticker: 'ETH',
-    name: 'Ethereum Gas Node',
+    name: 'Ethereum',
     price: 3450.20,
     change: 1.82,
     allocation: 37.2,
@@ -356,7 +356,7 @@ export const initialWatchlistData: WatchlistItem[] = [
   },
   {
     ticker: 'SOL',
-    name: 'Solana High-Speed Node',
+    name: 'Solana',
     price: 145.60,
     change: -0.52,
     allocation: 13.5,
@@ -368,6 +368,6 @@ export const initialWatchlistData: WatchlistItem[] = [
     logoText: 'S',
     quantity: 120.0,
     avgEntry: 110,
-    aiDetails: 'Ultra-fast node throughput. Short-term retracement provides optimal buy-the-dip entry before next network load-test.'
+    aiDetails: 'Ultra-fast transaction throughput. Short-term retracement provides optimal buy-the-dip entry before next network load-test.'
   }
 ];

@@ -211,26 +211,38 @@ export default function BonusCenter({
   };
 
   const renderHeader = (title: string, subtitle?: string, showHistory = false) => (
-    <header className="flex justify-between items-start px-6 pt-8 pb-4 sticky top-0 bg-slate-950 z-20">
-      <div>
-        <div className="flex items-center gap-3">
-          {currentView !== 'main' && (
-            <button onClick={() => setCurrentView('main')} className="p-2 -ml-2 rounded-full hover:bg-white/5 transition-colors">
-              <ArrowLeft className="w-6 h-6 text-emerald-500" />
-            </button>
-          )}
-          <h1 className="text-2xl font-black tracking-tight text-white">{title}</h1>
-        </div>
-        {subtitle && <p className="text-xs text-gray-400 mt-1 font-medium">{subtitle}</p>}
-      </div>
-      {showHistory && (
+    <header className="flex justify-between items-center px-5 py-4 sticky top-0 bg-slate-950/80 backdrop-blur-xl z-20 border-b border-white/5">
+      <div className="flex items-center gap-3">
         <button 
-          onClick={() => setCurrentView('history')}
-          className="p-3 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 transition-all hover:scale-105 active:scale-95 shadow-xl"
+          onClick={onBack} 
+          className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-all active:scale-95 text-emerald-500"
+          aria-label="Go back"
         >
-          <HistoryIcon className="w-5 h-5 text-emerald-500" />
+          <ArrowLeft className="w-6 h-6" />
         </button>
-      )}
+        <div>
+          <h1 className="text-xl font-black tracking-tight text-white leading-none">{title}</h1>
+          {subtitle && <p className="text-[10px] text-gray-400 mt-1 font-bold uppercase tracking-wider">{subtitle}</p>}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        {showHistory && (
+          <button 
+            onClick={() => setCurrentView('history')}
+            className="p-2.5 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-all active:scale-95"
+            aria-label="View history"
+          >
+            <HistoryIcon className="w-5 h-5 text-emerald-500" />
+          </button>
+        )}
+        <button 
+          onClick={onBack}
+          className="p-2.5 bg-rose-500/10 rounded-xl border border-rose-500/20 text-rose-500 hover:bg-rose-500/20 transition-all active:scale-95"
+          aria-label="Close"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
     </header>
   );
 
@@ -239,13 +251,15 @@ export default function BonusCenter({
     const isCompleted = selectedTask.status === 'completed';
 
     return (
-      <div className="flex-1 overflow-y-auto pb-24 bg-slate-950">
-        <header className="flex justify-between items-center px-6 pt-8 pb-4">
-          <button onClick={() => setCurrentView('main')} className="p-2 -ml-2 rounded-full hover:bg-white/5">
-            <ArrowLeft className="w-6 h-6 text-emerald-500" />
+      <div className="pb-12 bg-slate-950">
+        <header className="flex justify-between items-center px-6 py-4 sticky top-0 bg-slate-950/80 backdrop-blur-md z-20 border-b border-white/5">
+          <button onClick={() => setCurrentView('main')} className="p-2 rounded-xl hover:bg-white/5 text-emerald-500">
+            <ArrowLeft className="w-6 h-6" />
           </button>
-          <h2 className="text-xl font-black text-white">Task Details</h2>
-          <div className="w-10" />
+          <h2 className="text-lg font-black text-white">Task Details</h2>
+          <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/5 text-gray-400">
+            <X className="w-6 h-6" />
+          </button>
         </header>
 
         <div className="px-6 py-6 space-y-8">
@@ -318,8 +332,8 @@ export default function BonusCenter({
   };
 
   const MainView = () => (
-    <div className="flex-1 overflow-y-auto pb-24 scrollbar-hide">
-      {renderHeader("Bonus Center", "Earn rewards through activity, trading milestones and platform engagement.", true)}
+    <div className="pb-12">
+      {renderHeader("Bonus Center", "Trading milestones & rewards.", true)}
       
       {/* SECTION 1: MEMBERSHIP PROGRESS */}
       <section className="px-6 py-6">
@@ -570,7 +584,7 @@ export default function BonusCenter({
   );
 
   const HistoryView = () => (
-    <div className="flex-1 overflow-y-auto pb-24 bg-slate-950">
+    <div className="pb-12 bg-slate-950">
       {renderHeader("Reward History")}
       <div className="px-6 py-4 space-y-4">
         {[
@@ -609,7 +623,7 @@ export default function BonusCenter({
   );
 
   const MembershipDetailsView = () => (
-    <div className="flex-1 overflow-y-auto pb-24 bg-slate-950">
+    <div className="pb-12 bg-slate-950">
       {renderHeader("Tier Benefits")}
       <div className="px-6 py-6 space-y-8">
         {TIERS.map((tier) => (
@@ -647,69 +661,61 @@ export default function BonusCenter({
       <div className="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-b from-emerald-500/10 via-transparent to-transparent pointer-events-none" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
 
-      <AnimatePresence mode="wait">
-        {currentView === 'main' && (
-          <motion.div 
-            key="main"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="flex flex-col flex-1"
-          >
-            <MainView />
-          </motion.div>
-        )}
-        
-        {currentView === 'history' && (
-          <motion.div 
-            key="history"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="flex flex-col flex-1"
-          >
-            <HistoryView />
-          </motion.div>
-        )}
-
-        {currentView === 'membership-details' && (
-          <motion.div 
-            key="membership"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="flex flex-col flex-1"
-          >
-            <MembershipDetailsView />
-          </motion.div>
-        )}
-
-        {currentView === 'task-details' && (
-          <motion.div 
-            key="task-details"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.05 }}
-            className="flex flex-col flex-1"
-          >
-            <TaskDetailsView />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* TOP CLOSE BUTTON (Optional since we have header) */}
-      <div className="absolute top-8 right-6 z-30">
-        <button 
-          onClick={onBack}
-          className="p-3 bg-slate-900/80 backdrop-blur-xl rounded-2xl border border-white/10 text-white hover:bg-slate-800 transition-all active:scale-95"
-        >
-          <X className="w-6 h-6" />
-        </button>
+      <div className="flex-1 flex flex-col min-h-0 relative">
+        <AnimatePresence mode="wait">
+          {currentView === 'main' && (
+            <motion.div 
+              key="main"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
+            >
+              <MainView />
+            </motion.div>
+          )}
+          
+          {currentView === 'history' && (
+            <motion.div 
+              key="history"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
+            >
+              <HistoryView />
+            </motion.div>
+          )}
+  
+          {currentView === 'membership-details' && (
+            <motion.div 
+              key="membership"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
+            >
+              <MembershipDetailsView />
+            </motion.div>
+          )}
+  
+          {currentView === 'task-details' && (
+            <motion.div 
+              key="task-details"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.05 }}
+              className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
+            >
+              <TaskDetailsView />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* BOTTOM NAV BAR PLACEHOLDER (To ensure safe area) */}
-      <div className="h-20 w-full border-t border-white/5 bg-slate-950/80 backdrop-blur-2xl flex items-center justify-center">
-        <p className="text-[10px] font-black text-gray-600 uppercase tracking-[0.3em]">Avernox Prime Rewards Engine</p>
+      {/* BOTTOM SAFE AREA SPACER */}
+      <div className="h-[env(safe-area-inset-bottom,20px)] w-full bg-slate-950 border-t border-white/5 flex items-center justify-center">
+        <p className="text-[9px] font-black text-gray-700 uppercase tracking-[0.4em]">Avernox Engine</p>
       </div>
     </motion.div>
   );

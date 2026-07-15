@@ -18,6 +18,9 @@ import {
   WatchlistItem 
 } from '../../utils/portfolioHelpers';
 import AverLogo from '../AverLogo';
+import CoinLogo from '../CoinLogo';
+import VaultScreen from './VaultScreen';
+import AssetStatsScreen from './AssetStatsScreen';
 
 interface PortfolioViewV2Props {
   theme: 'light' | 'dark';
@@ -25,6 +28,7 @@ interface PortfolioViewV2Props {
   onNavigate?: (tab: string) => void;
   onOpenDeposit?: () => void;
   onOpenWithdraw?: () => void;
+  onViewModeChange?: (viewMode: 'portfolio' | 'vault' | 'asset-stats') => void;
 }
 
 interface HoverData {
@@ -64,11 +68,11 @@ function generateCatherineCommentary(
   const commentaries = [
     {
       topic: 'Strategic Position Balance',
-      text: `Sovereign Vault I is currently positioned with a highly resilient ${cashPercent}% cash reserve and ${cryptoPercent}% exposure in premier crypto nodes. This conservative posture minimizes overall portfolio Beta to 0.85, effectively insulating core capital from systemic market drawdowns while maintaining an active upside hedge through our ${topAsset} position.`
+      text: `Sovereign Vault I is currently positioned with a highly resilient ${cashPercent}% cash reserve and ${cryptoPercent}% exposure in premier crypto positions. This conservative posture minimizes overall portfolio Beta to 0.85, effectively insulating core capital from systemic market drawdowns while maintaining an active upside hedge through our ${topAsset} position.`
     },
     {
-      topic: 'Staking Velocity & Node Yields',
-      text: `Our active staking nodes are capitalizing on network velocity. Staking yields on Ethereum remain optimized at 4.2% APY, while our ${topAsset} holdings (+${topAssetChange}%) continue to act as a core performance driver. Given current market momentum, maintaining this exposure with a high AI Health Score of 98/100 is recommended.`
+      topic: 'Staking Velocity & Asset Yields',
+      text: `Our active staking positions are capitalizing on network velocity. Staking yields on Ethereum remain optimized at 4.2% APY, while our ${topAsset} holdings (+${topAssetChange}%) continue to act as a core performance driver. Given current market momentum, maintaining this exposure with a high AI Health Score of 98/100 is recommended.`
     },
     {
       topic: 'Tactical Profit Reallocation',
@@ -202,43 +206,206 @@ function AverPortfolioChart({
   return <div ref={containerRef} className="w-full h-[260px] relative z-10" />;
 }
 
+interface RadarAsset {
+  symbol: string;
+  name: string;
+  baseConfidence: number;
+  category?: string;
+}
+
+interface RadarCategory {
+  key: string;
+  label: string;
+  subtitle: string;
+  icon: string;
+  dotColor: string;
+  assets: RadarAsset[];
+}
+
 export default function PortfolioViewV2({ 
   theme, 
   onBack, 
   onNavigate, 
   onOpenDeposit, 
-  onOpenWithdraw 
+  onOpenWithdraw,
+  onViewModeChange
 }: PortfolioViewV2Props) {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
+
+  const scrollPositionRef = useRef<number>(0);
   const { formatCurrency } = usePreferences();
 
   // State to hold hover indicators
   const [hoveredOHLC, setHoveredOHLC] = useState<HoverData | null>(null);
 
-  // Default deep dark slate theme for Aver luxury aesthetic
-  const isDark = true;
+  // Navigation mode to switch full-screen pages
+  const [viewMode, setViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+
+  useEffect(() => {
+    if (onViewModeChange) {
+      onViewModeChange(viewMode);
+    }
+  }, [viewMode, onViewModeChange]);
+
+  useEffect(() => {
+    if (viewMode === 'portfolio') {
+      const timer = setTimeout(() => {
+        window.scrollTo({
+          top: scrollPositionRef.current,
+          behavior: 'auto'
+        });
+      }, 50);
+      return () => clearTimeout(timer);
+    } else {
+      scrollPositionRef.current = window.scrollY;
+      window.scrollTo({
+        top: 0,
+        behavior: 'auto'
+      });
+    }
+  }, [viewMode]);
+
+  // Dynamic theme support matching the Aver luxury aesthetic
+  const isDark = theme === 'dark';
+  const textPrimary = isDark ? "text-white" : "text-slate-900";
+  const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
+  const cardClasses = isDark
+    ? "bg-slate-900/40 backdrop-blur-md border border-white/5 shadow-xl"
+    : "bg-white/60 backdrop-blur-md border border-slate-200/50 shadow-lg";
 
   // Real-time fluctuating asset tick simulation state
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(initialWatchlistData);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({
     BTC: 64230.00,
     ETH: 3450.20,
-    SOL: 145.60
+    SOL: 145.60,
+    AAPL: 172.50,
+    Gold: 2035.00,
+    ETFs: 450.00
   });
 
   const [tickTracker, setTickTracker] = useState(0);
 
+  // Real-time AI Opinion / Radar state
+  const [radarAssets, setRadarAssets] = useState<RadarAsset[]>([
+    { symbol: 'BTC', name: 'Bitcoin', baseConfidence: 96, category: 'high_conviction' },
+    { symbol: 'ETH', name: 'Ethereum', baseConfidence: 89, category: 'preparing_entry' },
+    { symbol: 'SOL', name: 'Solana', baseConfidence: 79, category: 'watching' },
+    { symbol: 'NVDA', name: 'NVIDIA', baseConfidence: 73, category: 'watching' },
+    { symbol: 'XRP', name: 'Ripple', baseConfidence: 65, category: 'preparing_entry' },
+    { symbol: 'Gold', name: 'Gold Spot', baseConfidence: 95, category: 'high_conviction' },
+    { symbol: 'DOGE', name: 'Dogecoin', baseConfidence: 18, category: 'avoiding' },
+    { symbol: 'PEPE', name: 'Pepe', baseConfidence: 11, category: 'avoiding' },
+  ]);
+
+  const radarCategories = useMemo<RadarCategory[]>(() => [
+    {
+      key: 'watching',
+      label: 'Watching',
+      subtitle: 'Assets currently being monitored.',
+      icon: '👁',
+      dotColor: 'bg-sky-400',
+      assets: radarAssets.filter(a => a.category === 'watching')
+    },
+    {
+      key: 'preparing_entry',
+      label: 'Preparing Entry',
+      subtitle: 'Assets approaching AI entry conditions.',
+      icon: '🟡',
+      dotColor: 'bg-amber-400',
+      assets: radarAssets.filter(a => a.category === 'preparing_entry')
+    },
+    {
+      key: 'high_conviction',
+      label: 'High Conviction',
+      subtitle: 'Assets with the highest confidence score.',
+      icon: '🟢',
+      dotColor: 'bg-emerald-400',
+      assets: radarAssets.filter(a => a.category === 'high_conviction')
+    },
+    {
+      key: 'avoiding',
+      label: 'Avoiding',
+      subtitle: 'Assets intentionally ignored by the AI.',
+      icon: '🔴',
+      dotColor: 'bg-rose-500',
+      assets: radarAssets.filter(a => a.category === 'avoiding')
+    }
+  ], [radarAssets]);
+
+  const [allocations, setAllocations] = useState<any[]>([
+    { ticker: 'BTC', name: 'Bitcoin', color: '#f59e0b', icon: '₿', quantity: 0.85 },
+    { ticker: 'ETH', name: 'Ethereum', color: '#6366f1', icon: 'Ξ', quantity: 12.0 },
+    { ticker: 'SOL', name: 'Solana', color: '#a855f7', icon: 'S', quantity: 120.0 },
+    { ticker: 'Cash', name: 'USD Cash', color: '#10b981', icon: '$', quantity: 169200 },
+    { ticker: 'AAPL', name: 'Apple Inc.', color: '#3b82f6', icon: '', quantity: 820 },
+    { ticker: 'ETFs', name: 'S&P 500 ETF', color: '#ec4899', icon: 'E', quantity: 240 },
+    { ticker: 'Gold', name: 'Gold Spot', color: '#eab308', icon: 'G', quantity: 50 },
+  ]);
+
+  useEffect(() => {
+    setAllocations(prev => {
+      return prev.map(a => {
+        if (a.ticker === 'Cash' && user?.availableBalance !== undefined) {
+          return { ...a, quantity: user.availableBalance };
+        }
+        if (user?.holdings && user.holdings.length > 0) {
+          const match = user.holdings.find(h => h.ticker === a.ticker);
+          if (match) {
+            return { ...a, quantity: match.quantity };
+          }
+        }
+        return a;
+      });
+    });
+  }, [user?.holdings, user?.availableBalance]);
+
+  const liveAllocations = useMemo(() => {
+    const vals = allocations.map(a => {
+      let price = 1;
+      if (a.ticker === 'BTC') price = livePrices['BTC'] || 64230;
+      else if (a.ticker === 'ETH') price = livePrices['ETH'] || 3450.20;
+      else if (a.ticker === 'SOL') price = livePrices['SOL'] || 145.60;
+      else if (a.ticker === 'AAPL') price = livePrices['AAPL'] || 172.50;
+      else if (a.ticker === 'Gold') price = livePrices['Gold'] || 2035.00;
+      else if (a.ticker === 'ETFs') price = livePrices['ETFs'] || 450.00;
+      
+      const valuation = price * a.quantity;
+      return { ...a, price, valuation };
+    });
+
+    const sum = vals.reduce((acc, curr) => acc + curr.valuation, 0);
+    return vals.map(v => ({
+      ...v,
+      percentage: sum > 0 ? (v.valuation / sum) * 100 : 0
+    }));
+  }, [allocations, livePrices]);
+
+  const liveWatchlist = useMemo(() => {
+    return watchlist.map(w => {
+      const livePrice = livePrices[w.ticker] || w.price;
+      const allocObj = liveAllocations.find(la => la.ticker === w.ticker);
+      return {
+        ...w,
+        price: livePrice,
+        allocation: allocObj ? allocObj.percentage : w.allocation
+      };
+    });
+  }, [watchlist, livePrices, liveAllocations]);
+
   // Dynamic Portfolio Calculations
   const calculatedTotalValue = useMemo(() => {
-    const btcVal = (livePrices['BTC'] || 64230) * 0.85;
-    const ethVal = (livePrices['ETH'] || 3450.20) * 12.0;
-    const solVal = (livePrices['SOL'] || 145.60) * 120.0;
-    const cashReserve = 1307090.94; // Premium stable cash reserves
-    
-    // Add real-time micro-fluctuations (tick tracker)
+    const btcVal = (livePrices['BTC'] || 64230) * (allocations.find(a => a.ticker === 'BTC')?.quantity || 0.85);
+    const ethVal = (livePrices['ETH'] || 3450.20) * (allocations.find(a => a.ticker === 'ETH')?.quantity || 12.0);
+    const solVal = (livePrices['SOL'] || 145.60) * (allocations.find(a => a.ticker === 'SOL')?.quantity || 120.0);
+    const cashVal = allocations.find(a => a.ticker === 'Cash')?.quantity || 169200;
+    const aaplVal = (livePrices['AAPL'] || 172.50) * (allocations.find(a => a.ticker === 'AAPL')?.quantity || 820);
+    const etfVal = (livePrices['ETFs'] || 450.00) * (allocations.find(a => a.ticker === 'ETFs')?.quantity || 240);
+    const goldVal = (livePrices['Gold'] || 2035.00) * (allocations.find(a => a.ticker === 'Gold')?.quantity || 50);
+
     const microVal = (Math.sin(tickTracker) * 0.45);
-    return btcVal + ethVal + solVal + cashReserve + microVal;
-  }, [livePrices, tickTracker]);
+    return btcVal + ethVal + solVal + cashVal + aaplVal + etfVal + goldVal + microVal;
+  }, [livePrices, tickTracker, allocations]);
 
   // Lead analyst Catherine Vance state
   const [analystCommentary, setAnalystCommentary] = useState({
@@ -257,7 +424,7 @@ export default function PortfolioViewV2({
       setLastCommentaryUpdate(new Date());
       setIsRefreshingCommentary(false);
       if (force) {
-        showNotification('AI Analyst advice refreshed using live node metrics.');
+        showNotification('AI Analyst advice refreshed using live asset metrics.');
       }
     }, force ? 600 : 0);
   };
@@ -298,6 +465,36 @@ export default function PortfolioViewV2({
     return saved ? parseFloat(saved) : 0;
   });
 
+  // Synchronization with Firebase user profile to maintain single source of truth
+  useEffect(() => {
+    if (user) {
+      if ((user as any).vaultBalance !== undefined && (user as any).vaultBalance !== vaultBalance) {
+        setVaultBalance((user as any).vaultBalance);
+      }
+      if ((user as any).activeBalanceOffset !== undefined && (user as any).activeBalanceOffset !== activeBalanceOffset) {
+        setActiveBalanceOffset((user as any).activeBalanceOffset);
+      }
+    }
+  }, [user]);
+
+  const updateVaultBalance = (newBal: number | ((prev: number) => number)) => {
+    const val = typeof newBal === 'function' ? newBal(vaultBalance) : newBal;
+    setVaultBalance(val);
+    localStorage.setItem('portfolio_vault_balance', val.toString());
+    if (user && updateProfile) {
+      updateProfile({ vaultBalance: val } as any);
+    }
+  };
+
+  const updateActiveBalanceOffset = (newOffset: number | ((prev: number) => number)) => {
+    const val = typeof newOffset === 'function' ? newOffset(activeBalanceOffset) : newOffset;
+    setActiveBalanceOffset(val);
+    localStorage.setItem('portfolio_active_offset', val.toString());
+    if (user && updateProfile) {
+      updateProfile({ activeBalanceOffset: val } as any);
+    }
+  };
+
   const [isVaultOnboarded, setIsVaultOnboarded] = useState<boolean>(() => {
     return localStorage.getItem('vault_onboarded') === 'true';
   });
@@ -327,42 +524,6 @@ export default function PortfolioViewV2({
   // Asset Statistics states
   const [isAssetStatsExpanded, setIsAssetStatsExpanded] = useState<boolean>(false);
   const [hoveredAllocIndex, setHoveredAllocIndex] = useState<number | null>(null);
-  const [allocations, setAllocations] = useState<any[]>([
-    { ticker: 'BTC', name: 'Bitcoin', percentage: 28, color: '#f59e0b', icon: '₿', quantity: 0.85 },
-    { ticker: 'ETH', name: 'Ethereum', percentage: 19, color: '#6366f1', icon: 'Ξ', quantity: 12.0 },
-    { ticker: 'SOL', name: 'Solana', percentage: 14, color: '#a855f7', icon: 'S', quantity: 120.0 },
-    { ticker: 'Cash', name: 'USD Cash', percentage: 12, color: '#10b981', icon: '$', quantity: 169200 },
-    { ticker: 'AAPL', name: 'Apple Inc.', percentage: 10, color: '#3b82f6', icon: '', quantity: 820 },
-    { ticker: 'ETFs', name: 'S&P 500 ETF', percentage: 9, color: '#ec4899', icon: 'E', quantity: 240 },
-    { ticker: 'Gold', name: 'Gold Spot', percentage: 8, color: '#eab308', icon: 'G', quantity: 50 },
-  ]);
-
-  // Real-time allocation fluctuations (AI rebalancing)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setAllocations(prev => {
-        const idx1 = Math.floor(Math.random() * prev.length);
-        let idx2 = Math.floor(Math.random() * prev.length);
-        while (idx1 === idx2) {
-          idx2 = Math.floor(Math.random() * prev.length);
-        }
-        const shift = parseFloat((Math.random() * 0.12 + 0.04).toFixed(2));
-        const next = [...prev];
-        if (next[idx1].percentage > shift + 1) {
-          next[idx1] = {
-            ...next[idx1],
-            percentage: parseFloat((next[idx1].percentage - shift).toFixed(2)),
-          };
-          next[idx2] = {
-            ...next[idx2],
-            percentage: parseFloat((next[idx2].percentage + shift).toFixed(2)),
-          };
-        }
-        return next;
-      });
-    }, 9000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Selected Execution Event state
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -406,16 +567,21 @@ export default function PortfolioViewV2({
   const executionEvents = useMemo(() => {
     if (tvChartData.length < 8) return [];
     
+    const btcPrice = livePrices['BTC'] || 64230;
+    const ethPrice = livePrices['ETH'] || 3450.20;
+    const solPrice = livePrices['SOL'] || 145.60;
+    const aaplPrice = livePrices['AAPL'] || 172.50;
+
     const eventsData = [
       {
         id: 'evt-1',
         asset: 'BTC',
         action: 'Take Profit',
         label: 'BTC TP',
-        pnl: '+$4,120.00',
+        pnl: `+$${((btcPrice * 0.065)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         pnlType: 'gain',
-        price: '$64,120.00',
-        confidence: '97%',
+        price: formatCurrency(btcPrice),
+        confidence: `${(96.5 + Math.sin(tickTracker * 0.05) * 0.5).toFixed(1)}%`,
         color: '#00D09C',
         textColor: 'text-[#00D09C]',
         bgColor: 'bg-[#00D09C]/10',
@@ -431,10 +597,10 @@ export default function PortfolioViewV2({
         asset: 'BTC',
         action: 'Stop Loss',
         label: 'BTC SL',
-        pnl: '-$1,240.00',
+        pnl: `-$${((btcPrice * 0.019)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         pnlType: 'loss',
-        price: '$58,400.00',
-        confidence: '91%',
+        price: formatCurrency(btcPrice * 0.91),
+        confidence: `${(91.2 + Math.cos(tickTracker * 0.04) * 0.3).toFixed(1)}%`,
         color: '#FF6B6B',
         textColor: 'text-[#FF6B6B]',
         bgColor: 'bg-[#FF6B6B]/10',
@@ -450,10 +616,10 @@ export default function PortfolioViewV2({
         asset: 'ETH',
         action: 'Take Profit',
         label: 'ETH TP',
-        pnl: '+$2,180.00',
+        pnl: `+$${((ethPrice * 0.63)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         pnlType: 'gain',
-        price: '$3,450.00',
-        confidence: '94%',
+        price: formatCurrency(ethPrice),
+        confidence: `${(94.1 + Math.sin(tickTracker * 0.06) * 0.4).toFixed(1)}%`,
         color: '#00D09C',
         textColor: 'text-[#00D09C]',
         bgColor: 'bg-[#00D09C]/10',
@@ -469,10 +635,10 @@ export default function PortfolioViewV2({
         asset: 'SOL',
         action: 'Rebalance',
         label: 'SOL REBAL',
-        pnl: '+$420.00',
+        pnl: `+$${((solPrice * 2.8)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         pnlType: 'gain',
-        price: '$145.20',
-        confidence: '89%',
+        price: formatCurrency(solPrice),
+        confidence: `${(89.4 + Math.cos(tickTracker * 0.07) * 0.5).toFixed(1)}%`,
         color: '#EAB308',
         textColor: 'text-amber-400',
         bgColor: 'bg-amber-400/10',
@@ -486,12 +652,12 @@ export default function PortfolioViewV2({
       {
         id: 'evt-5',
         asset: 'XRP',
-        action: 'Entry Node Buy',
+        action: 'Entry Buy',
         label: 'XRP BUY',
         pnl: 'Active',
         pnlType: 'neutral',
         price: '$0.58',
-        confidence: '86%',
+        confidence: `${(86.0 + Math.sin(tickTracker * 0.08) * 0.6).toFixed(1)}%`,
         color: '#3B82F6',
         textColor: 'text-blue-400',
         bgColor: 'bg-blue-400/10',
@@ -507,10 +673,10 @@ export default function PortfolioViewV2({
         asset: 'AAPL',
         action: 'Closed Position',
         label: 'AAPL SELL',
-        pnl: '+$3,200.00',
+        pnl: `+$${((aaplPrice * 18.5)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         pnlType: 'gain',
-        price: '$172.50',
-        confidence: '98%',
+        price: formatCurrency(aaplPrice),
+        confidence: `${(98.2 + Math.sin(tickTracker * 0.03) * 0.2).toFixed(1)}%`,
         color: '#FF6B6B',
         textColor: 'text-[#FF6B6B]',
         bgColor: 'bg-[#FF6B6B]/10',
@@ -534,7 +700,7 @@ export default function PortfolioViewV2({
         timestamp: dPoint?.time || '',
       };
     });
-  }, [tvChartData]);
+  }, [tvChartData, livePrices, tickTracker, formatCurrency]);
 
   // Real-time simulated price feed WebSocket/Ticks simulation
   useEffect(() => {
@@ -559,7 +725,7 @@ export default function PortfolioViewV2({
       setIsSyncing(false);
       setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       updateAnalystAdvice();
-      showNotification('Compounding nodes synced. Direct price-feed verified.');
+      showNotification('Compounding assets synced. Direct price-feed verified.');
     }, 900);
   };
 
@@ -609,18 +775,89 @@ export default function PortfolioViewV2({
     return ((currentTotal - prevTotal) / prevTotal) * 100;
   }, [livePrices]);
 
+  const getDynamicConfidence = (base: number, symbol: string) => {
+    const seed = symbol.charCodeAt(0) + symbol.charCodeAt(symbol.length - 1);
+    const offset = Math.sin(tickTracker * 0.15 + seed) * 1.5;
+    const val = base + offset;
+    return Math.min(100, Math.max(0, val)).toFixed(1);
+  };
+
+  const dynamicExposure = useMemo(() => {
+    const btcOffset = Math.sin(tickTracker * 0.08) * 0.4;
+    const ethOffset = Math.cos(tickTracker * 0.1) * 0.3;
+    
+    // Base values: Crypto 48%, Stocks 27%, Commodities 15%, Cash 10%
+    const crypto = 48 + btcOffset;
+    const stocks = 27 + ethOffset;
+    const commodities = 15 - (btcOffset + ethOffset) * 0.5;
+    const cash = 10 - (btcOffset + ethOffset) * 0.5;
+
+    // Risk: Low 41%, Medium 36%, High 23%
+    const lowRisk = 41 + btcOffset * 0.8;
+    const medRisk = 36 - ethOffset * 0.5;
+    const highRisk = 23 - (btcOffset * 0.8 - ethOffset * 0.5);
+
+    // Largest: Weight 28%, Confidence 96%
+    const weight = 28 + btcOffset * 0.3;
+    const confidence = 96 + Math.sin(tickTracker * 0.12) * 0.6;
+
+    return {
+      allocations: [
+        { name: 'Crypto', value: crypto, color: '#00D09C', textBg: 'bg-[#00D09C]/10' },
+        { name: 'Stocks', value: stocks, color: '#3b82f6', textBg: 'bg-blue-500/10' },
+        { name: 'Commodities', value: commodities, color: '#eab308', textBg: 'bg-amber-500/10' },
+        { name: 'Cash Reserve', value: cash, color: '#64748b', textBg: 'bg-slate-500/10' },
+      ],
+      risks: [
+        { name: 'Low Risk', value: lowRisk, color: '#10b981', dotColor: 'bg-emerald-400' },
+        { name: 'Medium Risk', value: medRisk, color: '#f59e0b', dotColor: 'bg-amber-400' },
+        { name: 'High Risk', value: highRisk, color: '#ef4444', dotColor: 'bg-rose-500' },
+      ],
+      largest: {
+        name: 'Bitcoin',
+        weight: weight,
+        confidence: confidence
+      }
+    };
+  }, [tickTracker]);
+
   const executeTradeOrder = () => {
     showNotification(`Tactical order block filled: ${tradeType} ${tradeAmount} ${tradeAsset}.`);
     setActiveDialog(null);
   };
+
+  if (viewMode === 'vault') {
+    return (
+      <VaultScreen 
+        theme={theme}
+        onBack={() => setViewMode('portfolio')}
+        calculatedTotalValue={calculatedTotalValue}
+        showNotification={showNotification}
+        vaultBalance={vaultBalance}
+        setVaultBalance={updateVaultBalance}
+        activeBalanceOffset={activeBalanceOffset}
+        setActiveBalanceOffset={updateActiveBalanceOffset}
+      />
+    );
+  }
+
+  if (viewMode === 'asset-stats') {
+    return (
+      <AssetStatsScreen 
+        theme={theme}
+        onBack={() => setViewMode('portfolio')}
+        calculatedTotalValue={calculatedTotalValue}
+        allocations={liveAllocations}
+      />
+    );
+  }
 
   return (
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen text-slate-200 font-sans antialiased relative overflow-x-hidden flex flex-col justify-start pb-12"
-      style={{ backgroundColor: '#080B11' }}
+      className={`pt-[73px] text-slate-200 font-sans antialiased relative flex flex-col justify-start flex-1 min-h-screen`}
     >
       {/* Toast HUD */}
       <AnimatePresence>
@@ -636,44 +873,33 @@ export default function PortfolioViewV2({
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* --- 1. ANDROID APP BAR (Native Mobile Layout) --- */}
-      <nav className="w-full sticky top-0 z-40 bg-[#080B11]/90 backdrop-blur-md border-b border-white/[0.05] px-4 py-3 flex justify-between items-center">
-        <div className="flex items-center space-x-3">
-          <button 
-            onClick={onBack}
-            className="p-2.5 -ml-1 bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.05] text-slate-300 rounded-xl transition-all cursor-pointer flex items-center justify-center touch-manipulation min-w-[40px] min-h-[40px]"
-            aria-label="Go back"
-          >
-            <ArrowLeft className="w-5 h-5 text-slate-200" />
-          </button>
-          <div className="flex items-center space-x-2.5">
-            <AverLogo size={28} showText={false} theme="dark" />
-            <div>
-              <div className="text-sm font-semibold tracking-tight text-white flex items-center gap-1">
-                Quant<span className="text-[#00D09C] font-bold">Folio</span>
-              </div>
-            </div>
+ 
+      {/* 1. FIXED HEADER */}
+      <header className={`fixed top-0 left-0 lg:left-64 right-0 z-40 backdrop-blur-xl ${isDark ? 'bg-black/90' : 'bg-white/90'} border-b ${isDark ? 'border-white/5' : 'border-slate-200'} p-4 flex justify-between items-center box-border`}>
+        <div>
+          <h1 className={`text-xl font-black ${textPrimary}`}>Portfolio</h1>
+          <div className="flex items-center gap-1.5 text-slate-400 dark:text-slate-400 text-[10px] font-bold uppercase tracking-wider mt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#00D09C] animate-pulse" />
+            Track your trades and assets
           </div>
         </div>
-
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-4">
           <button 
             onClick={triggerSync}
-            className="w-10 h-10 bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.05] rounded-xl text-slate-300 hover:text-white transition-all flex items-center justify-center touch-manipulation"
-            title="Sync nodes"
+            className={`transition-all hover:opacity-80 cursor-pointer ${textSecondary}`}
+            title="Refresh positions"
           >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-[#00D09C]' : ''}`} />
+            <RefreshCw size={20} className={`${isSyncing ? 'animate-spin text-[#00D09C]' : ''}`} />
           </button>
         </div>
-      </nav>
-
-      {/* --- ANDROID-FIRST SCROLLABLE LAYOUT WRAPPER --- */}
-      <main className="w-full max-w-md mx-auto px-4 py-5 space-y-6 flex-grow flex flex-col">
+      </header>
+ 
+      {/* --- SCROLLABLE LAYOUT WRAPPER --- */}
+      <main className="w-full space-y-6 flex-grow flex flex-col mt-4 px-4 sm:px-6 lg:max-w-5xl lg:mx-auto">
         
         {/* --- 2. THE TOTAL MANAGED ASSET VALUE DISPLAY --- */}
         <div 
-          className="bg-[#0E1320] border border-white/[0.05] p-6 rounded-[24px] space-y-4 relative overflow-hidden shadow-xl"
+          className={`${cardClasses} p-6 rounded-[24px] space-y-4 relative overflow-hidden`}
         >
           {/* Main Top Header: Active Trading Capital */}
           <div className="space-y-1">
@@ -688,7 +914,7 @@ export default function PortfolioViewV2({
               <span className="text-xs font-semibold text-slate-400 font-mono">USD</span>
             </div>
             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-              Actively rotated and balanced across nodes by Aver AI engine.
+              Actively rotated and balanced across positions by Aver AI engine.
             </p>
           </div>
 
@@ -730,7 +956,7 @@ export default function PortfolioViewV2({
 
         {/* --- 3. THE PORTFOLIO NAV CHART PANEL --- */}
         <div 
-          className="bg-[#0E1320] border border-white/[0.05] rounded-[24px] p-5 space-y-4 shadow-xl"
+          className={`${cardClasses} rounded-[24px] p-5 space-y-4`}
         >
           <div className="flex justify-between items-center pb-3 border-b border-white/[0.05]">
             <div className="flex items-center space-x-2">
@@ -885,17 +1111,9 @@ export default function PortfolioViewV2({
           {/* VAULT CARD - Premium Solid Style */}
           <button 
             onClick={() => {
-              setActiveDialog('vault');
-              if (!isVaultOnboarded) {
-                setVaultState('setup');
-                setVaultSetupStep(1);
-              } else {
-                setVaultState('locked');
-                setPasscodeInput('');
-                setPasscodeError(null);
-              }
+              setViewMode('vault');
             }}
-            className="w-full bg-[#0E1320] border border-white/[0.05] rounded-[24px] p-5 flex items-center space-x-4 relative overflow-hidden group hover:bg-[#121824] transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 min-h-[96px] touch-manipulation shadow-md"
+            className={`w-full ${cardClasses} rounded-[24px] p-5 flex items-center space-x-4 relative overflow-hidden group hover:opacity-90 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 min-h-[96px] touch-manipulation`}
           >
             <div className="w-12 h-12 rounded-2xl bg-[#00D09C]/10 flex-shrink-0 flex items-center justify-center transition-all group-hover:scale-105">
               <Vault className="w-5 h-5 text-[#00D09C]" />
@@ -911,196 +1129,31 @@ export default function PortfolioViewV2({
             </div>
           </button>
 
-          {/* ASSET STATISTICS - Premium Collapsible Bento Style */}
-          <div className="w-full bg-[#0E1320] border border-white/[0.05] rounded-[24px] overflow-hidden shadow-md">
-            <button 
-              onClick={() => setIsAssetStatsExpanded(!isAssetStatsExpanded)}
-              className="w-full p-5 flex items-center space-x-4 hover:bg-[#121824] transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 min-h-[96px] touch-manipulation"
-            >
-              <div className="w-12 h-12 rounded-2xl bg-[#00D09C]/10 flex-shrink-0 flex items-center justify-center transition-all">
-                <PieChart className={`w-5 h-5 text-[#00D09C] transition-transform duration-500 ${isAssetStatsExpanded ? 'rotate-180' : ''}`} />
+          {/* ASSET STATISTICS - Premium Solid Style */}
+          <button 
+            onClick={() => {
+              setViewMode('asset-stats');
+            }}
+            className={`w-full ${cardClasses} rounded-[24px] p-5 flex items-center space-x-4 relative overflow-hidden group hover:opacity-90 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 min-h-[96px] touch-manipulation`}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-[#00D09C]/10 flex-shrink-0 flex items-center justify-center transition-all group-hover:scale-105">
+              <PieChart className="w-5 h-5 text-[#00D09C]" />
+            </div>
+
+            <div className="flex-1 space-y-0.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-base font-bold text-white tracking-tight">Asset Statistics</h4>
               </div>
-
-              <div className="flex-1 space-y-0.5">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
-                    Asset Statistics
-                    <span className="text-[9px] font-semibold uppercase tracking-wider bg-[#00D09C]/10 text-[#00D09C] px-2 py-0.5 rounded-md">AI Audited</span>
-                  </h4>
-                  {isAssetStatsExpanded ? (
-                    <ChevronUp className="w-4 h-4 text-slate-400" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-slate-400" />
-                  )}
-                </div>
-                <p className="text-slate-400 text-xs font-normal leading-relaxed">
-                  Interactive capital allocation and diversification metrics
-                </p>
-              </div>
-            </button>
-
-            {/* Expanded Content Section */}
-            <AnimatePresence>
-              {isAssetStatsExpanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="border-t border-white/[0.04] bg-[#0E1320] p-5 space-y-5"
-                >
-                  {/* Visual allocation chart & legend row */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                    {/* SVG Interactive Donut Chart */}
-                    <div className="relative w-44 h-44 mx-auto flex items-center justify-center">
-                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                        {/* Render Segments */}
-                        {(() => {
-                          const radius = 35;
-                          const circumference = 2 * Math.PI * radius;
-                          let cumulativePercent = 0;
-                          
-                          return allocations.map((alloc, idx) => {
-                            const strokeDash = (alloc.percentage / 100) * circumference;
-                            const strokeOffset = circumference - (cumulativePercent / 100) * circumference;
-                            cumulativePercent += alloc.percentage;
-                            
-                            const isHovered = hoveredAllocIndex === idx;
-                            
-                            return (
-                              <circle
-                                key={alloc.ticker}
-                                cx="50"
-                                cy="50"
-                                r={radius}
-                                fill="transparent"
-                                stroke={alloc.color}
-                                strokeWidth={isHovered ? "10" : "7"}
-                                strokeDasharray={`${strokeDash} ${circumference}`}
-                                strokeDashoffset={strokeOffset}
-                                strokeLinecap="round"
-                                className="transition-all duration-300 cursor-pointer"
-                                onMouseEnter={() => setHoveredAllocIndex(idx)}
-                                onMouseLeave={() => setHoveredAllocIndex(null)}
-                                style={{
-                                  filter: isHovered ? `drop-shadow(0 0 4px ${alloc.color}50)` : 'none',
-                                }}
-                              />
-                            );
-                          });
-                        })()}
-                      </svg>
-
-                      {/* Middle HUD Text */}
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-2 bg-[#0E1320]/60 rounded-full backdrop-blur-sm pointer-events-none">
-                        {hoveredAllocIndex !== null ? (
-                          <>
-                            <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">{allocations[hoveredAllocIndex].name}</span>
-                            <span className="text-xl font-bold text-white font-mono">{allocations[hoveredAllocIndex].percentage}%</span>
-                            <span className="text-[9px] text-slate-400 font-mono">${Math.round(calculatedTotalValue * (allocations[hoveredAllocIndex].percentage / 100)).toLocaleString()}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-[9px] text-slate-400 uppercase font-semibold tracking-wider leading-tight">Total Portfolio</span>
-                            <span className="text-sm font-bold text-white leading-tight">Allocations</span>
-                            <span className="text-[8px] text-[#00D09C] uppercase font-bold tracking-widest mt-0.5">8 Assets</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Allocation Lists (Dotted Line Style) */}
-                    <div className="space-y-2 text-xs font-semibold">
-                      {allocations.map((alloc, idx) => {
-                        const isHovered = hoveredAllocIndex === idx;
-                        const value = Math.round(calculatedTotalValue * (alloc.percentage / 100));
-                        
-                        return (
-                          <div 
-                            key={alloc.ticker}
-                            onMouseEnter={() => setHoveredAllocIndex(idx)}
-                            onMouseLeave={() => setHoveredAllocIndex(null)}
-                            className={`flex flex-col space-y-1 p-1.5 rounded-lg transition-all ${isHovered ? 'bg-white/[0.03]' : ''}`}
-                          >
-                            <div className="flex justify-between items-center">
-                              <div className="flex items-center space-x-2">
-                                <span 
-                                  className="w-2.5 h-2.5 rounded-md flex-shrink-0" 
-                                  style={{ backgroundColor: alloc.color }}
-                                />
-                                <span className="text-white font-bold uppercase tracking-wider font-mono">{alloc.ticker}</span>
-                                <span className="text-slate-400 font-medium text-[10px]">{alloc.name}</span>
-                              </div>
-                              <div className="flex items-center space-x-2 font-mono">
-                                <span className="text-slate-400 text-[10px]">${value.toLocaleString()}</span>
-                                <span className="text-white font-bold">{alloc.percentage}%</span>
-                              </div>
-                            </div>
-                            
-                            {/* Animated Mini Progress Bar */}
-                            <div className="w-full h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                              <motion.div 
-                                className="h-full rounded-full"
-                                style={{ backgroundColor: alloc.color }}
-                                initial={{ width: 0 }}
-                                animate={{ width: `${alloc.percentage}%` }}
-                                transition={{ duration: 1 }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* 8 Core Metrics Grid */}
-                  <div className="space-y-2 pt-2 border-t border-white/[0.04]">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-sans">
-                      Quantum Portfolio Metrics
-                    </span>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Total Assets Managed</span>
-                        <strong className="text-white font-mono font-bold text-xs">${calculatedTotalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
-                      </div>
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Active Positions</span>
-                        <strong className="text-white font-mono font-bold text-xs">8 Asset Classes</strong>
-                      </div>
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Diversification Score</span>
-                        <strong className="text-[#00D09C] font-mono font-bold text-xs">95/100 (Optimal)</strong>
-                      </div>
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Largest Holding</span>
-                        <strong className="text-white font-mono font-bold text-xs">Bitcoin (28%)</strong>
-                      </div>
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Cash Reserve (USD)</span>
-                        <strong className="text-[#00D09C] font-mono font-bold text-xs">12% (${Math.round(calculatedTotalValue * 0.12).toLocaleString()})</strong>
-                      </div>
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Average Position Size</span>
-                        <strong className="text-white font-mono font-bold text-xs">${Math.round(calculatedTotalValue / 8).toLocaleString()}</strong>
-                      </div>
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Winning Positions</span>
-                        <strong className="text-[#00D09C] font-mono font-bold text-xs">6 Nodes Active</strong>
-                      </div>
-                      <div className="bg-[#080B11]/50 p-3 rounded-2xl border border-white/[0.04]">
-                        <span className="text-slate-400 block text-[8px] uppercase tracking-wider mb-0.5">Losing Positions</span>
-                        <strong className="text-[#FF6B6B] font-mono font-bold text-xs">2 Nodes Active</strong>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+              <p className="text-slate-400 text-xs font-normal leading-relaxed">
+                Interactive capital allocation and diversification metrics
+              </p>
+            </div>
+          </button>
         </div>
 
         {/* --- 5. LEAD ANALYST AI COMMENTARY (Broadcast Style) --- */}
         <div 
-          className="bg-[#0E1320] border border-white/[0.05] rounded-[24px] p-5 space-y-4 shadow-xl"
+          className={`${cardClasses} rounded-[24px] p-5 space-y-4`}
         >
           <div className="flex items-center justify-between border-b border-white/[0.05] pb-3">
             <div className="flex items-center space-x-2.5">
@@ -1149,120 +1202,146 @@ export default function PortfolioViewV2({
           </div>
         </div>
 
-        {/* --- 6. ASSET HOLDINGS LEDGER (List Layout) --- */}
-        <div 
-          className="bg-[#0E1320] border border-white/[0.05] rounded-[24px] p-5 space-y-4 shadow-xl"
-        >
-          <div className="flex justify-between items-center border-b border-white/[0.05] pb-3">
-            <div>
-              <h3 className="text-sm font-semibold tracking-tight text-white font-sans">Asset Holdings</h3>
-              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Active portfolio holdings</p>
-            </div>
-            <div className="flex bg-[#080B11]/80 p-0.5 rounded-lg border border-white/[0.05] text-[10px] font-semibold font-sans">
-              <button 
-                onClick={() => { setSortBy('value'); setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc'); }}
-                className={`px-3 py-1 rounded-md transition-all ${sortBy === 'value' ? 'bg-[#00D09C] text-black shadow-sm' : 'text-slate-400'}`}
-              >
-                Value
-              </button>
-              <button 
-                onClick={() => { setSortBy('change'); setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc'); }}
-                className={`px-3 py-1 rounded-md transition-all ${sortBy === 'change' ? 'bg-[#00D09C] text-black shadow-sm' : 'text-slate-400'}`}
-              >
-                %
-              </button>
-            </div>
+        {/* --- 6. AI MARKET INTELLIGENCE --- */}
+        <div className="space-y-4">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-4 h-4 text-[#00D09C]" />
+            <h3 className="text-xs font-bold tracking-wider text-slate-400 font-sans uppercase">
+              AI Market Intelligence
+            </h3>
           </div>
 
-          {/* List stacked nodes */}
-          <div className="space-y-3">
-            {filteredHoldings.map(h => {
-              const livePrice = livePrices[h.ticker] || h.price;
-              const valuation = livePrice * h.quantity;
-              const isExpanded = expandedTicker === h.ticker;
+          <div className="space-y-5">
+            {/* LEFT CARD — AI MARKET RADAR */}
+            <div className={`${cardClasses} rounded-[24px] p-5 space-y-4`}>
+              <div className="space-y-1">
+                <h4 className="text-base font-bold text-white tracking-tight">AI Market Radar</h4>
+                <p className="text-xs text-slate-400 font-normal leading-relaxed">Assets currently monitored by the AI engine.</p>
+              </div>
 
-              return (
-                <div 
-                  key={h.ticker}
-                  className="border border-white/[0.04] bg-[#080B11]/40 hover:bg-[#080B11]/60 rounded-2xl p-4 space-y-3.5 transition-all shadow-sm"
-                >
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-xl overflow-hidden border border-white/10 flex-shrink-0 relative">
-                        <img 
-                          src={assetImages[h.ticker]} 
-                          alt={h.name} 
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div className="absolute inset-0 bg-black/45 flex items-center justify-center">
-                          <span className="text-[9px] font-black text-white font-mono">{h.logoText}</span>
+              <div className="space-y-4 pt-1">
+                {radarCategories.map(cat => (
+                  <div key={cat.key} className="space-y-2">
+                    <div className="flex items-center justify-between border-b border-white/[0.03] pb-1">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-xs">{cat.icon}</span>
+                        <span className="text-xs font-bold text-white">{cat.label}</span>
+                      </div>
+                      <span className="text-[9px] text-slate-500 font-medium font-sans uppercase tracking-wider">{cat.subtitle}</span>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-2 pl-2">
+                      {cat.assets.map(asset => {
+                        const dynConf = getDynamicConfidence(asset.baseConfidence, asset.symbol);
+                        return (
+                          <div 
+                            key={asset.symbol} 
+                            className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.01] border border-white/[0.03] hover:bg-white/[0.03] transition-all"
+                          >
+                            <div className="flex items-center space-x-2.5">
+                              <CoinLogo symbol={asset.symbol} size={24} className="rounded-full overflow-hidden" />
+                              <div>
+                                <div className="text-xs font-bold text-white">{asset.symbol}</div>
+                                <div className="text-[10px] text-slate-400 leading-tight">{asset.name}</div>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center space-x-3">
+                              <div className="text-right">
+                                <span className="text-[8px] text-slate-500 uppercase tracking-widest block font-sans">Confidence</span>
+                                <span className="text-xs font-bold text-[#00D09C] font-mono">
+                                  {dynConf}%
+                                </span>
+                              </div>
+                              <span className={`w-2 h-2 rounded-full ${cat.dotColor} animate-pulse`} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* RIGHT CARD — MARKET EXPOSURE */}
+            <div className={`${cardClasses} rounded-[24px] p-5 space-y-5`}>
+              <div className="space-y-1">
+                <h4 className="text-base font-bold text-white tracking-tight">Market Exposure</h4>
+                <p className="text-xs text-slate-400 font-normal leading-relaxed">Current capital distribution managed by the AI.</p>
+              </div>
+
+              {/* Animated Allocation Bars */}
+              <div className="space-y-3 pt-2">
+                {dynamicExposure.allocations.map(alloc => (
+                  <div key={alloc.name} className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-300">{alloc.name}</span>
+                      <span className="font-mono font-bold text-[#00D09C]">{alloc.value.toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-white/[0.04] rounded-full overflow-hidden">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${alloc.value}%` }}
+                        transition={{ type: 'spring', damping: 15 }}
+                        className="h-full rounded-full"
+                        style={{ backgroundColor: alloc.color }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Risk Distribution */}
+              <div className="space-y-3 pt-4 border-t border-white/[0.05]">
+                <h5 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Risk Distribution</h5>
+                <div className="space-y-3">
+                  {dynamicExposure.risks.map(risk => (
+                    <div key={risk.name} className="space-y-1.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`w-2 h-2 rounded-full ${risk.dotColor}`} />
+                          <span className="font-semibold text-slate-300">{risk.name}</span>
                         </div>
+                        <span className="font-mono font-bold text-white">{risk.value.toFixed(1)}%</span>
                       </div>
-                      <div>
-                        <h4 className="text-xs font-semibold text-white leading-tight">{h.name}</h4>
-                        <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                          {h.ticker} / USD
-                        </span>
+                      <div className="w-full h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${risk.value}%` }}
+                          transition={{ type: 'spring', damping: 15 }}
+                          className="h-full rounded-full"
+                          style={{ backgroundColor: risk.color }}
+                        />
                       </div>
                     </div>
-
-                    <div className="text-right">
-                      <span className="text-sm font-semibold text-white block font-mono">
-                        ${valuation.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </span>
-                      <span className={`text-[10px] font-bold ${h.change >= 0 ? 'text-[#00D09C]' : 'text-[#FF6B6B]'}`}>
-                        {h.change >= 0 ? '▲' : '▼'} {h.change}%
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-[10px] bg-[#080B11]/60 p-3 border border-white/[0.04] rounded-xl font-medium">
-                    <div>
-                      <span className="text-[9px] text-slate-400 font-semibold uppercase block tracking-wider mb-0.5">Allocation</span>
-                      <span className="font-semibold text-slate-200 block font-mono">
-                        {h.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })} {h.ticker}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 font-semibold uppercase block tracking-wider mb-0.5">Asset Price</span>
-                      <span className="font-semibold text-slate-200 block font-mono">
-                        ${livePrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-1">
-                    <button 
-                      onClick={() => setExpandedTicker(isExpanded ? null : h.ticker)}
-                      className="text-[10px] font-semibold text-[#00D09C] hover:text-[#00D09C]/80 py-1 cursor-pointer touch-manipulation uppercase tracking-wider transition-all"
-                    >
-                      {isExpanded ? 'Hide Insights' : 'Show Insights'}
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setTradeAsset(h.ticker);
-                        setActiveDialog('trade');
-                      }}
-                      className="px-3.5 py-1.5 bg-[#00D09C] hover:bg-[#00b084] text-black rounded-lg text-[10px] font-bold transition-all cursor-pointer touch-manipulation uppercase tracking-wider"
-                    >
-                      Trade Node
-                    </button>
-                  </div>
-
-                  {isExpanded && (
-                    <motion.div 
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      className="text-[11px] text-slate-300 leading-relaxed italic bg-[#080B11]/80 p-3 border border-white/[0.04] rounded-xl space-y-1.5 font-sans"
-                    >
-                      <p>"{h.aiDetails}"</p>
-                      <p className="text-[#00D09C] text-[10px] font-semibold uppercase tracking-wider mt-1">Status: {h.news}</p>
-                    </motion.div>
-                  )}
+                  ))}
                 </div>
-              );
-            })}
+              </div>
+
+              {/* Largest Exposure details */}
+              <div className="bg-[#080B11]/60 p-4 border border-white/[0.04] rounded-2xl space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Largest Exposure</span>
+                  <span className="px-2 py-0.5 rounded-md bg-[#00D09C]/10 text-[#00D09C] text-[9px] font-bold uppercase tracking-wider">Top Asset</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h6 className="text-base font-black text-white tracking-tight">{dynamicExposure.largest.name}</h6>
+                    <span className="text-[9px] text-slate-500 font-mono font-semibold uppercase tracking-wider block">Portfolio Weight</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-lg font-black text-white font-mono block">
+                      {dynamicExposure.largest.weight.toFixed(1)}%
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      AI Confidence: <strong className="text-[#00D09C] font-bold font-mono">{dynamicExposure.largest.confidence.toFixed(1)}%</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
           </div>
         </div>
 
@@ -1687,8 +1766,8 @@ export default function PortfolioViewV2({
                             if (confirm("Reset Vault? This will clear your passcode and existing vault data.")) {
                               setVaultPasscode('');
                               setIsVaultOnboarded(false);
-                              setVaultBalance(150000);
-                              setActiveBalanceOffset(0);
+                              updateVaultBalance(150000);
+                              updateActiveBalanceOffset(0);
                               localStorage.removeItem('vault_passcode');
                               localStorage.removeItem('vault_onboarded');
                               localStorage.removeItem('portfolio_vault_balance');
@@ -1757,7 +1836,7 @@ export default function PortfolioViewV2({
                       {/* Locked Assets List Overview */}
                       <div className="space-y-2">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-sans">Locked Assets Allocation</span>
-                        <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+                        <div className="space-y-1.5 pr-1">
                           {[
                             { name: 'Bitcoin Stable Reserves', ticker: 'BTC', qty: `${(vaultBalance * 0.5 / 64000).toFixed(4)} BTC`, value: vaultBalance * 0.5, color: '#f59e0b' },
                             { name: 'Ethereum Gas locked', ticker: 'ETH', qty: `${(vaultBalance * 0.35 / 3400).toFixed(4)} ETH`, value: vaultBalance * 0.35, color: '#6366f1' },
@@ -2031,11 +2110,9 @@ export default function PortfolioViewV2({
                             return;
                           }
                           const nextBal = vaultBalance + amt;
-                          setVaultBalance(nextBal);
-                          localStorage.setItem('portfolio_vault_balance', nextBal.toString());
+                          updateVaultBalance(nextBal);
                           const nextOffset = activeBalanceOffset - amt;
-                          setActiveBalanceOffset(nextOffset);
-                          localStorage.setItem('portfolio_active_offset', nextOffset.toString());
+                          updateActiveBalanceOffset(nextOffset);
                           showNotification(`Successfully protected $${amt.toLocaleString()} inside Vault.`);
                           setVaultActionType(null);
                           setVaultActionAmount('');
@@ -2135,11 +2212,9 @@ export default function PortfolioViewV2({
                             return;
                           }
                           const nextBal = vaultBalance - amt;
-                          setVaultBalance(nextBal);
-                          localStorage.setItem('portfolio_vault_balance', nextBal.toString());
+                          updateVaultBalance(nextBal);
                           const nextOffset = activeBalanceOffset + amt;
-                          setActiveBalanceOffset(nextOffset);
-                          localStorage.setItem('portfolio_active_offset', nextOffset.toString());
+                          updateActiveBalanceOffset(nextOffset);
                           showNotification(`Successfully unlocked $${amt.toLocaleString()} back to Active Pool.`);
                           setVaultActionType(null);
                           setVaultActionAmount('');

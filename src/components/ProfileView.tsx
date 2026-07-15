@@ -383,28 +383,48 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
   };
 
   const handleCropSubmit = () => {
-    if (!cropperSrc) return;
+    if (!cropperSrc) {
+      console.warn("[ProfileView] handleCropSubmit: No cropperSrc found");
+      return;
+    }
+    console.log("[ProfileView] handleCropSubmit started, cropperSrc length:", cropperSrc.length);
     setIsPhotoLoading(true);
+    setErrorMsg('');
+
+    // Create a timeout to prevent infinite hanging
+    const timeoutId = setTimeout(() => {
+      console.warn("[ProfileView] handleCropSubmit timeout triggered (30s)");
+      setIsPhotoLoading(false);
+      setErrorMsg("The operation timed out. Please check your connection and try again.");
+    }, 30000); 
 
     const img = new Image();
-    img.src = cropperSrc;
+    img.crossOrigin = "anonymous"; // Try to avoid CORS issues if any
+    
     img.onload = async () => {
-      const canvas = document.createElement('canvas');
-      const size = 400; // 400x400 high-res avatar
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
+      console.log("[ProfileView] Image loaded successfully, starting canvas draw");
+      try {
+        const canvas = document.createElement('canvas');
+        const size = 512; // Increased to 512x512 for higher production quality
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
 
-      if (ctx) {
+        if (!ctx) {
+          throw new Error("Canvas context initialization failed.");
+        }
+
+        // Use highest quality settings
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        // Background
+        // Background black for edge bleed
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, size, size);
 
-        // Map viewport (256x256 px on screen) onto the 400x400 canvas
+        // Map viewport onto the canvas
         const viewportSize = 256;
+        ctx.save();
         ctx.translate(size / 2, size / 2);
         
         const ratio = size / viewportSize;
@@ -424,28 +444,46 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
           renderHeight = viewportSize / imgAspect;
         }
 
+        console.log("[ProfileView] Drawing image to canvas at size:", renderWidth, "x", renderHeight);
         ctx.drawImage(img, -renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
+        ctx.restore();
 
-        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        console.log("[ProfileView] Converting canvas to data URL");
+        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        console.log("[ProfileView] Cropped data URL length:", croppedDataUrl.length);
 
-        try {
-          await updateProfilePhoto(croppedDataUrl);
-          setIsPhotoLoading(false);
-          setCropperSrc(null);
-          setErrorMsg('');
-        } catch (err) {
-          console.error("Error saving cropped image:", err);
-          setErrorMsg("Failed to upload cropped image.");
-          setIsPhotoLoading(false);
-        }
-      } else {
+        console.log("[ProfileView] Calling AuthContext.updateProfilePhoto");
+        await updateProfilePhoto(croppedDataUrl);
+        console.log("[ProfileView] AuthContext.updateProfilePhoto completed");
+        
+        // Clean up
+        clearTimeout(timeoutId);
+        setCropperSrc(null);
+        setErrorMsg('');
+        setSuccessMsg('Profile photo updated successfully.');
+        
+        // Reset file input
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        
+      } catch (err: any) {
+        console.error("[ProfileView] CRITICAL error in handleCropSubmit callback:", err);
+        clearTimeout(timeoutId);
+        setErrorMsg(err?.message || "Failed to finalize profile photo update.");
+      } finally {
+        console.log("[ProfileView] handleCropSubmit: Setting isPhotoLoading to false");
         setIsPhotoLoading(false);
       }
     };
-    img.onerror = () => {
-      setErrorMsg("Failed to load image for cropping.");
+
+    img.onerror = (e) => {
+      console.error("[ProfileView] Image source load error in cropper:", e);
+      clearTimeout(timeoutId);
+      setErrorMsg("Failed to process the selected image. It may be corrupted or in an unsupported format.");
       setIsPhotoLoading(false);
     };
+
+    console.log("[ProfileView] Setting img.src to cropperSrc to start processing");
+    img.src = cropperSrc;
   };
 
   const handleRemovePhoto = async () => {

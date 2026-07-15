@@ -21,6 +21,10 @@ export default function UserAvatar({ user, sizeClass = "w-8 h-8", fontSizeClass 
 
   const hasPhoto = !!(user && (user.avatarUrl || user.profilePhotoURL) && !hasError);
   const photoUrl = user ? (user.avatarUrl || user.profilePhotoURL || undefined) : undefined;
+  
+  if (photoUrl) {
+    console.log("[UserAvatar] Rendering photoUrl:", photoUrl.startsWith('data:') ? `data:URL(${photoUrl.length} chars)` : photoUrl);
+  }
 
   const handleImageError = () => {
     if (retryCount < 3) {

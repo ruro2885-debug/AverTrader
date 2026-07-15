@@ -27,9 +27,9 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   ];
 
   return (
-    <div className={`min-h-screen pt-[73px] pb-32 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'}`}>
+    <div className="pt-[73px] flex-1 flex flex-col">
       {/* 1. FIXED HEADER */}
-      <header className={`fixed top-0 left-0 right-0 w-full z-40 backdrop-blur-xl ${isDark ? 'bg-[#000000]/90' : 'bg-white/90'} border-b ${isDark ? 'border-white/5' : 'border-slate-200'} p-4 flex justify-between items-center box-border`}>
+      <header className={`fixed top-0 left-0 right-0 w-full z-40 backdrop-blur-xl ${isDark ? 'bg-black/90' : 'bg-white/90'} border-b ${isDark ? 'border-white/5' : 'border-slate-200'} p-4 flex justify-between items-center box-border`}>
         <div>
           <h1 className={`text-xl font-black ${textPrimary}`}>Markets</h1>
           <div className="flex items-center gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider">
@@ -44,7 +44,7 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
       </header>
 
       {/* 2. SEARCH BAR */}
-      <div className="px-4 py-4 sticky top-[73px] z-30 bg-inherit">
+      <div className="px-4 py-4 sticky top-[73px] z-30">
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
           <input 
@@ -56,7 +56,7 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
       </div>
 
       {/* 3. CATEGORY TABS */}
-      <div className="flex overflow-x-auto gap-1 px-4 pb-4 scrollbar-hide sticky top-[157px] z-30 bg-inherit">
+      <div className="flex overflow-x-auto gap-1 px-4 pb-4 scrollbar-hide sticky top-[157px] z-30">
         {categories.map(cat => (
           <button 
             key={cat} 
