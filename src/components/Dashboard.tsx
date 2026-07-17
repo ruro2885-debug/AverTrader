@@ -236,8 +236,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         title: 'Identity Verification Incomplete',
         description: 'Complete your tier-1 verification to unlock unlimited asset trades and premium withdrawals.',
         actionText: 'Verify Identity',
-        actionType: 'tab',
-        targetTab: 'profile'
+        actionType: 'prop',
+        actionName: 'bonus-center'
       });
     }
 

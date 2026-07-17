@@ -90,6 +90,13 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
     }
   }, [profileToast]);
 
+  useEffect(() => {
+    if (localStorage.getItem('aver_auto_open_2fa') === 'true') {
+      localStorage.removeItem('aver_auto_open_2fa');
+      setActiveModal('2fa');
+    }
+  }, []);
+
   const [twoFactorFlowStep, setTwoFactorFlowStep] = useState<'intro' | 'confirm_identity' | 'sending' | 'enter_code' | 'verified'>('intro');
   const [twoFactorFlowType, setTwoFactorFlowType] = useState<'activate' | 'deactivate'>('activate');
   const [twoFactorGeneratedCode, setTwoFactorGeneratedCode] = useState('');
