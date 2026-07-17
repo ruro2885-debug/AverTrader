@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
+import { sendEmailVerification } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { 
   Trophy, 
   History as HistoryIcon, 
@@ -33,11 +35,14 @@ interface Task {
   title: string;
   progress: number;
   increment: number;
-  status: 'pending' | 'completed' | 'locked';
+  status: 'pending' | 'completed' | 'locked' | 'unlocked';
   icon: any;
   actionLabel: string;
   targetTab?: string;
-  customAction?: 'deposit' | 'profile';
+  customAction?: 'deposit' | 'profile' | 'verify_email' | 'claim_welcome';
+  description?: string;
+  requirements?: { label: string; done: boolean }[];
+  isMission?: boolean;
 }
 
 interface Tier {
@@ -54,6 +59,8 @@ interface Mission {
   title: string;
   reward: string;
   icon: any;
+  taskRef?: string;
+  isCustomTask?: boolean;
 }
 
 interface Achievement {
@@ -112,23 +119,6 @@ const TIERS: Tier[] = [
   }
 ];
 
-const MISSIONS: Mission[] = [
-  { id: 'm1', title: 'Open app', reward: '+0.5% Progress', icon: Zap },
-  { id: 'm2', title: 'Trade once', reward: '+1% Progress', icon: TrendingUp },
-  { id: 'm3', title: 'View Markets', reward: '+0.3% Progress', icon: Clock },
-  { id: 'm4', title: 'Check Portfolio', reward: '+0.3% Progress', icon: Wallet },
-  { id: 'm5', title: 'Complete Security Check', reward: '+1% Progress', icon: ShieldCheck }
-];
-
-const ACHIEVEMENTS: Achievement[] = [
-  { id: 'a1', title: 'First Deposit', status: 'completed', icon: Wallet },
-  { id: 'a2', title: 'First Trade', status: 'completed', icon: TrendingUp },
-  { id: 'a3', title: '10 Trades', status: 'completed', icon: Award },
-  { id: 'a4', title: '100 Trades', status: 'locked', icon: Trophy },
-  { id: 'a5', title: '1 Year Member', status: 'locked', icon: Calendar },
-  { id: 'a6', title: 'Invite 10 Friends', status: 'locked', icon: Users }
-];
-
 export default function BonusCenter({ 
   theme, 
   onBack, 
@@ -140,19 +130,62 @@ export default function BonusCenter({
   onNavigate?: (tab: string) => void,
   onOpenDeposit?: () => void
 }) {
-  const { user } = useAuth();
+  const { user, addNotification } = useAuth();
   const [currentView, setCurrentView] = useState<SubView>('main');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [membershipProgress, setMembershipProgress] = useState(42); // Animated mock progress for Bronze
 
-  // Dynamic tasks based on user state (mocking some for the redesign feel)
+  // Core Computed State
+  const profileProgress = useMemo(() => {
+    let completed = 0;
+    if (user?.username) completed++;
+    if (user?.country) completed++;
+    if (user?.phoneNumber) completed++;
+    if (user?.hasCustomPhoto) completed++;
+    return Math.floor((completed / 4) * 100);
+  }, [user]);
+
+  const isEmailVerified = !!auth.currentUser?.emailVerified;
+  const isDeposited = (user?.totalDeposits || 0) > 0;
+  const tradesCount = user?.trades?.length || 0;
+  const isTraded = tradesCount > 0;
+  const referralCount = user?.referralCount || 0;
+  const isKycVerified = user?.kycStatus === 'verified';
+
+  // XP & Tier Calculation
+  const xp = useMemo(() => {
+    let total = 0;
+    if (profileProgress === 100) total += 2;
+    if (isEmailVerified) total += 3;
+    if (user?.phoneNumber) total += 3;
+    if (isDeposited) total += 6;
+    if (isKycVerified) total += 10;
+    if (isTraded) total += 5;
+    if (referralCount > 0) total += (referralCount * 5);
+    return total;
+  }, [profileProgress, isEmailVerified, user?.phoneNumber, isDeposited, isKycVerified, isTraded, referralCount]);
+
+  const { currentTier, nextTier, membershipProgress } = useMemo(() => {
+    let tierIdx = 0;
+    let progress = xp;
+    if (xp >= 100) { tierIdx = 1; progress = xp - 100; }
+    if (xp >= 300) { tierIdx = 2; progress = xp - 300; }
+    
+    const tierMax = tierIdx === 0 ? 100 : tierIdx === 1 ? 200 : 300;
+    return {
+      currentTier: TIERS[Math.min(tierIdx, TIERS.length - 1)],
+      nextTier: TIERS[tierIdx + 1] || null,
+      membershipProgress: Math.min(100, Math.floor((progress / tierMax) * 100))
+    };
+  }, [xp]);
+
+  // Tasks
   const tasks: Task[] = useMemo(() => [
     { 
       id: 'profile', 
       title: 'Complete Profile', 
-      progress: user?.displayName ? 100 : 80, 
+      progress: profileProgress, 
       increment: 2, 
-      status: user?.displayName ? 'completed' : 'pending', 
+      status: profileProgress === 100 ? 'completed' : 'pending', 
       icon: Users, 
       actionLabel: 'Continue',
       customAction: 'profile'
@@ -160,18 +193,19 @@ export default function BonusCenter({
     { 
       id: 'email', 
       title: 'Email Verification', 
-      progress: 100, 
+      progress: isEmailVerified ? 100 : 0, 
       increment: 3, 
-      status: 'completed', 
+      status: isEmailVerified ? 'completed' : 'pending', 
       icon: BadgeCheck, 
-      actionLabel: 'Verified'
+      actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
+      customAction: 'verify_email'
     },
     { 
       id: 'deposit', 
       title: 'First Deposit', 
-      progress: (user?.totalDeposits || 0) > 0 ? 100 : 0, 
+      progress: isDeposited ? 100 : 0, 
       increment: 6, 
-      status: (user?.totalDeposits || 0) > 0 ? 'completed' : 'pending', 
+      status: isDeposited ? 'completed' : 'pending', 
       icon: Wallet, 
       actionLabel: 'Deposit',
       customAction: 'deposit'
@@ -179,9 +213,9 @@ export default function BonusCenter({
     { 
       id: 'trade', 
       title: 'First Trade', 
-      progress: 0, 
+      progress: isTraded ? 100 : 0, 
       increment: 5, 
-      status: 'locked', 
+      status: isTraded ? 'completed' : 'locked', 
       icon: TrendingUp, 
       actionLabel: 'Trade',
       targetTab: 'markets'
@@ -189,22 +223,89 @@ export default function BonusCenter({
     { 
       id: 'referral', 
       title: 'Referral Milestone', 
-      progress: 40, 
+      progress: Math.min((referralCount / 5) * 100, 100), 
       increment: 5, 
-      status: 'pending', 
+      status: referralCount >= 5 ? 'completed' : 'pending', 
       icon: Users, 
       actionLabel: 'View Details',
       targetTab: 'referral-centre'
     }
-  ], [user]);
+  ], [profileProgress, isEmailVerified, isDeposited, isTraded, referralCount]);
 
-  const handleTaskAction = (task: Task) => {
-    if (task.status === 'completed') return;
+  const welcomeBonusUnlocked = profileProgress === 100 && isEmailVerified && isDeposited && isTraded;
+  const welcomeTask: Task = useMemo(() => ({
+    id: 'welcome',
+    title: '$150 WELCOME BONUS',
+    progress: ((profileProgress === 100 ? 25 : 0) + (isEmailVerified ? 25 : 0) + (isDeposited ? 25 : 0) + (isTraded ? 25 : 0)),
+    increment: 0,
+    status: welcomeBonusUnlocked ? 'completed' : 'locked',
+    icon: Sparkles,
+    actionLabel: welcomeBonusUnlocked ? 'Claimed' : 'Locked',
+    description: 'Complete the required onboarding milestones to unlock your $150 Welcome Bonus.',
+    requirements: [
+      { label: 'Complete Profile', done: profileProgress === 100 },
+      { label: 'Verify Email', done: isEmailVerified },
+      { label: 'First Deposit', done: isDeposited },
+      { label: 'First Trade', done: isTraded }
+    ],
+    isMission: true,
+    customAction: 'claim_welcome'
+  }), [profileProgress, isEmailVerified, isDeposited, isTraded, welcomeBonusUnlocked]);
+
+  const dailyMissions: Mission[] = useMemo(() => [
+    { id: 'welcome', title: '$150 WELCOME BONUS', reward: welcomeBonusUnlocked ? 'Claimed' : 'Locked', icon: Sparkles, isCustomTask: true, taskRef: 'welcome' },
+    { id: 'm2', title: 'Trade once', reward: '+1% Progress', icon: TrendingUp },
+    { id: 'm3', title: 'View Markets', reward: '+0.3% Progress', icon: Clock },
+    { id: 'm4', title: 'Check Portfolio', reward: '+0.3% Progress', icon: Wallet }
+  ], [welcomeBonusUnlocked]);
+
+  // Achievements
+  const accountAgeMs = new Date().getTime() - new Date(user?.createdAt || Date.now()).getTime();
+  const achievements: Achievement[] = useMemo(() => [
+    { id: 'a1', title: 'First Deposit', status: isDeposited ? 'completed' : 'locked', icon: Wallet },
+    { id: 'a2', title: 'First Trade', status: isTraded ? 'completed' : 'locked', icon: TrendingUp },
+    { id: 'a3', title: `10 Trades (${Math.min(tradesCount, 10)}/10)`, status: tradesCount >= 10 ? 'completed' : 'locked', icon: Award },
+    { id: 'a4', title: `100 Trades (${Math.min(tradesCount, 100)}/100)`, status: tradesCount >= 100 ? 'completed' : 'locked', icon: Trophy },
+    { id: 'a5', title: '1 Year Member', status: accountAgeMs >= 31536000000 ? 'completed' : 'locked', icon: Calendar },
+    { id: 'a6', title: `Invite 10 Friends`, status: referralCount >= 10 ? 'completed' : 'locked', icon: Users }
+  ], [isDeposited, isTraded, tradesCount, accountAgeMs, referralCount]);
+
+  const rewardHistory = useMemo(() => {
+    const hist = [];
+    if (welcomeBonusUnlocked) {
+      hist.push({ title: 'Welcome Bonus', amount: '$150', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+    }
+    if (profileProgress === 100) {
+      hist.push({ title: 'Profile Completed', amount: '+2% XP', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+    }
+    if (isEmailVerified) {
+      hist.push({ title: 'Email Verified', amount: '+3% XP', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+    }
+    if (isDeposited) {
+      hist.push({ title: 'First Deposit', amount: '+6% XP', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+    }
+    if (isTraded && user?.trades?.[0]) {
+      hist.push({ title: 'First Trade', amount: '+5% XP', status: 'Claimed', date: new Date(user.trades[0].timestamp).toLocaleDateString(), color: 'text-emerald-500' });
+    }
+    return hist.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [profileProgress, isEmailVerified, isDeposited, isTraded, welcomeBonusUnlocked, user?.trades]);
+
+  const handleTaskAction = async (task: Task) => {
+    if (task.status === 'completed' || task.status === 'locked') return;
     
     if (task.customAction === 'deposit') {
       onOpenDeposit?.();
     } else if (task.customAction === 'profile') {
       onNavigate?.('profile');
+    } else if (task.customAction === 'verify_email') {
+      if (auth.currentUser && !auth.currentUser.emailVerified) {
+        try {
+          await sendEmailVerification(auth.currentUser);
+          addNotification('system', 'high', 'Verification Email Sent', 'Please check your inbox to verify your email address.');
+        } catch (e) {
+          console.error("Verification email failed", e);
+        }
+      }
     } else if (task.targetTab) {
       onNavigate?.(task.targetTab);
     }
@@ -270,9 +371,13 @@ export default function BonusCenter({
               <selectedTask.icon className="w-12 h-12" />
             </div>
             <h3 className="text-2xl font-black text-white">{selectedTask.title}</h3>
-            <p className="text-sm text-gray-500 mt-2 max-w-xs">
-              Complete this milestone to earn <span className="text-emerald-500 font-bold">{selectedTask.increment}% progress</span> towards your next membership tier.
-            </p>
+            {selectedTask.description ? (
+              <p className="text-sm text-gray-500 mt-2 max-w-xs">{selectedTask.description}</p>
+            ) : (
+              <p className="text-sm text-gray-500 mt-2 max-w-xs">
+                Complete this milestone to earn <span className="text-emerald-500 font-bold">{selectedTask.increment}% progress</span> towards your next membership tier.
+              </p>
+            )}
           </div>
 
           <div className="p-8 rounded-[40px] bg-slate-900 border border-white/5 space-y-6">
@@ -292,21 +397,36 @@ export default function BonusCenter({
 
             <div className="space-y-4">
               <h4 className="text-xs font-black text-white uppercase tracking-widest">Requirements</h4>
-              <div className="flex items-center gap-3 p-4 rounded-2xl bg-slate-950/50 border border-white/5">
-                <CheckCircle2 className={`w-5 h-5 ${isCompleted ? 'text-emerald-500' : 'text-gray-600'}`} />
-                <span className="text-sm text-gray-400">Perform the action: <span className="text-white font-bold">{selectedTask.title}</span></span>
+              <div className="flex flex-col gap-3 p-4 rounded-2xl bg-slate-950/50 border border-white/5">
+                {selectedTask.requirements ? (
+                  selectedTask.requirements.map((req, idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      <CheckCircle2 className={`w-5 h-5 ${req.done ? 'text-emerald-500' : 'text-gray-600'}`} />
+                      <span className={`text-sm ${req.done ? 'text-white font-bold' : 'text-gray-400'}`}>{req.label}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className={`w-5 h-5 ${isCompleted ? 'text-emerald-500' : 'text-gray-600'}`} />
+                    <span className="text-sm text-gray-400">Perform the action: <span className="text-white font-bold">{selectedTask.title}</span></span>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="space-y-4">
-              <h4 className="text-xs font-black text-white uppercase tracking-widest">Estimated Completion</h4>
-              <p className="text-sm text-gray-400">Usually takes <span className="text-white font-bold">1-2 minutes</span> once initiated.</p>
-            </div>
+            {!selectedTask.isMission && (
+              <>
+                <div className="space-y-4">
+                  <h4 className="text-xs font-black text-white uppercase tracking-widest">Estimated Completion</h4>
+                  <p className="text-sm text-gray-400">Usually takes <span className="text-white font-bold">1-2 minutes</span> once initiated.</p>
+                </div>
 
-            <div className="space-y-4 pt-4">
-              <h4 className="text-xs font-black text-white uppercase tracking-widest">Benefits after unlocking</h4>
-              <p className="text-sm text-gray-400">Directly contributes to your next tier rewards and permanent fee reductions.</p>
-            </div>
+                <div className="space-y-4 pt-4">
+                  <h4 className="text-xs font-black text-white uppercase tracking-widest">Benefits after unlocking</h4>
+                  <p className="text-sm text-gray-400">Directly contributes to your next tier rewards and permanent fee reductions.</p>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="pt-4">
@@ -317,9 +437,12 @@ export default function BonusCenter({
             ) : (
               <button 
                 onClick={() => handleTaskAction(selectedTask)}
-                className="w-full py-5 rounded-[28px] bg-emerald-500 text-slate-950 font-black text-lg shadow-xl shadow-emerald-500/20 hover:scale-[1.02] active:scale-95 transition-all"
+                disabled={selectedTask.status === 'locked'}
+                className={`w-full py-5 rounded-[28px] font-black text-lg shadow-xl hover:scale-[1.02] active:scale-95 transition-all ${
+                  selectedTask.status === 'locked' ? 'bg-white/5 text-gray-500 cursor-not-allowed shadow-none hover:scale-100' : 'bg-emerald-500 text-slate-950 shadow-emerald-500/20'
+                }`}
               >
-                Claim Reward
+                {selectedTask.actionLabel}
               </button>
             )}
             {!isCompleted && selectedTask.status === 'locked' && (
@@ -349,27 +472,29 @@ export default function BonusCenter({
             <div>
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500/60 mb-2 block">Current Membership</span>
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shadow-lg shadow-orange-500/5">
-                  <Trophy className="w-6 h-6 text-orange-500" />
+                <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${currentTier.color} opacity-90 flex items-center justify-center shadow-lg`}>
+                  <currentTier.icon className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-white">🥉 Bronze Member</h3>
-                  <p className="text-[11px] text-gray-400 font-bold">Trading Fees: 0.1%</p>
+                  <h3 className="text-2xl font-black text-white">{currentTier.id === 'bronze' ? '🥉' : currentTier.id === 'silver' ? '🥈' : '🥇'} {currentTier.name}</h3>
+                  <p className="text-[11px] text-gray-400 font-bold">Trading Fees: {currentTier.id === 'bronze' ? '0.1%' : currentTier.id === 'silver' ? '0.08%' : '0.05%'}</p>
                 </div>
               </div>
             </div>
-            <div className="text-right">
-              <span className="text-xs font-black text-white/40 uppercase tracking-widest">Next Tier</span>
-              <p className="text-sm font-black text-emerald-500">🥈 Silver</p>
-            </div>
+            {nextTier && (
+              <div className="text-right">
+                <span className="text-xs font-black text-white/40 uppercase tracking-widest">Next Tier</span>
+                <p className="text-sm font-black text-emerald-500">{nextTier.id === 'silver' ? '🥈' : '🥇'} {nextTier.name.split(' ')[0]}</p>
+              </div>
+            )}
           </div>
 
           {/* PROGRESS BAR */}
           <div className="space-y-4">
             <div className="flex justify-between items-center text-[11px] font-black text-gray-500 uppercase tracking-tighter">
-              <span>Bronze</span>
+              <span>{currentTier.name.split(' ')[0]}</span>
               <span className="text-emerald-500 text-lg">{membershipProgress}%</span>
-              <span>Silver</span>
+              <span>{nextTier ? nextTier.name.split(' ')[0] : 'Max'}</span>
             </div>
             <div className="h-4 w-full bg-slate-950 rounded-full border border-white/5 overflow-hidden p-0.5">
               <motion.div 
@@ -401,7 +526,8 @@ export default function BonusCenter({
         </div>
         <div className="flex gap-4 overflow-x-auto px-6 pb-6 scrollbar-hide snap-x snap-mandatory">
           {TIERS.map((tier, idx) => {
-            const isCurrent = tier.id === 'bronze';
+            const isCurrent = tier.id === currentTier.id;
+            const isUnlocked = TIERS.findIndex(t => t.id === tier.id) <= TIERS.findIndex(t => t.id === currentTier.id);
             
             return (
               <motion.div 
@@ -410,7 +536,9 @@ export default function BonusCenter({
                 whileHover={{ scale: 1.02 }}
                 className={`min-w-[280px] p-6 rounded-[32px] border snap-start cursor-pointer transition-all ${
                   isCurrent 
-                  ? `bg-gradient-to-br ${tier.color} border-white/20 shadow-2xl shadow-orange-950/20 ring-4 ring-orange-500/20` 
+                  ? `bg-gradient-to-br ${tier.color} border-white/20 shadow-2xl ring-4 ring-white/10` 
+                  : isUnlocked
+                  ? 'bg-slate-800 border-white/10'
                   : 'bg-slate-900 border-white/5 opacity-60'
                 }`}
               >
@@ -420,6 +548,8 @@ export default function BonusCenter({
                   </div>
                   {isCurrent ? (
                     <span className="bg-white/20 text-[10px] font-black px-3 py-1.5 rounded-full border border-white/30 text-white uppercase tracking-widest">Active</span>
+                  ) : isUnlocked ? (
+                    <span className="bg-white/10 text-[10px] font-black px-3 py-1.5 rounded-full border border-white/10 text-white uppercase tracking-widest">Completed</span>
                   ) : (
                     <div className="flex items-center gap-1.5 text-[10px] font-black text-white/40 uppercase tracking-widest">
                       <Lock className="w-3 h-3" /> Locked
@@ -537,8 +667,17 @@ export default function BonusCenter({
       <section className="px-6 py-6">
         <h2 className="text-lg font-black text-white mb-6">Daily Missions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {MISSIONS.map((mission) => (
-            <div key={mission.id} className="p-5 rounded-[28px] bg-slate-900 border border-white/5 flex justify-between items-center group overflow-hidden relative">
+          {dailyMissions.map((mission) => (
+            <div 
+              key={mission.id} 
+              onClick={() => {
+                if (mission.isCustomTask && mission.taskRef === 'welcome') {
+                  setSelectedTask(welcomeTask);
+                  setCurrentView('task-details');
+                }
+              }}
+              className={`p-5 rounded-[28px] bg-slate-900 border border-white/5 flex justify-between items-center group overflow-hidden relative ${mission.isCustomTask ? 'cursor-pointer' : ''}`}
+            >
               <div className="absolute inset-0 bg-emerald-500/0 group-hover:bg-emerald-500/[0.02] transition-colors" />
               <div className="flex items-center gap-4 relative z-10">
                 <div className="w-11 h-11 rounded-2xl bg-white/5 flex items-center justify-center text-gray-400 group-hover:text-emerald-500 transition-colors">
@@ -559,7 +698,7 @@ export default function BonusCenter({
       <section className="px-6 py-12">
         <h2 className="text-lg font-black text-white mb-8">Achievements</h2>
         <div className="grid grid-cols-3 gap-6">
-          {ACHIEVEMENTS.map((ach) => (
+          {achievements.map((ach) => (
             <div key={ach.id} className="flex flex-col items-center gap-3 group">
               <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 relative transition-all duration-500 ${
                 ach.status === 'completed'
@@ -587,12 +726,7 @@ export default function BonusCenter({
     <div className="pb-12 bg-slate-950">
       {renderHeader("Reward History")}
       <div className="px-6 py-4 space-y-4">
-        {[
-          { title: 'Welcome Bonus', amount: '$150', status: 'Claimed', date: '2024-03-20', color: 'text-emerald-500' },
-          { title: 'Daily Mission', amount: '+0.5% XP', status: 'Claimed', date: '2024-03-21', color: 'text-emerald-500' },
-          { title: 'Level 2 Reward', amount: '$50', status: 'Pending', date: '2024-03-22', color: 'text-amber-500' },
-          { title: 'Sign-up Reward', amount: '$10', status: 'Expired', date: '2024-02-15', color: 'text-gray-500' }
-        ].map((item, idx) => (
+        {rewardHistory.length > 0 ? rewardHistory.map((item, idx) => (
           <div key={idx} className="p-5 rounded-[28px] bg-slate-900 border border-white/5 flex justify-between items-center">
             <div className="flex gap-4 items-center">
               <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center">
@@ -608,16 +742,15 @@ export default function BonusCenter({
               <p className={`text-[10px] font-black uppercase tracking-widest mt-0.5 ${item.color}`}>{item.status}</p>
             </div>
           </div>
-        ))}
-
-        {/* EMPTY STATE MOCK */}
-        {/* <div className="py-20 flex flex-col items-center text-center px-10">
-          <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6">
-            <HistoryIcon className="w-10 h-10 text-gray-600" />
+        )) : (
+          <div className="py-20 flex flex-col items-center text-center px-10">
+            <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6">
+              <HistoryIcon className="w-10 h-10 text-gray-600" />
+            </div>
+            <h3 className="text-lg font-black text-white">No history yet</h3>
+            <p className="text-sm text-gray-500 mt-2">Complete tasks to earn your first rewards.</p>
           </div>
-          <h3 className="text-lg font-black text-white">No pending rewards</h3>
-          <p className="text-sm text-gray-500 mt-2">Check back later or complete more tasks to earn premium rewards.</p>
-        </div> */}
+        )}
       </div>
     </div>
   );

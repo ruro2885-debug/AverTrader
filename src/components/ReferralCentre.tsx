@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Copy, Share2, Check, Users, Gift, TrendingUp, DollarSign, ChevronRight, Bot } from 'lucide-react';
+import { ArrowLeft, Users, Copy, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { QRCodeSVG } from 'qrcode.react';
 
 export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'dark', onBack: () => void }) {
   const { user } = useAuth();
-  const isDark = theme === 'dark';
-  const [copiedCode, setCopiedCode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [referrals, setReferrals] = useState<any[]>([]);
+  const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   useEffect(() => {
     const fetchReferrals = async () => {
@@ -19,15 +18,16 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
       try {
         const q = query(
           collection(db, 'referrals'),
-          where('referrerId', '==', user.uid),
-          orderBy('createdAt', 'desc')
+          where('referrerId', '==', user.uid)
         );
         const snapshot = await getDocs(q);
         const refs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
         setReferrals(refs);
       } catch (err: any) {
-        if (err?.code === 'permission-denied' || (err?.message && err.message.includes('Missing or insufficient permissions'))) {
-          console.warn("Referral feature is disabled: Firebase rules need to be updated by the project owner.", err.message);
+        if (err?.code === 'permission-denied') {
+          console.warn("Permission denied fetching referrals. Assuming empty referral list.");
+          setReferrals([]);
         } else {
           console.error("Error fetching referrals:", err);
         }
@@ -39,191 +39,117 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
   }, [user]);
 
   const referralLink = `https://avernox.com/signup?ref=${user?.referralCode || ''}`;
+  const totalEarned = referrals.reduce((sum, ref) => sum + (ref.rewardAmount || 0), 0);
+  const currentLevel = Math.min(Math.floor(referrals.length / 5) + 1, 5);
+  const progressToNextLevel = (referrals.length % 5) * 20;
 
-  const copyToClipboard = async (text: string) => {
-    await navigator.clipboard.writeText(text);
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(referralLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyCodeToClipboard = () => {
+    navigator.clipboard.writeText(user?.referralCode || '');
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Join AverNoxTrader',
-          text: `Use my referral code ${user?.referralCode} to join AverNoxTrader!`,
-          url: referralLink,
-        });
-      } catch (err) {
-        console.error('Error sharing:', err);
-      }
-    } else {
-      copyToClipboard(referralLink);
-    }
-  };
-
-  const totalEarned = referrals.reduce((sum, ref) => sum + (ref.rewardAmount || 0), 0);
-  const successfulReferrals = referrals.filter(ref => ref.status === 'completed').length;
-  const pendingReferrals = referrals.filter(ref => ref.status === 'pending').length;
-
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className={`min-h-screen w-full ${isDark ? 'bg-[#000000] text-white' : 'bg-slate-50 text-slate-900'} font-sans pb-24`}
-    >
-      <header className={`sticky top-0 z-40 flex items-center justify-between p-5 border-b backdrop-blur-md ${isDark ? 'border-white/5 bg-[#000000]/80' : 'border-slate-200 bg-slate-50/80'}`}>
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}>
-            <ArrowLeft size={20} />
-          </button>
-          <h2 className="text-xl font-bold tracking-tight">Referral Program</h2>
-        </div>
-        <button onClick={handleShare} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}>
-          <Share2 size={20} />
+    <div className="bg-[#000000] text-[#ffffff] min-h-screen w-full relative z-10 font-sans m-0 p-0 box-border pb-10">
+      {/* Fixed Back Button */}
+      <button onClick={onBack} className="fixed z-50 top-[20px] left-[20px] p-2 rounded-xl bg-black/20 backdrop-blur-md hover:bg-black/40 text-white transition-colors border border-white/10 shadow-lg">
+        <ArrowLeft size={24} />
+      </button>
+
+      {/* 1. Full-Width Gradient Hero */}
+      <header className="bg-gradient-to-br from-[#00e676] to-[#00bcd4] w-full pt-[80px] pb-[60px] px-[20px] text-center rounded-b-[30px] shadow-[0_10px_30px_rgba(0,0,0,0.3)] mb-[40px] relative">
+        <motion.div 
+          animate={{ y: [0, -15, 0] }} 
+          transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }} 
+          className="inline-block mb-[20px] drop-shadow-[0_5px_10px_rgba(0,0,0,0.2)]"
+        >
+          <div className="text-6xl">🎁</div>
+        </motion.div>
+        <h1 className="text-[32px] font-bold mb-[15px] text-[#000000]">Unlock the Power of Aver: Earn Together</h1>
+        <p className="text-[16px] opacity-90 mb-[25px] max-w-[400px] mx-auto text-[#000000]">
+          Share Aver with your friends and earn generous rewards for every successful sign-up.
+        </p>
+        <button 
+          onClick={copyToClipboard} 
+          className="bg-[#000000] text-[#00e676] py-[15px] px-[40px] rounded-[50px] font-semibold text-[16px] border-none cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-[0_5px_15px_rgba(0,230,118,0.3)]"
+        >
+          {copied ? "Link Copied!" : "Copy Your Unique Referral Link"}
         </button>
       </header>
 
-      {/* 1. Full-Width Gradient Hero */}
-      <div className="w-full bg-gradient-to-br from-emerald-500 to-cyan-500 px-6 py-12 text-center rounded-b-[40px] shadow-2xl shadow-emerald-500/20 mb-10 relative overflow-hidden">
-        {/* Decorative elements */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-            <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[150%] bg-white/10 rotate-12 blur-3xl rounded-full"></div>
+      {/* 1.5 Referral Code Section */}
+      <section className="flex flex-col items-center justify-center p-6 mx-auto mb-[30px] max-w-[90%] md:max-w-[400px] bg-white/[0.03] backdrop-blur-[10px] border border-white/10 rounded-[20px]">
+        <span className="text-[12px] text-white/60 mb-[12px] uppercase font-bold tracking-wider">Your Referral Code</span>
+        <div className="flex items-center gap-4 bg-black/30 py-3 px-6 rounded-xl border border-dashed border-[#00e676]/50">
+          <span className="text-[24px] font-mono font-bold text-[#00e676] tracking-widest">{user?.referralCode}</span>
+          <button 
+            onClick={copyCodeToClipboard} 
+            className="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+          >
+            {copiedCode ? <Check size={20} className="text-[#00e676]" /> : <Copy size={20} className="text-white" />}
+          </button>
         </div>
+      </section>
 
-        <div className="relative z-10">
-            <motion.div 
-                animate={{ y: [0, -15, 0] }} 
-                transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-                className="inline-block mb-6 filter drop-shadow-xl"
-            >
-                <div className="w-20 h-20 bg-black/20 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/30 text-4xl shadow-inner">
-                    🎁
-                </div>
-            </motion.div>
-            
-            <h1 className="text-3xl sm:text-4xl font-black mb-4 text-black tracking-tight">Unlock the Power of Aver:<br/>Earn Together</h1>
-            <p className="text-sm sm:text-base text-black/80 font-medium max-w-md mx-auto mb-8 leading-relaxed">
-                Share Aver with your friends and earn generous rewards for every successful sign-up and active portfolio.
-            </p>
-            
-            <button 
-                onClick={() => copyToClipboard(referralLink)}
-                className="bg-black text-emerald-400 px-8 py-4 rounded-full font-bold text-sm sm:text-base hover:scale-105 active:scale-95 transition-all shadow-[0_5px_20px_rgba(0,0,0,0.3)] flex items-center gap-3 mx-auto group"
-            >
-                {copiedCode ? <Check size={20} className="text-emerald-400" /> : <Copy size={20} className="text-emerald-400" />}
-                {copiedCode ? "Copied to Clipboard!" : "Copy Your Unique Link"}
-            </button>
+      {/* 2. Stats Dashboard (Three Columns) */}
+      <section className="flex justify-around w-[90%] mx-auto mb-[50px] bg-white/[0.03] backdrop-blur-[10px] border border-white/10 rounded-[20px] p-[20px]">
+        <div className="text-center flex-1 p-[10px]">
+            <span className="text-[12px] text-white/60 mb-[8px] block">Total Earnings</span>
+            <span className="text-[20px] font-bold text-[#ffffff]">${totalEarned.toFixed(2)}</span>
         </div>
-      </div>
-
-      <div className="px-4 sm:px-6 w-full max-w-5xl mx-auto space-y-10">
-        {/* 2. Stats Dashboard (Three Columns with Glassmorphism) */}
-        <div className={`flex flex-row justify-between items-stretch gap-4 p-5 rounded-3xl border ${isDark ? 'bg-white/[0.03] border-white/10 backdrop-blur-xl' : 'bg-white border-slate-200 shadow-sm'}`}>
-            
-            <div className="flex-1 text-center flex flex-col justify-center">
-                <span className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total Earnings</span>
-                <span className="text-2xl sm:text-3xl font-black text-emerald-500">${totalEarned.toFixed(2)}</span>
-            </div>
-            
-            <div className={`w-[1px] ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}></div>
-            
-            <div className="flex-1 text-center flex flex-col justify-center">
-                <span className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Referral Level</span>
-                <span className="text-2xl sm:text-3xl font-black">Level 1</span>
-                <div className="w-full max-w-[80px] h-1.5 bg-black/20 rounded-full mx-auto mt-3 overflow-hidden">
-                    <div className="w-[20%] h-full bg-emerald-500 rounded-full"></div>
-                </div>
-            </div>
-
-            <div className={`w-[1px] ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}></div>
-
-            <div className="flex-1 text-center flex flex-col justify-center">
-                <span className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Total Invites</span>
-                <span className="text-2xl sm:text-3xl font-black">{referrals.length}</span>
-            </div>
-
-        </div>
-
-        {/* Share Section */}
-        <div className={`flex flex-col md:flex-row items-center justify-center gap-8 p-8 rounded-3xl border ${isDark ? 'bg-white/[0.02] border-white/5' : 'bg-white border-slate-200 shadow-sm'}`}>
-            {/* Copyable Code Area */}
-            <div className="flex flex-col flex-1 max-w-sm w-full gap-2">
-                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Your Referral Code</span>
-                <div className={`flex justify-between items-center p-4 rounded-xl border border-dashed border-emerald-500 ${isDark ? 'bg-white/5' : 'bg-slate-50'}`}>
-                    <span className="font-mono font-bold text-lg text-emerald-500 tracking-wider">{user?.referralCode}</span>
-                    <button 
-                        onClick={() => copyToClipboard(user?.referralCode || '')} 
-                        className="bg-emerald-500 text-black px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-                    >
-                        {copiedCode ? <Check size={16} /> : <Copy size={16} />} Copy
-                    </button>
-                </div>
-            </div>
-
-            {/* QR Code Area */}
-            <div className="flex flex-col items-center gap-4">
-                <div className="p-4 bg-white rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                    <QRCodeSVG 
-                        value={referralLink} 
-                        size={128} 
-                        bgColor={"#ffffff"}
-                        fgColor={"#000000"}
-                        level={"Q"}
-                    />
-                </div>
-                <p className={`text-sm font-bold ${isDark ? 'text-white/80' : 'text-slate-600'}`}>Scan to invite friends</p>
+        <div className="text-center flex-1 p-[10px]">
+            <span className="text-[12px] text-white/60 mb-[8px] block">Referral Level</span>
+            <span className="text-[20px] font-bold text-[#ffffff]">Level {currentLevel}</span>
+            {/* Optional Progress Bar */}
+            <div className="h-[4px] bg-[#333333] rounded-[2px] mt-[5px] w-full max-w-[100px] mx-auto overflow-hidden">
+                <div className="h-full bg-[#00e676] rounded-[2px]" style={{ width: `${progressToNextLevel}%` }} />
             </div>
         </div>
+        <div className="text-center flex-1 p-[10px]">
+            <span className="text-[12px] text-white/60 mb-[8px] block">Total Referrals</span>
+            <span className="text-[20px] font-bold text-[#ffffff]">{referrals.length}</span>
+        </div>
+      </section>
 
-        {/* 3. Empty State or History */}
-        <div className="mt-8">
-            {loading ? (
-                <div className="text-center py-20">
-                    <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-emerald-500 font-bold uppercase tracking-wider text-sm animate-pulse">Syncing Network...</p>
-                </div>
-            ) : referrals.length === 0 ? (
-                <div className="text-center py-16 px-4">
-                    <motion.div 
-                        animate={{ y: [0, -10, 0] }}
-                        transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-                        className="w-32 h-32 mx-auto mb-6 bg-emerald-500/10 rounded-full flex items-center justify-center border border-emerald-500/20"
-                    >
-                        <Bot size={64} className="text-emerald-500 opacity-80" />
-                    </motion.div>
-                    <h3 className="text-xl font-black mb-3">Your network is waiting!</h3>
-                    <p className={`text-sm max-w-xs mx-auto leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        Invite your first friend to start earning rewards from the Aver Referral Program.
-                    </p>
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <h3 className="text-sm font-bold uppercase tracking-wider opacity-60 ml-2 mb-4">Recent Activity</h3>
-                    {referrals.map((ref, idx) => (
-                        <div key={idx} className={`flex items-center justify-between p-5 rounded-2xl border transition-all hover:scale-[1.01] ${isDark ? 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]' : 'bg-white border-slate-200 shadow-sm'}`}>
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center text-emerald-500 border border-emerald-500/20">
-                                    <Users size={20} />
-                                </div>
-                                <div>
-                                    <p className="font-bold text-base">Friend Joined</p>
-                                    <p className="text-xs text-emerald-500 font-mono font-medium opacity-80">{new Date(ref.createdAt.seconds * 1000).toLocaleDateString()}</p>
-                                </div>
+      {/* 3. Empty Referral History State / Existing Referrals */}
+      <section className="text-center py-[40px] px-[20px] mt-[40px]">
+        {loading ? (
+            <div className="w-10 h-10 border-4 border-[#00e676] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        ) : referrals.length === 0 ? (
+            <>
+                <div className="text-[64px] mb-[20px] opacity-80 inline-block">🤖</div>
+                <p className="text-[14px] text-white/50 max-w-[250px] mx-auto">
+                    Your network is waiting! Invite your first friend to start earning rewards from the Aver Referral Program.
+                </p>
+            </>
+        ) : (
+            <div className="space-y-4 max-w-2xl mx-auto text-left px-5">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-white/60 ml-2 mb-4">Recent Activity</h3>
+                {referrals.map((ref, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-5 rounded-2xl border bg-white/[0.03] border-white/10 backdrop-blur-sm transition-transform hover:scale-[1.01]">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#00e676]/20 to-[#00bcd4]/20 flex items-center justify-center text-[#00e676] border border-[#00e676]/20">
+                                <Users size={20} />
                             </div>
-                            <div className="text-right">
-                                <p className={`font-black text-lg ${ref.status === 'completed' ? 'text-emerald-500' : 'text-amber-500'}`}>
-                                    {ref.status === 'completed' ? '+$50.00' : 'Pending'}
+                            <div>
+                                <p className="font-bold text-white">Friend Joined</p>
+                                <p className="text-xs text-white/60 font-mono">
+                                  {ref.createdAt?.seconds ? new Date(ref.createdAt.seconds * 1000).toLocaleDateString() : new Date().toLocaleDateString()}
                                 </p>
-                                <p className="text-[10px] font-bold uppercase tracking-wider opacity-50 mt-1">{ref.status}</p>
                             </div>
                         </div>
-                    ))}
-                </div>
-            )}
-        </div>
-
-      </div>
-    </motion.div>
+                        <p className="font-black text-[#00e676]">+$50.00</p>
+                    </div>
+                ))}
+            </div>
+        )}
+      </section>
+    </div>
   );
 }

@@ -129,7 +129,7 @@ export default function Preferences({ theme, onBack }: { theme: 'light' | 'dark'
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`min-h-screen w-full ${isDark ? 'bg-[#050505] text-white' : 'bg-slate-50 text-slate-900'} font-sans`}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`min-h-screen w-full relative z-10 ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'} font-sans`}>
       <AnimatePresence mode="wait">
         {view === 'main' && (
           <motion.div key="main" initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 20, opacity: 0 }}>
@@ -192,7 +192,7 @@ export default function Preferences({ theme, onBack }: { theme: 'light' | 'dark'
                 </button>
               ))}
             </div>
-            <div className="fixed bottom-20 left-0 right-0 p-5 bg-gradient-to-t from-[#050505] to-transparent">
+            <div className="fixed bottom-20 left-0 right-0 p-5 bg-gradient-to-t from-black to-transparent">
               <button 
                 onClick={handleApplyCurrency}
                 disabled={isLoading || tempCurrency === preferences.currency}
@@ -229,7 +229,7 @@ export default function Preferences({ theme, onBack }: { theme: 'light' | 'dark'
                 </button>
               ))}
             </div>
-            <div className="fixed bottom-20 left-0 right-0 p-5 bg-gradient-to-t from-[#050505] to-transparent">
+            <div className="fixed bottom-20 left-0 right-0 p-5 bg-gradient-to-t from-black to-transparent">
               <button 
                 onClick={handleApplyLanguage}
                 disabled={isLoading || tempLanguage === preferences.language}

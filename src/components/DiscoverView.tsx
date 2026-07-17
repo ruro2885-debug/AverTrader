@@ -1,13 +1,17 @@
-import { motion } from 'motion/react';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, Bot, Users, Sparkles, Flame, Calendar, BookOpen, ChevronRight, PlayCircle
 } from 'lucide-react';
 import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
+import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
-export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
+export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEventsPromos }: { theme: 'light' | 'dark', onOpenMarketHighlights: () => void, onOpenEventsPromos: () => void }) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
+  
+  const [showCopyTrade, setShowCopyTrade] = useState(false);
   
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
@@ -20,6 +24,15 @@ export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
     { symbol: 'SOL', name: 'Solana', price: '$145.60', change: '+8.2%', isPositive: true },
     { symbol: 'FET', name: 'Fetch.ai', price: '$2.15', change: '+15.7%', isPositive: true },
   ];
+
+  if (showCopyTrade) {
+    return (
+      <CopyTradeDashboard 
+        theme={theme} 
+        onBack={() => setShowCopyTrade(false)} 
+      />
+    );
+  }
 
   return (
     <motion.div
@@ -36,21 +49,24 @@ export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
         </div>
       </div>
 
-      {/* Featured Banner */}
-      <div className={`rounded-[24px] overflow-hidden relative ${isDark ? 'bg-gradient-to-r from-indigo-900/80 to-purple-900/80' : 'bg-gradient-to-r from-indigo-500 to-purple-600'} p-6 sm:p-8 text-white shadow-lg`}>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 blur-[60px] rounded-full pointer-events-none" />
+      {/* Featured Banner with High-End Real Photo background */}
+      <div 
+        className="rounded-[24px] overflow-hidden relative p-6 sm:p-8 text-white shadow-lg min-h-[220px] flex items-center bg-cover bg-center"
+        style={{ backgroundImage: `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.75)), url('/src/assets/images/trading_desk_banner_1784189632740.jpg')` }}
+      >
         <div className="relative z-10">
-          <span className="inline-block px-3 py-1 rounded-full bg-white/20 text-[10px] font-bold uppercase tracking-wider mb-4 backdrop-blur-md border border-white/20">
+          <span className="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-[10px] font-extrabold uppercase tracking-widest mb-3 border border-emerald-500/30">
             Platform Update
           </span>
-          <h3 className="text-xl sm:text-2xl font-bold mb-2">AverNoxTrader v2.0 is Almost Here</h3>
-          <p className="text-sm text-white/80 max-w-sm mb-6">A major upgrade is on the way with smarter AI trading, improved copy trading, faster performance, and exciting new features. Stay tuned for the official release.</p>
-          <button disabled className="px-5 py-2.5 rounded-xl bg-white/10 text-white/50 font-bold text-sm cursor-not-allowed border border-white/10 shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-colors">
+          <h3 className="text-xl sm:text-2xl font-black mb-1 text-slate-100 tracking-tight">AverNoxTrader v2.0 is Almost Here</h3>
+          <p className="text-xs sm:text-sm text-slate-300 max-w-md mb-5 leading-relaxed">A major upgrade is on the way with smarter AI trading, improved copy trading, faster performance, and exciting new features. Stay tuned for the official release.</p>
+          <button disabled className="px-5 py-2 rounded-xl bg-white/10 text-white/50 font-bold text-xs cursor-not-allowed border border-white/10 transition-colors">
             Coming Soon
           </button>
         </div>
       </div>
 
+      {/* Dynamic Grid: Trending & AI Strategies */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Trending */}
         <div>
@@ -119,14 +135,44 @@ export default function DiscoverView({ theme }: { theme: 'light' | 'dark' }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* PREMIUM COPY TRADE LAUNCHER CARD - REPLACES OLD "TOP COPY TRADERS" ROW */}
+      <div className="space-y-3">
+        <div className="flex justify-between items-end">
+          <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
+            <Users className="w-5 h-5 mr-2 text-blue-500" />
+            Copy Trade
+          </h3>
+        </div>
+        
+        <button 
+          onClick={() => setShowCopyTrade(true)}
+          className={`w-full p-5 rounded-[24px] ${cardClasses} transition-all hover:scale-[1.01] active:scale-[0.99] hover:border-blue-500/30 flex items-center justify-between text-left group relative overflow-hidden`}
+        >
+          {/* Subtle blue gradient overlay */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-[30px] rounded-full" />
+          
+          <div className="flex items-center space-x-4 z-10">
+            <Users className="w-6 h-6 text-blue-400 flex-shrink-0" />
+            <div>
+              <h4 className={`font-black text-base ${textPrimary}`}>Top Traders</h4>
+              <p className={`text-xs ${textSecondary} mt-0.5`}>Replicate institutional-grade neural configurations from high-performance traders.</p>
+            </div>
+          </div>
+          <div className="flex items-center text-xs font-bold text-blue-400 group-hover:text-blue-300 transition-colors z-10 gap-1">
+            <span>Explore</span>
+            <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </button>
+      </div>
+
+      {/* Dynamic Grid: Secondary sections */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
-          { title: 'Top Copy Traders', icon: Users, color: 'text-blue-500', bg: isDark ? 'bg-blue-500/10' : 'bg-blue-50' },
-          { title: 'Market Highlights', icon: Sparkles, color: 'text-amber-500', bg: isDark ? 'bg-amber-500/10' : 'bg-amber-50' },
-          { title: 'Events & Promos', icon: Calendar, color: 'text-purple-500', bg: isDark ? 'bg-purple-500/10' : 'bg-purple-50' },
+          { title: 'Market Highlights', icon: Sparkles, color: 'text-amber-500', bg: isDark ? 'bg-amber-500/10' : 'bg-amber-50', onClick: onOpenMarketHighlights },
+          { title: 'Events & Promos', icon: Calendar, color: 'text-purple-500', bg: isDark ? 'bg-purple-500/10' : 'bg-purple-50', onClick: onOpenEventsPromos },
           { title: 'Aver Academy', icon: BookOpen, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
         ].map((item, i) => (
-          <button key={i} className={`p-5 rounded-[20px] ${cardClasses} flex flex-col items-start transition-transform hover:scale-[1.02] text-left group`}>
+          <button key={i} onClick={item.onClick} className={`p-5 rounded-[20px] ${cardClasses} flex flex-col items-start transition-transform hover:scale-[1.02] text-left group`}>
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${item.bg}`}>
               <item.icon className={`w-5 h-5 ${item.color}`} />
             </div>

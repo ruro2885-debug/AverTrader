@@ -54,12 +54,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
 
-  // Cropper Modal States
-  const [cropperSrc, setCropperSrc] = useState<string | null>(null);
-  const [cropZoom, setCropZoom] = useState<number>(1);
-  const [cropOffset, setCropOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Cropper states removed (immediate save/upload enabled)
 
   // Form States
   const [displayName, setDisplayName] = useState(user?.displayName || '');
@@ -347,145 +342,6 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
 
   const [isPhotoLoading, setIsPhotoLoading] = useState(false);
 
-  const handleDragStart = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - cropOffset.x, y: e.clientY - cropOffset.y });
-  };
-
-  const handleDragMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setCropOffset({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    });
-  };
-
-  const handleDragEnd = () => {
-    setIsDragging(false);
-  };
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      setIsDragging(true);
-      setDragStart({
-        x: e.touches[0].clientX - cropOffset.x,
-        y: e.touches[0].clientY - cropOffset.y
-      });
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDragging || e.touches.length !== 1) return;
-    setCropOffset({
-      x: e.touches[0].clientX - dragStart.x,
-      y: e.touches[0].clientY - dragStart.y
-    });
-  };
-
-  const handleCropSubmit = () => {
-    if (!cropperSrc) {
-      console.warn("[ProfileView] handleCropSubmit: No cropperSrc found");
-      return;
-    }
-    console.log("[ProfileView] handleCropSubmit started, cropperSrc length:", cropperSrc.length);
-    setIsPhotoLoading(true);
-    setErrorMsg('');
-
-    // Create a timeout to prevent infinite hanging
-    const timeoutId = setTimeout(() => {
-      console.warn("[ProfileView] handleCropSubmit timeout triggered (30s)");
-      setIsPhotoLoading(false);
-      setErrorMsg("The operation timed out. Please check your connection and try again.");
-    }, 30000); 
-
-    const img = new Image();
-    img.crossOrigin = "anonymous"; // Try to avoid CORS issues if any
-    
-    img.onload = async () => {
-      console.log("[ProfileView] Image loaded successfully, starting canvas draw");
-      try {
-        const canvas = document.createElement('canvas');
-        const size = 512; // Increased to 512x512 for higher production quality
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-
-        if (!ctx) {
-          throw new Error("Canvas context initialization failed.");
-        }
-
-        // Use highest quality settings
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-
-        // Background black for edge bleed
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, size, size);
-
-        // Map viewport onto the canvas
-        const viewportSize = 256;
-        ctx.save();
-        ctx.translate(size / 2, size / 2);
-        
-        const ratio = size / viewportSize;
-        ctx.scale(ratio, ratio);
-        ctx.translate(cropOffset.x, cropOffset.y);
-        ctx.scale(cropZoom, cropZoom);
-
-        const imgAspect = img.width / img.height;
-        let renderWidth = viewportSize;
-        let renderHeight = viewportSize;
-
-        if (imgAspect > 1) {
-          renderHeight = viewportSize;
-          renderWidth = viewportSize * imgAspect;
-        } else {
-          renderWidth = viewportSize;
-          renderHeight = viewportSize / imgAspect;
-        }
-
-        console.log("[ProfileView] Drawing image to canvas at size:", renderWidth, "x", renderHeight);
-        ctx.drawImage(img, -renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
-        ctx.restore();
-
-        console.log("[ProfileView] Converting canvas to data URL");
-        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        console.log("[ProfileView] Cropped data URL length:", croppedDataUrl.length);
-
-        console.log("[ProfileView] Calling AuthContext.updateProfilePhoto");
-        await updateProfilePhoto(croppedDataUrl);
-        console.log("[ProfileView] AuthContext.updateProfilePhoto completed");
-        
-        // Clean up
-        clearTimeout(timeoutId);
-        setCropperSrc(null);
-        setErrorMsg('');
-        setSuccessMsg('Profile photo updated successfully.');
-        
-        // Reset file input
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        
-      } catch (err: any) {
-        console.error("[ProfileView] CRITICAL error in handleCropSubmit callback:", err);
-        clearTimeout(timeoutId);
-        setErrorMsg(err?.message || "Failed to finalize profile photo update.");
-      } finally {
-        console.log("[ProfileView] handleCropSubmit: Setting isPhotoLoading to false");
-        setIsPhotoLoading(false);
-      }
-    };
-
-    img.onerror = (e) => {
-      console.error("[ProfileView] Image source load error in cropper:", e);
-      clearTimeout(timeoutId);
-      setErrorMsg("Failed to process the selected image. It may be corrupted or in an unsupported format.");
-      setIsPhotoLoading(false);
-    };
-
-    console.log("[ProfileView] Setting img.src to cropperSrc to start processing");
-    img.src = cropperSrc;
-  };
-
   const handleRemovePhoto = async () => {
     if (window.confirm("Are you sure you want to remove your profile photo?")) {
       setIsPhotoLoading(true);
@@ -501,11 +357,11 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setErrorMsg("Image size exceeds the 5 MB limit.");
+      if (file.size > 8 * 1024 * 1024) {
+        setErrorMsg("Image size exceeds the 8 MB limit.");
         return;
       }
       
@@ -519,22 +375,64 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
         setErrorMsg("Unsupported image format. Allowed formats: JPG, JPEG, PNG, WEBP.");
         return;
       }
-      
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setCropperSrc(reader.result);
-          setCropZoom(1);
-          setCropOffset({ x: 0, y: 0 });
-        }
-      };
-      reader.onerror = () => {
-        setErrorMsg("Failed to read image file.");
-      };
-      reader.readAsDataURL(file);
 
-      // Reset file input value to allow selecting the same file again
-      e.target.value = '';
+      setIsPhotoLoading(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+      
+      try {
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error("Failed to read image file."));
+          reader.readAsDataURL(file);
+        });
+
+        const optimizedUrl = await new Promise<string>((resolve) => {
+          const img = new Image();
+          img.src = dataUrl;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const maxSize = 400; // Optimal performance & high quality
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > maxSize) {
+                height = Math.round((height * maxSize) / width);
+                width = maxSize;
+              }
+            } else {
+              if (height > maxSize) {
+                width = Math.round((width * maxSize) / height);
+                height = maxSize;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.drawImage(img, 0, 0, width, height);
+              resolve(canvas.toDataURL('image/jpeg', 0.85));
+            } else {
+              resolve(dataUrl);
+            }
+          };
+          img.onerror = () => resolve(dataUrl);
+        });
+
+        await updateProfilePhoto(optimizedUrl);
+        setSuccessMsg('Profile photo updated successfully.');
+      } catch (err: any) {
+        console.error("Error uploading profile photo:", err);
+        setErrorMsg(err?.message || "Failed to upload profile photo.");
+      } finally {
+        setIsPhotoLoading(false);
+        e.target.value = '';
+      }
     }
   };
 
@@ -767,14 +665,33 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
           />
         </div>
 
-        {user?.hasCustomPhoto && (
+        {user?.hasCustomPhoto ? null : (
           <button
             type="button"
             disabled={isPhotoLoading}
-            onClick={handleRemovePhoto}
-            className="mb-4 px-3 py-1 text-[11px] font-bold rounded-full border border-rose-500/20 text-rose-400 bg-rose-500/5 hover:bg-rose-500/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+            onClick={async () => {
+              setIsPhotoLoading(true);
+              try {
+                const newSeed = Math.random().toString(36).substring(2, 15);
+                await updateProfile({ avatarSeed: newSeed });
+                if (addNotification) {
+                  await addNotification(
+                    'account',
+                    'low',
+                    'Avatar Randomised',
+                    'Your procedurally unique cartoon avatar has been successfully updated.'
+                  );
+                }
+              } catch (err) {
+                console.error("Error regenerating avatar:", err);
+              } finally {
+                setIsPhotoLoading(false);
+              }
+            }}
+            className="mb-4 px-3 py-1.5 text-[11px] font-bold rounded-full border border-emerald-500/20 text-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/10 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-1.5"
           >
-            Remove Photo
+            <Cpu className="w-3.5 h-3.5 animate-pulse" />
+            <span>Randomise Avatar</span>
           </button>
         )}
         
@@ -1831,95 +1748,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
         )}
       </AnimatePresence>
 
-      {/* Interactive Crop Modal */}
-      <AnimatePresence>
-        {cropperSrc && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className={`w-full max-w-md rounded-[32px] p-6 overflow-hidden ${modalBgClasses}`}
-            >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className={`text-xl font-black tracking-tight ${textPrimary}`}>Crop Profile Photo</h3>
-                <button 
-                  onClick={() => {
-                    setCropperSrc(null);
-                    if (fileInputRef.current) fileInputRef.current.value = '';
-                  }} 
-                  className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer text-gray-400 hover:text-white"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Viewport for cropping (circle) */}
-              <div 
-                className="relative w-64 h-64 mx-auto mb-6 rounded-full border-2 border-emerald-500 overflow-hidden cursor-move select-none bg-slate-950 shadow-inner"
-                onMouseDown={handleDragStart}
-                onMouseMove={handleDragMove}
-                onMouseUp={handleDragEnd}
-                onMouseLeave={handleDragEnd}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleDragEnd}
-              >
-                <img
-                  src={cropperSrc || undefined}
-                  alt="To Crop"
-                  style={{
-                    transform: `translate(${cropOffset.x}px, ${cropOffset.y}px) scale(${cropZoom})`,
-                    transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                  }}
-                  className="max-w-none max-h-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full object-contain pointer-events-none"
-                />
-                {/* Visual guidelines */}
-                <div className="absolute inset-0 border border-emerald-500/20 rounded-full pointer-events-none" />
-                <div className="absolute top-1/2 left-0 right-0 border-t border-dashed border-white/10 pointer-events-none" />
-                <div className="absolute left-1/2 top-0 bottom-0 border-l border-dashed border-white/10 pointer-events-none" />
-              </div>
-
-              {/* Zoom Controls */}
-              <div className="space-y-4 mb-6">
-                <div className="flex justify-between text-xs font-bold tracking-wider uppercase text-gray-400">
-                  <span>Zoom</span>
-                  <span>{Math.round(cropZoom * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="3"
-                  step="0.01"
-                  value={cropZoom}
-                  onChange={(e) => setCropZoom(parseFloat(e.target.value))}
-                  className="w-full accent-emerald-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                />
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-4">
-                <button
-                  onClick={() => {
-                    setCropperSrc(null);
-                    if (fileInputRef.current) fileInputRef.current.value = '';
-                  }}
-                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCropSubmit}
-                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20 transition-all flex justify-center items-center gap-1.5"
-                >
-                  <Check className="w-4 h-4" />
-                  Apply & Save
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Interactive Crop Modal Removed */}
     </motion.div>
   );
 }

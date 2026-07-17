@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { getInitials, getAvatarGradient } from '../utils/avatarUtils';
+import { generateAvatarSvg } from '../utils/avatarGenerator';
 
 interface UserAvatarProps {
   user: {
@@ -9,6 +9,8 @@ interface UserAvatarProps {
     email?: string;
     profilePhotoURL?: string;
     avatarUrl?: string;
+    avatarSeed?: string;
+    hasCustomPhoto?: boolean;
   } | null;
   sizeClass?: string; // e.g. "w-8 h-8" or "w-24 h-24"
   fontSizeClass?: string; // e.g. "text-xs" or "text-3xl"
@@ -19,11 +21,11 @@ export default function UserAvatar({ user, sizeClass = "w-8 h-8", fontSizeClass 
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  const hasPhoto = !!(user && (user.avatarUrl || user.profilePhotoURL) && !hasError);
+  const hasPhoto = !!(user && user.hasCustomPhoto && (user.avatarUrl || user.profilePhotoURL) && !hasError);
   const photoUrl = user ? (user.avatarUrl || user.profilePhotoURL || undefined) : undefined;
   
-  if (photoUrl) {
-    console.log("[UserAvatar] Rendering photoUrl:", photoUrl.startsWith('data:') ? `data:URL(${photoUrl.length} chars)` : photoUrl);
+  if (photoUrl && hasPhoto) {
+    console.log("[UserAvatar] Rendering custom photoUrl:", photoUrl.startsWith('data:') ? `data:URL(${photoUrl.length} chars)` : photoUrl);
   }
 
   const handleImageError = () => {
@@ -60,12 +62,11 @@ export default function UserAvatar({ user, sizeClass = "w-8 h-8", fontSizeClass 
         />
       ) : (
         <div 
-          className={`w-full h-full rounded-full bg-gradient-to-br ${getAvatarGradient(user.uid || user.username)} flex items-center justify-center font-bold text-white shadow-inner`}
-        >
-          <span className={`${fontSizeClass} tracking-wider font-extrabold`}>
-            {getInitials(user.username, user.email)}
-          </span>
-        </div>
+          className="w-full h-full rounded-full overflow-hidden flex items-center justify-center"
+          dangerouslySetInnerHTML={{ 
+            __html: generateAvatarSvg(user.avatarSeed || user.uid || user.username || user.email || 'aver_user') 
+          }}
+        />
       )}
     </div>
   );

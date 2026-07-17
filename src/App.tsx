@@ -13,14 +13,30 @@ import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
+import ReferralCentre from './components/ReferralCentre';
+import Preferences from './components/Preferences';
+import BonusCenter from './components/BonusCenter';
+import MarketHighlightsPage from './components/MarketHighlightsPage';
+import EventsPromosPage from './components/EventsPromosPage';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
+import { TradingEngineProvider } from './contexts/TradingEngineContext';
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
   
+  return (
+    <TradingEngineProvider>
+      <AppContent />
+    </TradingEngineProvider>
+  );
+}
+
+function AppContent() {
+  const { user, loading: authLoading } = useAuth();
+  
   // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos'>('home');
 
   const { preferences, updatePreference } = usePreferences();
   const { theme, language, currency } = preferences;
@@ -39,7 +55,7 @@ export default function App() {
       }
     } else {
       // If no user and we were on a protected view, go to login
-      if (currentView === 'dashboard') {
+      if (currentView === 'dashboard' || currentView === 'referral-centre' || currentView === 'preferences' || currentView === 'bonus-center') {
         setCurrentView('auth');
       }
     }
@@ -208,7 +224,27 @@ export default function App() {
 
       <AnimatePresence mode="wait">
         {currentView === 'dashboard' ? (
-          <Dashboard theme={theme} />
+          <Dashboard theme={theme} onNavigate={(view) => setCurrentView(view)} />
+        ) : currentView === 'referral-centre' ? (
+          <ReferralCentre theme={theme} onBack={() => setCurrentView('dashboard')} />
+        ) : currentView === 'preferences' ? (
+          <Preferences theme={theme} onBack={() => setCurrentView('dashboard')} />
+        ) : currentView === 'bonus-center' ? (
+          <BonusCenter 
+            theme={theme} 
+            onBack={() => setCurrentView('dashboard')} 
+            onNavigate={(tab) => { setCurrentView('dashboard'); /* logic for inner navigation if needed */ }}
+          />
+        ) : currentView === 'market-highlights' ? (
+          <MarketHighlightsPage 
+            theme={theme} 
+            onBack={() => setCurrentView('dashboard')} 
+          />
+        ) : currentView === 'events-promos' ? (
+          <EventsPromosPage 
+            theme={theme} 
+            onBack={() => setCurrentView('dashboard')} 
+          />
         ) : currentView === 'showcase' ? (
           <PlatformShowcase
             key="showcase"

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Shield, ArrowLeft, ArrowRight, Eye, EyeOff, Check, X, Bell, TrendingUp, Monitor as MonitorIcon, Tablet as TabletIcon, Phone as PhoneIcon, Cpu, Zap, Lock, DollarSign, Globe, Camera, ZoomIn, ZoomOut, Mail } from 'lucide-react';
 import AverLogo from './AverLogo';
 import PolicyReader from './PolicyReader';
+import AuthChoice from './AuthChoice';
 import WelcomeBonusCard from './WelcomeBonusCard';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
@@ -21,7 +22,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
   const { signUp, signIn, forgotPassword, updatePasswordByEmail } = useAuth();
   const { t } = usePreferences();
-  const [view, setView] = useState<'register' | 'login' | 'forgot-password' | 'forgot-password-success'>('register');
+  const [view, setView] = useState<'choice' | 'register' | 'login' | 'forgot-password' | 'forgot-password-success'>('choice');
   const [showPassword, setShowPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resendCountdown, setResendCountdown] = useState(0);
@@ -39,7 +40,34 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const [referralCode, setReferralCode] = useState('');
   const [referralStatus, setReferralStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
 
+  // Login Form Fields
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
+  // Active policy reader state
+  const [activePolicyId, setActivePolicyId] = useState<string | null>(null);
+
+  // Success screen state after creating account or logging in
+  const [authSuccess, setAuthSuccess] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Simulated live-updating statistics inside Device Mockups
+  const [btcPrice, setBtcPrice] = useState(84291.45);
+  const [pnl, setPnl] = useState(14820.24);
+  const [pnlPct, setPnlPct] = useState(12.45);
+  const [chartPoints, setChartPoints] = useState([45, 55, 48, 62, 58, 70, 64, 82, 78, 88, 84, 94]);
+  const [notifications, setNotifications] = useState<string[]>([
+    "Signal Detected: BTC/USDT Long entry confirmed by PEO™ (94.8% Confidence)",
+    "Position Executed: Bought 0.45 BTC at $84,120.00",
+    "Smart Contract Audit: Security Vault nodes validated"
+  ]);
+  const [activeNotifyIdx, setActiveNotifyIdx] = useState(0);
+
+  // Effects and Memos that depend on hooks above
   useEffect(() => {
+    if (view !== 'register') return;
     if (!referralCode.trim()) {
       setReferralStatus('idle');
       return;
@@ -63,40 +91,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
     const timer = setTimeout(checkReferral, 500);
     return () => clearTimeout(timer);
-  }, [referralCode]);
-
-  const handlePasteReferral = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        setReferralCode(text.trim().toUpperCase());
-      }
-    } catch (e) {
-      console.error("Failed to read clipboard");
-    }
-  };
-
-  const nameInputRef = useRef<HTMLInputElement>(null);
-
-  const handleCtaClick = () => {
-    if (nameInputRef.current) {
-      nameInputRef.current.focus();
-      nameInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  };
-  
-  // Login Form Fields
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-
-  // Active policy reader state
-  const [activePolicyId, setActivePolicyId] = useState<string | null>(null);
-
-  // Success screen state after creating account or logging in
-  const [authSuccess, setAuthSuccess] = useState(false);
-  const [successMsg, setSuccessMsg] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [loading, setLoading] = useState(false);
+  }, [referralCode, view]);
 
   // Password validation state
   const pwdCriteria = useMemo(() => {
@@ -119,10 +114,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     return { score, text: 'Very Strong', color: 'bg-emerald-500 shadow-emerald-500/50 animate-pulse' };
   }, [password, pwdCriteria]);
 
-  const countries = [
-    "United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Japan", "China", "India", "Brazil", "South Africa", "Nigeria", "United Arab Emirates"
-  ];
-
   const isFormValid = useMemo(() => {
     return (
       username.trim() !== '' &&
@@ -141,6 +132,38 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       loginPassword.length >= 6
     );
   }, [loginEmail, loginPassword]);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (resendCountdown > 0) {
+      timer = setTimeout(() => setResendCountdown(prev => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [resendCountdown]);
+
+  const handlePasteReferral = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setReferralCode(text.trim().toUpperCase());
+      }
+    } catch (e) {
+      console.error("Failed to read clipboard");
+    }
+  };
+
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCtaClick = () => {
+    if (nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+  
+  const countries = [
+    "United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Japan", "China", "India", "Brazil", "South Africa", "Nigeria", "United Arab Emirates"
+  ];
 
   // Handle Register Form Submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -238,28 +261,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   };
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (resendCountdown > 0) {
-      timer = setTimeout(() => setResendCountdown(prev => prev - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [resendCountdown]);
-
-
-
-  // Simulated live-updating statistics inside Device Mockups
-  const [btcPrice, setBtcPrice] = useState(84291.45);
-  const [pnl, setPnl] = useState(14820.24);
-  const [pnlPct, setPnlPct] = useState(12.45);
-  const [chartPoints, setChartPoints] = useState([45, 55, 48, 62, 58, 70, 64, 82, 78, 88, 84, 94]);
-  const [notifications, setNotifications] = useState<string[]>([
-    "Signal Detected: BTC/USDT Long entry confirmed by PEO™ (94.8% Confidence)",
-    "Position Executed: Bought 0.45 BTC at $84,120.00",
-    "Smart Contract Audit: Security Vault nodes validated"
-  ]);
-  const [activeNotifyIdx, setActiveNotifyIdx] = useState(0);
-
-  useEffect(() => {
     const timer = setInterval(() => {
       // Small randomized fluctuations for premium realism
       setBtcPrice(prev => {
@@ -293,6 +294,10 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     };
   }, [notifications.length]);
 
+  if (view === 'choice') {
+    return <AuthChoice theme={theme} onBack={() => {}} onSelect={(v) => setView(v)} />;
+  }
+
   if (activePolicyId) {
     return (
       <PolicyReader 
@@ -305,7 +310,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
   return (
     <div className={`min-h-screen grid grid-cols-1 lg:grid-cols-12 overflow-x-hidden relative ${
-      isDark ? 'bg-[#050505] text-slate-100' : 'bg-slate-50 text-slate-900'
+      isDark ? 'bg-[#000000] text-slate-100' : 'bg-slate-50 text-slate-900'
     }`}>
       
       {/* Background premium glow effects */}
@@ -331,7 +336,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
             <span>{t('common.back')}</span>
           </button>
           
-          <AverLogo theme={theme} size={36} showText={true} />
         </div>
 
         {/* Main interactive cards area */}
@@ -364,6 +368,34 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </motion.div>
+            ) : view === 'choice' ? (
+              <motion.div
+                key="choice"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="space-y-6"
+              >
+                <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tighter">
+                  Welcome to Aver
+                </h2>
+                <div className="space-y-4">
+                  <button
+                    onClick={() => setView('register')}
+                    className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-bold rounded-xl transition-all hover:opacity-90"
+                  >
+                    Create Account
+                  </button>
+                  <button
+                    onClick={() => setView('login')}
+                    className={`w-full py-4 font-bold rounded-xl transition-all border ${
+                      isDark ? 'bg-slate-900 border-white/10 hover:bg-slate-800' : 'bg-white border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Log In
+                  </button>
+                </div>
+              </motion.div>
             ) : view === 'register' ? (
               <motion.div
                 key="register"
@@ -380,10 +412,8 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   </h2>
                 </div>
 
-                {/* Mobile Welcome Bonus Promo Card (Teaser) */}
-                <div className="lg:hidden w-full pt-1 pb-2">
-                  <WelcomeBonusCard theme={theme} onCtaClick={handleCtaClick} />
-                </div>
+                {/* Mobile Welcome Bonus Promo Card (Teaser) Removed */}
+
 
 
 
@@ -1223,16 +1253,27 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         <div className="absolute bottom-[20%] right-[10%] w-64 h-64 bg-blue-500/10 rounded-full blur-[90px] pointer-events-none" />
 
         <AnimatePresence mode="wait">
-          {view === 'register' ? (
+          {view === 'choice' ? (
             <motion.div
-              key="register-welcome"
+              key="choice"
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: -15 }}
               transition={{ duration: 0.45 }}
               className="z-10 relative w-full flex justify-center items-center"
             >
-              <WelcomeBonusCard theme={theme} onCtaClick={handleCtaClick} />
+              <AuthChoice theme={theme} onBack={() => setView('register')} onSelect={(v) => setView(v)} />
+            </motion.div>
+          ) : view === 'register' ? (
+            <motion.div
+              key="register-welcome"
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -15 }}
+              transition={{ duration: 0.45 }}
+              className="z-10 relative w-full flex justify-center items-center text-center"
+            >
+              <div className="text-gray-400 font-mono text-sm">Welcome to Aver. Please complete your registration.</div>
             </motion.div>
           ) : (
             <motion.div

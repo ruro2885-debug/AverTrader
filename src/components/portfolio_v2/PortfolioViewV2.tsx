@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Activity, Bell, X, RefreshCw, ZoomIn, 
@@ -12,6 +12,8 @@ import {
 import { createChart, IChartApi, ISeriesApi, CandlestickSeries, createSeriesMarkers } from 'lightweight-charts';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePreferences } from '../../contexts/PreferencesContext';
+import { useFinancials } from '../../hooks/useFinancials';
+import { TradingEngineContext } from '../../contexts/TradingEngineContext';
 import { 
   generateChartData, 
   initialWatchlistData, 
@@ -231,6 +233,15 @@ export default function PortfolioViewV2({
   onViewModeChange
 }: PortfolioViewV2Props) {
   const { user, updateProfile } = useAuth();
+  const { positions, trades, config } = useContext(TradingEngineContext);
+  const { 
+    totalNetBalance, 
+    activeTradingBalance, 
+    vaultBalance, 
+    updateVaultBalance, 
+    activeBalanceOffset,
+    updateActiveBalanceOffset 
+  } = useFinancials();
 
   const scrollPositionRef = useRef<number>(0);
   const { formatCurrency } = usePreferences();
@@ -394,18 +405,6 @@ export default function PortfolioViewV2({
   }, [watchlist, livePrices, liveAllocations]);
 
   // Dynamic Portfolio Calculations
-  const calculatedTotalValue = useMemo(() => {
-    const btcVal = (livePrices['BTC'] || 64230) * (allocations.find(a => a.ticker === 'BTC')?.quantity || 0.85);
-    const ethVal = (livePrices['ETH'] || 3450.20) * (allocations.find(a => a.ticker === 'ETH')?.quantity || 12.0);
-    const solVal = (livePrices['SOL'] || 145.60) * (allocations.find(a => a.ticker === 'SOL')?.quantity || 120.0);
-    const cashVal = allocations.find(a => a.ticker === 'Cash')?.quantity || 169200;
-    const aaplVal = (livePrices['AAPL'] || 172.50) * (allocations.find(a => a.ticker === 'AAPL')?.quantity || 820);
-    const etfVal = (livePrices['ETFs'] || 450.00) * (allocations.find(a => a.ticker === 'ETFs')?.quantity || 240);
-    const goldVal = (livePrices['Gold'] || 2035.00) * (allocations.find(a => a.ticker === 'Gold')?.quantity || 50);
-
-    const microVal = (Math.sin(tickTracker) * 0.45);
-    return btcVal + ethVal + solVal + cashVal + aaplVal + etfVal + goldVal + microVal;
-  }, [livePrices, tickTracker, allocations]);
 
   // Lead analyst Catherine Vance state
   const [analystCommentary, setAnalystCommentary] = useState({
@@ -419,7 +418,7 @@ export default function PortfolioViewV2({
   const updateAnalystAdvice = (force = false) => {
     if (force) setIsRefreshingCommentary(true);
     setTimeout(() => {
-      const freshCommentary = generateCatherineCommentary(calculatedTotalValue, watchlist, livePrices);
+      const freshCommentary = generateCatherineCommentary(totalNetBalance, watchlist, livePrices);
       setAnalystCommentary(freshCommentary);
       setLastCommentaryUpdate(new Date());
       setIsRefreshingCommentary(false);
@@ -432,7 +431,7 @@ export default function PortfolioViewV2({
   // Run update on mount
   useEffect(() => {
     updateAnalystAdvice();
-  }, [calculatedTotalValue]);
+  }, [totalNetBalance]);
 
   // High-end real photos for asset representation
   const assetImages = useMemo<Record<string, string>>(() => ({
@@ -455,45 +454,7 @@ export default function PortfolioViewV2({
   const [activeDialog, setActiveDialog] = useState<'vault' | 'trade' | null>(null);
 
   // Vault Savings System States
-  const [vaultBalance, setVaultBalance] = useState<number>(() => {
-    const saved = localStorage.getItem('portfolio_vault_balance');
-    return saved ? parseFloat(saved) : 150000; // $150,000 protected savings
-  });
-  
-  const [activeBalanceOffset, setActiveBalanceOffset] = useState<number>(() => {
-    const saved = localStorage.getItem('portfolio_active_offset');
-    return saved ? parseFloat(saved) : 0;
-  });
-
-  // Synchronization with Firebase user profile to maintain single source of truth
-  useEffect(() => {
-    if (user) {
-      if ((user as any).vaultBalance !== undefined && (user as any).vaultBalance !== vaultBalance) {
-        setVaultBalance((user as any).vaultBalance);
-      }
-      if ((user as any).activeBalanceOffset !== undefined && (user as any).activeBalanceOffset !== activeBalanceOffset) {
-        setActiveBalanceOffset((user as any).activeBalanceOffset);
-      }
-    }
-  }, [user]);
-
-  const updateVaultBalance = (newBal: number | ((prev: number) => number)) => {
-    const val = typeof newBal === 'function' ? newBal(vaultBalance) : newBal;
-    setVaultBalance(val);
-    localStorage.setItem('portfolio_vault_balance', val.toString());
-    if (user && updateProfile) {
-      updateProfile({ vaultBalance: val } as any);
-    }
-  };
-
-  const updateActiveBalanceOffset = (newOffset: number | ((prev: number) => number)) => {
-    const val = typeof newOffset === 'function' ? newOffset(activeBalanceOffset) : newOffset;
-    setActiveBalanceOffset(val);
-    localStorage.setItem('portfolio_active_offset', val.toString());
-    if (user && updateProfile) {
-      updateProfile({ activeBalanceOffset: val } as any);
-    }
-  };
+  // Vault state is now fully synchronized with unified useFinancials
 
   const [isVaultOnboarded, setIsVaultOnboarded] = useState<boolean>(() => {
     return localStorage.getItem('vault_onboarded') === 'true';
@@ -826,39 +787,40 @@ export default function PortfolioViewV2({
     setActiveDialog(null);
   };
 
-  if (viewMode === 'vault') {
-    return (
-      <VaultScreen 
-        theme={theme}
-        onBack={() => setViewMode('portfolio')}
-        calculatedTotalValue={calculatedTotalValue}
-        showNotification={showNotification}
-        vaultBalance={vaultBalance}
-        setVaultBalance={updateVaultBalance}
-        activeBalanceOffset={activeBalanceOffset}
-        setActiveBalanceOffset={updateActiveBalanceOffset}
-      />
-    );
-  }
-
-  if (viewMode === 'asset-stats') {
-    return (
-      <AssetStatsScreen 
-        theme={theme}
-        onBack={() => setViewMode('portfolio')}
-        calculatedTotalValue={calculatedTotalValue}
-        allocations={liveAllocations}
-      />
-    );
-  }
-
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className={`pt-[73px] text-slate-200 font-sans antialiased relative flex flex-col justify-start flex-1 min-h-screen`}
-    >
+    <AnimatePresence>
+      {viewMode === 'vault' && (
+        <VaultScreen 
+          key="vault"
+          theme={theme}
+          onBack={() => setViewMode('portfolio')}
+          activeTradingBalance={activeTradingBalance}
+          showNotification={showNotification}
+          vaultBalance={vaultBalance}
+          setVaultBalance={updateVaultBalance}
+          activeBalanceOffset={activeBalanceOffset}
+          setActiveBalanceOffset={updateActiveBalanceOffset}
+        />
+      )}
+
+      {viewMode === 'asset-stats' && (
+        <AssetStatsScreen 
+          key="asset-stats"
+          theme={theme}
+          onBack={() => setViewMode('portfolio')}
+          activeTradingBalance={activeTradingBalance}
+          allocations={liveAllocations}
+        />
+      )}
+
+      {viewMode === 'portfolio' && (
+        <motion.div 
+          key="portfolio"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className={`pt-[73px] text-slate-200 font-sans antialiased relative flex flex-col justify-start flex-1 min-h-screen`}
+        >
       {/* Toast HUD */}
       <AnimatePresence>
         {toastMessage && (
@@ -909,7 +871,7 @@ export default function PortfolioViewV2({
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-3.5xl font-extrabold text-white tracking-tight">
-                ${Math.max(0, calculatedTotalValue - vaultBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${Math.max(0, activeTradingBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-xs font-semibold text-slate-400 font-mono">USD</span>
             </div>
@@ -935,7 +897,7 @@ export default function PortfolioViewV2({
                 Total Assets (AUM)
               </span>
               <div className="text-sm font-bold text-white font-mono">
-                ${calculatedTotalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${totalNetBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           </div>
@@ -1109,46 +1071,64 @@ export default function PortfolioViewV2({
           </span>
 
           {/* VAULT CARD - Premium Solid Style */}
-          <button 
+          <motion.button 
+            layoutId="vault-card-container"
             onClick={() => {
               setViewMode('vault');
             }}
             className={`w-full ${cardClasses} rounded-[24px] p-5 flex items-center space-x-4 relative overflow-hidden group hover:opacity-90 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 min-h-[96px] touch-manipulation`}
           >
-            <div className="w-12 h-12 rounded-2xl bg-[#00D09C]/10 flex-shrink-0 flex items-center justify-center transition-all group-hover:scale-105">
+            <motion.div 
+              layoutId="vault-icon-bg"
+              className="w-12 h-12 rounded-2xl bg-[#00D09C]/10 flex-shrink-0 flex items-center justify-center transition-all group-hover:scale-105"
+            >
               <Vault className="w-5 h-5 text-[#00D09C]" />
-            </div>
+            </motion.div>
 
             <div className="flex-1 space-y-0.5">
               <div className="flex items-center justify-between">
-                <h4 className="text-base font-bold text-white tracking-tight">Vault</h4>
+                <motion.h4 
+                  layoutId="vault-title"
+                  className="text-base font-bold text-white tracking-tight"
+                >
+                  Vault
+                </motion.h4>
               </div>
               <p className="text-slate-400 text-xs font-normal leading-relaxed">
                 Secure savings system excluded from active AI trading
               </p>
             </div>
-          </button>
+          </motion.button>
 
           {/* ASSET STATISTICS - Premium Solid Style */}
-          <button 
+          <motion.button 
+            layoutId="stats-card-container"
             onClick={() => {
               setViewMode('asset-stats');
             }}
             className={`w-full ${cardClasses} rounded-[24px] p-5 flex items-center space-x-4 relative overflow-hidden group hover:opacity-90 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 min-h-[96px] touch-manipulation`}
           >
-            <div className="w-12 h-12 rounded-2xl bg-[#00D09C]/10 flex-shrink-0 flex items-center justify-center transition-all group-hover:scale-105">
+            <motion.div 
+              layoutId="stats-icon-bg"
+              className="w-12 h-12 rounded-2xl bg-[#00D09C]/10 flex-shrink-0 flex items-center justify-center transition-all group-hover:scale-105"
+            >
               <PieChart className="w-5 h-5 text-[#00D09C]" />
-            </div>
+            </motion.div>
 
             <div className="flex-1 space-y-0.5">
               <div className="flex items-center justify-between">
-                <h4 className="text-base font-bold text-white tracking-tight">Asset Statistics</h4>
+                <motion.h4 
+                  layoutId="stats-title"
+                  className="text-base font-bold text-white tracking-tight"
+                >
+                  Asset Statistics
+                </motion.h4>
               </div>
               <p className="text-slate-400 text-xs font-normal leading-relaxed">
                 Interactive capital allocation and diversification metrics
               </p>
             </div>
-          </button>
+          </motion.button>
         </div>
 
         {/* --- 5. LEAD ANALYST AI COMMENTARY (Broadcast Style) --- */}
@@ -1188,9 +1168,6 @@ export default function PortfolioViewV2({
             <div className="flex justify-between items-center">
               <span className="text-[10px] font-semibold text-[#00D09C] uppercase tracking-wider">
                 {analystCommentary.topic}
-              </span>
-              <span className="text-[9px] text-[#00D09C] font-semibold bg-[#00D09C]/10 px-2 py-0.5 rounded-md tracking-wider">
-                98% Confidence Score
               </span>
             </div>
             <p className="text-slate-300 text-[11px] leading-relaxed italic font-medium">
@@ -1334,9 +1311,6 @@ export default function PortfolioViewV2({
                     <span className="text-lg font-black text-white font-mono block">
                       {dynamicExposure.largest.weight.toFixed(1)}%
                     </span>
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      AI Confidence: <strong className="text-[#00D09C] font-bold font-mono">{dynamicExposure.largest.confidence.toFixed(1)}%</strong>
-                    </span>
                   </div>
                 </div>
               </div>
@@ -1430,7 +1404,7 @@ export default function PortfolioViewV2({
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
                       <span>Order Size</span>
-                      <span className="font-sans text-slate-400 font-medium">Avail: ${(calculatedTotalValue - vaultBalance).toLocaleString(undefined, { maximumFractionDigits: 0 })} Active</span>
+                      <span className="font-sans text-slate-400 font-medium">Avail: ${activeTradingBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} Active</span>
                     </div>
                     <div className="relative">
                       <input 
@@ -2047,7 +2021,7 @@ export default function PortfolioViewV2({
                       <div className="space-y-1.5">
                         <div className="flex justify-between text-[9px] text-slate-400 uppercase font-bold tracking-wider">
                           <span>Deposit Amount (USD)</span>
-                          <span className="font-mono">Avail: ${(calculatedTotalValue - vaultBalance).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD</span>
+                          <span className="font-mono">Avail: ${activeTradingBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} USD</span>
                         </div>
                         <div className="relative">
                           <input 
@@ -2059,7 +2033,7 @@ export default function PortfolioViewV2({
                           />
                           <button
                             type="button"
-                            onClick={() => setVaultActionAmount(Math.round((calculatedTotalValue - vaultBalance) * 0.5).toString())}
+                            onClick={() => setVaultActionAmount(Math.round(activeTradingBalance * 0.5).toString())}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold bg-[#00D09C]/10 text-[#00D09C] px-2 py-1 rounded-md uppercase cursor-pointer"
                           >
                             50% Max
@@ -2084,7 +2058,7 @@ export default function PortfolioViewV2({
                         <div className="bg-[#080B11]/70 p-3 rounded-xl border border-white/[0.04] space-y-1.5 font-mono text-[10px]">
                           <div className="flex justify-between text-slate-400">
                             <span>Active Trading Capital:</span>
-                            <span>${(calculatedTotalValue - vaultBalance).toLocaleString()}</span>
+                            <span>${activeTradingBalance.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between text-[#FF6B6B]">
                             <span>Deduct to Savings:</span>
@@ -2092,7 +2066,7 @@ export default function PortfolioViewV2({
                           </div>
                           <div className="flex justify-between text-[#00D09C] font-bold pt-1 border-t border-white/[0.03]">
                             <span>Remaining Active Pool:</span>
-                            <span>${((calculatedTotalValue - vaultBalance) - parseFloat(vaultActionAmount)).toLocaleString()}</span>
+                            <span>${(activeTradingBalance - parseFloat(vaultActionAmount)).toLocaleString()}</span>
                           </div>
                         </div>
                       )}
@@ -2104,7 +2078,7 @@ export default function PortfolioViewV2({
                             showNotification("Please enter a valid deposit amount.");
                             return;
                           }
-                          const activeCap = calculatedTotalValue - vaultBalance;
+                          const activeCap = activeTradingBalance;
                           if (amt > activeCap) {
                             showNotification("Insufficient active capital available for deposit.");
                             return;
@@ -2195,7 +2169,7 @@ export default function PortfolioViewV2({
                           </div>
                           <div className="flex justify-between text-[#00D09C] font-bold pt-1 border-t border-white/[0.03]">
                             <span>Restored Active Pool:</span>
-                            <span>+${((calculatedTotalValue - vaultBalance) + parseFloat(vaultActionAmount)).toLocaleString()}</span>
+                            <span>+${(activeTradingBalance + parseFloat(vaultActionAmount)).toLocaleString()}</span>
                           </div>
                         </div>
                       )}
@@ -2247,5 +2221,7 @@ export default function PortfolioViewV2({
       </AnimatePresence>
 
     </motion.div>
+    )}
+    </AnimatePresence>
   );
 }

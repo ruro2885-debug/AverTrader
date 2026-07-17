@@ -24,6 +24,34 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isOwner(userId);
 
+      match /holdings/{holdingId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /trades/{tradeId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /snapshots/{snapshotId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /aiPreferences/{prefId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /tradingConfig/{configId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /positions/{positionId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /activity/{activityId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /aiConfigurations/{configId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /notifications/{notifId} {
+        allow read, write: if isOwner(userId);
+      }
+
       // Recursive wildcard for all subcollections (holdings, trades, snapshots, etc.)
       match /{document=**} {
         allow read, write: if isOwner(userId);
@@ -41,10 +69,8 @@ service cloud.firestore {
 
     // 5. Referrals (Relational logic)
     match /referrals/{referralId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn() && (resource == null || resource.data.referrerId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.referrerId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.referrerId == request.auth.uid;
+      allow get, list: if isSignedIn() && resource.data.referrerId == request.auth.uid;
+      allow create, update, delete: if isSignedIn() && request.resource.data.referrerId == request.auth.uid;
     }
 
     // 6. Static Data (Read-only for signed-in users)
@@ -63,6 +89,15 @@ service cloud.firestore {
     match /leaderboard/{userId} {
       allow read: if true;
       allow write: if isOwner(userId);
+    }
+
+    // 9. AI Trading
+    match /aiSessions/{sessionId} {
+      allow read, write: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid);
+    }
+
+    match /aiRecommendations/{recId} {
+      allow read, write: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid);
     }
   }
 }

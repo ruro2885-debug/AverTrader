@@ -1,6 +1,6 @@
 {
   "name": "Aver Platform",
-  "description": "A premium, AI-powered landing page and interactive preview for the Aver project, featuring AverCore AI™ and Precision Entry Optimizer™ (PEO™).",
+  "description": "A live, performance-driven copy trading leaderboard, featuring real-time ranking updates, trader profiles, and performance metrics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
   Brain, Activity, Star, Newspaper, Zap, ArrowRightLeft, 
-  Copy, History, CreditCard, ChevronRight, Bell, X, ShieldCheck 
+  Copy, History, CreditCard, ChevronRight, Bell, X, ShieldCheck,
+  Award, AlertCircle, CheckCircle2, Lock, Flame
 } from 'lucide-react';
 import BottomNavigation from './BottomNavigation';
 import CoinLogo from './CoinLogo';
@@ -12,11 +13,9 @@ import MarketsPage from './MarketsPage';
 import DiscoverView from './DiscoverView';
 import CoinDetailsPage from './CoinDetailsPage';
 import PortfolioViewV2 from './portfolio_v2/PortfolioViewV2';
-import BonusCenter from './BonusCenter';
 import AiTradingModule from './AiTradingModule';
+import CopyTrading from './CopyTrading/CopyTrading';
 
-import ReferralCentre from './ReferralCentre';
-import Preferences from './Preferences';
 import { NotificationCenter } from './NotificationCenter';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
@@ -24,44 +23,99 @@ import UserAvatar from './UserAvatar';
 import AverLogo from './AverLogo';
 import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
 
-const marketData = [
-  { symbol: 'BTC', name: 'Bitcoin', price: 64230.00, change: '+2.4%', isPositive: true },
-  { symbol: 'ETH', name: 'Ethereum', price: 3450.20, change: '+1.2%', isPositive: true },
-  { symbol: 'SOL', name: 'Solana', price: 145.60, change: '-0.8%', isPositive: false },
-  { symbol: 'BNB', name: 'BNB', price: 590.10, change: '+0.5%', isPositive: true },
-  { symbol: 'XRP', name: 'Ripple', price: 0.58, change: '-1.2%', isPositive: false },
-];
 
-const aiSignals = [
-  { asset: 'BTC', signal: 'Tactical Long Momentum', confidence: 94, risk: 'Medium', movement: 'Target $65,500 (H4 Breakout confirmation)' },
-  { asset: 'ETH', signal: 'VWAP Mean Reversion (LONG)', confidence: 91, risk: 'Low', movement: 'Target midline $3,485 (Oversold standard deviation band)' },
-];
 
-const watchlist = [
-  { symbol: 'AVR', name: 'Aver', price: 1.24, change: '+5.4%', isPositive: true },
-  { symbol: 'ADA', name: 'Cardano', price: 0.45, change: '-2.1%', isPositive: false },
-];
 
-const news = [
-  { headline: 'Bitcoin ETFs see record inflows as institutional adoption grows', source: 'Crypto News', time: '2h ago', sentiment: 'Positive' },
-  { headline: 'Ethereum network upgrade successfully deployed on testnet', source: 'Tech Finance', time: '4h ago', sentiment: 'Positive' },
-];
 
-export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
+
+
+
+
+import { useFinancials } from '../hooks/useFinancials';
+
+export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos') => void }) {
+  const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
+  const { preferences, t, formatCurrency } = usePreferences();
+  const { account } = useFinancials();
+  const isDark = preferences.theme === 'dark';
+  
   const [activeTab, setActiveTab] = useState('home');
-  const [portfolioViewMode, setPortfolioViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
-  const isFullScreen = activeTab === 'portfolio' && portfolioViewMode !== 'portfolio';
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [watchlist] = useState([
+    { symbol: 'BTC', price: 64230, change: '+2.45%', isPositive: true },
+    { symbol: 'ETH', price: 3450, change: '+1.82%', isPositive: true },
+    { symbol: 'SOL', price: 145, change: '-0.52%', isPositive: false }
+  ]);
+  const [portfolioViewMode, setPortfolioViewMode] = useState<'overview' | 'detailed'>('overview');
+  const [selectedAsset, setSelectedAsset] = useState('BTC');
+
+  const [marketData, setMarketData] = useState<any[]>([]);
+  const [marketLoading, setMarketLoading] = useState(true);
+  const [news, setNews] = useState<any[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  const [newsError, setNewsError] = useState('');
+  const [aiSignals, setAiSignals] = useState<any[]>([]);
+
+  const fetchMarketData = async () => {
+    try {
+      setMarketLoading(true);
+      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22ADAUSDT%22,%22XRPUSDT%22,%22SOLUSDT%22,%22DOGEUSDT%22,%22AVAXUSDT%22,%22LINKUSDT%22%5D');
+      const data = await res.json();
+      const mapped = data.map((d: any) => {
+        const symbol = d.symbol.replace('USDT', '');
+        const isPositive = parseFloat(d.priceChangePercent) >= 0;
+        return {
+          symbol,
+          name: symbol === 'BTC' ? 'Bitcoin' : symbol === 'ETH' ? 'Ethereum' : symbol === 'ADA' ? 'Cardano' : symbol === 'XRP' ? 'Ripple' : symbol === 'SOL' ? 'Solana' : symbol === 'DOGE' ? 'Dogecoin' : symbol === 'AVAX' ? 'Avalanche' : 'Chainlink',
+          price: parseFloat(d.lastPrice),
+          change: (isPositive ? '+' : '') + parseFloat(d.priceChangePercent).toFixed(2) + '%',
+          isPositive
+        };
+      });
+      setMarketData(mapped);
+      
+      // Removed mock AI signals generation as it invented data
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setMarketLoading(false);
+    }
+  };
+
+  const fetchNews = async () => {
+    try {
+      setNewsLoading(true);
+      setNewsError('');
+      const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fcointelegraph.com%2Frss');
+      const data = await res.json();
+      if (data.items) {
+        setNews(data.items.slice(0, 4).map((item: any) => {
+           const diffMs = Date.now() - new Date(item.pubDate).getTime();
+           const hours = Math.floor(diffMs / 3600000);
+           const time = hours > 0 ? `${hours}h ago` : 'Just now';
+           return {
+             headline: item.title,
+             source: item.author || 'Cointelegraph',
+             time,
+             link: item.link
+           };
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+      setNewsError('Failed');
+    } finally {
+      setNewsLoading(false);
+    }
+  };
 
   React.useEffect(() => {
-    setPortfolioViewMode('portfolio');
-  }, [activeTab]);
+    fetchMarketData();
+    fetchNews();
+    const interval = setInterval(fetchMarketData, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
-  const { user, notifications, loading: authLoading, addDeposit, addWithdrawal, clearNotifications } = useAuth();
-  const { formatCurrency, t } = usePreferences();
-  const isDark = theme === 'dark';
-
-  // Interactive transaction state
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -73,15 +127,160 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
   const [txLoading, setTxLoading] = useState(false);
 
   // Fallback defaults if user profile isn't fully loaded or is null
-  const totalValue = user?.portfolio?.totalValue ?? 124560.00;
-  const todayPnL = user?.portfolio?.todayPnL ?? 1240.50;
-  const todayPnLPercent = user?.portfolio?.todayPnLPercent ?? 1.01;
-  const overallReturn = user?.portfolio?.overallReturn ?? 24.5;
+  const { totalNetBalance, activeTradingBalance } = useFinancials();
+  
+  const totalValue = totalNetBalance;
+  const todayPnL = user?.portfolio?.todayPnL ?? 0;
+  const todayPnLPercent = user?.portfolio?.todayPnLPercent ?? 0;
+  const overallReturn = user?.portfolio?.overallReturn ?? 0;
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (todayPnL >= 0 ? '+' : '') + formatCurrency(todayPnL);
   const todayPnLPercentFormatted = (todayPnLPercent >= 0 ? '+' : '') + todayPnLPercent.toFixed(2) + '%';
   const overallReturnFormatted = (overallReturn >= 0 ? '+' : '') + overallReturn.toFixed(1) + '%';
+
+  // HELPER METHODS FOR ACCOUNT ACTIVITY AND SMART ASSISTANT
+  const getRelativeTime = (date: Date) => {
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 60000) return 'Just now';
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(diffMs / 3600000);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(diffMs / 86400000);
+    if (days === 1) return 'Yesterday';
+    return `${days}d ago`;
+  };
+
+  const getActivitiesList = () => {
+    const list: any[] = [];
+
+    // 1. Deposits & Withdrawals from user.history
+    if (user?.history) {
+      user.history.forEach((hist: any) => {
+        const dateObj = new Date(hist.date);
+        list.push({
+          id: hist.id,
+          type: hist.type,
+          title: hist.type === 'deposit' ? 'Deposit Completed' : 'Withdrawal Approved',
+          description: hist.type === 'deposit' 
+            ? `Successfully deposited ${formatCurrency(hist.amount)} to your wallet.` 
+            : `Successfully withdrew ${formatCurrency(hist.amount)} from your wallet.`,
+          timestamp: dateObj,
+          category: 'financial'
+        });
+      });
+    }
+
+    // 2. AI Trades from user.trades
+    if (user?.trades) {
+      user.trades.forEach((trade: any) => {
+        const dateObj = new Date(trade.timestamp);
+        list.push({
+          id: trade.id,
+          type: trade.type || 'ai',
+          title: 'AI Trade Executed',
+          description: `${trade.side.toUpperCase()} ${trade.quantity} ${trade.ticker} completed at ${formatCurrency(trade.price)}.`,
+          timestamp: dateObj,
+          category: 'trading'
+        });
+      });
+    }
+
+    // 3. AI Session Active
+    if (user?.aiTradingEnabled) {
+      list.push({
+        id: 'ai-active',
+        type: 'ai-session',
+        title: 'AI Session Active',
+        description: 'Neural copilot engine actively tracking yields.',
+        timestamp: new Date(Date.now() - 30000),
+        category: 'system'
+      });
+    }
+
+    // 4. Referral commission
+    if (user?.referralCount && user.referralCount > 0) {
+      list.push({
+        id: 'ref-reward',
+        type: 'referral',
+        title: 'Referral Commission',
+        description: `Credited XP & commission for inviting ${user.referralCount} users.`,
+        timestamp: new Date(Date.now() - 3600000 * 2),
+        category: 'referral'
+      });
+    }
+
+    // 5. Security Settings
+    if (user?.biometricEnabled) {
+      list.push({
+        id: 'sec-bio',
+        type: 'security',
+        title: 'Security Synced',
+        description: 'Biometric security preferences synchronized successfully.',
+        timestamp: new Date(Date.now() - 3600000 * 5),
+        category: 'security'
+      });
+    }
+
+    // Sort by timestamp desc
+    list.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    return list.slice(0, 5);
+  };
+
+  const getAssistantWarnings = () => {
+    const warnings: any[] = [];
+
+    // 1. Identity verification incomplete
+    if (!user?.kycStatus || user.kycStatus === 'unverified') {
+      warnings.push({
+        id: 'kyc',
+        title: 'Identity Verification Incomplete',
+        description: 'Complete your tier-1 verification to unlock unlimited asset trades and premium withdrawals.',
+        actionText: 'Verify Identity',
+        actionType: 'tab',
+        targetTab: 'profile'
+      });
+    }
+
+    // 2. Biometric protection disabled
+    if (!user?.biometricEnabled) {
+      warnings.push({
+        id: 'biometric',
+        title: 'Biometric Access Disabled',
+        description: 'Enhance your security level by configuring Touch ID / Face ID biometric login.',
+        actionText: 'Configure Security',
+        actionType: 'tab',
+        targetTab: 'profile'
+      });
+    }
+
+    // 3. AI copilot inactive
+    if (!user?.aiTradingEnabled) {
+      warnings.push({
+        id: 'copilot',
+        title: 'Autonomous AI Copilot Inactive',
+        description: 'Your neural automation suite is currently offline. Toggle on AI trading to scan markets.',
+        actionText: 'Activate Copilot',
+        actionType: 'tab',
+        targetTab: 'ai'
+      });
+    }
+
+    // 4. Referral rewards claimable
+    if (user?.referralCount && user.referralCount > 0) {
+      warnings.push({
+        id: 'referral',
+        title: 'Referral Rewards Claimable',
+        description: 'You have active referrals awaiting collection! Claim your XP and bonuses at the Centre.',
+        actionText: 'Claim Rewards',
+        actionType: 'prop',
+        actionName: 'referral-centre'
+      });
+    }
+
+    return warnings;
+  };
 
   const handleDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,6 +387,7 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
         <nav className="flex-1 px-4 py-6 space-y-2">
           {[
             { name: t('common.home') || 'Dashboard', id: 'home', icon: DashboardIcon },
+            { name: 'Copy Trading', id: 'copy-trading', icon: Copy },
             { name: t('common.portfolio') || 'Wallet', id: 'portfolio', icon: WalletIcon },
             { name: t('common.market') || 'Trades', id: 'markets', icon: TradesIcon },
             { name: t('common.discover') || 'Analytics', id: 'discover', icon: AnalyticsIcon },
@@ -344,179 +544,204 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
                 </div>
               </motion.div>
 
-              {/* Section 3: AI Trading Signals */}
-              <motion.div variants={itemVariants}>
-                <div className="flex justify-between items-end mb-3">
-                  <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
-                    <Brain className="w-5 h-5 mr-2 text-emerald-500" />
-                    AI Trading Signals
-                  </h3>
-                  <button onClick={() => setActiveTab('ai')} className="text-xs font-bold text-[#00D09C] hover:text-emerald-400 flex items-center cursor-pointer">
-                    Open Institutional Desk <ChevronRight className="w-3 h-3 ml-0.5" />
-                  </button>
-                </div>
-                
-                {aiSignals.map((signal, i) => (
-                  <div key={i} className={`rounded-[20px] p-5 ${isDark ? 'bg-gradient-to-r from-emerald-950/40 to-slate-900/40 border border-emerald-500/20' : 'bg-gradient-to-r from-emerald-50 to-white border border-emerald-100 shadow-sm'}`}>
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center space-x-3">
-                        <CoinLogo symbol={signal.asset} size={36} />
-                        <div>
-                          <h4 className={`font-bold ${textPrimary}`}>{signal.asset} Tactical Allocation</h4>
-                          <div className="flex items-center mt-1">
-                            <span className="text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-md mr-2">
-                              {signal.signal}
-                            </span>
-                            <span className={`text-xs ${textSecondary}`}>{signal.confidence}% Confidence Index</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className={`px-2 py-1 rounded border text-xs font-medium ${signal.risk === 'Low' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : signal.risk === 'Medium' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : 'bg-red-500/10 border-red-500/20 text-red-500'}`}>
-                        {signal.risk} Risk
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className={`text-xs ${textSecondary}`}>Dynamic Target Horizon</p>
-                        <p className="text-sm font-bold text-emerald-500">{signal.movement}</p>
-                      </div>
-                      <button onClick={() => setActiveTab('ai')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 cursor-pointer ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'}`}>
-                        View Analysis & Deploy
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </motion.div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Section 2: Market Overview */}
-                <motion.div variants={itemVariants}>
-                  <div className="flex justify-between items-end mb-3">
-                    <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
-                      <Activity className="w-5 h-5 mr-2 text-blue-500" />
-                      {t('common.market')}
-                    </h3>
-                    <button className={`text-xs font-bold text-blue-500 hover:text-blue-400 flex items-center`}>
-                      More <ChevronRight className="w-3 h-3 ml-0.5" />
-                    </button>
-                  </div>
-                  <div className={`rounded-[20px] overflow-hidden ${cardClasses}`}>
-                    {marketData.map((coin, i) => (
-                      <div key={coin.symbol} className={`flex items-center justify-between p-4 transition-colors ${i !== marketData.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''} ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}>
-                        <div className="flex items-center space-x-3 w-[40%]">
-                          <CoinLogo symbol={coin.symbol} size={32} />
-                          <div>
-                            <p className={`font-bold text-sm ${textPrimary}`}>{coin.symbol}</p>
-                            <p className={`text-xs ${textSecondary}`}>{coin.name}</p>
-                          </div>
-                        </div>
-                        
-                        {/* Mini Sparkline Chart */}
-                        <div className="flex-1 px-4 hidden sm:block">
-                          <svg className="w-full h-8" viewBox="0 0 100 30" preserveAspectRatio="none">
-                            <path 
-                              d={coin.isPositive 
-                                ? "M0,25 C20,20 40,30 60,10 C80,5 90,15 100,5" 
-                                : "M0,5 C20,10 40,0 60,20 C80,25 90,15 100,25"} 
-                              fill="none" 
-                              stroke={coin.isPositive ? "#10b981" : "#ef4444"} 
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path 
-                              d={coin.isPositive 
-                                ? "M0,25 C20,20 40,30 60,10 C80,5 90,15 100,5 L100,30 L0,30 Z" 
-                                : "M0,5 C20,10 40,0 60,20 C80,25 90,15 100,25 L100,30 L0,30 Z"} 
-                              fill={coin.isPositive ? "url(#gradient-positive)" : "url(#gradient-negative)"} 
-                              className="opacity-20"
-                            />
-                            <defs>
-                              <linearGradient id="gradient-positive" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#10b981" />
-                                <stop offset="100%" stopColor="transparent" />
-                              </linearGradient>
-                              <linearGradient id="gradient-negative" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#ef4444" />
-                                <stop offset="100%" stopColor="transparent" />
-                              </linearGradient>
-                            </defs>
-                          </svg>
-                        </div>
-
-                        <div className="text-right w-[30%]">
-                          <p className={`font-bold text-sm ${textPrimary}`}>{formatCurrency(coin.price)}</p>
-                          <p className={`text-xs font-medium flex items-center justify-end mt-0.5 ${coin.isPositive ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {coin.change}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-
-                <div className="space-y-6">
-                  {/* Section 4: Watchlist */}
-                  <motion.div variants={itemVariants}>
-                    <div className="flex justify-between items-end mb-3">
-                      <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
-                        <Star className="w-5 h-5 mr-2 text-amber-500" />
-                        Watchlist
-                      </h3>
-                    </div>
-                    <div className={`rounded-[20px] overflow-hidden ${cardClasses}`}>
-                      {watchlist.map((coin, i) => (
-                        <div key={coin.symbol} className={`flex items-center justify-between p-4 ${i !== watchlist.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''}`}>
-                          <div className="flex items-center space-x-3">
-                            <CoinLogo symbol={coin.symbol} size={32} />
-                            <div>
-                              <p className={`font-bold text-sm ${textPrimary}`}>{coin.symbol}</p>
-                              <div className="flex space-x-2 mt-1">
-                                <span className={`text-[10px] font-medium ${textSecondary}`}>{formatCurrency(coin.price)}</span>
-                                <span className={`text-[10px] font-medium ${coin.isPositive ? 'text-emerald-500' : 'text-red-500'}`}>{coin.change}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex space-x-2">
-                            <button onClick={() => alert('Simulated watchlist orders')} className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${isDark ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>Buy</button>
-                            <button onClick={() => alert('Simulated watchlist orders')} className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${isDark ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>Sell</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-
-                  {/* Section 5: Market News */}
-                  <motion.div variants={itemVariants}>
-                    <div className="flex justify-between items-end mb-3">
-                      <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
-                        <Newspaper className="w-5 h-5 mr-2 text-indigo-500" />
-                        Market News
-                      </h3>
-                    </div>
-                    <div className={`rounded-[20px] overflow-hidden ${cardClasses} p-4 space-y-4`}>
-                      {news.map((item, i) => (
-                        <div key={i} className={`pb-4 ${i !== news.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : 'pb-0'}`}>
-                          <div className="flex justify-between items-start mb-2">
-                            <span className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{item.sentiment}</span>
-                            <span className={`text-[10px] ${textSecondary}`}>{item.time}</span>
-                          </div>
-                          <h4 className={`text-sm font-semibold leading-tight ${textPrimary} mb-2 line-clamp-2`}>{item.headline}</h4>
-                          <div className="flex justify-between items-center">
-                            <span className={`text-xs ${textSecondary}`}>{item.source}</span>
-                            <button className={`text-xs font-bold transition-colors cursor-pointer ${isDark ? 'text-white hover:text-emerald-400' : 'text-slate-900 hover:text-emerald-600'}`}>
-                              Read Article
+              <div className="space-y-6">
+                  {/* Smart Account Assistant Widget */}
+                  {(() => {
+                    const warnings = getAssistantWarnings();
+                    if (warnings.length === 0) return null;
+                    const warning = warnings[0]; // Display highest priority warning
+                    return (
+                      <motion.div 
+                        variants={itemVariants}
+                        className={`rounded-[24px] p-5 relative overflow-hidden border ${
+                          isDark 
+                            ? 'bg-amber-500/10 border-amber-500/30' 
+                            : 'bg-amber-50 border-amber-200'
+                        }`}
+                      >
+                        <div className="flex items-start space-x-3">
+                          <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <h4 className={`text-sm font-black tracking-tight ${isDark ? 'text-amber-400' : 'text-amber-800'}`}>
+                              {warning.title}
+                            </h4>
+                            <p className={`text-xs mt-1.5 font-medium leading-relaxed ${isDark ? 'text-amber-200/80' : 'text-amber-700'}`}>
+                              {warning.description}
+                            </p>
+                            <button 
+                              onClick={() => {
+                                if (warning.actionType === 'tab') {
+                                  setActiveTab(warning.targetTab);
+                                } else if (warning.actionType === 'prop') {
+                                  onNavigate(warning.actionName);
+                                }
+                              }}
+                              className={`mt-4 px-4 py-2 rounded-xl text-xs font-black transition-all hover:scale-105 active:scale-95 flex items-center gap-1 cursor-pointer ${
+                                isDark 
+                                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950' 
+                                  : 'bg-amber-600 hover:bg-amber-700 text-white'
+                              }`}
+                            >
+                              {warning.actionText}
+                              <ChevronRight className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
-                      ))}
+                      </motion.div>
+                    );
+                  })()}
+
+                  {/* Account Activity Timeline Widget */}
+                  <motion.div variants={itemVariants}>
+                    <div className="flex justify-between items-end mb-3">
+                      <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary} flex items-center gap-1.5`}>
+                        <Activity className="w-4 h-4 text-emerald-500" />
+                        Account Timeline
+                      </h3>
+                      <button 
+                        onClick={() => setShowHistoryModal(true)}
+                        className="text-xs font-bold text-emerald-500 hover:text-emerald-400 flex items-center cursor-pointer"
+                      >
+                        View All <ChevronRight className="w-3 h-3 ml-0.5" />
+                      </button>
+                    </div>
+
+                    <div className={`rounded-[24px] p-5 space-y-4 ${cardClasses}`}>
+                      {getActivitiesList().length === 0 ? (
+                        <div className="text-center py-6 text-xs text-gray-500">
+                          No recent account activities.
+                        </div>
+                      ) : (
+                        <div className="relative border-l border-white/5 ml-3 pl-5 space-y-5">
+                          {getActivitiesList().map((item, i) => {
+                            let icon = <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
+                            if (item.type === 'deposit') icon = <ArrowDownRight className="w-4 h-4 text-emerald-400" />;
+                            if (item.type === 'withdrawal') icon = <ArrowUpRight className="w-4 h-4 text-rose-400" />;
+                            if (item.category === 'trading') icon = <Brain className="w-4 h-4 text-blue-400" />;
+                            if (item.category === 'referral') icon = <Award className="w-4 h-4 text-purple-400" />;
+                            if (item.category === 'security') icon = <ShieldCheck className="w-4 h-4 text-amber-400" />;
+
+                            return (
+                              <div key={item.id} className="relative">
+                                <div className={`absolute -left-[29px] top-1 w-4 h-4 rounded-full flex items-center justify-center border ${
+                                  isDark ? 'bg-[#08090e] border-white/10' : 'bg-white border-slate-200'
+                                }`}>
+                                  {icon}
+                                </div>
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <h5 className={`text-xs font-bold tracking-tight ${textPrimary}`}>{item.title}</h5>
+                                    <p className={`text-[11px] mt-0.5 leading-normal ${textSecondary}`}>{item.description}</p>
+                                  </div>
+                                  <span className="text-[9px] font-medium text-gray-500 whitespace-nowrap ml-2">
+                                    {getRelativeTime(item.timestamp)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
-                </div>
+
+                  {/* Achievement & Progress Widget */}
+                  {(() => {
+                    const referralCount = user?.referralCount || 0;
+                    const completedAiTrades = user?.trades?.filter(t => t.type === 'ai').length || 0;
+                    const loginStreak = 5;
+                    const profitableDays = 3;
+
+                    const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (user?.history?.length || 0) * 80 + 350;
+                    const xpPerLevel = 1000;
+                    const currentLevel = Math.floor(totalXp / xpPerLevel) + 1;
+                    const currentXp = totalXp % xpPerLevel;
+                    const xpProgressPercent = Math.min(100, Math.round((currentXp / xpPerLevel) * 100));
+
+                    const badges = [
+                      { name: 'Pioneer', unlocked: true, icon: '🚀', desc: 'Aver platform voyager' },
+                      { name: 'AI Pilot', unlocked: completedAiTrades > 0, icon: '🤖', desc: 'Executed AI trade' },
+                      { name: 'Alpha', unlocked: referralCount > 0, icon: '👑', desc: 'Referred active user' },
+                      { name: 'VIP Vault', unlocked: (user?.totalDeposits || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
+                    ];
+
+                    return (
+                      <motion.div variants={itemVariants} className="space-y-4">
+                        <div className="flex justify-between items-end mb-1">
+                          <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary} flex items-center gap-1.5`}>
+                            <Award className="w-4 h-4 text-amber-500" />
+                            Level & Milestones
+                          </h3>
+                        </div>
+
+                        <div className={`rounded-[24px] p-5 ${cardClasses} space-y-4`}>
+                          <div>
+                            <div className="flex justify-between items-center mb-1.5">
+                              <div>
+                                <span className="text-xs font-black text-emerald-500 uppercase tracking-wider">Trading Rank</span>
+                                <h4 className={`text-lg font-black tracking-tight ${textPrimary}`}>Level {currentLevel}</h4>
+                              </div>
+                              <span className={`text-xs font-bold ${textSecondary}`}>{currentXp} / 1000 XP</span>
+                            </div>
+                            <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: `${xpProgressPercent}%` }}
+                                transition={{ duration: 1, ease: "easeOut" }}
+                                className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
+                            <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
+                              <Flame className="w-4 h-4 text-orange-500 mx-auto mb-1 animate-pulse" />
+                              <p className={`text-[10px] font-bold ${textSecondary}`}>Streak</p>
+                              <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{loginStreak} Days</p>
+                            </div>
+                            <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
+                              <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
+                              <p className={`text-[10px] font-bold ${textSecondary}`}>Win Run</p>
+                              <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{profitableDays} Days</p>
+                            </div>
+                            <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
+                              <Brain className="w-4 h-4 text-blue-400 mx-auto mb-1" />
+                              <p className={`text-[10px] font-bold ${textSecondary}`}>AI Trades</p>
+                              <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{completedAiTrades}</p>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-white/5">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Unlocked Insignias</p>
+                            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                              {badges.map((badge, idx) => (
+                                <div 
+                                  key={idx} 
+                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border whitespace-nowrap ${
+                                    badge.unlocked 
+                                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                                      : 'bg-white/[0.01] border-white/5 text-gray-600 opacity-40'
+                                  }`}
+                                  title={badge.desc}
+                                >
+                                  <span className="text-xs">{badge.icon}</span>
+                                  <span className="text-[10px] font-bold tracking-tight">{badge.name}</span>
+                                  {!badge.unlocked && <Lock className="w-2.5 h-2.5" />}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })()}
               </div>
 
             </motion.div>
           )}
+
+          {activeTab === 'copy-trading' && <CopyTrading theme={theme} />}
 
           {activeTab === 'portfolio' && (
             <PortfolioViewV2 
@@ -531,21 +756,11 @@ export default function Dashboard({ theme }: { theme: 'light' | 'dark' }) {
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => onNavigate('events-promos')} />}
           {activeTab === 'ai' && <AiTradingModule theme={theme} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => setActiveTab('bonus-center')} onOpenReferralCentre={() => setActiveTab('referral-centre')} onOpenPreferences={() => setActiveTab('preferences')} />}
-          {activeTab === 'bonus-center' && (
-            <BonusCenter 
-              theme={theme} 
-              onBack={() => setActiveTab('profile')} 
-              onNavigate={(tab) => setActiveTab(tab)}
-              onOpenDeposit={() => setShowDepositModal(true)}
-            />
-          )}
-          {activeTab === 'referral-centre' && <ReferralCentre theme={theme} onBack={() => setActiveTab('profile')} />}
-          {activeTab === 'preferences' && <Preferences theme={theme} onBack={() => setActiveTab('profile')} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
           
-          {activeTab !== 'home' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'bonus-center' && activeTab !== 'referral-centre' && activeTab !== 'preferences' && (
+          {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && (
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}

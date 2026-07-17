@@ -29,7 +29,9 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
+import { NotificationItem, NotificationCategory, NotificationPriority } from '../types/notifications';
 import { UserProfile, Theme, Language, Holding, TradeHistoryItem, PortfolioSnapshot } from '../types';
+import { NotificationManager } from '../services/NotificationManager';
 
 export interface UserPreferences {
   language: string;
@@ -91,36 +93,7 @@ export interface WithdrawalItem {
   date: string;
 }
 
-export type NotificationCategory = 
-  | 'account' 
-  | 'security' 
-  | 'trading' 
-  | 'portfolio' 
-  | 'deposit' 
-  | 'withdrawal' 
-  | 'vault' 
-  | 'copy_trading' 
-  | 'swap' 
-  | 'referral' 
-  | 'system';
 
-export type NotificationPriority = 'low' | 'medium' | 'high' | 'critical';
-
-export interface NotificationItem {
-  id: string;
-  category: NotificationCategory;
-  priority: NotificationPriority;
-  title: string;
-  body: string;
-  createdAtTimestamp: number;
-  date: string;
-  read: boolean;
-  actionUrl?: string;
-  action?: string | null;
-  metadata?: Record<string, any>;
-  pinned?: boolean;
-  archived?: boolean;
-}
 
 export interface HistoryItem {
   id: string;
@@ -165,7 +138,7 @@ interface AuthContextType {
   archiveNotification: (id: string) => Promise<void>;
 
   notifications: NotificationItem[];
-  updateProfile: (dataOrDisplayName: Partial<User> | string, username?: string, email?: string) => Promise<void>;
+  updateProfile: (dataOrDisplayName: Partial<User> | string, username?: string, email?: string, silent?: boolean) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
   verifyCurrentPassword: (password: string) => Promise<boolean>;
 }
@@ -261,6 +234,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const userRef = useRef<User | null>(null);
+  const notificationManagerRef = useRef<NotificationManager | null>(null);
 
   useEffect(() => {
     userRef.current = user;
@@ -302,6 +276,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubSnapshots) { unsubSnapshots(); unsubSnapshots = null; }
 
       if (firebaseUser) {
+        notificationManagerRef.current = new NotificationManager(firebaseUser.uid);
+        notificationManagerRef.current.subscribe(setNotifications);
+
         // Retrieve and apply cached user profile immediately to avoid flickering
         const cachedUserStr = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
         if (cachedUserStr) {
@@ -328,7 +305,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               console.log("[AuthContext] User data updated from Firestore for uid:", firebaseUser.uid);
               const updatedUser = {
                 ...userData,
-                notificationsList: userData.notificationsList || [],
                 history: userData.history || [],
                 deposits: userData.deposits || [],
                 withdrawals: userData.withdrawals || [],
@@ -347,6 +323,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   maxDrawdown: 0,
                   recoveryFactor: 0,
                   riskAdjustedReturn: 0
+                },
+                aiSettings: userData.aiSettings || {
+                  copilotMode: 'copilot',
+                  maxActiveTrades: 3,
+                  riskProfile: 'Balanced',
+                  drawdownStopLimit: 2.5,
+                  maxCapitalExposure: 40,
+                  consecutiveLosses: 0
                 }
               } as User;
               setUser(prev => {
@@ -555,6 +539,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         accountStatus: 'Active',
         portfolioBalance: 0,
         availableBalance: 0,
+        vaultBalance: 0,
+        activeOffset: 0,
         totalProfit: 0,
         totalLoss: 0,
         totalDeposits: 0,
@@ -572,6 +558,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         },
         biometricEnabled: false,
         aiTradingEnabled: false,
+        aiSettings: {
+          copilotMode: 'copilot',
+          maxActiveTrades: 3,
+          riskProfile: 'Balanced',
+          drawdownStopLimit: 2.5,
+          maxCapitalExposure: 40,
+          consecutiveLosses: 0
+        },
         riskPreference: 'Moderate',
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
@@ -582,20 +576,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         deposits: [],
         withdrawals: [],
         portfolio: {
-          totalValue: 100000,
-          todayPnL: 1240.50,
-          todayPnLPercent: 1.25,
-          overallReturn: 15.4,
-          realizedPnL: 8450.20,
-          unrealizedPnL: 6950.30,
-          healthScore: 94,
-          diversificationScore: 88,
-          volatility: 12.4,
-          sharpeRatio: 2.1,
-          winRate: 68,
-          maxDrawdown: 8.5,
-          recoveryFactor: 3.2,
-          riskAdjustedReturn: 18.5
+          totalValue: 0,
+          todayPnL: 0,
+          todayPnLPercent: 0,
+          overallReturn: 0,
+          realizedPnL: 0,
+          unrealizedPnL: 0,
+          healthScore: 0,
+          diversificationScore: 0,
+          volatility: 0,
+          sharpeRatio: 0,
+          winRate: 0,
+          maxDrawdown: 0,
+          recoveryFactor: 0,
+          riskAdjustedReturn: 0
         },
         holdings: [
           { id: 'h-btc', ticker: 'BTC', name: 'Bitcoin', quantity: 0.85, avgEntry: 52000, currentPrice: 58000, marketValue: 49300, pnl: 5100, change24H: 2.5, allocationPct: 49.3, logoColor: 'from-amber-500 to-orange-600', logoText: '₿', aiDetails: "BTC accumulation phase strong. Support at $55k.", trend: [52000, 54000, 53500, 55000, 57000, 58000], riskRating: 'Low', confidenceScore: 94, lastAiDecision: 'HODL' },
@@ -698,6 +692,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               accountStatus: 'Active',
               portfolioBalance: 0,
               availableBalance: 0,
+              vaultBalance: 0,
+              activeOffset: 0,
               totalProfit: 0,
               totalLoss: 0,
               totalDeposits: 0,
@@ -851,9 +847,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (!auth.currentUser) {
         // Local state mutation
+        let isDup = false;
         setUser(prev => {
           if (!prev) return null;
-          const updatedNotifs = [newNotif, ...(prev.notificationsList || [])];
+          const notifs = prev.notificationsList || [];
+          isDup = notifs.some(n => n.category === category && n.title === title && n.body === body);
+          if (isDup) return prev;
+          const updatedNotifs = [newNotif, ...notifs];
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
           localStorage.setItem('aver_active_user', JSON.stringify(updated));
 
@@ -865,19 +865,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }
           return updated;
         });
-        setNotifications(prev => [newNotif, ...prev]);
+        if (isDup) return;
+        setNotifications(prev => {
+          if (prev.some(n => n.category === category && n.title === title && n.body === body)) {
+            return prev;
+          }
+          return [newNotif, ...prev];
+        });
         return;
       }
 
-      const userDocRef = doc(db, 'users', targetUserId);
-      try {
-        const { arrayUnion } = await import('firebase/firestore');
-        await updateDoc(userDocRef, {
-          notificationsList: arrayUnion(newNotif)
-        });
-      } catch (err) {
-        console.error("Failed to write notification to Firestore:", err);
-        handleFirestoreError(err, OperationType.UPDATE, `users/${targetUserId}`);
+      if (notificationManagerRef.current) {
+        await notificationManagerRef.current.addNotification(category, priority, title, body, actionUrl, action, metadata);
       }
     }
   }, []);
@@ -902,13 +901,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       try {
-        const userDocRef = doc(db, 'users', userRef.current.uid);
-        const docSnap = await getDoc(userDocRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const notifs = data.notificationsList || [];
-          const updatedNotifs = notifs.map(n => n.id === id ? { ...n, read: readState !== undefined ? readState : !n.read } : n);
-          await updateDoc(userDocRef, { notificationsList: updatedNotifs });
+        if (notificationManagerRef.current) {
+          await notificationManagerRef.current.markAsRead(id, readState);
         }
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${userRef.current.uid}`);
@@ -1140,6 +1134,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [addNotification]);
 
+function dataURLtoBlob(dataurl: string): Blob {
+  try {
+    const arr = dataurl.split(',');
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch (err) {
+    console.error("[AuthContext] Error in dataURLtoBlob conversion:", err);
+    throw new Error("Failed to process cropped image data format.");
+  }
+}
+
    const updateProfilePhoto = useCallback(async (file: File | string | null) => {
     console.log("[AuthContext] updateProfilePhoto called with type:", typeof file);
     if (userRef.current) {
@@ -1165,12 +1177,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               hasCustomPhoto: !!photoURL, 
               lastUpdated: new Date().toISOString() 
             } as User;
-            localStorage.setItem('aver_active_user', JSON.stringify(updated));
-            localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
+            
+            try {
+              localStorage.setItem('aver_active_user', JSON.stringify(updated));
+              localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
+            } catch (storageErr) {
+              console.warn("[AuthContext] Failed to cache user profile in localStorage (quota exceeded fallback):", storageErr);
+            }
 
-            const dbList = getLocalDB();
-            const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
-            if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
+            try {
+              const dbList = getLocalDB();
+              const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
+              if (idx !== -1) { 
+                dbList[idx].profile = updated; 
+                saveLocalDB(dbList); 
+              }
+            } catch (dbErr) {
+              console.warn("[AuthContext] Failed to save updated profile to local database:", dbErr);
+            }
             return updated;
           });
           
@@ -1213,10 +1237,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           console.log("[AuthContext] updateProfilePhoto: Converting data string to Blob for upload");
           
           try {
-            // More robust conversion of data URL to Blob
-            const response = await fetch(file);
-            const blob = await response.blob();
-            console.log("[AuthContext] updateProfilePhoto: Blob created, size:", blob.size);
+            // Synchronous, iframe-safe conversion avoiding any network hang in fetch()
+            const blob = dataURLtoBlob(file);
+            console.log("[AuthContext] updateProfilePhoto: Blob created synchronously, size:", blob.size);
             
             console.log("[AuthContext] updateProfilePhoto: Uploading Blob to storage");
             await uploadBytes(storageRef, blob);
@@ -1254,8 +1277,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           // Force an immediate UI update before the snapshot listener triggers
           setUser(prev => {
             if (!prev) return null;
-            const updated = { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
-            localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
+            const updated = { 
+              ...prev, 
+              profilePhotoURL: photoURL,
+              avatarUrl: photoURL,
+              hasCustomPhoto: true, 
+              lastUpdated: new Date().toISOString() 
+            } as User;
+            try {
+              localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
+              localStorage.setItem('aver_active_user', JSON.stringify(updated));
+            } catch (storageErr) {
+              console.warn("[AuthContext] Failed to cache user profile in localStorage (quota exceeded fallback):", storageErr);
+            }
             return updated;
           });
 
@@ -1460,7 +1494,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [addNotification]);
 
-  const updateProfile = useCallback(async (dataOrDisplayName: Partial<User> | string, username?: string, email?: string) => {
+  const updateProfile = useCallback(async (dataOrDisplayName: Partial<User> | string, username?: string, email?: string, silent?: boolean) => {
     if (userRef.current) {
       if (!auth.currentUser) {
         setUser(prev => {
@@ -1482,17 +1516,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return updated;
         });
 
-        let body = 'Your profile information has been successfully updated.';
-        if (email && email !== userRef.current.email) {
-          body = 'Your email address has been successfully updated.';
-        }
+        if (!silent) {
+          let body = 'Your profile information has been successfully updated.';
+          if (email && email !== userRef.current.email) {
+            body = 'Your email address has been successfully updated.';
+          }
 
-        await addNotification(
-          'account',
-          'medium',
-          'Profile Updated',
-          body
-        );
+          await addNotification(
+            'account',
+            'medium',
+            'Profile Updated',
+            body
+          );
+        }
         return;
       }
 
@@ -1515,17 +1551,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const oldProfile = userRef.current;
       await updateDoc(userDocRef, updates);
 
-      let body = 'Your profile information has been successfully updated.';
-      if (email && email !== oldProfile.email) {
-        body = 'Your email address has been successfully updated.';
-      }
+      if (!silent) {
+        let body = 'Your profile information has been successfully updated.';
+        if (email && email !== oldProfile.email) {
+          body = 'Your email address has been successfully updated.';
+        }
 
-      await addNotification(
-        'account',
-        'medium',
-        'Profile Updated',
-        body
-      );
+        await addNotification(
+          'account',
+          'medium',
+          'Profile Updated',
+          body
+        );
+      }
     }
   }, [addNotification]);
 

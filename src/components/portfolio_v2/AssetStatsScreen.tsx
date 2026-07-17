@@ -6,9 +6,10 @@ import {
 } from 'lucide-react';
 
 interface AssetStatsScreenProps {
+  key?: React.Key;
   theme: 'light' | 'dark';
   onBack: () => void;
-  calculatedTotalValue: number;
+  activeTradingBalance: number;
   allocations: Array<{
     ticker: string;
     name: string;
@@ -20,7 +21,7 @@ interface AssetStatsScreenProps {
 export default function AssetStatsScreen({
   theme,
   onBack,
-  calculatedTotalValue,
+  activeTradingBalance,
   allocations
 }: AssetStatsScreenProps) {
   const isDark = theme === 'dark';
@@ -35,7 +36,7 @@ export default function AssetStatsScreen({
     let cashValue = 0;
 
     allocations.forEach(a => {
-      const val = (a as any).valuation || (calculatedTotalValue * (a.percentage / 100));
+      const val = (a as any).valuation || (activeTradingBalance * (a.percentage / 100));
       if (['BTC', 'ETH', 'SOL'].includes(a.ticker)) {
         cryptoValue += val;
       } else if (['AAPL', 'ETFs'].includes(a.ticker)) {
@@ -48,7 +49,7 @@ export default function AssetStatsScreen({
     });
 
     const totalCalculated = cryptoValue + equityValue + metalsValue + cashValue;
-    const finalTotal = totalCalculated > 0 ? totalCalculated : calculatedTotalValue;
+    const finalTotal = totalCalculated > 0 ? totalCalculated : activeTradingBalance;
 
     const cryptoPct = finalTotal > 0 ? (cryptoValue / finalTotal) * 100 : 0;
     const equityPct = finalTotal > 0 ? (equityValue / finalTotal) * 100 : 0;
@@ -61,7 +62,7 @@ export default function AssetStatsScreen({
       { name: 'Precious Metals', percentage: Math.round(metalsPct), color: '#eab308', value: metalsValue },
       { name: 'Cash Reserves', percentage: Math.round(cashPct), color: '#6b7280', value: cashValue },
     ].sort((a, b) => b.percentage - a.percentage);
-  }, [allocations, calculatedTotalValue]);
+  }, [allocations, activeTradingBalance]);
 
   // Dynamic Performance metrics derived from actual allocations
   const performanceList = useMemo(() => {
@@ -75,7 +76,7 @@ export default function AssetStatsScreen({
       else if (a.ticker === 'Gold') roiPct = 3.1;
       else roiPct = 0.0;
 
-      const val = (a as any).valuation || (calculatedTotalValue * (a.percentage / 100));
+      const val = (a as any).valuation || (activeTradingBalance * (a.percentage / 100));
       const pnlAmount = val * (roiPct / 100);
       const roiSign = roiPct > 0 ? '+' : '';
       const pnlSign = pnlAmount > 0 ? '+$' : pnlAmount < 0 ? '-$' : '$';
@@ -88,7 +89,7 @@ export default function AssetStatsScreen({
         status: roiPct > 0 ? 'gain' : roiPct < 0 ? 'loss' : 'flat'
       };
     });
-  }, [allocations, calculatedTotalValue]);
+  }, [allocations, activeTradingBalance]);
 
   // Simulated Closed Positions
   const closedPositions = [
@@ -119,6 +120,7 @@ export default function AssetStatsScreen({
 
   return (
     <motion.div 
+      layoutId="stats-card-container"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -135,10 +137,13 @@ export default function AssetStatsScreen({
               <ArrowLeft className={`w-4 h-4 ${isDark ? 'text-slate-200' : 'text-slate-700'}`} />
             </button>
             <div>
-              <h1 className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} flex items-center gap-1.5`}>
+              <motion.h1 
+                layoutId="stats-title"
+                className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} flex items-center gap-1.5`}
+              >
                 <PieChart className="w-4 h-4 text-[#00D09C]" />
                 Portfolio Statistics
-              </h1>
+              </motion.h1>
               <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest block leading-none">
                 Institutional Capital Analytics
               </span>
@@ -226,12 +231,12 @@ export default function AssetStatsScreen({
                       <>
                         <span className="text-[9px] text-slate-400 uppercase font-semibold tracking-wider">{allocations[hoveredIndex].name}</span>
                         <span className="text-xl font-extrabold text-white font-mono">{allocations[hoveredIndex].percentage}%</span>
-                        <span className="text-[9px] text-[#00D09C] font-mono">${Math.round(calculatedTotalValue * (allocations[hoveredIndex].percentage / 100)).toLocaleString()}</span>
+                        <span className="text-[9px] text-[#00D09C] font-mono">${Math.round(activeTradingBalance * (allocations[hoveredIndex].percentage / 100)).toLocaleString()}</span>
                       </>
                     ) : (
                       <>
                         <span className="text-[9px] text-slate-400 uppercase font-semibold tracking-wider">AUM Capital</span>
-                        <span className="text-sm font-extrabold text-white">${calculatedTotalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span className="text-sm font-extrabold text-white">${activeTradingBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                         <span className="text-[8px] text-[#00D09C] uppercase font-bold tracking-widest mt-0.5">8 Asset Pairs</span>
                       </>
                     )}
@@ -242,7 +247,7 @@ export default function AssetStatsScreen({
                 <div className="space-y-2 pt-2">
                   {allocations.map((alloc, idx) => {
                     const isHovered = hoveredIndex === idx;
-                    const value = Math.round(calculatedTotalValue * (alloc.percentage / 100));
+                    const value = Math.round(activeTradingBalance * (alloc.percentage / 100));
                     
                     return (
                       <div 

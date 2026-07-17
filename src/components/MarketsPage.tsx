@@ -1,9 +1,102 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Search, SlidersHorizontal, QrCode, TrendingUp, TrendingDown, Star, ChevronRight } from 'lucide-react';
+import { Search, SlidersHorizontal, QrCode, TrendingUp, TrendingDown, Star, ChevronRight, Newspaper } from 'lucide-react';
 import CoinLogo from './CoinLogo';
+import { useAuth } from '../contexts/AuthContext';
+import { usePreferences } from '../contexts/PreferencesContext';
 
 export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' | 'dark', onSelectAsset: (asset: any) => void }) {
+  const { user, updateProfile } = useAuth();
+  const { formatCurrency } = usePreferences();
+  
+  const [assets, setAssets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [news, setNews] = useState<any[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  
+  const fetchAssets = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22ADAUSDT%22,%22XRPUSDT%22,%22SOLUSDT%22,%22DOGEUSDT%22,%22AVAXUSDT%22,%22LINKUSDT%22,%22BNBUSDT%22,%22FETUSDT%22%5D');
+      const data = await res.json();
+      const mapped = data.map((d: any) => {
+        const symbol = d.symbol.replace('USDT', '');
+        const isPositive = parseFloat(d.priceChangePercent) >= 0;
+        return {
+          symbol,
+          name: symbol === 'BTC' ? 'Bitcoin' : symbol === 'ETH' ? 'Ethereum' : symbol === 'ADA' ? 'Cardano' : symbol === 'XRP' ? 'Ripple' : symbol === 'SOL' ? 'Solana' : symbol === 'DOGE' ? 'Dogecoin' : symbol === 'AVAX' ? 'Avalanche' : symbol === 'BNB' ? 'Binance Coin' : symbol === 'FET' ? 'Artificial Superintelligence Alliance' : 'Chainlink',
+          price: parseFloat(d.lastPrice),
+          change: (isPositive ? '+' : '') + parseFloat(d.priceChangePercent).toFixed(2) + '%',
+          isPositive,
+          rawPrice: parseFloat(d.lastPrice)
+        };
+      });
+      setAssets(mapped);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchNews = async () => {
+    try {
+      setNewsLoading(true);
+      const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fcointelegraph.com%2Frss');
+      const data = await res.json();
+      if (data.items) {
+        const mappedNews = data.items.slice(0, 5).map((item: any) => {
+          const diffMs = Date.now() - new Date(item.pubDate).getTime();
+          const hours = Math.floor(diffMs / 3600000);
+          const time = hours > 0 ? `${hours}h ago` : 'Just now';
+          
+          let relatedAsset = null;
+          const text = (item.title + " " + (item.description || "")).toUpperCase();
+          if (text.includes('BITCOIN') || text.includes('BTC')) relatedAsset = 'BTC';
+          else if (text.includes('ETHEREUM') || text.includes('ETH')) relatedAsset = 'ETH';
+          else if (text.includes('SOLANA') || text.includes('SOL')) relatedAsset = 'SOL';
+          else if (text.includes('RIPPLE') || text.includes('XRP')) relatedAsset = 'XRP';
+          else if (text.includes('CARDANO') || text.includes('ADA')) relatedAsset = 'ADA';
+
+          return {
+            headline: item.title,
+            source: item.author || 'Cointelegraph',
+            time,
+            link: item.link,
+            relatedAsset
+          };
+        });
+        setNews(mappedNews);
+      }
+    } catch (err) {
+      console.error("Error fetching news:", err);
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchAssets();
+    fetchNews();
+    const assetsInterval = setInterval(fetchAssets, 30000); // 30s refresh
+    const newsInterval = setInterval(fetchNews, 60000); // 60s refresh
+    return () => {
+      clearInterval(assetsInterval);
+      clearInterval(newsInterval);
+    };
+  }, []);
+
+  const toggleWatchlist = async (e: React.MouseEvent, symbol: string) => {
+    e.stopPropagation();
+    if (!user) return;
+    const currentList = user.watchlist || [];
+    const newList = currentList.includes(symbol) 
+      ? currentList.filter(s => s !== symbol) 
+      : [...currentList, symbol];
+    await updateProfile({ watchlist: newList } as any, undefined, undefined, true);
+  };
+
   const isDark = theme === 'dark';
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
@@ -12,19 +105,23 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   const categories = ['All', 'Favorites', 'Trending', 'Gainers', 'Losers', 'AI Picks', 'New Listings'];
   const [activeCategory, setActiveCategory] = useState('All');
 
-  const assets = [
-    { symbol: 'BTC', name: 'Bitcoin', price: '$118,423.20', change: '+2.84%', isPositive: true },
-    { symbol: 'ETH', name: 'Ethereum', price: '$4,230.20', change: '-1.12%', isPositive: false },
-    { symbol: 'SOL', name: 'Solana', price: '$145.60', change: '+5.45%', isPositive: true },
-    { symbol: 'AVR', name: 'Aver', price: '$1.24', change: '+12.4%', isPositive: true },
-    { symbol: 'BNB', name: 'Binance Coin', price: '$586.30', change: '+0.45%', isPositive: true },
-    { symbol: 'XRP', name: 'Ripple', price: '$1.82', change: '-2.15%', isPositive: false },
-    { symbol: 'ADA', name: 'Cardano', price: '$0.98', change: '+1.15%', isPositive: true },
-    { symbol: 'DOGE', name: 'Dogecoin', price: '$0.34', change: '+8.42%', isPositive: true },
-    { symbol: 'AVAX', name: 'Avalanche', price: '$42.50', change: '-3.12%', isPositive: false },
-    { symbol: 'FET', name: 'Artificial Superintelligence Alliance', price: '$2.15', change: '+15.7%', isPositive: true },
-    { symbol: 'LINK', name: 'Chainlink', price: '$18.40', change: '+4.20%', isPositive: true },
-  ];
+  const filteredAssets = assets.filter(asset => {
+    const matchesSearch = asset.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          asset.name.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (activeCategory === 'Favorites') {
+      return user?.watchlist?.includes(asset.symbol);
+    } else if (activeCategory === 'Gainers') {
+      return asset.isPositive;
+    } else if (activeCategory === 'Losers') {
+      return !asset.isPositive;
+    }
+    return true;
+  });
+
+  const watchlistSymbols = user?.watchlist || [];
+  const watchlistAssets = assets.filter(asset => watchlistSymbols.includes(asset.symbol));
 
   return (
     <div className="pt-[73px] flex-1 flex flex-col">
@@ -48,9 +145,11 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
           <input 
-            type="text" 
-            placeholder="Search BTC, ETH, SOL..." 
-            className={`w-full pl-11 pr-4 py-3.5 rounded-2xl text-sm font-medium ${isDark ? 'bg-slate-900/50 border-white/5 text-white' : 'bg-white border-slate-200 text-slate-900'} border focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all`}
+             type="text" 
+             value={searchQuery}
+             onChange={(e) => setSearchQuery(e.target.value)}
+             placeholder="Search BTC, ETH, SOL..." 
+             className={`w-full pl-11 pr-4 py-3.5 rounded-2xl text-sm font-medium ${isDark ? 'bg-slate-900/50 border-white/5 text-white' : 'bg-white border-slate-200 text-slate-900'} border focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all`}
           />
         </div>
       </div>
@@ -68,71 +167,191 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
         ))}
       </div>
 
-      {/* 4. FEATURED MARKET BANNER */}
-      <div className="px-4 py-2">
-        <div className="rounded-[28px] overflow-hidden relative bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-600 p-6 text-white shadow-xl shadow-emerald-500/10 group cursor-pointer active:scale-[0.98] transition-transform">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 blur-[40px] rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform" />
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2">
-              <Star className="w-4 h-4 fill-white" />
-              <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Featured Asset</span>
-            </div>
-            <h3 className="text-2xl font-black mb-1 tracking-tight">Top Gainer: Aver (AVR)</h3>
-            <p className="text-sm text-white/90 mb-4 max-w-[240px] leading-relaxed font-medium">Aver is leading the market today with a massive 12.4% gain in 24 hours.</p>
-            <div className="flex items-center gap-2 text-xs font-black bg-white/20 w-fit px-3 py-1.5 rounded-lg border border-white/20">
-              Trade Now <ChevronRight className="w-3 h-3" />
-            </div>
+      {/* 4. WATCHLIST */}
+      {user && activeCategory !== 'Favorites' && (
+        <div className="px-4 py-2">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary} flex items-center gap-1.5`}>
+              <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+              Your Watchlist
+            </h3>
+            <span className="text-[11px] font-bold text-emerald-500">
+              {watchlistAssets.length} tracked
+            </span>
           </div>
+
+          {watchlistAssets.length === 0 ? (
+            <div className={`rounded-2xl p-6 text-center border border-dashed ${isDark ? 'border-white/10 bg-slate-900/10' : 'border-slate-200 bg-slate-50'}`}>
+              <Star className="w-6 h-6 text-slate-500 mx-auto mb-2 opacity-40" />
+              <p className={`text-xs font-bold ${textPrimary} mb-0.5`}>Watchlist is empty</p>
+              <p className="text-[10px] text-gray-500 max-w-[240px] mx-auto">
+                Tap the star icon next to assets to monitor them here.
+              </p>
+            </div>
+          ) : (
+            <div className={`rounded-[20px] overflow-hidden ${cardClasses} shadow-sm`}>
+              {watchlistAssets.map((asset, i) => (
+                <div 
+                  key={`watch-${asset.symbol}`}
+                  onClick={() => onSelectAsset(asset)}
+                  className={`flex items-center justify-between p-3.5 cursor-pointer transition-colors ${
+                    i !== watchlistAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''
+                  } ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <CoinLogo symbol={asset.symbol} size={24} />
+                    <div>
+                      <p className={`font-black text-xs sm:text-sm tracking-tight ${textPrimary}`}>{asset.name}</p>
+                      <p className={`text-[9px] font-bold ${textSecondary} uppercase`}>{asset.symbol}</p>
+                    </div>
+                  </div>
+
+                  <div className="hidden sm:block w-20 h-6">
+                    <svg className="w-full h-full" viewBox="0 0 100 40">
+                      <path 
+                        d={asset.isPositive ? "M0,35 C20,30 40,38 60,15 C80,10 90,20 100,10" : "M0,10 C20,15 40,5 60,30 C80,35 90,25 100,35"} 
+                        fill="none" 
+                        stroke={asset.isPositive ? "#10b981" : "#ef4444"} 
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className={`font-black text-xs sm:text-sm ${textPrimary}`}>{formatCurrency(asset.price)}</p>
+                      <p className={`text-[9px] font-black ${asset.isPositive ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {asset.change}
+                      </p>
+                    </div>
+                    <button 
+                      onClick={(e) => toggleWatchlist(e, asset.symbol)}
+                      className="p-1"
+                    >
+                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. LIVE MARKET LIST */}
+      <div className="px-4 py-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary}`}>
+            {activeCategory === 'Favorites' ? 'Your Favorites' : 'Market Overview'}
+          </h3>
+          <span className="text-[11px] font-bold text-gray-500">
+            {filteredAssets.length} assets
+          </span>
+        </div>
+        <div className={`rounded-[24px] overflow-hidden ${cardClasses} shadow-xl`}>
+          {loading && filteredAssets.length === 0 ? (
+            <div className="p-8 text-center text-xs text-gray-500">Retrieving digital assets...</div>
+          ) : filteredAssets.length === 0 ? (
+            <div className="p-8 text-center text-xs text-gray-500">No assets matching criteria.</div>
+          ) : (
+            filteredAssets.map((asset, i) => (
+              <motion.div 
+                key={`${asset.symbol}-${i}`} 
+                onClick={() => onSelectAsset(asset)} 
+                whileTap={{ scale: 0.98 }}
+                className={`flex items-center justify-between p-5 cursor-pointer transition-colors ${i !== filteredAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''} ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={(e) => toggleWatchlist(e, asset.symbol)}
+                    className="p-1 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Star className={`w-4 h-4 ${user?.watchlist?.includes(asset.symbol) ? 'fill-amber-500 text-amber-500' : 'text-slate-500'}`} />
+                  </button>
+                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${isDark ? 'bg-slate-800' : 'bg-slate-100 shadow-inner'}`}>
+                    <CoinLogo symbol={asset.symbol} size={28} />
+                  </div>
+                  <div>
+                    <p className={`font-black text-sm tracking-tight ${textPrimary}`}>{asset.name}</p>
+                    <p className={`text-[11px] font-bold ${textSecondary} uppercase tracking-wider`}>{asset.symbol}</p>
+                  </div>
+                </div>
+                <div className="text-right flex items-center gap-4">
+                  <div className="hidden sm:block w-24 h-10">
+                     <svg className="w-full h-full" viewBox="0 0 100 40">
+                      <path 
+                        d={asset.isPositive ? "M0,35 C20,30 40,38 60,15 C80,10 90,20 100,10" : "M0,10 C20,15 40,5 60,30 C80,35 90,25 100,35"} 
+                        fill="none" 
+                        stroke={asset.isPositive ? "#10b981" : "#ef4444"} 
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className={`font-black text-sm ${textPrimary}`}>{formatCurrency(asset.price)}</p>
+                    <p className={`text-[11px] font-black ${asset.isPositive ? 'text-emerald-500' : 'text-red-500'} flex items-center justify-end gap-1`}>
+                      {asset.isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                      {asset.change}
+                    </p>
+                  </div>
+                  <ChevronRight size={16} className="text-gray-600" />
+                </div>
+              </motion.div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* 5. LIVE MARKET LIST */}
-      <div className="px-4 py-6">
+      {/* 6. MARKET NEWS */}
+      <div className="px-4 py-6 pb-24">
         <div className="flex items-center justify-between mb-4">
-          <h3 className={`text-lg font-black tracking-tight ${textPrimary}`}>Market Overview</h3>
-          <button className="text-xs font-bold text-emerald-500">View All</button>
+          <h3 className={`text-lg font-black tracking-tight ${textPrimary} flex items-center gap-2`}>
+            <Newspaper className="w-5 h-5 text-indigo-500" />
+            Financial Intelligence
+          </h3>
+          <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+            Auto-Updated
+          </span>
         </div>
-        <div className={`rounded-[24px] overflow-hidden ${cardClasses} shadow-xl`}>
-          {assets.map((asset, i) => (
-            <motion.div 
-              key={`${asset.symbol}-${i}`} 
-              onClick={() => onSelectAsset(asset)} 
-              whileTap={{ scale: 0.98 }}
-              className={`flex items-center justify-between p-5 cursor-pointer transition-colors ${i !== assets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''} ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${isDark ? 'bg-slate-800' : 'bg-slate-100 shadow-inner'}`}>
-                  <CoinLogo symbol={asset.symbol} size={28} />
+
+        {newsLoading ? (
+          <div className={`rounded-3xl p-8 text-center ${cardClasses} animate-pulse`}>
+            <p className="text-xs text-gray-500">Retrieving institutional headlines...</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {news.map((item, i) => (
+              <div 
+                key={`news-${i}`} 
+                onClick={() => window.open(item.link, '_blank')}
+                className={`rounded-[24px] p-5 cursor-pointer border hover:border-emerald-500/30 transition-all ${cardClasses}`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-500 font-mono tracking-wider">{item.source}</span>
+                    {item.relatedAsset && (
+                      <span className="text-[9px] bg-emerald-500/10 text-emerald-500 font-black px-1.5 py-0.5 rounded uppercase">
+                        {item.relatedAsset}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-gray-500">{item.time}</span>
                 </div>
-                <div>
-                  <p className={`font-black text-sm tracking-tight ${textPrimary}`}>{asset.name}</p>
-                  <p className={`text-[11px] font-bold ${textSecondary} uppercase tracking-wider`}>{asset.symbol}</p>
+                <h4 className={`text-sm font-bold leading-snug ${textPrimary} hover:text-emerald-500 transition-colors mb-2 line-clamp-2`}>
+                  {item.headline}
+                </h4>
+                <div className="flex justify-end">
+                  <span className="text-xs text-emerald-500 font-bold hover:underline flex items-center gap-0.5">
+                    Read Article <ChevronRight size={12} />
+                  </span>
                 </div>
               </div>
-              <div className="text-right flex items-center gap-4">
-                <div className="hidden sm:block w-24 h-10">
-                   <svg className="w-full h-full" viewBox="0 0 100 40">
-                    <path 
-                      d={asset.isPositive ? "M0,35 C20,30 40,38 60,15 C80,10 90,20 100,10" : "M0,10 C20,15 40,5 60,30 C80,35 90,25 100,35"} 
-                      fill="none" 
-                      stroke={asset.isPositive ? "#10b981" : "#ef4444"} 
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <p className={`font-black text-sm ${textPrimary}`}>{asset.price}</p>
-                  <p className={`text-[11px] font-black ${asset.isPositive ? 'text-emerald-500' : 'text-red-500'} flex items-center justify-end gap-1`}>
-                    {asset.isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                    {asset.change}
-                  </p>
-                </div>
-                <ChevronRight size={16} className="text-gray-600" />
-              </div>
-            </motion.div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 8. FLOATING ACTION BUTTON */}

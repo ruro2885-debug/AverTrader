@@ -1,5 +1,19 @@
 {
   "entities": {
+    "Account": {
+      "title": "Account",
+      "description": "User master financial account",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "availableBalance": { "type": "number" },
+        "reservedBalance": { "type": "number" },
+        "vaultBalance": { "type": "number" },
+        "referralEarnings": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "availableBalance", "reservedBalance", "vaultBalance", "referralEarnings", "updatedAt"]
+    },
     "User": {
       "title": "User",
       "description": "User profile information",
@@ -120,13 +134,154 @@
         "exposure": { "type": "number" }
       },
       "required": ["id", "timestamp", "totalValue"]
+    },
+    "AiSession": {
+      "title": "AiSession",
+      "description": "AI Trading Session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "marketsScanned": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "userId", "status", "startTime"]
+    },
+    "AiPreference": {
+      "title": "AiPreference",
+      "description": "User AI configuration profile",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "preferredMarkets": { "type": "array", "items": { "type": "string" } },
+        "assetClasses": { "type": "array", "items": { "type": "string" } },
+        "riskProfile": { "type": "string" },
+        "tradingStyle": { "type": "string" },
+        "maxSimultaneousRecommendations": { "type": "number" },
+        "defaultPositionSizing": { "type": "string" },
+        "defaultPositionSize": { "type": "number" },
+        "marketScanFrequency": { "type": "number" }
+      },
+      "required": ["userId"]
+    },
+    "AiRecommendation": {
+      "title": "AiRecommendation",
+      "description": "AI generated trade recommendation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "userId": { "type": "string" },
+        "asset": { "type": "string" },
+        "currentPrice": { "type": "number" },
+        "suggestedAction": { "type": "string" },
+        "entry": { "type": "number" },
+        "stopLoss": { "type": "number" },
+        "takeProfit": { "type": "number" },
+        "riskRating": { "type": "string" },
+        "confidence": { "type": "number" },
+        "holdingWindow": { "type": "string" },
+        "volatility": { "type": "string" },
+        "explanation": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "sessionId", "userId", "asset", "status", "createdAt"]
+    },
+    "TradingEngineConfig": {
+      "title": "TradingEngineConfig",
+      "description": "User AI trading engine settings",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "riskLevel": { "type": "string" },
+        "maxAllocation": { "type": "number" },
+        "leverage": { "type": "number" },
+        "takeProfitPct": { "type": "number" },
+        "stopLossPct": { "type": "number" },
+        "rebalanceFrequency": { "type": "string" },
+        "autoCompound": { "type": "boolean" },
+        "trailingStop": { "type": "boolean" },
+        "assetPreference": { "type": "array", "items": { "type": "string" } },
+        "tradingSchedule": { "type": "string" },
+        "maxConcurrentTrades": { "type": "number" },
+        "newsFilter": { "type": "boolean" },
+        "volatilityFilter": { "type": "boolean" },
+        "copyTradingSource": { "type": "string" },
+        "status": { "type": "string" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "version": { "type": "string" }
+      },
+      "required": ["userId", "status", "lastUpdated", "version"]
+    },
+    "Position": {
+      "title": "Position",
+      "description": "Active trading position",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "ticker": { "type": "string" },
+        "entryPrice": { "type": "number" },
+        "quantity": { "type": "number" },
+        "status": { "type": "string" },
+        "side": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "ticker", "entryPrice", "quantity", "status", "side", "createdAt"]
+    },
+    "TraderProfile": {
+      "title": "TraderProfile",
+      "description": "Trader performance profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "rank": { "type": "number" },
+        "username": { "type": "string" },
+        "avatar": { "type": "string" },
+        "return30d": { "type": "number" },
+        "overallReturn": { "type": "number" },
+        "winRate": { "type": "number" },
+        "lossRate": { "type": "number" },
+        "strategy": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "followers": { "type": "number" },
+        "riskRating": { "type": "string" },
+        "equityCurve": { "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["id", "username", "return30d", "overallReturn", "winRate", "lossRate", "followers", "riskRating"]
+    },
+    "ActivityEvent": {
+      "title": "ActivityEvent",
+      "description": "User activity timeline event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "metadata": { "type": "object" }
+      },
+      "required": ["id", "userId", "type", "message", "timestamp"]
     }
   },
   "firestore": {
     "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/users/{uid}/account/master": { "schema": "Account", "description": "User master financial account" },
     "/users/{uid}/holdings/{holdingId}": { "schema": "Holding", "description": "User portfolio holdings" },
     "/users/{uid}/trades/{tradeId}": { "schema": "Trade", "description": "User trade records" },
     "/users/{uid}/snapshots/{snapshotId}": { "schema": "Snapshot", "description": "User portfolio history snapshots" },
+    "/users/{uid}/aiPreferences/default": { "schema": "AiPreference", "description": "User AI preferences" },
+    "/users/{uid}/tradingConfig/default": { "schema": "TradingEngineConfig", "description": "User AI engine config" },
+    "/users/{uid}/positions/{positionId}": { "schema": "Position", "description": "Active positions" },
+    "/traderProfiles/{traderId}": { "schema": "TraderProfile", "description": "Trader profiles" },
+    "/users/{uid}/activity/{eventId}": { "schema": "ActivityEvent", "description": "User activity log" },
+    "/aiSessions/{sessionId}": { "schema": "AiSession", "description": "AI trading sessions" },
+    "/aiRecommendations/{recId}": { "schema": "AiRecommendation", "description": "AI recommendations" },
     "/bonuses/{bonusId}": { "schema": "Bonus", "description": "Bonus templates" },
     "/userBonuses/{uid}/{bonusId}": { "schema": "UserBonus", "description": "User bonus status" },
     "/bonusHistory/{eventId}": { "schema": "BonusHistory", "description": "Bonus audit log" },

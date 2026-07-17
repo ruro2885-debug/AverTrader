@@ -7,9 +7,10 @@ import {
 } from 'lucide-react';
 
 interface VaultScreenProps {
+  key?: React.Key;
   theme: 'light' | 'dark';
   onBack: () => void;
-  calculatedTotalValue: number;
+  activeTradingBalance: number;
   showNotification: (msg: string) => void;
   vaultBalance: number;
   setVaultBalance: React.Dispatch<React.SetStateAction<number>>;
@@ -20,7 +21,7 @@ interface VaultScreenProps {
 export default function VaultScreen({
   theme,
   onBack,
-  calculatedTotalValue,
+  activeTradingBalance,
   showNotification,
   vaultBalance,
   setVaultBalance,
@@ -63,7 +64,7 @@ export default function VaultScreen({
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(true);
   const [volatilityReserveEnabled, setVolatilityReserveEnabled] = useState<boolean>(false);
 
-  const activeCapital = Math.max(0, calculatedTotalValue - vaultBalance);
+  const activeCapital = Math.max(0, activeTradingBalance);
 
   // Hardcoded premium protected assets breakdown
   const protectedAssets = [
@@ -252,6 +253,7 @@ export default function VaultScreen({
 
   return (
     <motion.div 
+      layoutId="vault-card-container"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -276,10 +278,13 @@ export default function VaultScreen({
             <ArrowLeft className={`w-4 h-4 ${isDark ? 'text-slate-200' : 'text-slate-700'}`} />
           </button>
           <div>
-            <h1 className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} flex items-center gap-1.5`}>
+            <motion.h1 
+              layoutId="vault-title"
+              className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} flex items-center gap-1.5`}
+            >
               <Shield className="w-4 h-4 text-[#00D09C]" />
               Aver Private Vault
-            </h1>
+            </motion.h1>
             <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest block leading-none">
               Sovereign Savings System
             </span>

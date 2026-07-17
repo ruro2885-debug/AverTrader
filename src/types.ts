@@ -10,6 +10,8 @@ export interface UserProfile {
   accountStatus: string;
   portfolioBalance: number;
   availableBalance: number;
+  vaultBalance: number;
+  activeOffset: number;
   totalProfit: number;
   totalLoss: number;
   totalDeposits: number;
@@ -21,8 +23,17 @@ export interface UserProfile {
   theme: string;
   notificationSettings: Record<string, boolean>;
   hasCustomPhoto?: boolean;
+  avatarSeed?: string;
   biometricEnabled: boolean;
   aiTradingEnabled: boolean;
+  aiSettings?: {
+    copilotMode: 'copilot' | 'autonomous';
+    maxActiveTrades: number;
+    riskProfile: 'Conservative' | 'Balanced' | 'Tactical';
+    drawdownStopLimit: number;
+    maxCapitalExposure: number;
+    consecutiveLosses: number;
+  };
   riskPreference: string;
   currency?: string;
   rememberMeEnabled?: boolean;
@@ -32,6 +43,7 @@ export interface UserProfile {
   onboardingCompleted?: boolean;
   bonuses?: any[];
   kycStatus?: 'unverified' | 'pending' | 'verified';
+  watchlist?: string[];
 }
 
 export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';
