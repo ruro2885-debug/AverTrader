@@ -56,7 +56,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   const { user, updateProfile, addNotification } = useAuth();
   const { activeTradingBalance, addFundsToActiveBalance } = useFinancials();
   const { preferences, formatCurrency } = usePreferences();
-  const { config: engineConfig, positions, trades: engineTrades, activity: engineActivity, updateConfig, logActivity } = useContext(TradingEngineContext);
+  const { config: engineConfig, positions, trades: engineTrades, activity: engineActivity, updateConfig, logActivity, liveTradePrices } = useContext(TradingEngineContext);
   const isDark = theme === 'dark';
 
   // Navigation state (restored from localStorage)
@@ -74,7 +74,6 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   const [loading, setLoading] = useState(false);
 
   // Live simulation and thinking engine states
-  const [liveTradePrices, setLiveTradePrices] = useState<Record<string, number>>({});
   const [liveAssetStates, setLiveAssetStates] = useState<Record<string, string>>({
     BTC: 'Ready',
     ETH: 'Ready',
@@ -395,34 +394,34 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     "Ready Again"
   ];
 
-  // Simulated live loop for real-time engine events, live ticks, and autonomous trading
+  // Simulated live loop for real-time visual telemetry and neural engine stats
   useEffect(() => {
-    if (!session || session.status !== 'ACTIVE' || !user) return;
+    if (!session || session.status !== 'ACTIVE' || !user) {
+      setEngineState('IDLE');
+      return;
+    }
 
     const activeConfig = configs.find(c => c.id === activeConfigId) || configs[0];
     if (!activeConfig) return;
 
-    // 1. HIGH-FREQUENCY LIVE PRICES TICKER (Every 1 second)
-    const tickInterval = setInterval(() => {
-      // Fluctuate active trade prices
-      setLiveTradePrices(prev => {
-        const next = { ...prev };
-        activeTrades.forEach(trade => {
-          const basePrice = next[trade.id] || trade.entry;
-          // Small realistic high-frequency tick (+/- 0.05%)
-          const fluctuation = (Math.random() - 0.5) * 0.001 * basePrice;
-          next[trade.id] = parseFloat((basePrice + fluctuation).toFixed(2));
-        });
-        return next;
-      });
+    setEngineState('SCANNING');
 
-      // Update telemetry
+    // 1. TELEMETRY & STATS UPDATER (Every 1.5 seconds)
+    const telemetryInterval = setInterval(() => {
       setCpuUsage(prev => {
         const target = activeTrades.length > 0 ? 68.4 : 32.1;
         const delta = (Math.random() - 0.5) * 6;
         return parseFloat(Math.max(1, Math.min(99, prev + (target - prev) * 0.12 + delta)).toFixed(1));
       });
-    }, 1000);
+
+      setMemoryUsage(prev => {
+        const target = activeTrades.length > 0 ? 512.6 : 389.2;
+        const delta = (Math.random() - 0.5) * 8;
+        return parseFloat(Math.max(100, Math.min(2048, prev + (target - prev) * 0.05 + delta)).toFixed(1));
+      });
+
+      setNeuralCycles(prev => prev + 1);
+    }, 1500);
 
     // 2. STAGGERED ASSET STATE & THINKING ROTATOR (Every 4 seconds)
     const rotationInterval = setInterval(() => {
@@ -433,17 +432,9 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
         markets.forEach(asset => {
           const currentState = prev[asset] || 'Ready';
           const currentIndex = ASSET_STATE_CYCLES.indexOf(currentState);
-          // 40% chance to advance state or wrap around
           if (Math.random() > 0.6) {
             const nextIndex = (currentIndex + 1) % ASSET_STATE_CYCLES.length;
             next[asset] = ASSET_STATE_CYCLES[nextIndex];
-            
-            // Log some of these transitions to activity events
-            if (next[asset] === 'Opportunity Found') {
-              addActivityEvent('ALERT', `Neural convergence detected for ${asset}. Technical indicators alignment: 94.2%`);
-            } else if (next[asset] === 'Entering Trade') {
-              addActivityEvent('INFO', `Initiating high-liquidity entry sweep for ${asset} position.`);
-            }
           }
         });
         return next;
@@ -454,124 +445,16 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
         const index = Math.floor(Math.random() * THINKING_IDEAS.length);
         return THINKING_IDEAS[index];
       });
+
+      // Update engine state based on active positions
+      setEngineState(activeTrades.length > 0 ? 'MONITORING' : 'SCANNING');
     }, 4000);
 
-    // 3. AUTONOMOUS POSITION MANAGEMENT & MONITORS (Every 3 seconds)
-    const positionInterval = setInterval(async () => {
-      if (activeTrades.length === 0) return;
-
-      for (const trade of activeTrades) {
-        const livePrice = liveTradePrices[trade.id] || trade.currentPrice;
-        const pnl = (livePrice - trade.entry) * trade.quantity;
-        const pnlPercent = ((livePrice - trade.entry) / trade.entry) * 100;
-
-        // Auto-close triggers: Hitting TP/SL, or 10% chance if open > 40s (accelerated for live visual trading feedback)
-        const ageSec = (Date.now() - (trade.openedAt as any).toDate().getTime()) / 1000;
-        const hitTakeProfit = livePrice >= trade.takeProfit;
-        const hitStopLoss = livePrice <= trade.stopLoss;
-        const shouldTimeout = ageSec > 40 && Math.random() > 0.85;
-
-        if (hitTakeProfit || hitStopLoss || shouldTimeout) {
-          const reason = hitTakeProfit ? 'TARGET_HIT' : hitStopLoss ? 'STOP_LOSS_HIT' : 'TARGET_HIT';
-          
-          try {
-            // Close order in db
-            await aiTradingService.closeTrade(user.uid, trade.id, livePrice, reason);
-
-            // Calculate exact balance changes
-            const nextProfit = pnl > 0 ? parseFloat(((user.totalProfit || 0) + pnl).toFixed(2)) : (user.totalProfit || 0);
-            const nextLoss = pnl < 0 ? parseFloat(((user.totalLoss || 0) + Math.abs(pnl)).toFixed(2)) : (user.totalLoss || 0);
-            const nextTodayPnL = parseFloat(((user.portfolio?.todayPnL || 0) + pnl).toFixed(2));
-
-            // Sync with Unified Financials
-            await addFundsToActiveBalance(pnl);
-
-            // Commit to the user profile database - fully syncs everything!
-            await updateProfile({
-              totalProfit: nextProfit,
-              totalLoss: nextLoss,
-              portfolio: {
-                ...user.portfolio,
-                todayPnL: nextTodayPnL,
-                todayPnLPercent: (nextTodayPnL / activeTradingBalance) * 100
-              }
-            }, undefined, undefined, true);
-
-            // Update daily P/L simulation baseline
-            setSimulatedPnlBase(prev => prev + pnl);
-
-            // Telemetry & alerts
-            addActivityEvent('SUCCESS', `Autonomous liquidation completed for ${trade.asset}. Net returns: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%).`);
-            addNotification('trading', pnl >= 0 ? 'medium' : 'high', 'AI Position Liquidated', `Closed ${trade.asset} position with net return of ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}.`);
-          } catch (e) {
-            console.error("Error auto-closing position:", e);
-          }
-        }
-      }
-    }, 3000);
-
-    // 4. AUTONOMOUS ORDER GENERATOR (Every 20 seconds)
-    const orderInterval = setInterval(async () => {
-      if (activeTrades.length >= (activeConfig.riskControls.maxSimultaneousPositions || 3)) {
-        addActivityEvent('INFO', "Maximum exposure limit reached. Autonomous ordering paused.");
-        return;
-      }
-
-      const randomMarket = activeConfig.markets[Math.floor(Math.random() * activeConfig.markets.length)];
-      if (!randomMarket) return;
-
-      // Prevent duplicate open trade for the same asset
-      if (activeTrades.some(t => t.asset === randomMarket)) return;
-
-      setEngineState('ANALYZING');
-      addActivityEvent('INFO', `Neural core scanning entry depth and order book blocks for ${randomMarket}...`);
-
-      setTimeout(async () => {
-        // Generate opportunity recommendation in db
-        const rsiVal = Math.floor(28 + Math.random() * 45);
-        const price = randomMarket === 'BTC' ? 64200 : randomMarket === 'ETH' ? 3450 : randomMarket === 'SOL' ? 145 : randomMarket === 'AAPL' ? 172 : 125;
-        const mockMarketData = { asset: randomMarket, price, rsi: rsiVal };
-
-        try {
-          const rec = await aiTradingService.generateRecommendation(session.id, user.uid, mockMarketData, activeConfig);
-          setEngineState('WAITING_DECISION');
-          addActivityEvent('ALERT', `Neural opportunity compiled for ${randomMarket} with confidence score: ${rec.confidence}%.`);
-
-          // Execute automatically after a brief confirmation delay (3 seconds)
-          setTimeout(async () => {
-            try {
-              // Calculate a balanced quantity around $100 of exposure
-              const quantity = parseFloat((100 / rec.entry).toFixed(4));
-              
-              setEngineState('GENERATING');
-              addActivityEvent('INFO', `Executing autonomous high-water execution for ${randomMarket}...`);
-              
-              await aiTradingService.executeTrade(user.uid, rec, quantity);
-              
-              setEngineState('MONITORING');
-              addActivityEvent('SUCCESS', `Autonomous position established for ${randomMarket}: ${quantity} units at $${rec.entry}.`);
-              addNotification('trading', 'medium', 'AI Position Executed', `Neural engine successfully opened BUY position for ${randomMarket} at $${rec.entry}.`);
-            } catch (ex) {
-              console.error("Failed to execute trade:", ex);
-              setEngineState('SCANNING');
-            }
-          }, 3000);
-
-        } catch (ex) {
-          console.error("Failed to generate recommendation:", ex);
-          setEngineState('SCANNING');
-        }
-      }, 3000);
-
-    }, 20000);
-
     return () => {
-      clearInterval(tickInterval);
+      clearInterval(telemetryInterval);
       clearInterval(rotationInterval);
-      clearInterval(positionInterval);
-      clearInterval(orderInterval);
     };
-  }, [session, configs, activeConfigId, user, activeTrades, liveTradePrices]);
+  }, [session, configs, activeConfigId, user, activeTrades]);
 
   const pendingRecommendations = recommendations.filter(r => r.status === 'PENDING');
 

@@ -233,7 +233,7 @@ export default function PortfolioViewV2({
   onViewModeChange
 }: PortfolioViewV2Props) {
   const { user, updateProfile } = useAuth();
-  const { positions, trades, config } = useContext(TradingEngineContext);
+  const { positions, trades, config, liveTradePrices } = useContext(TradingEngineContext);
   const { 
     totalNetBalance, 
     activeTradingBalance, 
@@ -294,6 +294,13 @@ export default function PortfolioViewV2({
     Gold: 2035.00,
     ETFs: 450.00
   });
+
+  const mergedLivePrices = useMemo(() => {
+    return {
+      ...livePrices,
+      ...liveTradePrices
+    };
+  }, [livePrices, liveTradePrices]);
 
   const [tickTracker, setTickTracker] = useState(0);
 
@@ -374,12 +381,12 @@ export default function PortfolioViewV2({
   const liveAllocations = useMemo(() => {
     const vals = allocations.map(a => {
       let price = 1;
-      if (a.ticker === 'BTC') price = livePrices['BTC'] || 64230;
-      else if (a.ticker === 'ETH') price = livePrices['ETH'] || 3450.20;
-      else if (a.ticker === 'SOL') price = livePrices['SOL'] || 145.60;
-      else if (a.ticker === 'AAPL') price = livePrices['AAPL'] || 172.50;
-      else if (a.ticker === 'Gold') price = livePrices['Gold'] || 2035.00;
-      else if (a.ticker === 'ETFs') price = livePrices['ETFs'] || 450.00;
+      if (a.ticker === 'BTC') price = mergedLivePrices['BTC'] || 64230;
+      else if (a.ticker === 'ETH') price = mergedLivePrices['ETH'] || 3450.20;
+      else if (a.ticker === 'SOL') price = mergedLivePrices['SOL'] || 145.60;
+      else if (a.ticker === 'AAPL') price = mergedLivePrices['AAPL'] || 172.50;
+      else if (a.ticker === 'Gold') price = mergedLivePrices['Gold'] || 2035.00;
+      else if (a.ticker === 'ETFs') price = mergedLivePrices['ETFs'] || 450.00;
       
       const valuation = price * a.quantity;
       return { ...a, price, valuation };
@@ -390,11 +397,11 @@ export default function PortfolioViewV2({
       ...v,
       percentage: sum > 0 ? (v.valuation / sum) * 100 : 0
     }));
-  }, [allocations, livePrices]);
+  }, [allocations, mergedLivePrices]);
 
   const liveWatchlist = useMemo(() => {
     return watchlist.map(w => {
-      const livePrice = livePrices[w.ticker] || w.price;
+      const livePrice = mergedLivePrices[w.ticker] || w.price;
       const allocObj = liveAllocations.find(la => la.ticker === w.ticker);
       return {
         ...w,
@@ -402,36 +409,156 @@ export default function PortfolioViewV2({
         allocation: allocObj ? allocObj.percentage : w.allocation
       };
     });
-  }, [watchlist, livePrices, liveAllocations]);
+  }, [watchlist, mergedLivePrices, liveAllocations]);
 
   // Dynamic Portfolio Calculations
 
   // Lead analyst Catherine Vance state
   const [analystCommentary, setAnalystCommentary] = useState({
     topic: 'Strategic Position Balance',
-    text: 'Loading real-time asset insights...'
+    text: 'Formulating institutional asset commentary...'
   });
   const [lastCommentaryUpdate, setLastCommentaryUpdate] = useState<Date>(new Date());
   const [isRefreshingCommentary, setIsRefreshingCommentary] = useState(false);
 
   // Updates analyst advice dynamically based on hourly rotation or live changes
-  const updateAnalystAdvice = (force = false) => {
+  const updateAnalystAdvice = async (force = false) => {
     if (force) setIsRefreshingCommentary(true);
-    setTimeout(() => {
-      const freshCommentary = generateCatherineCommentary(totalNetBalance, watchlist, livePrices);
+    
+    const btcPrice = mergedLivePrices['BTC'] || watchlist.find(h => h.ticker === 'BTC')?.price || 64000;
+    const ethPrice = mergedLivePrices['ETH'] || watchlist.find(h => h.ticker === 'ETH')?.price || 3450;
+    const solPrice = mergedLivePrices['SOL'] || watchlist.find(h => h.ticker === 'SOL')?.price || 145;
+
+    const btcVal = btcPrice * 0.85;
+    const ethVal = ethPrice * 12.0;
+    const solVal = solPrice * 120.0;
+    const cryptoTotalVal = btcVal + ethVal + solVal;
+    const cashVal = Math.max(25000, totalNetBalance - cryptoTotalVal);
+
+    const holdingsSummary = allocations.map(a => ({
+      ticker: a.ticker,
+      name: a.name,
+      percentage: Math.round((a.valuation / (totalNetBalance || 1)) * 100)
+    }));
+
+    try {
+      const response = await fetch('/api/ai/commentary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          portfolioMetrics: {
+            totalValue: totalNetBalance,
+            holdings: holdingsSummary,
+            cashVal: cashVal
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('API server returned error status');
+      }
+
+      const data = await response.json();
+      if (data && data.topic && data.text) {
+        setAnalystCommentary(data);
+        setLastCommentaryUpdate(new Date());
+        if (force) {
+          showNotification('AI Analyst advice refreshed using live Gemini model insights.');
+        }
+      } else {
+        throw new Error('Invalid JSON schema received from Gemini commentary');
+      }
+    } catch (err) {
+      console.warn('Gemini commentary API error, falling back to local commentary engine:', err);
+      // Fallback local engine
+      const freshCommentary = generateCatherineCommentary(totalNetBalance, watchlist, mergedLivePrices);
       setAnalystCommentary(freshCommentary);
       setLastCommentaryUpdate(new Date());
-      setIsRefreshingCommentary(false);
       if (force) {
-        showNotification('AI Analyst advice refreshed using live asset metrics.');
+        showNotification('AI Analyst advice refreshed using local risk metrics (offline mode).');
       }
-    }, force ? 600 : 0);
+    } finally {
+      if (force) {
+        setIsRefreshingCommentary(false);
+      }
+    }
   };
 
   // Run update on mount
   useEffect(() => {
     updateAnalystAdvice();
   }, [totalNetBalance]);
+
+  // Radar Asset Analysis States
+  const [analyzingAsset, setAnalyzingAsset] = useState<RadarAsset | null>(null);
+  const [analysisReport, setAnalysisReport] = useState<any | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+
+  const runRadarAnalysis = async (asset: RadarAsset) => {
+    setAnalyzingAsset(asset);
+    setIsAnalyzing(true);
+    setAnalysisReport(null);
+    
+    const symbol = asset.symbol;
+    const currentPrice = mergedLivePrices[symbol] || 100;
+    const assetChange = watchlist.find(w => w.ticker === symbol)?.change || 1.25;
+
+    try {
+      const response = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          marketData: {
+            symbol: symbol,
+            price: currentPrice,
+            change: assetChange,
+            confidence: getDynamicConfidence(asset.baseConfidence, symbol)
+          },
+          userProfile: {
+            riskProfile: user?.riskProfile || 'Medium',
+            tradingStyle: 'Aggressive',
+            preferredMarkets: ['BTC', 'ETH', 'SOL']
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('API server returned error status');
+      }
+
+      const data = await response.json();
+      if (data && data.suggestedAction) {
+        setAnalysisReport(data);
+      } else {
+        throw new Error('Invalid JSON received from Gemini analyze');
+      }
+    } catch (err) {
+      console.warn('Gemini analyze API error, falling back to local analysis generator:', err);
+      // Fallback local report
+      const action = Number(getDynamicConfidence(asset.baseConfidence, symbol)) > 70 ? 'BUY' : 'SELL';
+      const p = currentPrice;
+      setAnalysisReport({
+        asset: symbol,
+        currentPrice: p,
+        suggestedAction: action,
+        entry: Number((p * 0.99).toFixed(2)),
+        stopLoss: Number((p * (action === 'BUY' ? 0.95 : 1.05)).toFixed(2)),
+        takeProfit: Number((p * (action === 'BUY' ? 1.15 : 0.85)).toFixed(2)),
+        riskRating: asset.baseConfidence > 80 ? 'LOW' : 'MEDIUM',
+        confidence: Number(getDynamicConfidence(asset.baseConfidence, symbol)),
+        holdingWindow: '72 Hours',
+        volatility: 'MEDIUM',
+        indicators: ['EMA-20 Crossing', 'Relative Strength Index (RSI)', 'Volume Spike'],
+        explanation: `Algorithmic monitoring suggests that ${symbol} is exhibiting significant volume breakouts at current price levels. The institutional support band remains strong with high buyer convergence. Maintain risk protection at target key support thresholds.`
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   // High-end real photos for asset representation
   const assetImages = useMemo<Record<string, string>>(() => ({
@@ -526,142 +653,90 @@ export default function PortfolioViewV2({
 
   // Live execution events mapped directly to timestamps in tvChartData
   const executionEvents = useMemo(() => {
-    if (tvChartData.length < 8) return [];
-    
-    const btcPrice = livePrices['BTC'] || 64230;
-    const ethPrice = livePrices['ETH'] || 3450.20;
-    const solPrice = livePrices['SOL'] || 145.60;
-    const aaplPrice = livePrices['AAPL'] || 172.50;
+    if (tvChartData.length === 0 || !trades || trades.length === 0) return [];
 
-    const eventsData = [
-      {
-        id: 'evt-1',
-        asset: 'BTC',
-        action: 'Take Profit',
-        label: 'BTC TP',
-        pnl: `+$${((btcPrice * 0.065)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        pnlType: 'gain',
-        price: formatCurrency(btcPrice),
-        confidence: `${(96.5 + Math.sin(tickTracker * 0.05) * 0.5).toFixed(1)}%`,
-        color: '#00D09C',
-        textColor: 'text-[#00D09C]',
-        bgColor: 'bg-[#00D09C]/10',
-        dotColor: 'bg-[#00D09C]',
-        markerShape: 'arrowDown',
-        markerPosition: 'aboveBar',
-        indexOffset: 0.15,
-        timestamp: '',
-        fullTime: '10:15 UTC'
-      },
-      {
-        id: 'evt-2',
-        asset: 'BTC',
-        action: 'Stop Loss',
-        label: 'BTC SL',
-        pnl: `-$${((btcPrice * 0.019)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        pnlType: 'loss',
-        price: formatCurrency(btcPrice * 0.91),
-        confidence: `${(91.2 + Math.cos(tickTracker * 0.04) * 0.3).toFixed(1)}%`,
-        color: '#FF6B6B',
-        textColor: 'text-[#FF6B6B]',
-        bgColor: 'bg-[#FF6B6B]/10',
-        dotColor: 'bg-[#FF6B6B]',
-        markerShape: 'arrowUp',
-        markerPosition: 'belowBar',
-        indexOffset: 0.35,
-        timestamp: '',
-        fullTime: '14:20 UTC'
-      },
-      {
-        id: 'evt-3',
-        asset: 'ETH',
-        action: 'Take Profit',
-        label: 'ETH TP',
-        pnl: `+$${((ethPrice * 0.63)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        pnlType: 'gain',
-        price: formatCurrency(ethPrice),
-        confidence: `${(94.1 + Math.sin(tickTracker * 0.06) * 0.4).toFixed(1)}%`,
-        color: '#00D09C',
-        textColor: 'text-[#00D09C]',
-        bgColor: 'bg-[#00D09C]/10',
-        dotColor: 'bg-[#00D09C]',
-        markerShape: 'arrowDown',
-        markerPosition: 'aboveBar',
-        indexOffset: 0.50,
-        timestamp: '',
-        fullTime: '18:45 UTC'
-      },
-      {
-        id: 'evt-4',
-        asset: 'SOL',
-        action: 'Rebalance',
-        label: 'SOL REBAL',
-        pnl: `+$${((solPrice * 2.8)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        pnlType: 'gain',
-        price: formatCurrency(solPrice),
-        confidence: `${(89.4 + Math.cos(tickTracker * 0.07) * 0.5).toFixed(1)}%`,
-        color: '#EAB308',
-        textColor: 'text-amber-400',
-        bgColor: 'bg-amber-400/10',
-        dotColor: 'bg-amber-400',
-        markerShape: 'circle',
-        markerPosition: 'aboveBar',
-        indexOffset: 0.65,
-        timestamp: '',
-        fullTime: '01:10 UTC'
-      },
-      {
-        id: 'evt-5',
-        asset: 'XRP',
+    const nowMs = Date.now();
+    let durationMs = 30 * 24 * 60 * 60 * 1000; // 1M default
+    if (timeframe === '1D') durationMs = 24 * 60 * 60 * 1000;
+    else if (timeframe === '5D') durationMs = 5 * 24 * 60 * 60 * 1000;
+    else if (timeframe === '1M') durationMs = 30 * 24 * 60 * 60 * 1000;
+    else if (timeframe === '3M') durationMs = 90 * 24 * 60 * 60 * 1000;
+    else if (timeframe === '6M') durationMs = 180 * 24 * 60 * 60 * 1000;
+    else if (timeframe === '1Y') durationMs = 365 * 24 * 60 * 60 * 1000;
+
+    const chartStartTimeMs = nowMs - durationMs;
+
+    const getChartTimeForDate = (date: Date): string => {
+      const dateMs = date.getTime();
+      if (dateMs < chartStartTimeMs) {
+        return tvChartData[0]?.time || '';
+      }
+      if (dateMs >= nowMs) {
+        return tvChartData[tvChartData.length - 1]?.time || '';
+      }
+      const fraction = (dateMs - chartStartTimeMs) / durationMs;
+      const index = Math.floor(fraction * tvChartData.length);
+      const safeIndex = Math.min(tvChartData.length - 1, Math.max(0, index));
+      return tvChartData[safeIndex]?.time || '';
+    };
+
+    const list: any[] = [];
+
+    trades.forEach((trade) => {
+      const openDate = trade.openedAt ? (trade.openedAt.toDate ? trade.openedAt.toDate() : new Date(trade.openedAt as any)) : new Date();
+      
+      // BUY marker
+      list.push({
+        id: `${trade.id}-buy`,
+        asset: trade.asset,
         action: 'Entry Buy',
-        label: 'XRP BUY',
+        label: `${trade.asset} BUY`,
         pnl: 'Active',
         pnlType: 'neutral',
-        price: '$0.58',
-        confidence: `${(86.0 + Math.sin(tickTracker * 0.08) * 0.6).toFixed(1)}%`,
+        price: formatCurrency(trade.entry),
+        confidence: '95.0%',
         color: '#3B82F6',
         textColor: 'text-blue-400',
         bgColor: 'bg-blue-400/10',
         dotColor: 'bg-blue-400',
         markerShape: 'arrowUp',
         markerPosition: 'belowBar',
-        indexOffset: 0.78,
-        timestamp: '',
-        fullTime: '05:30 UTC'
-      },
-      {
-        id: 'evt-6',
-        asset: 'AAPL',
-        action: 'Closed Position',
-        label: 'AAPL SELL',
-        pnl: `+$${((aaplPrice * 18.5)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        pnlType: 'gain',
-        price: formatCurrency(aaplPrice),
-        confidence: `${(98.2 + Math.sin(tickTracker * 0.03) * 0.2).toFixed(1)}%`,
-        color: '#FF6B6B',
-        textColor: 'text-[#FF6B6B]',
-        bgColor: 'bg-[#FF6B6B]/10',
-        dotColor: 'bg-[#FF6B6B]',
-        markerShape: 'arrowDown',
-        markerPosition: 'aboveBar',
-        indexOffset: 0.90,
-        timestamp: '',
-        fullTime: '09:05 UTC'
+        timestamp: getChartTimeForDate(openDate),
+        fullTime: openDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        rawDate: openDate
+      });
+
+      // CLOSE marker if closed
+      if (trade.status === 'CLOSED' && trade.closedAt) {
+        const closeDate = trade.closedAt.toDate ? trade.closedAt.toDate() : new Date(trade.closedAt as any);
+        const profit = trade.pnl || 0;
+        const isGain = profit >= 0;
+        
+        list.push({
+          id: `${trade.id}-close`,
+          asset: trade.asset,
+          action: isGain ? 'Take Profit' : 'Stop Loss',
+          label: isGain ? `${trade.asset} TP` : `${trade.asset} SL`,
+          pnl: `${isGain ? '+' : ''}${formatCurrency(profit)}`,
+          pnlType: isGain ? 'gain' : 'loss',
+          price: formatCurrency(trade.exit || trade.entry),
+          confidence: '92.0%',
+          color: isGain ? '#00D09C' : '#FF6B6B',
+          textColor: isGain ? 'text-[#00D09C]' : 'text-[#FF6B6B]',
+          bgColor: isGain ? 'bg-[#00D09C]/10' : 'bg-[#FF6B6B]/10',
+          dotColor: isGain ? 'bg-[#00D09C]' : 'bg-[#FF6B6B]',
+          markerShape: isGain ? 'arrowDown' : 'arrowUp',
+          markerPosition: isGain ? 'aboveBar' : 'belowBar',
+          timestamp: getChartTimeForDate(closeDate),
+          fullTime: closeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          rawDate: closeDate
+        });
       }
-    ];
-    
-    return eventsData.map(evt => {
-      const idx = Math.min(
-        tvChartData.length - 1,
-        Math.floor(tvChartData.length * evt.indexOffset)
-      );
-      const dPoint = tvChartData[idx];
-      return {
-        ...evt,
-        timestamp: dPoint?.time || '',
-      };
     });
-  }, [tvChartData, livePrices, tickTracker, formatCurrency]);
+
+    list.sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime());
+    return list;
+  }, [tvChartData, trades, timeframe, formatCurrency]);
 
   // Real-time simulated price feed WebSocket/Ticks simulation
   useEffect(() => {
@@ -1211,9 +1286,10 @@ export default function PortfolioViewV2({
                       {cat.assets.map(asset => {
                         const dynConf = getDynamicConfidence(asset.baseConfidence, asset.symbol);
                         return (
-                          <div 
+                          <button 
                             key={asset.symbol} 
-                            className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.01] border border-white/[0.03] hover:bg-white/[0.03] transition-all"
+                            onClick={() => runRadarAnalysis(asset)}
+                            className="w-full flex items-center justify-between p-2.5 rounded-xl bg-white/[0.01] border border-white/[0.03] hover:bg-white/[0.04] hover:border-[#00D09C]/20 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 touch-manipulation"
                           >
                             <div className="flex items-center space-x-2.5">
                               <CoinLogo symbol={asset.symbol} size={24} className="rounded-full overflow-hidden" />
@@ -1232,7 +1308,7 @@ export default function PortfolioViewV2({
                               </div>
                               <span className={`w-2 h-2 rounded-full ${cat.dotColor} animate-pulse`} />
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
@@ -2213,6 +2289,158 @@ export default function PortfolioViewV2({
                 className="w-full py-2.5 bg-[#080B11]/80 hover:bg-black/40 border border-white/[0.05] text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer touch-manipulation min-h-[44px]"
               >
                 Close Secure Panel
+              </button>
+            </motion.div>
+
+          </div>
+        )}
+
+        {analyzingAsset && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-sm p-0 sm:p-4">
+            
+            {/* Dark background click handler */}
+            <div className="absolute inset-0" onClick={() => setAnalyzingAsset(null)} />
+
+            <motion.div 
+              initial={{ y: '100%', opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: '100%', opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="bg-[#0E1320] border-t sm:border border-white/[0.08] rounded-t-[32px] sm:rounded-[24px] w-full max-w-md p-6 space-y-5 shadow-2xl relative z-10 max-h-[90vh] overflow-y-auto"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-center border-b border-white/[0.05] pb-3">
+                <div className="flex items-center space-x-2.5">
+                  <div className="p-2 bg-[#00D09C]/10 text-[#00D09C] rounded-xl">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-white tracking-tight uppercase font-sans">
+                      AI Deep Diagnostics
+                    </h3>
+                    <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest block leading-none">
+                      Gemini Intelligence Core
+                    </span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setAnalyzingAsset(null)}
+                  className="w-7 h-7 rounded-lg bg-white/[0.03] hover:bg-white/[0.08] text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {isAnalyzing ? (
+                <div className="py-12 flex flex-col items-center justify-center space-y-4">
+                  <div className="relative w-16 h-16">
+                    <div className="absolute inset-0 rounded-full border-2 border-[#00D09C]/20 animate-ping" />
+                    <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-[#00D09C] animate-spin" />
+                    <div className="absolute inset-3 rounded-full bg-[#00D09C]/10 flex items-center justify-center">
+                      <Activity className="w-5 h-5 text-[#00D09C] animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="text-center space-y-1">
+                    <p className="text-xs font-bold text-white uppercase tracking-wider">Analyzing {analyzingAsset.symbol}</p>
+                    <p className="text-[10px] text-slate-400">Interrogating global order books and volatility indices...</p>
+                  </div>
+                </div>
+              ) : analysisReport ? (
+                <div className="space-y-4 font-sans text-xs">
+                  {/* Action Pill Display */}
+                  <div className="flex items-center justify-between p-3.5 bg-white/[0.01] rounded-2xl border border-white/[0.03]">
+                    <div>
+                      <span className="text-[9px] text-slate-500 uppercase tracking-widest font-sans font-bold">Recommended Bias</span>
+                      <div className="flex items-center space-x-1.5 mt-0.5">
+                        <span className={`text-base font-black ${analysisReport.suggestedAction === 'BUY' ? 'text-[#00D09C]' : 'text-[#FF6B6B]'}`}>
+                          {analysisReport.suggestedAction}
+                        </span>
+                        <span className="text-slate-400 font-medium">Order Pool</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[9px] text-slate-500 uppercase tracking-widest font-sans font-bold">Confidence Index</span>
+                      <div className="text-sm font-mono font-black text-white mt-0.5">
+                        {analysisReport.confidence}%
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pricing Matrix */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-[#080B11]/50 p-3 rounded-xl border border-white/[0.03] text-center space-y-0.5">
+                      <span className="text-[8px] text-slate-500 uppercase tracking-wider block font-bold">Entry Target</span>
+                      <span className="text-xs font-mono font-bold text-slate-200">
+                        ${analysisReport.entry?.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="bg-[#080B11]/50 p-3 rounded-xl border border-[#FF6B6B]/10 text-center space-y-0.5">
+                      <span className="text-[8px] text-[#FF6B6B]/80 uppercase tracking-wider block font-bold">Stop Loss</span>
+                      <span className="text-xs font-mono font-bold text-[#FF6B6B]">
+                        ${analysisReport.stopLoss?.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="bg-[#080B11]/50 p-3 rounded-xl border border-[#00D09C]/10 text-center space-y-0.5">
+                      <span className="text-[8px] text-[#00D09C]/80 uppercase tracking-wider block font-bold">Take Profit</span>
+                      <span className="text-xs font-mono font-bold text-[#00D09C]">
+                        ${analysisReport.takeProfit?.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Analytical Parameters */}
+                  <div className="grid grid-cols-2 gap-2 bg-[#080B11]/30 p-3.5 rounded-2xl border border-white/[0.03] font-mono text-[10px]">
+                    <div className="flex justify-between border-r border-white/[0.05] pr-3">
+                      <span className="text-slate-500">Risk Profile:</span>
+                      <span className="font-bold text-white uppercase">{analysisReport.riskRating}</span>
+                    </div>
+                    <div className="flex justify-between pl-3">
+                      <span className="text-slate-500">Volatility:</span>
+                      <span className="font-bold text-white uppercase">{analysisReport.volatility}</span>
+                    </div>
+                  </div>
+
+                  {/* Indicators Analyzed */}
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] text-slate-500 uppercase tracking-widest font-sans font-bold">Technical Triggers</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {analysisReport.indicators?.map((ind: string) => (
+                        <span key={ind} className="px-2 py-1 bg-white/[0.02] border border-white/[0.04] text-slate-300 text-[9px] rounded-lg font-mono">
+                          {ind}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Core Intelligence Text */}
+                  <div className="bg-[#080B11]/60 p-4 border border-white/[0.04] rounded-2xl space-y-1.5">
+                    <span className="text-[9px] text-[#00D09C] font-sans font-bold uppercase tracking-widest block">Strategist Assessment</span>
+                    <p className="text-slate-300 text-[11px] leading-relaxed font-medium">
+                      {analysisReport.explanation}
+                    </p>
+                  </div>
+
+                  {/* Call to action */}
+                  <div className="pt-2">
+                    <button 
+                      onClick={() => {
+                        setAnalyzingAsset(null);
+                        setActiveDialog('trade');
+                      }}
+                      className="w-full bg-[#00D09C] hover:bg-[#00b084] text-black font-semibold py-3 rounded-xl uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-2 touch-manipulation min-h-[44px] shadow-lg shadow-[#00D09C]/10 text-xs"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-black" />
+                      <span>Execute Liquidity Swap</span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <button 
+                onClick={() => setAnalyzingAsset(null)}
+                className="w-full py-2.5 bg-[#080B11]/80 hover:bg-black/40 border border-white/[0.05] text-slate-400 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer touch-manipulation min-h-[44px]"
+              >
+                Close Diagnosis
               </button>
             </motion.div>
 

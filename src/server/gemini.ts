@@ -108,3 +108,42 @@ export async function analyzeTradeAction(trade: any, marketCondition: any) {
     throw new Error("Invalid AI response");
   }
 }
+
+export async function generateCatherineCommentary(portfolioMetrics: any) {
+  const ai = getAiClient();
+
+  const prompt = `
+    You are Dr. Catherine Vance, an elite, world-class Lead Strategist and Portfolio Analyst for Aver, an ultra-luxury digital asset wealth and capital management institution.
+    Analyze the following user portfolio metrics to draft a professional, authoritative, and elegant market briefing (exactly 1-2 paragraphs, or about 60-100 words).
+    
+    User Portfolio Metrics:
+    - Total Managed Balance: $${portfolioMetrics.totalValue.toLocaleString()}
+    - Core Holdings and Allocation Percentage: ${JSON.stringify(portfolioMetrics.holdings)}
+    - Active Cash Reserves: $${portfolioMetrics.cashVal.toLocaleString()}
+    
+    Format the response as a single clean JSON object with this EXACT schema:
+    {
+      "topic": "STRING (A brief elegant sub-header matching the primary insight, e.g., 'Strategic Position Balance' or 'Yield Aggregation Index')",
+      "text": "STRING (Your highly sophisticated, institutional, and articulate analyst commentary. Insulate the user with absolute elite financial posture. Pair elegance with real data analysis.)"
+    }
+
+    Only return valid JSON. Do not include markdown formatting or backticks. Keep the tone dignified, professional, and slightly academic.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.5-flash",
+    contents: prompt,
+  });
+
+  const text = response.text;
+  if (!text) throw new Error("No response from AI");
+
+  try {
+    const jsonStr = text.replace(/```json|```/g, "").trim();
+    return JSON.parse(jsonStr);
+  } catch (error) {
+    console.error("Failed to parse Catherine Vance commentary from Gemini:", text);
+    throw new Error("Invalid AI response");
+  }
+}
+

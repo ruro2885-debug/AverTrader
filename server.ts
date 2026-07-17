@@ -1,50 +1,9 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { generateAiRecommendation, analyzeTradeAction } from "./src/server/gemini";
-import { initializeApp, cert, applicationDefault } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-
-// Initialize Firebase Admin
-const app = initializeApp({
-  credential: applicationDefault(),
-});
-const db = getFirestore(app);
-
-async function seedLeaderboard() {
-    try {
-        const leaderboardRef = db.collection('leaderboard');
-        const snapshot = await leaderboardRef.limit(1).get();
-        if (snapshot.empty) {
-            console.log("Seeding leaderboard...");
-            for (let i = 1; i <= 20; i++) {
-                await leaderboardRef.doc(`trader_${i}`).set({
-                    rank: i,
-                    username: `Trader_${i}`,
-                    avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${i}`,
-                    tier: i <= 2 ? 'Platinum' : i <= 10 ? 'Gold' : 'Silver',
-                    verified: i <= 5,
-                    return30d: (20 - i) * 2.5,
-                    overallReturn: (20 - i) * 5,
-                    winRate: 50 + (20 - i),
-                    lossRate: 50 - (20 - i),
-                    riskLevel: i <= 5 ? 'High' : 'Medium',
-                    strategy: 'Aggressive',
-                    markets: ['BTC', 'ETH'],
-                    followers: (20 - i) * 100,
-                    performanceGraph: [10, 20, 15, 30],
-                    status: 'Trading'
-                });
-            }
-            console.log("Leaderboard seeded successfully");
-        }
-    } catch (e) {
-        console.error("Leaderboard seeding failed:", e);
-    }
-}
+import { generateAiRecommendation, analyzeTradeAction, generateCatherineCommentary } from "./src/server/gemini";
 
 async function startServer() {
-  await seedLeaderboard();
   const app = express();
   app.use(express.json());
   const PORT = 3000;
@@ -69,6 +28,19 @@ async function startServer() {
       const { trade, marketCondition } = req.body;
       const suggestion = await analyzeTradeAction(trade, marketCondition);
       res.json(suggestion);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/ai/commentary", async (req, res) => {
+    try {
+      const { portfolioMetrics } = req.body;
+      if (!portfolioMetrics) {
+        return res.status(400).json({ error: "portfolioMetrics is required" });
+      }
+      const commentary = await generateCatherineCommentary(portfolioMetrics);
+      res.json(commentary);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

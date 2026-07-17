@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
@@ -22,6 +22,7 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import UserAvatar from './UserAvatar';
 import AverLogo from './AverLogo';
 import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
+import { TradingEngineContext } from '../contexts/TradingEngineContext';
 
 
 
@@ -37,6 +38,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
   const { account } = useFinancials();
+  const { activity } = useContext(TradingEngineContext);
   const isDark = preferences.theme === 'dark';
   
   const [activeTab, setActiveTab] = useState('home');
@@ -153,79 +155,75 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   };
 
   const getActivitiesList = () => {
+    if (!activity || activity.length === 0) return [];
+
     const list: any[] = [];
 
-    // 1. Deposits & Withdrawals from user.history
-    if (user?.history) {
-      user.history.forEach((hist: any) => {
-        const dateObj = new Date(hist.date);
-        list.push({
-          id: hist.id,
-          type: hist.type,
-          title: hist.type === 'deposit' ? 'Deposit Completed' : 'Withdrawal Approved',
-          description: hist.type === 'deposit' 
-            ? `Successfully deposited ${formatCurrency(hist.amount)} to your wallet.` 
-            : `Successfully withdrew ${formatCurrency(hist.amount)} from your wallet.`,
-          timestamp: dateObj,
-          category: 'financial'
-        });
-      });
-    }
+    activity.forEach((act: any) => {
+      const dateObj = act.timestamp ? (act.timestamp.toDate ? act.timestamp.toDate() : new Date(act.timestamp)) : new Date();
+      
+      let mappedType = act.type || 'system';
+      let mappedTitle = 'Activity Logged';
+      let mappedCategory = 'system';
 
-    // 2. AI Trades from user.trades
-    if (user?.trades) {
-      user.trades.forEach((trade: any) => {
-        const dateObj = new Date(trade.timestamp);
-        list.push({
-          id: trade.id,
-          type: trade.type || 'ai',
-          title: 'AI Trade Executed',
-          description: `${trade.side.toUpperCase()} ${trade.quantity} ${trade.ticker} completed at ${formatCurrency(trade.price)}.`,
-          timestamp: dateObj,
-          category: 'trading'
-        });
-      });
-    }
+      if (act.type === 'deposit' || act.type?.includes('DEPOSIT')) {
+        mappedTitle = 'Deposit Confirmed';
+        mappedType = 'deposit';
+        mappedCategory = 'financial';
+      } else if (act.type === 'withdrawal' || act.type?.includes('WITHDRAWAL')) {
+        mappedTitle = 'Withdrawal Approved';
+        mappedType = 'withdrawal';
+        mappedCategory = 'financial';
+      } else if (act.type === 'CONFIG_UPDATED') {
+        mappedTitle = 'Configuration Saved';
+        mappedType = 'config';
+        mappedCategory = 'security';
+      } else if (act.type === 'SESSION_STARTED') {
+        mappedTitle = 'AI Engine Started';
+        mappedType = 'session-start';
+        mappedCategory = 'trading';
+      } else if (act.type === 'SESSION_ENDED') {
+        mappedTitle = 'AI Engine Paused';
+        mappedType = 'session-end';
+        mappedCategory = 'trading';
+      } else if (act.type === 'TRADE_OPENED') {
+        mappedTitle = 'Trade Executed';
+        mappedType = 'trade-open';
+        mappedCategory = 'trading';
+      } else if (act.type === 'TRADE_CLOSED') {
+        mappedTitle = 'Trade Closed';
+        mappedType = 'trade-close';
+        mappedCategory = 'trading';
+      } else if (act.type === 'TP_HIT') {
+        mappedTitle = 'Take Profit Executed';
+        mappedType = 'tp-hit';
+        mappedCategory = 'trading';
+      } else if (act.type === 'SL_HIT') {
+        mappedTitle = 'Stop Loss Triggered';
+        mappedType = 'sl-hit';
+        mappedCategory = 'trading';
+      } else if (act.type === 'REBALANCE') {
+        mappedTitle = 'Portfolio Rebalanced';
+        mappedType = 'rebalance';
+        mappedCategory = 'trading';
+      } else if (act.type === 'COPY_TRADE') {
+        mappedTitle = 'Copy Trade Executed';
+        mappedType = 'copy-trade';
+        mappedCategory = 'trading';
+      }
 
-    // 3. AI Session Active
-    if (user?.aiTradingEnabled) {
       list.push({
-        id: 'ai-active',
-        type: 'ai-session',
-        title: 'AI Session Active',
-        description: 'Neural copilot engine actively tracking yields.',
-        timestamp: new Date(Date.now() - 30000),
-        category: 'system'
+        id: act.id,
+        type: mappedType,
+        title: mappedTitle,
+        description: act.message,
+        timestamp: dateObj,
+        category: mappedCategory
       });
-    }
+    });
 
-    // 4. Referral commission
-    if (user?.referralCount && user.referralCount > 0) {
-      list.push({
-        id: 'ref-reward',
-        type: 'referral',
-        title: 'Referral Commission',
-        description: `Credited XP & commission for inviting ${user.referralCount} users.`,
-        timestamp: new Date(Date.now() - 3600000 * 2),
-        category: 'referral'
-      });
-    }
-
-    // 5. Security Settings
-    if (user?.biometricEnabled) {
-      list.push({
-        id: 'sec-bio',
-        type: 'security',
-        title: 'Security Synced',
-        description: 'Biometric security preferences synchronized successfully.',
-        timestamp: new Date(Date.now() - 3600000 * 5),
-        category: 'security'
-      });
-    }
-
-    // Sort by timestamp desc
     list.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-    return list.slice(0, 5);
+    return list;
   };
 
   const getAssistantWarnings = () => {
@@ -599,15 +597,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         <Activity className="w-4 h-4 text-emerald-500" />
                         Account Timeline
                       </h3>
-                      <button 
-                        onClick={() => setShowHistoryModal(true)}
-                        className="text-xs font-bold text-emerald-500 hover:text-emerald-400 flex items-center cursor-pointer"
-                      >
-                        View All <ChevronRight className="w-3 h-3 ml-0.5" />
-                      </button>
                     </div>
 
-                    <div className={`rounded-[24px] p-5 space-y-4 ${cardClasses}`}>
+                    <div className={`rounded-[24px] p-5 space-y-4 ${cardClasses} max-h-[350px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pr-2`}>
                       {getActivitiesList().length === 0 ? (
                         <div className="text-center py-6 text-xs text-gray-500">
                           No recent account activities.

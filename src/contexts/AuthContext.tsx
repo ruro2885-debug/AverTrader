@@ -422,14 +422,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             console.warn("Firestore subcollection 'trades' access denied. Falling back to local/cached profile data.");
             setUser(prev => {
               if (!prev) return null;
-              const defaultTrades: TradeHistoryItem[] = [
-                { id: 't-btc', ticker: 'BTC', side: 'buy', quantity: 0.85, price: 52000, timestamp: new Date().toISOString() as any, type: 'ai', status: 'Completed', reason: 'Bullish divergence detected' },
-                { id: 't-eth', ticker: 'ETH', side: 'buy', quantity: 12, price: 2800, timestamp: new Date().toISOString() as any, type: 'ai', status: 'Completed', reason: 'Support level bounce' },
-                { id: 't-sol', ticker: 'SOL', side: 'buy', quantity: 120, price: 110, timestamp: new Date().toISOString() as any, type: 'manual', status: 'Completed' }
-              ];
+              const defaultTrades: TradeHistoryItem[] = [];
               const updated = {
                 ...prev,
-                trades: prev.trades && prev.trades.length > 0 ? prev.trades : defaultTrades
+                trades: prev.trades && prev.trades.length > 0 ? prev.trades : []
               };
               localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
               return updated;
@@ -596,11 +592,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           { id: 'h-eth', ticker: 'ETH', name: 'Ethereum', quantity: 12, avgEntry: 2800, currentPrice: 3100, marketValue: 37200, pnl: 3600, change24H: 1.8, allocationPct: 37.2, logoColor: 'from-slate-400 to-slate-600', logoText: 'Ξ', aiDetails: "ETH 2.0 staking rewards increasing.", trend: [2800, 2900, 2850, 3000, 2950, 3100], riskRating: 'Low', confidenceScore: 88, lastAiDecision: 'ACCUMULATE' },
           { id: 'h-sol', ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", trend: [110, 115, 112, 114, 111, 112], riskRating: 'Medium', confidenceScore: 82, lastAiDecision: 'REBALANCE' }
         ],
-        trades: [
-          { id: 't-btc', ticker: 'BTC', side: 'buy', quantity: 0.85, price: 52000, timestamp: new Date().toISOString() as any, type: 'ai', status: 'Completed', reason: 'Bullish divergence detected' },
-          { id: 't-eth', ticker: 'ETH', side: 'buy', quantity: 12, price: 2800, timestamp: new Date().toISOString() as any, type: 'ai', status: 'Completed', reason: 'Support level bounce' },
-          { id: 't-sol', ticker: 'SOL', side: 'buy', quantity: 120, price: 110, timestamp: new Date().toISOString() as any, type: 'manual', status: 'Completed' }
-        ],
+        trades: [],
         snapshots: []
       };
 
@@ -741,11 +733,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 { id: 'h-eth', ticker: 'ETH', name: 'Ethereum', quantity: 12, avgEntry: 2800, currentPrice: 3100, marketValue: 37200, pnl: 3600, change24H: 1.8, allocationPct: 37.2, logoColor: 'from-slate-400 to-slate-600', logoText: 'Ξ', aiDetails: "ETH 2.0 staking rewards increasing.", trend: [2800, 2900, 2850, 3000, 2950, 3100], riskRating: 'Low', confidenceScore: 88, lastAiDecision: 'ACCUMULATE' },
                 { id: 'h-sol', ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", trend: [110, 115, 112, 114, 111, 112], riskRating: 'Medium', confidenceScore: 82, lastAiDecision: 'REBALANCE' }
               ],
-              trades: [
-                { id: 't-btc', ticker: 'BTC', side: 'buy', quantity: 0.85, price: 52000, timestamp: new Date().toISOString() as any, type: 'ai', status: 'Completed', reason: 'Bullish divergence detected' },
-                { id: 't-eth', ticker: 'ETH', side: 'buy', quantity: 12, price: 2800, timestamp: new Date().toISOString() as any, type: 'ai', status: 'Completed', reason: 'Support level bounce' },
-                { id: 't-sol', ticker: 'SOL', side: 'buy', quantity: 120, price: 110, timestamp: new Date().toISOString() as any, type: 'manual', status: 'Completed' }
-              ],
+              trades: [],
               snapshots: []
             };
 
