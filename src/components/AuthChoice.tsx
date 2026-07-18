@@ -13,7 +13,7 @@ export default function AuthChoice({ theme, onBack, onSelect }: AuthChoiceProps)
   const isDark = theme === 'dark';
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-[#000000] text-white">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-[#030712] text-white relative z-20 isolate">
       {/* Fixed Back Button */}
       <button 
         onClick={onBack}
@@ -33,21 +33,21 @@ export default function AuthChoice({ theme, onBack, onSelect }: AuthChoiceProps)
             <WelcomeBonusCard theme="dark" onCtaClick={() => onSelect('register')} />
         </motion.div>
 
-        {/* Premium Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4">
+        {/* Premium Buttons (Completely Solid & Isolated) */}
+        <div className="flex flex-col sm:flex-row gap-4 relative z-10">
             <button
                 onClick={() => onSelect('register')}
-                className="flex-1 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                className="flex-1 py-4 bg-[#10b981] hover:bg-[#059669] text-black font-extrabold text-base rounded-xl transition-all shadow-[0_4px_25px_rgba(16,185,129,0.35)] hover:shadow-[0_4px_30px_rgba(16,185,129,0.5)] flex items-center justify-center gap-2 transform active:scale-95 cursor-pointer"
             >
-                Create Account
-                <ArrowRight className="w-4 h-4" />
+                <span className="tracking-wide">Create Account</span>
+                <ArrowRight className="w-5 h-5 text-black" />
             </button>
             <button
                 onClick={() => onSelect('login')}
-                className="flex-1 py-4 font-bold rounded-xl transition-all border bg-slate-900 border-white/10 hover:bg-slate-800 flex items-center justify-center gap-2"
+                className="flex-1 py-4 bg-[#1f2937] hover:bg-[#374151] text-white font-extrabold text-base rounded-xl transition-all border border-slate-700 hover:border-slate-600 shadow-[0_4px_15px_rgba(0,0,0,0.4)] flex items-center justify-center gap-2 transform active:scale-95 cursor-pointer"
             >
-                Log In
-                <LogIn className="w-4 h-4" />
+                <span className="tracking-wide">Log In</span>
+                <LogIn className="w-5 h-5 text-white" />
             </button>
         </div>
 

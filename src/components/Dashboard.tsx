@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
@@ -17,6 +17,7 @@ import AiTradingModule from './AiTradingModule';
 import CopyTrading from './CopyTrading/CopyTrading';
 
 import { NotificationCenter } from './NotificationCenter';
+import EventsPromosModal from './EventsPromosModal';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import UserAvatar from './UserAvatar';
@@ -33,6 +34,7 @@ import { TradingEngineContext } from '../contexts/TradingEngineContext';
 
 
 import { useFinancials } from '../hooks/useFinancials';
+import { safeStorage } from '../utils/storage';
 
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
@@ -41,8 +43,23 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const { activity } = useContext(TradingEngineContext);
   const isDark = preferences.theme === 'dark';
   
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState(() => {
+    return safeStorage.getItem('aver_dashboard_tab') || 'home';
+  });
   const [isFullScreen, setIsFullScreen] = useState(false);
+
+  React.useEffect(() => {
+    const checkTab = () => {
+      const savedTab = safeStorage.getItem('aver_dashboard_tab');
+      if (savedTab) {
+        setActiveTab(savedTab);
+        safeStorage.removeItem('aver_dashboard_tab');
+      }
+    };
+    checkTab();
+    const interval = setInterval(checkTab, 500);
+    return () => clearInterval(interval);
+  }, []);
   const [watchlist] = useState([
     { symbol: 'BTC', price: 64230, change: '+2.45%', isPositive: true },
     { symbol: 'ETH', price: 3450, change: '+1.82%', isPositive: true },
@@ -62,6 +79,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     try {
       setMarketLoading(true);
       const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22ADAUSDT%22,%22XRPUSDT%22,%22SOLUSDT%22,%22DOGEUSDT%22,%22AVAXUSDT%22,%22LINKUSDT%22%5D');
+      if (!res.ok) throw new Error('Failed to fetch market data');
       const data = await res.json();
       const mapped = data.map((d: any) => {
         const symbol = d.symbol.replace('USDT', '');
@@ -75,10 +93,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         };
       });
       setMarketData(mapped);
-      
-      // Removed mock AI signals generation as it invented data
     } catch (err) {
-      console.error(err);
+      console.warn("Market data fetch warning:", err);
+      // Fallback to mock data if fetch fails
+      setMarketData([
+        { symbol: 'BTC', name: 'Bitcoin', price: 65000, change: '+1.2%', isPositive: true },
+        { symbol: 'ETH', name: 'Ethereum', price: 3500, change: '-0.5%', isPositive: false },
+        { symbol: 'SOL', name: 'Solana', price: 145, change: '+3.1%', isPositive: true },
+      ]);
     } finally {
       setMarketLoading(false);
     }
@@ -89,6 +111,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       setNewsLoading(true);
       setNewsError('');
       const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fcointelegraph.com%2Frss');
+      if (!res.ok) throw new Error('Failed to fetch news');
       const data = await res.json();
       if (data.items) {
         setNews(data.items.slice(0, 4).map((item: any) => {
@@ -104,8 +127,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         }));
       }
     } catch (err) {
-      console.error(err);
-      setNewsError('Failed');
+      console.error("News fetch error:", err);
+      setNewsError('Failed to load news');
     } finally {
       setNewsLoading(false);
     }
@@ -120,6 +143,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [showEventsPromosModal, setShowEventsPromosModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
@@ -130,6 +154,53 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   // Fallback defaults if user profile isn't fully loaded or is null
   const { totalNetBalance, activeTradingBalance } = useFinancials();
+  
+  const referralCount = user?.referralCount || 0;
+  const completedAiTrades = user?.trades?.filter(t => t.type === 'ai').length || 0;
+  
+  const loginStreak = useMemo(() => {
+    const activityDates = user?.history?.map((h: any) => new Date(h.date).toDateString()) || [];
+    const uniqueDates = Array.from(new Set(activityDates)) as string[];
+    uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    let streak = 0;
+    const now = new Date();
+    for (let i = 0; i < uniqueDates.length; i++) {
+      const date = new Date(uniqueDates[i]);
+      const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays === i) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }, [user?.history]);
+  
+  const profitableDays = useMemo(() => {
+    const trades = user?.trades || [];
+    let run = 0;
+    for (let i = 0; i < trades.length; i++) {
+      if (trades[i].pnl && trades[i].pnl! > 0) {
+        run++;
+      } else {
+        break;
+      }
+    }
+    return run;
+  }, [user?.trades]);
+
+  const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (user?.trades?.length || 0) * 80 + ((user?.totalDeposits || 0) * 0.1);
+  const xpPerLevel = 1000;
+  const currentLevel = Math.floor(totalXp / xpPerLevel) + 1;
+  const currentXp = totalXp % xpPerLevel;
+  const xpProgressPercent = Math.min(100, Math.round((currentXp / xpPerLevel) * 100));
+
+  const badges = [
+    { name: 'Pioneer', unlocked: true, icon: '🚀', desc: 'Aver platform voyager' },
+    { name: 'AI Pilot', unlocked: completedAiTrades > 0, icon: '🤖', desc: 'Executed AI trade' },
+    { name: 'Alpha', unlocked: referralCount > 0, icon: '👑', desc: 'Referred active user' },
+    { name: 'VIP Vault', unlocked: (user?.totalDeposits || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
+  ];
   
   const totalValue = totalNetBalance;
   const todayPnL = user?.portfolio?.todayPnL ?? 0;
@@ -615,7 +686,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                             if (item.category === 'security') icon = <ShieldCheck className="w-4 h-4 text-amber-400" />;
 
                             return (
-                              <div key={item.id} className="relative">
+                              <div key={`${item.id}-${i}`} className="relative">
                                 <div className={`absolute -left-[29px] top-1 w-4 h-4 rounded-full flex items-center justify-center border ${
                                   isDark ? 'bg-[#08090e] border-white/10' : 'bg-white border-slate-200'
                                 }`}>
@@ -639,95 +710,73 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   </motion.div>
 
                   {/* Achievement & Progress Widget */}
-                  {(() => {
-                    const referralCount = user?.referralCount || 0;
-                    const completedAiTrades = user?.trades?.filter(t => t.type === 'ai').length || 0;
-                    const loginStreak = 5;
-                    const profitableDays = 3;
+                  <motion.div variants={itemVariants} className="space-y-4">
+                    <div className="flex justify-between items-end mb-1">
+                      <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary} flex items-center gap-1.5`}>
+                        <Award className="w-4 h-4 text-amber-500" />
+                        Level & Milestones
+                      </h3>
+                    </div>
 
-                    const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (user?.history?.length || 0) * 80 + 350;
-                    const xpPerLevel = 1000;
-                    const currentLevel = Math.floor(totalXp / xpPerLevel) + 1;
-                    const currentXp = totalXp % xpPerLevel;
-                    const xpProgressPercent = Math.min(100, Math.round((currentXp / xpPerLevel) * 100));
-
-                    const badges = [
-                      { name: 'Pioneer', unlocked: true, icon: '🚀', desc: 'Aver platform voyager' },
-                      { name: 'AI Pilot', unlocked: completedAiTrades > 0, icon: '🤖', desc: 'Executed AI trade' },
-                      { name: 'Alpha', unlocked: referralCount > 0, icon: '👑', desc: 'Referred active user' },
-                      { name: 'VIP Vault', unlocked: (user?.totalDeposits || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
-                    ];
-
-                    return (
-                      <motion.div variants={itemVariants} className="space-y-4">
-                        <div className="flex justify-between items-end mb-1">
-                          <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary} flex items-center gap-1.5`}>
-                            <Award className="w-4 h-4 text-amber-500" />
-                            Level & Milestones
-                          </h3>
-                        </div>
-
-                        <div className={`rounded-[24px] p-5 ${cardClasses} space-y-4`}>
+                    <div className={`rounded-[24px] p-5 ${cardClasses} space-y-4`}>
+                      <div>
+                        <div className="flex justify-between items-center mb-1.5">
                           <div>
-                            <div className="flex justify-between items-center mb-1.5">
-                              <div>
-                                <span className="text-xs font-black text-emerald-500 uppercase tracking-wider">Trading Rank</span>
-                                <h4 className={`text-lg font-black tracking-tight ${textPrimary}`}>Level {currentLevel}</h4>
-                              </div>
-                              <span className={`text-xs font-bold ${textSecondary}`}>{currentXp} / 1000 XP</span>
-                            </div>
-                            <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
-                              <motion.div 
-                                initial={{ width: 0 }}
-                                animate={{ width: `${xpProgressPercent}%` }}
-                                transition={{ duration: 1, ease: "easeOut" }}
-                                className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
-                              />
-                            </div>
+                            <span className="text-xs font-black text-emerald-500 uppercase tracking-wider">Trading Rank</span>
+                            <h4 className={`text-lg font-black tracking-tight ${textPrimary}`}>Level {currentLevel}</h4>
                           </div>
-
-                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
-                            <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
-                              <Flame className="w-4 h-4 text-orange-500 mx-auto mb-1 animate-pulse" />
-                              <p className={`text-[10px] font-bold ${textSecondary}`}>Streak</p>
-                              <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{loginStreak} Days</p>
-                            </div>
-                            <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
-                              <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
-                              <p className={`text-[10px] font-bold ${textSecondary}`}>Win Run</p>
-                              <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{profitableDays} Days</p>
-                            </div>
-                            <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
-                              <Brain className="w-4 h-4 text-blue-400 mx-auto mb-1" />
-                              <p className={`text-[10px] font-bold ${textSecondary}`}>AI Trades</p>
-                              <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{completedAiTrades}</p>
-                            </div>
-                          </div>
-
-                          <div className="pt-2 border-t border-white/5">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Unlocked Insignias</p>
-                            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                              {badges.map((badge, idx) => (
-                                <div 
-                                  key={idx} 
-                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border whitespace-nowrap ${
-                                    badge.unlocked 
-                                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                                      : 'bg-white/[0.01] border-white/5 text-gray-600 opacity-40'
-                                  }`}
-                                  title={badge.desc}
-                                >
-                                  <span className="text-xs">{badge.icon}</span>
-                                  <span className="text-[10px] font-bold tracking-tight">{badge.name}</span>
-                                  {!badge.unlocked && <Lock className="w-2.5 h-2.5" />}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                          <span className={`text-xs font-bold ${textSecondary}`}>{currentXp} / 1000 XP</span>
                         </div>
-                      </motion.div>
-                    );
-                  })()}
+                        <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${xpProgressPercent}%` }}
+                            transition={{ duration: 1, ease: "easeOut" }}
+                            className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
+                        <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
+                          <Flame className="w-4 h-4 text-orange-500 mx-auto mb-1 animate-pulse" />
+                          <p className={`text-[10px] font-bold ${textSecondary}`}>Streak</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{loginStreak} Days</p>
+                        </div>
+                        <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
+                          <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
+                          <p className={`text-[10px] font-bold ${textSecondary}`}>Win Run</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{profitableDays} Days</p>
+                        </div>
+                        <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
+                          <Brain className="w-4 h-4 text-blue-400 mx-auto mb-1" />
+                          <p className={`text-[10px] font-bold ${textSecondary}`}>AI Trades</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{completedAiTrades}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Unlocked Insignias</p>
+                        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                          {badges.map((badge, i) => (
+                            <div 
+                              key={`badge-${badge.name}-${i}`} 
+                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border whitespace-nowrap ${
+                                badge.unlocked 
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                                  : 'bg-white/[0.01] border-white/5 text-gray-600 opacity-40'
+                              }`}
+                              title={badge.desc}
+                            >
+                              <span className="text-xs">{badge.icon}</span>
+                              <span className="text-[10px] font-bold tracking-tight">{badge.name}</span>
+                              {!badge.unlocked && <Lock className="w-2.5 h-2.5" />}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
               </div>
 
             </motion.div>
@@ -748,9 +797,11 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => onNavigate('events-promos')} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setShowEventsPromosModal(true)} />}
           {activeTab === 'ai' && <AiTradingModule theme={theme} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
+          
+          {showEventsPromosModal && <EventsPromosModal isOpen={showEventsPromosModal} onClose={() => setShowEventsPromosModal(false)} theme={theme} />}
           
           {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && (
             <motion.div
@@ -975,9 +1026,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                     No transactions recorded.
                   </div>
                 ) : (
-                  user.history.map((hist) => (
+                  user.history.map((hist, i) => (
                     <div 
-                      key={hist.id} 
+                      key={`${hist.id}-${i}`} 
                       className={`p-4 rounded-xl flex items-center justify-between border ${
                         isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'
                       }`}

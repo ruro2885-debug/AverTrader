@@ -21,7 +21,13 @@ export default function UserAvatar({ user, sizeClass = "w-8 h-8", fontSizeClass 
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  const hasPhoto = !!(user && user.hasCustomPhoto && (user.avatarUrl || user.profilePhotoURL) && !hasError);
+  const isStockPhoto = (url?: string) => {
+    if (!url) return false;
+    const stockPatterns = ['unsplash.com', 'dicebear.com', 'pravatar.cc', 'cloudinary.com/demo', 'images.pexels.com', 'images.stock', 'images.google', 'i.pravatar.cc'];
+    return stockPatterns.some(pattern => url.toLowerCase().includes(pattern));
+  };
+
+  const hasPhoto = !!(user && user.hasCustomPhoto && (user.avatarUrl || user.profilePhotoURL) && !hasError && !isStockPhoto(user.avatarUrl || user.profilePhotoURL));
   const photoUrl = user ? (user.avatarUrl || user.profilePhotoURL || undefined) : undefined;
   
   if (photoUrl && hasPhoto) {

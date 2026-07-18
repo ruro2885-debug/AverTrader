@@ -156,9 +156,9 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
 
       {/* 3. CATEGORY TABS */}
       <div className="flex overflow-x-auto gap-1 px-4 pb-4 scrollbar-hide sticky top-[157px] z-30">
-        {categories.map(cat => (
+        {categories.map((cat, i) => (
           <button 
-            key={cat} 
+            key={`market-cat-${cat}-${i}`} 
             onClick={() => setActiveCategory(cat)}
             className={`px-5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeCategory === cat ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : isDark ? 'bg-slate-900/50 text-slate-400' : 'bg-white text-slate-500 border border-slate-200'}`}
           >
@@ -192,7 +192,7 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
             <div className={`rounded-[20px] overflow-hidden ${cardClasses} shadow-sm`}>
               {watchlistAssets.map((asset, i) => (
                 <div 
-                  key={`watch-${asset.symbol}`}
+                  key={`watch-${asset.symbol}-${i}`}
                   onClick={() => onSelectAsset(asset)}
                   className={`flex items-center justify-between p-3.5 cursor-pointer transition-colors ${
                     i !== watchlistAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''

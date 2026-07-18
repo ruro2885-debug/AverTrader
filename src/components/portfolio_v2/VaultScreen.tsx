@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { safeStorage } from '../../utils/storage';
 import { 
   ArrowLeft, Shield, Lock, Unlock, Landmark, ArrowUpRight, 
   ArrowDownRight, History, Sliders, Settings, KeyRound, AlertCircle,
@@ -32,10 +33,10 @@ export default function VaultScreen({
 
   // State Management
   const [isVaultOnboarded, setIsVaultOnboarded] = useState<boolean>(() => {
-    return localStorage.getItem('vault_onboarded') === 'true';
+    return safeStorage.getItem('vault_onboarded') === 'true';
   });
   const [vaultPasscode, setVaultPasscode] = useState<string>(() => {
-    return localStorage.getItem('vault_passcode') || '';
+    return safeStorage.getItem('vault_passcode') || '';
   });
   const [vaultState, setVaultState] = useState<'setup' | 'locked' | 'unlocked'>(
     isVaultOnboarded ? 'locked' : 'setup'
@@ -112,8 +113,8 @@ export default function VaultScreen({
         setPasscodeConfirm(next);
         if (next.length === 6) {
           if (next === passcodeInput) {
-            localStorage.setItem('vault_passcode', passcodeInput);
-            localStorage.setItem('vault_onboarded', 'true');
+            safeStorage.setItem('vault_passcode', passcodeInput);
+            safeStorage.setItem('vault_onboarded', 'true');
             setVaultPasscode(passcodeInput);
             setIsVaultOnboarded(true);
             setVaultState('unlocked');
@@ -145,9 +146,9 @@ export default function VaultScreen({
   // Reset/Reset Onboarding
   const handleResetVault = () => {
     if (window.confirm("Are you sure you want to completely reset your Vault? This will clear your passcode and restore default savings balance.")) {
-      localStorage.removeItem('vault_passcode');
-      localStorage.removeItem('vault_onboarded');
-      localStorage.removeItem('portfolio_vault_balance');
+      safeStorage.removeItem('vault_passcode');
+      safeStorage.removeItem('vault_onboarded');
+      safeStorage.removeItem('portfolio_vault_balance');
       setIsVaultOnboarded(false);
       setVaultPasscode('');
       setVaultBalance(150000);
@@ -175,11 +176,11 @@ export default function VaultScreen({
 
     const nextBal = vaultBalance + amt;
     setVaultBalance(nextBal);
-    localStorage.setItem('portfolio_vault_balance', nextBal.toString());
+    safeStorage.setItem('portfolio_vault_balance', nextBal.toString());
     
     const nextOffset = activeBalanceOffset - amt;
     setActiveBalanceOffset(nextOffset);
-    localStorage.setItem('portfolio_active_offset', nextOffset.toString());
+    safeStorage.setItem('portfolio_active_offset', nextOffset.toString());
 
     // Add to history
     setVaultHistory(prev => [
@@ -219,11 +220,11 @@ export default function VaultScreen({
 
     const nextBal = vaultBalance - amt;
     setVaultBalance(nextBal);
-    localStorage.setItem('portfolio_vault_balance', nextBal.toString());
+    safeStorage.setItem('portfolio_vault_balance', nextBal.toString());
 
     const nextOffset = activeBalanceOffset + amt;
     setActiveBalanceOffset(nextOffset);
-    localStorage.setItem('portfolio_active_offset', nextOffset.toString());
+    safeStorage.setItem('portfolio_active_offset', nextOffset.toString());
 
     // Add to history
     setVaultHistory(prev => [

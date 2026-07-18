@@ -33,6 +33,7 @@ export async function generateAiRecommendation(marketData: any, userProfile: any
     - Risk Profile: ${userProfile.riskProfile}
     - Trading Style: ${userProfile.tradingStyle}
     - Preferred Markets: ${userProfile.preferredMarkets?.join(", ")}
+    - Trading Sessions: ${JSON.stringify(userProfile.schedule, null, 2)}
     
     Return a JSON object matching this structure:
     {
@@ -54,7 +55,7 @@ export async function generateAiRecommendation(marketData: any, userProfile: any
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
   });
 
@@ -94,7 +95,7 @@ export async function analyzeTradeAction(trade: any, marketCondition: any) {
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
   });
 
@@ -131,7 +132,7 @@ export async function generateCatherineCommentary(portfolioMetrics: any) {
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: "gemini-1.5-flash",
     contents: prompt,
   });
 

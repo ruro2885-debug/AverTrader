@@ -28,10 +28,13 @@ import {
   writeBatch
 } from "firebase/firestore";
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
+import { getDocs } from "firebase/firestore";
 import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
+import { safeStorage } from '../utils/storage';
 import { NotificationItem, NotificationCategory, NotificationPriority } from '../types/notifications';
 import { UserProfile, Theme, Language, Holding, TradeHistoryItem, PortfolioSnapshot } from '../types';
 import { NotificationManager } from '../services/NotificationManager';
+import { getAvatarDataUrl } from '../utils/avatarGenerator';
 
 export interface UserPreferences {
   language: string;
@@ -181,12 +184,12 @@ const AuthContext = createContext<AuthContextType>({
 
 // Helper for local database simulation
 const getLocalDB = (): any[] => {
-  const dbStr = localStorage.getItem('aver_local_db');
+  const dbStr = safeStorage.getItem('aver_local_db');
   return dbStr ? JSON.parse(dbStr) : [];
 };
 
 const saveLocalDB = (dbList: any[]) => {
-  localStorage.setItem('aver_local_db', JSON.stringify(dbList));
+  safeStorage.setItem('aver_local_db', JSON.stringify(dbList));
 };
 
 const getFirebaseErrorCode = (error: any): string => {
@@ -245,7 +248,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     
     // Determine the effective avatar: preview (if set) -> user.avatarUrl -> user.profilePhotoURL
     let effectiveAvatar = user.avatarUrl || user.profilePhotoURL || "";
-    let hasCustomPhoto = !!user.avatarUrl || !!user.profilePhotoURL;
+    let hasCustomPhoto = !!user.hasCustomPhoto;
     
     if (previewPhotoURL) {
       effectiveAvatar = previewPhotoURL;
@@ -280,7 +283,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         notificationManagerRef.current.subscribe(setNotifications);
 
         // Retrieve and apply cached user profile immediately to avoid flickering
-        const cachedUserStr = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
+        const cachedUserStr = safeStorage.getItem(`user_profile_${firebaseUser.uid}`);
         if (cachedUserStr) {
           try {
             const cachedUser = JSON.parse(cachedUserStr);
@@ -303,6 +306,35 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             if (docSnap.exists()) {
               const userData = docSnap.data() as User;
               console.log("[AuthContext] User data updated from Firestore for uid:", firebaseUser.uid);
+
+              // Check and heal existing users' avatars (Universal Avatar Rule)
+              const needsSeed = !userData.avatarSeed;
+              const isStockPhoto = (url?: string) => {
+                if (!url) return false;
+                const stockPatterns = ['unsplash.com', 'dicebear.com', 'pravatar.cc', 'cloudinary.com/demo', 'images.pexels.com', 'images.stock', 'images.google', 'i.pravatar.cc'];
+                return stockPatterns.some(pattern => url.toLowerCase().includes(pattern));
+              };
+              const hasStockPhoto = userData.hasCustomPhoto && (isStockPhoto(userData.profilePhotoURL) || isStockPhoto(userData.avatarUrl));
+
+              if (needsSeed || hasStockPhoto || !userData.avatarUrl) {
+                console.log("[AuthContext] User profile requires avatar reset (missing seed, stock photo, or missing URL). healing existing profile...");
+                (async () => {
+                  try {
+                    const resolvedSeed = userData.avatarSeed || firebaseUser.uid;
+                    const newDataUrl = getAvatarDataUrl(resolvedSeed);
+                    await updateDoc(userDocRef, {
+                      avatarSeed: resolvedSeed,
+                      hasCustomPhoto: true,
+                      profilePhotoURL: newDataUrl,
+                      avatarUrl: newDataUrl,
+                      lastUpdated: new Date().toISOString()
+                    });
+                    console.log("[AuthContext] Successfully healed profile and removed stock photo for user:", firebaseUser.uid);
+                  } catch (assignErr) {
+                    console.error("[AuthContext] Failed to heal profile in snapshot handler:", assignErr);
+                  }
+                })();
+              }
               const updatedUser = {
                 ...userData,
                 history: userData.history || [],
@@ -340,7 +372,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   trades: prev?.trades || [],
                   snapshots: prev?.snapshots || []
                 } as User;
-                localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(merged));
+                
+                // Selective caching to prevent QuotaExceededError
+                const profileToCache = { ...merged };
+                delete (profileToCache as any).trades;
+                delete (profileToCache as any).holdings;
+                delete (profileToCache as any).snapshots;
+                delete (profileToCache as any).history;
+                delete (profileToCache as any).notificationsList;
+                
+                safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
                 return merged;
               });
               
@@ -359,7 +400,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           console.error("[AuthContext] Firestore user document snapshot error:", error);
           if (isPermissionError(error)) {
             console.warn("[AuthContext] Firestore access denied. Using cached/local profile.");
-            const cachedUserStr = localStorage.getItem(`user_profile_${firebaseUser.uid}`);
+            const cachedUserStr = safeStorage.getItem(`user_profile_${firebaseUser.uid}`);
             if (cachedUserStr) {
               try {
                 const cachedUser = JSON.parse(cachedUserStr);
@@ -383,7 +424,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUser(prev => {
             if (!prev) return null;
             const updated = { ...prev, holdings };
-            localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+            
+            // Selective caching
+            const profileToCache = { ...updated };
+            delete (profileToCache as any).trades;
+            delete (profileToCache as any).holdings;
+            delete (profileToCache as any).snapshots;
+            delete (profileToCache as any).history;
+            delete (profileToCache as any).notificationsList;
+            
+            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
             return updated;
           });
         }, (error) => {
@@ -400,7 +450,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 ...prev,
                 holdings: prev.holdings && prev.holdings.length > 0 ? prev.holdings : defaultHoldings
               };
-              localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+              // Selective caching
+              const profileToCache = { ...updated };
+              delete (profileToCache as any).trades;
+              delete (profileToCache as any).holdings;
+              delete (profileToCache as any).snapshots;
+              delete (profileToCache as any).history;
+              delete (profileToCache as any).notificationsList;
+              
+              safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
               return updated;
             });
           } else {
@@ -414,7 +472,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUser(prev => {
             if (!prev) return null;
             const updated = { ...prev, trades };
-            localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+            
+            // Selective caching
+            const profileToCache = { ...updated };
+            delete (profileToCache as any).trades;
+            delete (profileToCache as any).holdings;
+            delete (profileToCache as any).snapshots;
+            delete (profileToCache as any).history;
+            delete (profileToCache as any).notificationsList;
+            
+            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
             return updated;
           });
         }, (error) => {
@@ -422,12 +489,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             console.warn("Firestore subcollection 'trades' access denied. Falling back to local/cached profile data.");
             setUser(prev => {
               if (!prev) return null;
-              const defaultTrades: TradeHistoryItem[] = [];
               const updated = {
                 ...prev,
                 trades: prev.trades && prev.trades.length > 0 ? prev.trades : []
               };
-              localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+              
+              // Selective caching
+              const profileToCache = { ...updated };
+              delete (profileToCache as any).trades;
+              delete (profileToCache as any).holdings;
+              delete (profileToCache as any).snapshots;
+              delete (profileToCache as any).history;
+              delete (profileToCache as any).notificationsList;
+              
+              safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
               return updated;
             });
           } else {
@@ -441,7 +516,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUser(prev => {
             if (!prev) return null;
             const updated = { ...prev, snapshots };
-            localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+            
+            // Selective caching
+            const profileToCache = { ...updated };
+            delete (profileToCache as any).trades;
+            delete (profileToCache as any).holdings;
+            delete (profileToCache as any).snapshots;
+            delete (profileToCache as any).history;
+            delete (profileToCache as any).notificationsList;
+            
+            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
             return updated;
           });
         }, (error) => {
@@ -453,7 +537,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 ...prev,
                 snapshots: prev.snapshots && prev.snapshots.length > 0 ? prev.snapshots : []
               };
-              localStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+              
+              // Selective caching
+              const profileToCache = { ...updated };
+              delete (profileToCache as any).trades;
+              delete (profileToCache as any).holdings;
+              delete (profileToCache as any).snapshots;
+              delete (profileToCache as any).history;
+              delete (profileToCache as any).notificationsList;
+              
+              safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
               return updated;
             });
           } else {
@@ -475,7 +568,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       } else {
         // User is signed out from Firebase, check for active local user
-        const activeLocalUserStr = localStorage.getItem('aver_active_user');
+        const activeLocalUserStr = safeStorage.getItem('aver_active_user');
         if (activeLocalUserStr) {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
@@ -521,14 +614,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
 
+      let assignedUrls: string[] = [];
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        usersSnap.forEach(uDoc => {
+          const uData = uDoc.data();
+          if (uData.avatarUrl) assignedUrls.push(uData.avatarUrl);
+          if (uData.profilePhotoURL) assignedUrls.push(uData.profilePhotoURL);
+        });
+      } catch (err) {
+        console.warn("Could not query existing users for signUp uniqueness check:", err);
+      }
+
+      const targetUid = userCredential?.user.uid || `local-${Math.random().toString(36).substring(2, 11)}`;
+      const avatarSeed = targetUid;
+      const dataUrl = getAvatarDataUrl(avatarSeed);
+
       const username = data.username || data.email.split('@')[0];
       const newUser: User = {
-        uid: userCredential?.user.uid || `local-${Math.random().toString(36).substring(2, 11)}`,
+        uid: targetUid,
         username: username,
         email: data.email,
-        profilePhotoURL: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=256&h=256",
-        avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=256&h=256",
-        hasCustomPhoto: false,
+        avatarSeed,
+        avatarUrl: dataUrl,
+        profilePhotoURL: dataUrl,
+        hasCustomPhoto: true,
         country: data.country,
         phoneNumber: data.phoneNumber || '',
         accountType: 'Standard',
@@ -635,7 +745,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         saveLocalDB(dbList);
 
         // Log the user in locally immediately
-        localStorage.setItem('aver_active_user', JSON.stringify(newUser));
+        safeStorage.setItem('aver_active_user', JSON.stringify(newUser));
         setUser(newUser);
         setNotifications([]);
         setLoading(false);
@@ -671,13 +781,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (!localRecord) {
             console.warn("Local record not found during restricted sign-in fallback. Auto-creating a local profile on the fly...");
             const username = email.split('@')[0];
+            const localUid = `local-${Math.random().toString(36).substring(2, 11)}`;
+            const dataUrl = getAvatarDataUrl(localUid);
             const autoUser: User = {
-              uid: `local-${Math.random().toString(36).substring(2, 11)}`,
+              uid: localUid,
               username: username,
               email: email,
-              profilePhotoURL: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=256&h=256",
-              avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=256&h=256",
-              hasCustomPhoto: false,
+              avatarSeed: localUid,
+              avatarUrl: dataUrl,
+              profilePhotoURL: dataUrl,
+              hasCustomPhoto: true,
               country: "US",
               phoneNumber: '',
               accountType: 'Standard',
@@ -744,7 +857,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             });
             saveLocalDB(dbList);
 
-            localStorage.setItem('aver_active_user', JSON.stringify(autoUser));
+            safeStorage.setItem('aver_active_user', JSON.stringify(autoUser));
             setUser(autoUser);
             setNotifications([]);
             setLoading(false);
@@ -756,15 +869,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }
 
           // Local login success!
+          // Auto-heal local avatar if missing or if no avatarUrl
+          let updatedProfile = { ...localRecord.profile };
+          if (!updatedProfile.avatarSeed || !updatedProfile.avatarUrl) {
+            updatedProfile.avatarSeed = updatedProfile.avatarSeed || updatedProfile.uid;
+            const dataUrl = getAvatarDataUrl(updatedProfile.avatarSeed);
+            updatedProfile.avatarUrl = dataUrl;
+            updatedProfile.profilePhotoURL = dataUrl;
+            updatedProfile.hasCustomPhoto = true;
+            updatedProfile.lastUpdated = new Date().toISOString();
+          }
+
           const userProfile = {
-            ...localRecord.profile,
+            ...updatedProfile,
             lastLogin: new Date().toISOString()
           } as User;
 
           localRecord.profile = userProfile;
           saveLocalDB(dbList);
 
-          localStorage.setItem('aver_active_user', JSON.stringify(userProfile));
+          safeStorage.setItem('aver_active_user', JSON.stringify(userProfile));
           setUser(userProfile);
           setNotifications(userProfile.notificationsList || []);
           setLoading(false);
@@ -795,7 +919,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOutUser = useCallback(async () => {
     try {
-      localStorage.removeItem('aver_active_user');
+      safeStorage.removeItem('aver_active_user');
       setUser(null);
       setNotifications([]);
       setPreviewPhotoURL(null);
@@ -843,7 +967,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (isDup) return prev;
           const updatedNotifs = [newNotif, ...notifs];
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -877,7 +1001,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => n.id === id ? { ...n, read: readState !== undefined ? readState : !n.read } : n);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -906,7 +1030,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => ({ ...n, read: true }));
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -940,7 +1064,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.filter(n => n.id !== id);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -974,7 +1098,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.filter(n => n.pinned);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1008,7 +1132,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1042,7 +1166,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => n.id === id ? { ...n, archived: !n.archived } : n);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1088,7 +1212,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(prev => {
           if (!prev) return null;
           const updated = { ...prev, onboardingCompleted: completed, lastUpdated: new Date().toISOString() } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1167,10 +1291,10 @@ function dataURLtoBlob(dataurl: string): Blob {
             } as User;
             
             try {
-              localStorage.setItem('aver_active_user', JSON.stringify(updated));
-              localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
+              safeStorage.setItem('aver_active_user', JSON.stringify(updated));
+              safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
             } catch (storageErr) {
-              console.warn("[AuthContext] Failed to cache user profile in localStorage (quota exceeded fallback):", storageErr);
+              console.warn("[AuthContext] Failed to cache user profile in safeStorage (quota exceeded fallback):", storageErr);
             }
 
             try {
@@ -1273,10 +1397,10 @@ function dataURLtoBlob(dataurl: string): Blob {
               lastUpdated: new Date().toISOString() 
             } as User;
             try {
-              localStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
-              localStorage.setItem('aver_active_user', JSON.stringify(updated));
+              safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
+              safeStorage.setItem('aver_active_user', JSON.stringify(updated));
             } catch (storageErr) {
-              console.warn("[AuthContext] Failed to cache user profile in localStorage (quota exceeded fallback):", storageErr);
+              console.warn("[AuthContext] Failed to cache user profile in safeStorage (quota exceeded fallback):", storageErr);
             }
             return updated;
           });
@@ -1315,7 +1439,7 @@ function dataURLtoBlob(dataurl: string): Blob {
           if (prefs.rememberMeEnabled !== undefined) updates.rememberMeEnabled = prefs.rememberMeEnabled;
 
           const updated = { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1388,7 +1512,7 @@ function dataURLtoBlob(dataurl: string): Blob {
             history: [newHistoryItem, ...(prev.history || [])],
             lastUpdated: new Date().toISOString()
           } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1454,7 +1578,7 @@ function dataURLtoBlob(dataurl: string): Blob {
             history: [newHistoryItem, ...(prev.history || [])],
             lastUpdated: new Date().toISOString()
           } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1496,7 +1620,7 @@ function dataURLtoBlob(dataurl: string): Blob {
             updates = { ...dataOrDisplayName };
           }
           const updated = { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
-          localStorage.setItem('aver_active_user', JSON.stringify(updated));
+          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());

@@ -1,6 +1,7 @@
 import { db } from '../lib/firebase';
 import { doc, updateDoc, arrayUnion, onSnapshot, getDoc, runTransaction, Timestamp, arrayRemove } from 'firebase/firestore';
 import { NotificationItem, NotificationCategory, NotificationPriority } from '../types/notifications';
+import { safeStorage } from '../utils/storage';
 
 export class NotificationManager {
   private userId: string | null;
@@ -13,7 +14,7 @@ export class NotificationManager {
   public subscribe(onUpdate: (notifications: NotificationItem[]) => void) {
     if (!this.userId) {
       // Local storage fallback for anonymous
-      const activeLocalUserStr = localStorage.getItem('aver_active_user');
+      const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {
         const activeLocalUser = JSON.parse(activeLocalUserStr);
         onUpdate(activeLocalUser.notificationsList || []);
@@ -68,7 +69,7 @@ export class NotificationManager {
 
     if (!this.userId) {
       // Local storage fallback
-      const activeLocalUserStr = localStorage.getItem('aver_active_user');
+      const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {
         const user = JSON.parse(activeLocalUserStr);
         const notifs = user.notificationsList || [];
@@ -78,7 +79,7 @@ export class NotificationManager {
           return;
         }
         user.notificationsList = [newNotif, ...(user.notificationsList || [])];
-        localStorage.setItem('aver_active_user', JSON.stringify(user));
+        safeStorage.setItem('aver_active_user', JSON.stringify(user));
       }
       return;
     }
@@ -103,12 +104,12 @@ export class NotificationManager {
   public async markAsRead(id: string, readState?: boolean) {
     if (!this.userId) {
       // Local storage fallback
-      const activeLocalUserStr = localStorage.getItem('aver_active_user');
+      const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {
         const user = JSON.parse(activeLocalUserStr);
         const notifs = user.notificationsList || [];
         user.notificationsList = notifs.map((n: NotificationItem) => n.id === id ? { ...n, read: readState !== undefined ? readState : !n.read } : n);
-        localStorage.setItem('aver_active_user', JSON.stringify(user));
+        safeStorage.setItem('aver_active_user', JSON.stringify(user));
       }
       return;
     }

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Language, Theme, Currency, Preferences } from '../types';
 import { translations } from '../i18n/translations';
 import { useAuth } from './AuthContext';
+import { safeStorage } from '../utils/storage';
 
 interface PreferencesContextType {
   preferences: Preferences;
@@ -63,9 +64,9 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         notifications: user.notificationSettings,
       });
     } else {
-      const savedLanguage = localStorage.getItem('aver_language') as Language;
-      const savedTheme = localStorage.getItem('aver_theme') as Theme;
-      const savedCurrency = localStorage.getItem('aver_currency') as Currency;
+      const savedLanguage = safeStorage.getItem('aver_language') as Language;
+      const savedTheme = safeStorage.getItem('aver_theme') as Theme;
+      const savedCurrency = safeStorage.getItem('aver_currency') as Currency;
       
       const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
       const validThemes: Theme[] = ['light', 'dark'];
@@ -102,7 +103,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
   const updatePreference = (key: keyof Preferences, value: any) => {
     setPreferences(prev => ({ ...prev, [key]: value }));
-    localStorage.setItem(`aver_${key}`, typeof value === 'object' ? JSON.stringify(value) : value);
+    safeStorage.setItem(`aver_${key}`, typeof value === 'object' ? JSON.stringify(value) : value);
     
     // Save to user profile persistently if logged in
     if (user && updateUserPreferences) {
@@ -115,7 +116,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     
     // Clear individual local storage items
     Object.keys(defaultPreferences).forEach(key => {
-      localStorage.removeItem(`aver_${key}`);
+      safeStorage.removeItem(`aver_${key}`);
     });
 
     if (user && updateUserPreferences) {

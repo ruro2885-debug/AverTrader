@@ -46,6 +46,43 @@ async function startServer() {
     }
   });
 
+  app.get("/api/trending", async (req, res) => {
+    try {
+      const response = await fetch('https://api.coingecko.com/api/v3/search/trending');
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/verify-recaptcha", async (req, res) => {
+    try {
+      const { token } = req.body;
+      const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+
+      if (!secretKey) {
+        // If not configured, we allow it to pass so preview doesn't break entirely if keys are missing
+        // (but ideally users should provide the key).
+        console.warn("RECAPTCHA_SECRET_KEY is not set. Allowing verification to pass.");
+        return res.json({ success: true, score: 0.9 });
+      }
+
+      const response = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${token}`, {
+        method: "POST",
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        res.json({ success: true, ...data });
+      } else {
+        res.status(400).json({ success: false, error: "reCAPTCHA verification failed" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -2,7 +2,9 @@ import React, { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
+import { safeStorage } from '../utils/storage';
 import UserAvatar from './UserAvatar';
+import { getAvatarDataUrl } from '../utils/avatarGenerator';
 import { 
   User, Mail, Edit3, Key, ShieldCheck, 
   Bell, Share2, Wallet, Settings, HelpCircle, 
@@ -91,8 +93,8 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
   }, [profileToast]);
 
   useEffect(() => {
-    if (localStorage.getItem('aver_auto_open_2fa') === 'true') {
-      localStorage.removeItem('aver_auto_open_2fa');
+    if (safeStorage.getItem('aver_auto_open_2fa') === 'true') {
+      safeStorage.removeItem('aver_auto_open_2fa');
       setActiveModal('2fa');
     }
   }, []);
@@ -672,7 +674,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
           />
         </div>
 
-        {user?.hasCustomPhoto ? null : (
+        {user?.hasCustomPhoto && !user?.avatarUrl?.startsWith('data:image/svg+xml') ? null : (
           <button
             type="button"
             disabled={isPhotoLoading}
@@ -680,7 +682,13 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
               setIsPhotoLoading(true);
               try {
                 const newSeed = Math.random().toString(36).substring(2, 15);
-                await updateProfile({ avatarSeed: newSeed });
+                const newDataUrl = getAvatarDataUrl(newSeed);
+                await updateProfile({ 
+                  avatarSeed: newSeed, 
+                  avatarUrl: newDataUrl, 
+                  profilePhotoURL: newDataUrl,
+                  hasCustomPhoto: true 
+                });
                 if (addNotification) {
                   await addNotification(
                     'account',

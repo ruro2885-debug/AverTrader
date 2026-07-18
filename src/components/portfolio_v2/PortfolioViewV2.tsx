@@ -14,11 +14,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePreferences } from '../../contexts/PreferencesContext';
 import { useFinancials } from '../../hooks/useFinancials';
 import { TradingEngineContext } from '../../contexts/TradingEngineContext';
+import { safeStorage } from '../../utils/storage';
 import { 
   generateChartData, 
   initialWatchlistData, 
   WatchlistItem 
 } from '../../utils/portfolioHelpers';
+import { generateAvatarSvg } from '../../utils/avatarGenerator';
 import AverLogo from '../AverLogo';
 import CoinLogo from '../CoinLogo';
 import VaultScreen from './VaultScreen';
@@ -584,11 +586,11 @@ export default function PortfolioViewV2({
   // Vault state is now fully synchronized with unified useFinancials
 
   const [isVaultOnboarded, setIsVaultOnboarded] = useState<boolean>(() => {
-    return localStorage.getItem('vault_onboarded') === 'true';
+    return safeStorage.getItem('vault_onboarded') === 'true';
   });
 
   const [vaultPasscode, setVaultPasscode] = useState<string>(() => {
-    return localStorage.getItem('vault_passcode') || '';
+    return safeStorage.getItem('vault_passcode') || '';
   });
 
   const [vaultState, setVaultState] = useState<'closed' | 'setup' | 'locked' | 'unlocked'>('closed');
@@ -1213,11 +1215,9 @@ export default function PortfolioViewV2({
           <div className="flex items-center justify-between border-b border-white/[0.05] pb-3">
             <div className="flex items-center space-x-2.5">
               <div className="w-9 h-9 rounded-full overflow-hidden border border-white/10 relative">
-                <img 
-                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200" 
-                  alt="Dr. Catherine Vance" 
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
+                <div 
+                  className="w-full h-full"
+                  dangerouslySetInnerHTML={{ __html: generateAvatarSvg('catherine-vance-lead-analyst') }}
                 />
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00D09C] rounded-full border-2 border-[#0E1320]" />
               </div>
@@ -1272,8 +1272,8 @@ export default function PortfolioViewV2({
               </div>
 
               <div className="space-y-4 pt-1">
-                {radarCategories.map(cat => (
-                  <div key={cat.key} className="space-y-2">
+                {radarCategories.map((cat, i) => (
+                  <div key={`${cat.key}-${i}`} className="space-y-2">
                     <div className="flex items-center justify-between border-b border-white/[0.03] pb-1">
                       <div className="flex items-center space-x-1.5">
                         <span className="text-xs">{cat.icon}</span>
@@ -1283,11 +1283,11 @@ export default function PortfolioViewV2({
                     </div>
                     
                     <div className="grid grid-cols-1 gap-2 pl-2">
-                      {cat.assets.map(asset => {
+                      {cat.assets.map((asset, j) => {
                         const dynConf = getDynamicConfidence(asset.baseConfidence, asset.symbol);
                         return (
                           <button 
-                            key={asset.symbol} 
+                            key={`${asset.symbol}-${i}-${j}`} 
                             onClick={() => runRadarAnalysis(asset)}
                             className="w-full flex items-center justify-between p-2.5 rounded-xl bg-white/[0.01] border border-white/[0.03] hover:bg-white/[0.04] hover:border-[#00D09C]/20 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 touch-manipulation"
                           >
@@ -1326,8 +1326,8 @@ export default function PortfolioViewV2({
 
               {/* Animated Allocation Bars */}
               <div className="space-y-3 pt-2">
-                {dynamicExposure.allocations.map(alloc => (
-                  <div key={alloc.name} className="space-y-1.5">
+                {dynamicExposure.allocations.map((alloc, i) => (
+                  <div key={`${alloc.name}-${i}`} className="space-y-1.5">
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-semibold text-slate-300">{alloc.name}</span>
                       <span className="font-mono font-bold text-[#00D09C]">{alloc.value.toFixed(1)}%</span>
@@ -1349,8 +1349,8 @@ export default function PortfolioViewV2({
               <div className="space-y-3 pt-4 border-t border-white/[0.05]">
                 <h5 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Risk Distribution</h5>
                 <div className="space-y-3">
-                  {dynamicExposure.risks.map(risk => (
-                    <div key={risk.name} className="space-y-1.5">
+                  {dynamicExposure.risks.map((risk, i) => (
+                    <div key={`${risk.name}-${i}`} className="space-y-1.5">
                       <div className="flex justify-between items-center text-xs">
                         <div className="flex items-center space-x-1.5">
                           <span className={`w-2 h-2 rounded-full ${risk.dotColor}`} />
@@ -1465,9 +1465,9 @@ export default function PortfolioViewV2({
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Select Asset</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {['BTC', 'ETH', 'SOL'].map(a => (
+                      {['BTC', 'ETH', 'SOL'].map((a, i) => (
                         <button 
-                          key={a}
+                          key={`trade-asset-${a}-${i}`}
                           onClick={() => setTradeAsset(a)}
                           className={`py-2 border rounded-xl font-mono text-xs cursor-pointer touch-manipulation transition-all ${tradeAsset === a ? 'bg-[#00D09C]/10 border-[#00D09C]/30 text-[#00D09C] font-semibold' : 'bg-[#080B11]/40 border-white/[0.04] text-slate-400 hover:text-white'}`}
                         >
@@ -1592,7 +1592,7 @@ export default function PortfolioViewV2({
                                     setTimeout(() => {
                                       if (passcodeInput === next) {
                                         setVaultPasscode(passcodeInput);
-                                        localStorage.setItem('vault_passcode', passcodeInput);
+                                        safeStorage.setItem('vault_passcode', passcodeInput);
                                         setVaultSetupStep(3);
                                       } else {
                                         setPasscodeConfirm('');
@@ -1643,7 +1643,7 @@ export default function PortfolioViewV2({
                                   setTimeout(() => {
                                     if (passcodeInput === next) {
                                       setVaultPasscode(passcodeInput);
-                                      localStorage.setItem('vault_passcode', passcodeInput);
+                                      safeStorage.setItem('vault_passcode', passcodeInput);
                                       setVaultSetupStep(3);
                                     } else {
                                       setPasscodeConfirm('');
@@ -1691,7 +1691,7 @@ export default function PortfolioViewV2({
                       <button 
                         onClick={() => {
                           setIsVaultOnboarded(true);
-                          localStorage.setItem('vault_onboarded', 'true');
+                          safeStorage.setItem('vault_onboarded', 'true');
                           setVaultState('unlocked');
                           setPasscodeInput('');
                           setPasscodeConfirm('');
@@ -1818,10 +1818,10 @@ export default function PortfolioViewV2({
                               setIsVaultOnboarded(false);
                               updateVaultBalance(150000);
                               updateActiveBalanceOffset(0);
-                              localStorage.removeItem('vault_passcode');
-                              localStorage.removeItem('vault_onboarded');
-                              localStorage.removeItem('portfolio_vault_balance');
-                              localStorage.removeItem('portfolio_active_offset');
+                              safeStorage.removeItem('vault_passcode');
+                              safeStorage.removeItem('vault_onboarded');
+                              safeStorage.removeItem('portfolio_vault_balance');
+                              safeStorage.removeItem('portfolio_active_offset');
                               setVaultState('setup');
                               setVaultSetupStep(1);
                               setPasscodeInput('');
@@ -2080,9 +2080,9 @@ export default function PortfolioViewV2({
                       <div className="space-y-1.5">
                         <label className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Select Source Asset</label>
                         <div className="grid grid-cols-3 gap-1.5 font-mono">
-                          {['BTC', 'ETH', 'Cash', 'SOL', 'Gold', 'AAPL'].map(a => (
+                          {['BTC', 'ETH', 'Cash', 'SOL', 'Gold', 'AAPL'].map((a, i) => (
                             <button
-                              key={a}
+                              key={`vault-asset-${a}-${i}`}
                               type="button"
                               onClick={() => setVaultActionAsset(a)}
                               className={`py-2 border rounded-xl text-xs font-bold cursor-pointer transition-all ${vaultActionAsset === a ? 'bg-[#00D09C]/10 border-[#00D09C]/30 text-[#00D09C]' : 'bg-[#080B11]/40 border-white/[0.04] text-slate-400'}`}
@@ -2195,9 +2195,9 @@ export default function PortfolioViewV2({
                       <div className="space-y-1.5">
                         <label className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Select Asset to Unlock</label>
                         <div className="grid grid-cols-3 gap-1.5 font-mono">
-                          {['BTC', 'ETH', 'USDC'].map(a => (
+                          {['BTC', 'ETH', 'USDC'].map((a, i) => (
                             <button
-                              key={a}
+                              key={`vault-unlock-${a}-${i}`}
                               type="button"
                               onClick={() => setVaultActionAsset(a)}
                               className={`py-2 border rounded-xl text-xs font-bold cursor-pointer transition-all ${vaultActionAsset === a ? 'bg-[#00D09C]/10 border-[#00D09C]/30 text-[#00D09C]' : 'bg-[#080B11]/40 border-white/[0.04] text-slate-400'}`}
@@ -2404,8 +2404,8 @@ export default function PortfolioViewV2({
                   <div className="space-y-1.5">
                     <span className="text-[9px] text-slate-500 uppercase tracking-widest font-sans font-bold">Technical Triggers</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {analysisReport.indicators?.map((ind: string) => (
-                        <span key={ind} className="px-2 py-1 bg-white/[0.02] border border-white/[0.04] text-slate-300 text-[9px] rounded-lg font-mono">
+                      {analysisReport.indicators?.map((ind: string, i: number) => (
+                        <span key={`ind-${ind}-${i}`} className="px-2 py-1 bg-white/[0.02] border border-white/[0.04] text-slate-300 text-[9px] rounded-lg font-mono">
                           {ind}
                         </span>
                       ))}

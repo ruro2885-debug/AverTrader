@@ -1,12 +1,13 @@
 import { collection, getDocs, updateDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { TraderProfile } from '../types/trading';
+import { getAvatarDataUrl } from '../utils/avatarGenerator';
 
 const INITIAL_TRADERS: TraderProfile[] = Array.from({ length: 50 }, (_, i) => ({
   id: `trader-${i}`,
   rank: i + 1,
   username: `Trader${i + 1}`,
-  avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${i}`,
+  avatar: getAvatarDataUrl(`trader-${i}`),
   return30d: Math.floor(Math.random() * 50) + 5,
   overallReturn: Math.floor(Math.random() * 200) + 10,
   winRate: Math.floor(Math.random() * 40) + 50,
@@ -24,6 +25,21 @@ export const seedTraders = async () => {
     if (snapshot.empty) {
         for (const trader of INITIAL_TRADERS) {
             await setDoc(doc(tradersRef, trader.id), trader);
+        }
+    } else {
+        // Force update avatars to new system if they are using old stock photo URLs
+        for (const d of snapshot.docs) {
+            const data = d.data();
+            const isStock = (url?: string) => {
+                if (!url) return false;
+                return ['dicebear.com', 'unsplash.com', 'pravatar.cc', 'i.pravatar.cc'].some(p => url.includes(p));
+            };
+            
+            if (data.avatar && isStock(data.avatar)) {
+                await updateDoc(doc(tradersRef, d.id), {
+                    avatar: getAvatarDataUrl(d.id)
+                });
+            }
         }
     }
 };

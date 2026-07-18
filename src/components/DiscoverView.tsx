@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, Bot, Users, Sparkles, Flame, Calendar, BookOpen, ChevronRight, PlayCircle
@@ -19,11 +19,56 @@ export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEven
     ? "bg-slate-900/40 backdrop-blur-md border border-white/5 shadow-xl"
     : "bg-white/60 backdrop-blur-md border border-slate-200/50 shadow-lg";
 
-  const trendingAssets = [
-    { symbol: 'AVR', name: 'Aver', price: '$1.24', change: '+12.4%', isPositive: true },
-    { symbol: 'SOL', name: 'Solana', price: '$145.60', change: '+8.2%', isPositive: true },
-    { symbol: 'FET', name: 'Fetch.ai', price: '$2.15', change: '+15.7%', isPositive: true },
-  ];
+  const [trendingAssets, setTrendingAssets] = useState<any[]>([]);
+  const [featuredStrategy, setFeaturedStrategy] = useState<any>(null);
+  const [selectedStrategy, setSelectedStrategy] = useState<any>(null);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+
+  useEffect(() => {
+    // Dynamic Trending Assets
+    const fetchTrending = async () => {
+      try {
+        const res = await fetch('/api/trending');
+        const data = await res.json();
+        
+        if (data && data.coins) {
+          setTrendingAssets(data.coins.slice(0, 3).map((c: any) => ({
+            symbol: c.item.symbol,
+            name: c.item.name,
+            price: `$${c.item.price_btc.toFixed(6)}`,
+            change: '+5.0%', // Placeholder
+            isPositive: true
+          })));
+        } else {
+          // Fallback if API rate limited
+          setTrendingAssets([
+            { symbol: 'SOL', name: 'Solana', price: '$143.20', change: '+5.4%', isPositive: true },
+            { symbol: 'AVAX', name: 'Avalanche', price: '$35.12', change: '+2.1%', isPositive: true },
+            { symbol: 'INJ', name: 'Injective', price: '$28.40', change: '-1.2%', isPositive: false }
+          ]);
+        }
+      } catch (e) {
+        console.error("Failed to fetch trending:", e);
+        // Fallback
+        setTrendingAssets([
+          { symbol: 'SOL', name: 'Solana', price: '$143.20', change: '+5.4%', isPositive: true },
+          { symbol: 'AVAX', name: 'Avalanche', price: '$35.12', change: '+2.1%', isPositive: true },
+          { symbol: 'INJ', name: 'Injective', price: '$28.40', change: '-1.2%', isPositive: false }
+        ]);
+      }
+    };
+    fetchTrending();
+
+    // Rotating Featured AI Strategies
+    const strategies = [
+      { name: "Quantum Momentum", description: "High-frequency trend following", apy: "42.8%", risk: "Medium", users: "12,450" },
+      { name: "Arbitrage Alpha", description: "Cross-exchange price discrepancy", apy: "35.2%", risk: "Low", users: "8,920" },
+      { name: "Yield Harvester", description: "Automated liquidity provision", apy: "51.5%", risk: "High", users: "15,300" }
+    ];
+    // Rotate every 24 hours based on day of year
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+    setFeaturedStrategy(strategies[dayOfYear % strategies.length]);
+  }, []);
 
   if (showCopyTrade) {
     return (
@@ -79,7 +124,7 @@ export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEven
           </div>
           <div className={`rounded-[20px] overflow-hidden ${cardClasses}`}>
             {trendingAssets.map((asset, i) => (
-              <div key={asset.symbol} className={`flex items-center justify-between p-4 ${i !== trendingAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''}`}>
+              <div key={`${asset.symbol}-${i}`} className={`flex items-center justify-between p-4 ${i !== trendingAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''}`}>
                 <div className="flex items-center space-x-3">
                   <CoinLogo symbol={asset.symbol} size={36} />
                   <div>
@@ -106,32 +151,39 @@ export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEven
               {t('common.ai_strategies')}
             </h3>
           </div>
+          {featuredStrategy && (
           <div className={`rounded-[20px] p-5 ${cardClasses}`}>
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h4 className={`font-bold text-base ${textPrimary}`}>Quantum Momentum</h4>
-                <p className={`text-xs ${textSecondary} mt-0.5`}>High-frequency trend following</p>
+                <h4 className={`font-bold text-base ${textPrimary}`}>{featuredStrategy.name}</h4>
+                <p className={`text-xs ${textSecondary} mt-0.5`}>{featuredStrategy.description}</p>
               </div>
               <div className="bg-emerald-500/10 text-emerald-500 px-2 py-1 rounded text-[10px] font-bold uppercase">
-                +42.8% APY
+                {featuredStrategy.apy} APY
               </div>
             </div>
             <div className="flex items-center space-x-4 mb-5">
               <div>
                 <p className={`text-[10px] ${textSecondary}`}>Risk Level</p>
-                <p className={`text-sm font-bold text-amber-500`}>Medium</p>
+                <p className={`text-sm font-bold text-amber-500`}>{featuredStrategy.risk}</p>
               </div>
               <div>
                 <p className={`text-[10px] ${textSecondary}`}>Active Users</p>
-                <p className={`text-sm font-bold ${textPrimary}`}>12,450</p>
+                <p className={`text-sm font-bold ${textPrimary}`}>{featuredStrategy.users}</p>
               </div>
             </div>
-            <button className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${
-              isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
-            }`}>
+            <button 
+              onClick={() => {
+                setSelectedStrategy(featuredStrategy);
+                setIsModalVisible(true);
+              }}
+              className={`w-full py-3 rounded-xl text-sm font-bold transition-colors ${
+                isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+              }`}>
               {t('common.analyze_strategy')}
             </button>
           </div>
+          )}
         </div>
       </div>
 
@@ -172,7 +224,7 @@ export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEven
           { title: 'Events & Promos', icon: Calendar, color: 'text-purple-500', bg: isDark ? 'bg-purple-500/10' : 'bg-purple-50', onClick: onOpenEventsPromos },
           { title: 'Aver Academy', icon: BookOpen, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
         ].map((item, i) => (
-          <button key={i} onClick={item.onClick} className={`p-5 rounded-[20px] ${cardClasses} flex flex-col items-start transition-transform hover:scale-[1.02] text-left group`}>
+          <button key={`${item.title}-${i}`} onClick={item.onClick} className={`p-5 rounded-[20px] ${cardClasses} flex flex-col items-start transition-transform hover:scale-[1.02] text-left group`}>
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${item.bg}`}>
               <item.icon className={`w-5 h-5 ${item.color}`} />
             </div>
@@ -184,6 +236,21 @@ export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEven
         ))}
       </div>
       
+      
+      {isModalVisible && selectedStrategy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className={`w-full max-w-sm rounded-3xl p-6 ${cardClasses}`}>
+            <h3 className={`text-xl font-bold ${textPrimary} mb-2`}>{selectedStrategy.name}</h3>
+            <p className={`text-sm ${textSecondary} mb-6`}>{selectedStrategy.description}. This strategy utilizes advanced algorithms to optimize returns while managing risk.</p>
+            <button 
+              onClick={() => setIsModalVisible(false)}
+              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

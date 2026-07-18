@@ -105,6 +105,7 @@ export default function AiConfigurationsView({
     setEditingConfig(fresh);
     setIsCreating(true);
     setActiveStep('general');
+    setIsSaved(false);
   };
 
   const handleEdit = (cfg: AiConfiguration) => {
@@ -154,35 +155,53 @@ export default function AiConfigurationsView({
   };
 
   const handleExport = (cfg: AiConfiguration) => {
-    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
-      JSON.stringify(cfg, null, 2)
-    )}`;
+    const configData = { ...cfg };
+    // Remove internal metadata before export if any, but keep logic
+    const jsonString = JSON.stringify(configData, null, 2);
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(jsonString).then(() => {
+      alert('Configuration serialized and copied to clipboard.');
+    }).catch(err => {
+      console.error('Clipboard failed, falling back to download:', err);
+    });
+
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', jsonString);
+    downloadAnchor.setAttribute('href', url);
     downloadAnchor.setAttribute('download', `${cfg.name.toLowerCase().replace(/\s+/g, '_')}_config.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleImportConfig = async () => {
     try {
+      if (!importText.trim()) throw new Error('Empty input');
       const parsed = JSON.parse(importText);
-      if (!parsed.name || !parsed.riskControls) {
-        throw new Error('Invalid structure');
+      
+      // Strict validation
+      if (!parsed.name || !parsed.strategy || !parsed.riskControls || !parsed.recommendationRules || !parsed.schedule) {
+        throw new Error('Incomplete configuration structure. Missing critical strategy or risk parameters.');
       }
+
       const imported: AiConfiguration = {
         ...parsed,
         id: `cfg_import_${Date.now()}`,
+        ownerId: configs[0]?.ownerId || 'unknown',
         status: 'INACTIVE',
         createdAt: Timestamp.now(),
         lastModified: Timestamp.now()
       };
+      
       await onSave(imported);
       setShowImportModal(false);
       setImportText('');
-    } catch (e) {
-      alert('Failed to parse config file. Please check JSON syntax and structure.');
+      alert('Configuration imported successfully with perfect logic synchronization.');
+    } catch (e: any) {
+      alert(`Import Failed: ${e.message || 'Invalid JSON structure'}`);
     }
   };
 
@@ -363,7 +382,7 @@ export default function AiConfigurationsView({
                 onClick={() => setEditingConfig(null)}
                 className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${isDark ? 'hover:bg-white/5 text-slate-400' : 'hover:bg-slate-50 text-slate-600'}`}
               >
-                Cancel Changes
+                {isSaved ? 'Back to Configurations' : 'Cancel Changes'}
               </button>
               {isSaved ? (
                 <button

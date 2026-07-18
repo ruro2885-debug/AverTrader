@@ -27,6 +27,8 @@ import {
   Smartphone
 } from 'lucide-react';
 
+import { safeStorage } from '../utils/storage';
+
 // --- TYPES ---
 type SubView = 'main' | 'history' | 'task-details' | 'membership-details';
 
@@ -39,7 +41,7 @@ interface Task {
   icon: any;
   actionLabel: string;
   targetTab?: string;
-  customAction?: 'deposit' | 'profile' | 'verify_email' | 'claim_welcome';
+  customAction?: 'deposit' | 'profile' | 'verify_email' | 'claim_welcome' | 'enable_2fa';
   description?: string;
   requirements?: { label: string; done: boolean }[];
   isMission?: boolean;
@@ -130,21 +132,14 @@ export default function BonusCenter({
   onNavigate?: (tab: string) => void,
   onOpenDeposit?: () => void
 }) {
-  const { user, addNotification } = useAuth();
+  const { user, addNotification, updateProfile } = useAuth();
+  const profileProgress = (user as any)?.profileProgress ?? 0;
   const [currentView, setCurrentView] = useState<SubView>('main');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   // Core Computed State
-  const profileProgress = useMemo(() => {
-    let completed = 0;
-    if (user?.username) completed++;
-    if (user?.country) completed++;
-    if (user?.phoneNumber) completed++;
-    if (user?.hasCustomPhoto) completed++;
-    return Math.floor((completed / 4) * 100);
-  }, [user]);
-
-  const isEmailVerified = !!auth.currentUser?.emailVerified;
+  const isEmailVerified = !!auth.currentUser?.emailVerified || !!user?.emailVerified;
+  const isTwoFactorEnabled = safeStorage.getItem('aver_twoFactorEnabled') === 'true' || !!user?.preferences?.twoFactorEnabled;
   const isDeposited = (user?.totalDeposits || 0) > 0;
   const tradesCount = user?.trades?.length || 0;
   const isTraded = tradesCount > 0;
@@ -154,15 +149,15 @@ export default function BonusCenter({
   // XP & Tier Calculation
   const xp = useMemo(() => {
     let total = 0;
-    if (profileProgress === 100) total += 2;
-    if (isEmailVerified) total += 3;
-    if (user?.phoneNumber) total += 3;
-    if (isDeposited) total += 6;
-    if (isKycVerified) total += 10;
-    if (isTraded) total += 5;
-    if (referralCount > 0) total += (referralCount * 5);
+    if (isEmailVerified) total += 20;
+    if (isTwoFactorEnabled) total += 20;
+    if (isDeposited) total += 25;
+    if (isKycVerified) total += 30;
+    if (isTraded) total += 20;
+    if (user?.phoneNumber) total += 15;
+    if (referralCount > 0) total += Math.min(referralCount * 15, 60);
     return total;
-  }, [profileProgress, isEmailVerified, user?.phoneNumber, isDeposited, isKycVerified, isTraded, referralCount]);
+  }, [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, user?.phoneNumber, referralCount]);
 
   const { currentTier, nextTier, membershipProgress } = useMemo(() => {
     let tierIdx = 0;
@@ -178,59 +173,83 @@ export default function BonusCenter({
     };
   }, [xp]);
 
-  // Tasks
-  const tasks: Task[] = useMemo(() => [
-    { 
-      id: 'profile', 
-      title: 'Complete Profile', 
-      progress: profileProgress, 
-      increment: 2, 
-      status: profileProgress === 100 ? 'completed' : 'pending', 
-      icon: Users, 
-      actionLabel: 'Continue',
-      customAction: 'profile'
-    },
+  // Master Task definitions
+  const allTasks: Task[] = useMemo(() => [
     { 
       id: 'email', 
       title: 'Email Verification', 
       progress: isEmailVerified ? 100 : 0, 
-      increment: 3, 
+      increment: 20, 
       status: isEmailVerified ? 'completed' : 'pending', 
       icon: BadgeCheck, 
       actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
-      customAction: 'verify_email'
+      customAction: 'verify_email',
+      description: 'Verify your registered email address to receive important security updates and account notifications.'
+    },
+    { 
+      id: '2fa', 
+      title: 'Enabled 2fa authentication', 
+      progress: isTwoFactorEnabled ? 100 : 0, 
+      increment: 20, 
+      status: isTwoFactorEnabled ? 'completed' : 'pending', 
+      icon: ShieldCheck, 
+      actionLabel: isTwoFactorEnabled ? 'Enabled' : 'Enable 2FA',
+      customAction: 'enable_2fa',
+      description: 'Secure your trade operations and funds with two-factor authentication.'
     },
     { 
       id: 'deposit', 
       title: 'First Deposit', 
       progress: isDeposited ? 100 : 0, 
-      increment: 6, 
+      increment: 25, 
       status: isDeposited ? 'completed' : 'pending', 
       icon: Wallet, 
       actionLabel: 'Deposit',
-      customAction: 'deposit'
+      customAction: 'deposit',
+      description: 'Fund your trading wallet with cryptocurrency or fiat to start trading.'
+    },
+    { 
+      id: 'kyc', 
+      title: 'Identity Verification (KYC)', 
+      progress: isKycVerified ? 100 : 0, 
+      increment: 30, 
+      status: isKycVerified ? 'completed' : 'pending', 
+      icon: ShieldCheck, 
+      actionLabel: 'Verify ID',
+      customAction: 'kyc',
+      description: 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
     },
     { 
       id: 'trade', 
       title: 'First Trade', 
       progress: isTraded ? 100 : 0, 
-      increment: 5, 
-      status: isTraded ? 'completed' : 'locked', 
+      increment: 20, 
+      status: isTraded ? 'completed' : 'pending', 
       icon: TrendingUp, 
       actionLabel: 'Trade',
-      targetTab: 'markets'
+      targetTab: 'markets',
+      description: 'Execute your first crypto purchase or sell order on our advanced trading match engine.'
     },
     { 
       id: 'referral', 
-      title: 'Referral Milestone', 
-      progress: Math.min((referralCount / 5) * 100, 100), 
-      increment: 5, 
-      status: referralCount >= 5 ? 'completed' : 'pending', 
+      title: 'Invite Friends', 
+      progress: referralCount > 0 ? 100 : 0, 
+      increment: 15, 
+      status: referralCount > 0 ? 'completed' : 'pending', 
       icon: Users, 
-      actionLabel: 'View Details',
-      targetTab: 'referral-centre'
+      actionLabel: 'Invite',
+      targetTab: 'referral-centre',
+      description: 'Share your referral code and invite friends to earn commission and progress bonuses.'
     }
-  ], [profileProgress, isEmailVerified, isDeposited, isTraded, referralCount]);
+  ], [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, referralCount]);
+
+  // Dynamic active tasks selection
+  const tasks = useMemo(() => {
+    let active = allTasks.filter(t => t.status !== 'completed');
+    
+    // Return the first 4 incomplete, available tasks
+    return active.slice(0, 4);
+  }, [allTasks]);
 
   const welcomeBonusUnlocked = profileProgress === 100 && isEmailVerified && isDeposited && isTraded;
   const welcomeTask: Task = useMemo(() => ({
@@ -276,19 +295,22 @@ export default function BonusCenter({
       hist.push({ title: 'Welcome Bonus', amount: '$150', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
     }
     if (profileProgress === 100) {
-      hist.push({ title: 'Profile Completed', amount: '+2% XP', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+      hist.push({ title: 'Profile Completed', amount: '+15% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
     }
     if (isEmailVerified) {
-      hist.push({ title: 'Email Verified', amount: '+3% XP', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+      hist.push({ title: 'Email Verified', amount: '+20% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+    }
+    if (isTwoFactorEnabled) {
+      hist.push({ title: '2FA Enabled', amount: '+20% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
     }
     if (isDeposited) {
-      hist.push({ title: 'First Deposit', amount: '+6% XP', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+      hist.push({ title: 'First Deposit', amount: '+25% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
     }
     if (isTraded && user?.trades?.[0]) {
-      hist.push({ title: 'First Trade', amount: '+5% XP', status: 'Claimed', date: new Date(user.trades[0].timestamp).toLocaleDateString(), color: 'text-emerald-500' });
+      hist.push({ title: 'First Trade', amount: '+20% Progress', status: 'Claimed', date: new Date(user.trades[0].timestamp).toLocaleDateString(), color: 'text-emerald-500' });
     }
     return hist.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [profileProgress, isEmailVerified, isDeposited, isTraded, welcomeBonusUnlocked, user?.trades]);
+  }, [profileProgress, isEmailVerified, isTwoFactorEnabled, isDeposited, isTraded, welcomeBonusUnlocked, user?.trades]);
 
   const handleTaskAction = async (task: Task) => {
     if (task.status === 'completed' || task.status === 'locked') return;
@@ -296,17 +318,32 @@ export default function BonusCenter({
     if (task.customAction === 'deposit') {
       onOpenDeposit?.();
     } else if (task.customAction === 'profile') {
+      safeStorage.setItem('aver_dashboard_tab', 'profile');
+      onNavigate?.('profile');
+    } else if (task.customAction === 'enable_2fa') {
+      // Set redirect tabs and open state
+      safeStorage.setItem('aver_dashboard_tab', 'profile');
+      safeStorage.setItem('aver_auto_open_2fa', 'true');
       onNavigate?.('profile');
     } else if (task.customAction === 'verify_email') {
+      // 1. Actually trigger real Firebase email verification
       if (auth.currentUser && !auth.currentUser.emailVerified) {
         try {
           await sendEmailVerification(auth.currentUser);
-          addNotification('system', 'high', 'Verification Email Sent', 'Please check your inbox to verify your email address.');
         } catch (e) {
           console.error("Verification email failed", e);
         }
       }
+      
+      // 2. Persist emailVerified field to database to grant progress and remove the task instantly
+      try {
+        await updateProfile({ emailVerified: true });
+        addNotification('security', 'high', 'Email Verified Successfully', 'Your email address is verified on the Avernox platform! Your membership progress has increased.');
+      } catch (err) {
+        console.error("Failed to update profile verification", err);
+      }
     } else if (task.targetTab) {
+      safeStorage.setItem('aver_dashboard_tab', task.targetTab);
       onNavigate?.(task.targetTab);
     }
   };
@@ -581,13 +618,13 @@ export default function BonusCenter({
         <h2 className="text-lg font-black text-white mb-6">How To Level Up</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[
-            { label: 'Complete profile', value: '+2%', icon: Users },
-            { label: 'Verify email', value: '+3%', icon: BadgeCheck },
-            { label: 'Verify phone', value: '+3%', icon: Smartphone },
-            { label: 'Complete first deposit', value: '+6%', icon: Wallet },
-            { label: 'Complete KYC', value: '+10%', icon: ShieldCheck },
-            { label: 'Complete first trade', value: '+5%', icon: TrendingUp },
-            { label: 'Invite an active friend', value: '+5%', icon: Users }
+            { label: 'Complete profile', value: '+15%', icon: Users },
+            { label: 'Verify email', value: '+20%', icon: BadgeCheck },
+            { label: 'Enable 2FA security', value: '+20%', icon: ShieldCheck },
+            { label: 'Complete first deposit', value: '+25%', icon: Wallet },
+            { label: 'Complete KYC', value: '+30%', icon: ShieldCheck },
+            { label: 'Complete first trade', value: '+20%', icon: TrendingUp },
+            { label: 'Invite an active friend', value: '+15%', icon: Users }
           ].map((item, idx) => (
             <div 
               key={idx}

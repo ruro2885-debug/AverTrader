@@ -2,7 +2,7 @@ export interface UserProfile {
   uid: string;
   username: string;
   email: string;
-  profilePhotoURL: string;
+  profilePhotoURL?: string;
   avatarUrl?: string;
   country: string;
   phoneNumber?: string;
@@ -23,6 +23,7 @@ export interface UserProfile {
   theme: string;
   notificationSettings: Record<string, boolean>;
   hasCustomPhoto?: boolean;
+  emailVerified?: boolean;
   avatarSeed?: string;
   biometricEnabled: boolean;
   aiTradingEnabled: boolean;

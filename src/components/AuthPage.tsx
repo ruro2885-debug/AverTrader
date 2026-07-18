@@ -10,6 +10,7 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { ClipboardPaste, UserPlus } from 'lucide-react';
+import ReCAPTCHA from 'react-google-recaptcha';
 
 interface AuthPageProps {
   theme: 'light' | 'dark';
@@ -43,6 +44,10 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   // Login Form Fields
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+
+  // ReCAPTCHA state
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
+  const recaptchaRef = useRef<ReCAPTCHA>(null);
 
   // Active policy reader state
   const [activePolicyId, setActivePolicyId] = useState<string | null>(null);
@@ -169,9 +174,31 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFormValid) return;
+
+    if (!recaptchaToken) {
+      setErrorMsg('Please complete the reCAPTCHA verification.');
+      return;
+    }
+
     setLoading(true);
     setErrorMsg('');
     try {
+      // 1. Verify reCAPTCHA token on the backend first
+      const verificationResponse = await fetch('/api/verify-recaptcha', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token: recaptchaToken }),
+      });
+      
+      const verificationData = await verificationResponse.json();
+
+      if (!verificationResponse.ok || !verificationData.success) {
+        throw new Error('reCAPTCHA verification failed. Please try again.');
+      }
+
+      // 2. Proceed with Firebase Auth signup
       await signUp({
         username,
         email,
@@ -183,6 +210,13 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       onSuccess();
     } catch (error: any) {
       console.error("Registration error:", error);
+      
+      // Reset reCAPTCHA on error
+      if (recaptchaRef.current) {
+        recaptchaRef.current.reset();
+        setRecaptchaToken(null);
+      }
+
       let displayError = '';
       
       if (error.code === 'auth/email-already-in-use') {
@@ -382,15 +416,17 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                 <div className="space-y-4">
                   <button
                     onClick={() => setView('register')}
-                    className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-bold rounded-xl transition-all hover:opacity-90"
+                    className="w-full py-4 bg-[#10b981] hover:bg-[#059669] text-black font-extrabold text-base rounded-xl transition-all shadow-[0_4px_25px_rgba(16,185,129,0.35)] hover:shadow-[0_4px_30px_rgba(16,185,129,0.5)] transform active:scale-95 cursor-pointer"
                   >
                     Create Account
                   </button>
                   <button
                     onClick={() => setView('login')}
-                    className={`w-full py-4 font-bold rounded-xl transition-all border ${
-                      isDark ? 'bg-slate-900 border-white/10 hover:bg-slate-800' : 'bg-white border-slate-200 hover:bg-slate-100'
-                    }`}
+                    className={`w-full py-4 font-extrabold text-base rounded-xl transition-all border ${
+                      isDark 
+                        ? 'bg-[#1f2937] hover:bg-[#374151] text-white border-slate-700 hover:border-slate-600 shadow-[0_4px_15px_rgba(0,0,0,0.4)]' 
+                        : 'bg-white hover:bg-slate-100 text-black border-slate-200 shadow-[0_4px_15px_rgba(0,0,0,0.05)]'
+                    } transform active:scale-95 cursor-pointer`}
                   >
                     Log In
                   </button>
@@ -902,15 +938,26 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       {errorMsg}
                     </div>
                   )}
+                  
+                  {/* Google ReCAPTCHA */}
+                  <div className="flex justify-center mt-4">
+                    <ReCAPTCHA
+                      ref={recaptchaRef}
+                      sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY || "dummy_site_key"}
+                      onChange={(token) => setRecaptchaToken(token)}
+                      theme={isDark ? "dark" : "light"}
+                    />
+                  </div>
+
                   {/* Create Account Button */}
                   <button 
                     type="submit"
-                    disabled={!isFormValid || !acceptTerms || loading}
+                    disabled={!isFormValid || !acceptTerms || !recaptchaToken || loading}
                     className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 mt-6 cursor-pointer ${
-                      (isFormValid && acceptTerms) && !loading 
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/25 active:scale-[0.99]' 
+                      (isFormValid && acceptTerms && recaptchaToken) && !loading 
+                        ? 'bg-[#10b981] hover:bg-[#059669] text-black shadow-emerald-500/25 active:scale-[0.99] font-extrabold' 
                         : isDark
-                          ? 'bg-white/5 text-gray-400 border border-white/5 cursor-not-allowed'
+                          ? 'bg-slate-800 text-gray-500 border border-white/5 cursor-not-allowed'
                           : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
                     }`}
                   >
@@ -1034,9 +1081,9 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     disabled={!isLoginFormValid || loading}
                     className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 mt-6 cursor-pointer ${
                       isLoginFormValid && !loading 
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/25 active:scale-[0.99]' 
+                        ? 'bg-[#10b981] hover:bg-[#059669] text-black shadow-emerald-500/25 active:scale-[0.99] font-extrabold' 
                         : isDark
-                          ? 'bg-white/5 text-gray-600 border border-white/5 cursor-not-allowed'
+                          ? 'bg-slate-800 text-gray-500 border border-white/5 cursor-not-allowed'
                           : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
                     }`}
                   >
@@ -1120,7 +1167,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 ${
                         loading || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail)
                           ? 'bg-slate-800 text-gray-500 cursor-not-allowed border border-white/5 shadow-none'
-                          : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black cursor-pointer font-extrabold'
+                          : 'bg-[#10b981] hover:bg-[#059669] text-black cursor-pointer font-extrabold shadow-emerald-500/25'
                       }`}
                     >
                       {loading ? (

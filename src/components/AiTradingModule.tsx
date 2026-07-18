@@ -29,6 +29,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { aiTradingService } from '../services/aiTradingService';
 import { db } from '../lib/firebase';
+import { safeStorage } from '../utils/storage';
 import { 
   AiSession, 
   AiRecommendation, 
@@ -61,7 +62,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
 
   // Navigation state (restored from localStorage)
   const [activeView, setActiveView] = useState<AiView>(() => {
-    const saved = localStorage.getItem('aver_ai_active_view');
+    const saved = safeStorage.getItem('aver_ai_active_view');
     return (saved as AiView) || 'HOME';
   });
 
@@ -111,7 +112,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
 
   // Save active tab preference
   useEffect(() => {
-    localStorage.setItem('aver_ai_active_view', activeView);
+    safeStorage.setItem('aver_ai_active_view', activeView);
   }, [activeView]);
 
   // Telemetry simulation loop
@@ -262,18 +263,47 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   // Session Management
   const handleStartSession = async () => {
     if (!user) return;
+    
+    // 1. Initializing State
     setEngineState('PREPARING');
-    addActivityEvent('INFO', 'Spinning up neural clusters...');
+    addActivityEvent('INFO', 'Neural core initializing. Checking system integrity...');
+    
     try {
       const activeConfig = configs.find(c => c.id === activeConfigId) || configs[0];
-      const newSession = await aiTradingService.startSession(user.uid, activeConfig?.markets || ['BTC'], activeConfig?.id);
+      if (!activeConfig) throw new Error("No configuration available.");
+
+      // 2. Loading Config State
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setEngineState('LOADING_CONFIG');
+      addActivityEvent('INFO', `Loading parameters from "${activeConfig.name}" profile...`);
+      
+      // 3. Sync User State
+      await new Promise(resolve => setTimeout(resolve, 600));
+      setEngineState('SYNC_USER');
+      addActivityEvent('INFO', 'Synchronizing user risk profile and equity balance...');
+
+      // 4. Sync Market State (Scanning only configured markets)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setEngineState('SYNC_MARKET');
+      addActivityEvent('INFO', `Establishing live feed for ${activeConfig.markets.length} configured markets...`);
+
+      // 5. Actually start the session in the backend
+      const newSession = await aiTradingService.startSession(user.uid, activeConfig.markets, activeConfig.id);
+      
+      // 6. Transition to Active Scanning
+      await new Promise(resolve => setTimeout(resolve, 800));
       setSession(newSession);
       setEngineState('SCANNING');
-      addActivityEvent('SUCCESS', `AI Session started with configuration "${activeConfig.name}".`);
+      
+      addActivityEvent('SUCCESS', `AI Session online. Executing "${activeConfig.strategy.replace('_', ' ')}" strategy.`);
       addNotification('trading', 'medium', 'AI Session Started', 'Neural analysis engine is now scanning selected markets.');
-    } catch (error) {
+      
+      // Navigate to Recommendations if they exist or stay home
+      if (activeView === 'CONFIGS') setActiveView('HOME');
+
+    } catch (error: any) {
       setEngineState('ERROR');
-      addActivityEvent('WARNING', 'Failed to start AI session.');
+      addActivityEvent('WARNING', `Critical initialization failure: ${error.message || 'Unknown error'}`);
       addNotification('trading', 'high', 'Session Failed', 'Could not initialize AI session.');
     }
   };
@@ -299,14 +329,33 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   // Configurations Management Callbacks
   const handleSaveConfig = async (updatedConfig: AiConfiguration) => {
     if (!user) return;
+    
+    // Update local state immediately for instant UI feedback, supporting new creation insertions
+    setConfigs(prev => {
+      const exists = prev.some(c => c.id === updatedConfig.id);
+      if (exists) {
+        return prev.map(c => c.id === updatedConfig.id ? updatedConfig : c);
+      } else {
+        return [...prev, updatedConfig];
+      }
+    });
+    if (updatedConfig.status === 'ACTIVE' || updatedConfig.id === activeConfigId) {
+      setActiveConfigId(updatedConfig.id);
+    }
+
     try {
       await aiTradingService.saveConfiguration(user.uid, updatedConfig);
-      // Reload configurations list
-      const updatedList = await aiTradingService.getConfigurations(user.uid);
-      setConfigs(updatedList);
-      addActivityEvent('SUCCESS', `Configuration "${updatedConfig.name}" updated successfully.`);
+      addActivityEvent('SUCCESS', `Configuration "${updatedConfig.name}" saved and synchronized.`);
+      
+      // If this is the active config and engine is running, log that parameters are updated
+      if (session?.status === 'ACTIVE' && (updatedConfig.id === activeConfigId)) {
+        addActivityEvent('INFO', 'Active session parameters updated in real-time.');
+      }
     } catch (error) {
-      addActivityEvent('WARNING', `Failed to update configuration "${updatedConfig.name}".`);
+      addActivityEvent('WARNING', `Failed to persist configuration "${updatedConfig.name}".`);
+      // Revert local state on failure
+      const revertedList = await aiTradingService.getConfigurations(user.uid);
+      setConfigs(revertedList);
     }
   };
 

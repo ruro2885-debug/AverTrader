@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Users, TrendingUp, TrendingDown, ChevronRight, Search, Sliders, X, 
+  Users, TrendingUp, TrendingDown, ChevronRight, ChevronDown, Search, Sliders, X, 
   Brain, ShieldCheck, Trophy, Sparkles, Star, Zap, Eye, Cpu, BookOpen,
   ArrowUpRight, ArrowDownRight, Clock, DollarSign, CheckCircle2, UserCheck, Play
 } from 'lucide-react';
@@ -11,545 +11,15 @@ import { usePreferences } from '../../contexts/PreferencesContext';
 import { aiTradingService } from '../../services/aiTradingService';
 import { Timestamp } from 'firebase/firestore';
 import { AiConfiguration, TradingSchedule, RiskControls, RecommendationRules } from '../../types/aiTrading';
-
-interface Trader {
-  id: string;
-  username: string;
-  tier: 'Platinum' | 'Gold' | 'Silver';
-  verified: boolean;
-  return30D: number;
-  winRate: number;
-  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-  style: 'SCALPING' | 'DAY_TRADING' | 'SWING_TRADING';
-  preferredMarkets: string[];
-  followers: number;
-  status: 'Trading' | 'Analyzing' | 'Online' | 'Offline';
-  bio: string;
-  avatarSeed: string;
-  strategyName: string;
-  pnlHistory30D: number[]; // 10 points for sparkline
-  avgTradeDuration: string;
-  wins: number;
-  losses: number;
-  schedule: TradingSchedule;
-  riskControls: RiskControls;
-  recommendationRules: RecommendationRules;
-  advancedBehavior: {
-    enableDeepAnalysis: boolean;
-    useSentimentGrounding: boolean;
-    neuralConfidenceThreshold: number;
-  };
-  strategyExplanation: string;
-  recentTrades: {
-    id: string;
-    asset: string;
-    type: 'BUY' | 'SELL';
-    entryPrice: number;
-    exitPrice?: number;
-    pnlPercent?: number;
-    status: 'OPEN' | 'CLOSED';
-    timestamp: string;
-  }[];
-}
-
-const INITIAL_TRADERS: Trader[] = [
-  {
-    id: 'trader_ariazen',
-    username: 'AriaZen',
-    tier: 'Platinum',
-    verified: true,
-    return30D: 214.78,
-    winRate: 88.4,
-    riskLevel: 'HIGH',
-    style: 'SCALPING',
-    preferredMarkets: ['BTC', 'ETH', 'SOL'],
-    followers: 18650,
-    status: 'Trading',
-    bio: 'Quantitative researcher specializing in neural network-driven momentum scalp setups with high capital efficiency.',
-    avatarSeed: 'AriaZen_illust',
-    strategyName: 'Neural Momentum Scalper v4',
-    pnlHistory30D: [5, 12, 10, 24, 45, 68, 110, 145, 182, 214.78],
-    avgTradeDuration: '14 minutes',
-    wins: 342,
-    losses: 45,
-    schedule: {
-      sessions: [{ start: '08:00', end: '16:00' }],
-      weekdays: true,
-      weekends: false,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: true
-    },
-    riskControls: {
-      maxPositionSize: 15,
-      maxSimultaneousPositions: 4,
-      exposureLimit: 60,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 2.5
-    },
-    recommendationRules: {
-      minConfidence: 82,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['RSI', 'MACD', 'EMA_CROSS', 'BOLL_BREAKOUT']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: true,
-      neuralConfidenceThreshold: 85
-    },
-    strategyExplanation: 'Deploys a sub-minute multi-layer neural network on Binance Spot & Futures feeds to capture micro-divergences during high liquidity European & US trading hours.',
-    recentTrades: [
-      { id: 't1', asset: 'SOL', type: 'BUY', entryPrice: 142.15, exitPrice: 145.42, pnlPercent: 2.3, status: 'CLOSED', timestamp: '5 mins ago' },
-      { id: 't2', asset: 'BTC', type: 'BUY', entryPrice: 64120, exitPrice: 64510, pnlPercent: 0.61, status: 'CLOSED', timestamp: '18 mins ago' },
-      { id: 't3', asset: 'ETH', type: 'BUY', entryPrice: 3420, status: 'OPEN', timestamp: 'Just now' }
-    ]
-  },
-  {
-    id: 'trader_novastrike',
-    username: 'NovaStrike',
-    tier: 'Gold',
-    verified: true,
-    return30D: 176.32,
-    winRate: 83.1,
-    riskLevel: 'HIGH',
-    style: 'SWING_TRADING',
-    preferredMarkets: ['SOL', 'AVR', 'ETH'],
-    followers: 14210,
-    status: 'Trading',
-    bio: 'Multi-indicator swing system taking advantage of market breakouts and high beta narrative runners.',
-    avatarSeed: 'NovaStrike_vector',
-    strategyName: 'Quantum Swing Breakout',
-    pnlHistory30D: [8, 15, 30, 25, 60, 95, 80, 120, 150, 176.32],
-    avgTradeDuration: '2.4 days',
-    wins: 114,
-    losses: 23,
-    schedule: {
-      sessions: [{ start: '00:00', end: '24:00' }],
-      weekdays: true,
-      weekends: true,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: false
-    },
-    riskControls: {
-      maxPositionSize: 20,
-      maxSimultaneousPositions: 3,
-      exposureLimit: 50,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 5.0
-    },
-    recommendationRules: {
-      minConfidence: 75,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['ATR_BAND', 'OBV_DIVERGENCE', 'RSI_REVERSAL']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: true,
-      neuralConfidenceThreshold: 78
-    },
-    strategyExplanation: 'A systematic medium-term strategy targeting dynamic liquidity sweep areas and volatility contraction break-outs in high beta altcoins.',
-    recentTrades: [
-      { id: 't4', asset: 'AVR', type: 'BUY', entryPrice: 1.10, exitPrice: 1.25, pnlPercent: 13.6, status: 'CLOSED', timestamp: '2 hours ago' },
-      { id: 't5', asset: 'SOL', type: 'BUY', entryPrice: 138.50, exitPrice: 144.10, pnlPercent: 4.04, status: 'CLOSED', timestamp: '1 day ago' }
-    ]
-  },
-  {
-    id: 'trader_lucatrades',
-    username: 'LucaTrades',
-    tier: 'Gold',
-    verified: false,
-    return30D: 152.66,
-    winRate: 79.5,
-    riskLevel: 'MEDIUM',
-    style: 'DAY_TRADING',
-    preferredMarkets: ['BTC', 'ETH', 'XRP'],
-    followers: 12840,
-    status: 'Analyzing',
-    bio: 'Algorithmic day trader capturing intraday micro-reversals in high-cap assets with high leverage protection limits.',
-    avatarSeed: 'LucaTrades_toon',
-    strategyName: 'AI Trend Hunter V2',
-    pnlHistory30D: [12, 10, 25, 48, 42, 75, 98, 110, 134, 152.66],
-    avgTradeDuration: '2.5 hours',
-    wins: 215,
-    losses: 55,
-    schedule: {
-      sessions: [{ start: '07:00', end: '19:00' }],
-      weekdays: true,
-      weekends: false,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: true
-    },
-    riskControls: {
-      maxPositionSize: 10,
-      maxSimultaneousPositions: 5,
-      exposureLimit: 40,
-      positionSizingPreference: 'FIXED',
-      lossLimit: 1.5
-    },
-    recommendationRules: {
-      minConfidence: 80,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['VWAP', 'RSI_OVERBOUGHT_OVERSOLD', 'MACD']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: false,
-      neuralConfidenceThreshold: 80
-    },
-    strategyExplanation: 'Leverages statistical arbitrage and order book imbalances to execute low-drawdown scalp and reversion trades in deep liquidity markets.',
-    recentTrades: [
-      { id: 't6', asset: 'ETH', type: 'SELL', entryPrice: 3450, exitPrice: 3415, pnlPercent: 1.01, status: 'CLOSED', timestamp: '4 hours ago' },
-      { id: 't7', asset: 'XRP', type: 'BUY', entryPrice: 0.585, exitPrice: 0.602, pnlPercent: 2.9, status: 'CLOSED', timestamp: '12 hours ago' }
-    ]
-  },
-  {
-    id: 'trader_cipherx',
-    username: 'CipherX',
-    tier: 'Gold',
-    verified: true,
-    return30D: 128.97,
-    winRate: 81.2,
-    riskLevel: 'MEDIUM',
-    style: 'SCALPING',
-    preferredMarkets: ['SOL', 'FET', 'AVR'],
-    followers: 9730,
-    status: 'Online',
-    bio: 'High-frequency grid algorithm designed to capture price action fluctuations in volatile sideways regimes.',
-    avatarSeed: 'CipherX_avatar',
-    strategyName: 'Smart Scalper Grid Pro',
-    pnlHistory30D: [4, 15, 22, 38, 55, 68, 88, 102, 115, 128.97],
-    avgTradeDuration: '4 minutes',
-    wins: 512,
-    losses: 118,
-    schedule: {
-      sessions: [{ start: '00:00', end: '24:00' }],
-      weekdays: true,
-      weekends: true,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: false
-    },
-    riskControls: {
-      maxPositionSize: 5,
-      maxSimultaneousPositions: 12,
-      exposureLimit: 50,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 1.0
-    },
-    recommendationRules: {
-      minConfidence: 70,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['STOCH_RSI', 'VOLUME_FLOW_INDEX', 'SUPPORT_RESIST']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: false,
-      useSentimentGrounding: true,
-      neuralConfidenceThreshold: 72
-    },
-    strategyExplanation: 'A rapid neural grid system that programmatically establishes buy and sell orders in custom bands to farm consolidations in high momentum mid-caps.',
-    recentTrades: [
-      { id: 't8', asset: 'FET', type: 'BUY', entryPrice: 2.12, exitPrice: 2.18, pnlPercent: 2.83, status: 'CLOSED', timestamp: '1 hour ago' },
-      { id: 't9', asset: 'AVR', type: 'BUY', entryPrice: 1.22, exitPrice: 1.25, pnlPercent: 2.45, status: 'CLOSED', timestamp: '3 hours ago' }
-    ]
-  },
-  {
-    id: 'trader_zenithflow',
-    username: 'ZenithFlow',
-    tier: 'Gold',
-    verified: false,
-    return30D: 112.35,
-    winRate: 76.8,
-    riskLevel: 'MEDIUM',
-    style: 'SWING_TRADING',
-    preferredMarkets: ['BTC', 'AVR', 'SOL'],
-    followers: 8910,
-    status: 'Offline',
-    bio: 'Trend following specialist targeting clean macro shifts on weekly/daily candles with minimal leverage.',
-    avatarSeed: 'ZenithFlow_figma',
-    strategyName: 'AI Breakout Edge',
-    pnlHistory30D: [2, 10, 8, 25, 45, 60, 52, 85, 98, 112.35],
-    avgTradeDuration: '4.8 days',
-    wins: 48,
-    losses: 14,
-    schedule: {
-      sessions: [{ start: '09:00', end: '17:00' }],
-      weekdays: true,
-      weekends: false,
-      timezone: 'GMT+1',
-      breakPeriods: [],
-      excludeHolidays: true
-    },
-    riskControls: {
-      maxPositionSize: 15,
-      maxSimultaneousPositions: 2,
-      exposureLimit: 30,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 3.5
-    },
-    recommendationRules: {
-      minConfidence: 80,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['EMA_200', 'MACD_CROSSOVER', 'CHAIKIN_MONEY']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: true,
-      neuralConfidenceThreshold: 80
-    },
-    strategyExplanation: 'Identifies massive multi-month accumulation ranges and places strategic orders right at the boundary breakout vector, keeping drawdowns to an absolute minimum.',
-    recentTrades: [
-      { id: 't10', asset: 'BTC', type: 'BUY', entryPrice: 62500, exitPrice: 64800, pnlPercent: 3.68, status: 'CLOSED', timestamp: '2 days ago' }
-    ]
-  },
-  {
-    id: 'trader_kaioshin',
-    username: 'Kaioshin',
-    tier: 'Gold',
-    verified: true,
-    return30D: 98.61,
-    winRate: 74.2,
-    riskLevel: 'HIGH',
-    style: 'DAY_TRADING',
-    preferredMarkets: ['FET', 'ETH', 'SOL'],
-    followers: 7120,
-    status: 'Trading',
-    bio: 'Aggressive multi-factor intraday momentum breakouts optimized for high volatility altcoin regimes.',
-    avatarSeed: 'Kaioshin_duo',
-    strategyName: 'Volatility Master Pro',
-    pnlHistory30D: [5, 22, -4, 18, 44, 38, 70, 92, 80, 98.61],
-    avgTradeDuration: '1.2 hours',
-    wins: 182,
-    losses: 63,
-    schedule: {
-      sessions: [{ start: '02:00', end: '22:00' }],
-      weekdays: true,
-      weekends: true,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: false
-    },
-    riskControls: {
-      maxPositionSize: 25,
-      maxSimultaneousPositions: 4,
-      exposureLimit: 80,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 4.0
-    },
-    recommendationRules: {
-      minConfidence: 72,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['ATR', 'ADX_STRENGTH', 'VOLUME_SPIKE']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: false,
-      neuralConfidenceThreshold: 75
-    },
-    strategyExplanation: 'A momentum continuation model that enters positions when standard deviation expands past 3-day bands, exiting rapidly as volatility returns to standard values.',
-    recentTrades: [
-      { id: 't11', asset: 'FET', type: 'BUY', entryPrice: 1.95, exitPrice: 2.15, pnlPercent: 10.25, status: 'CLOSED', timestamp: '3 hours ago' }
-    ]
-  },
-  {
-    id: 'trader_alphavortex',
-    username: 'AlphaVortex',
-    tier: 'Silver',
-    verified: false,
-    return30D: 89.12,
-    winRate: 71.5,
-    riskLevel: 'LOW',
-    style: 'SWING_TRADING',
-    preferredMarkets: ['BTC', 'ETH'],
-    followers: 5410,
-    status: 'Online',
-    bio: 'Low-risk swing strategy aiming for stable compounded growth using highly liquid bluechip assets.',
-    avatarSeed: 'AlphaVortex_coin',
-    strategyName: 'Vortex Capital Preserver',
-    pnlHistory30D: [2, 10, 18, 28, 40, 52, 65, 75, 82, 89.12],
-    avgTradeDuration: '6.5 days',
-    wins: 54,
-    losses: 21,
-    schedule: {
-      sessions: [{ start: '09:00', end: '17:00' }],
-      weekdays: true,
-      weekends: false,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: true
-    },
-    riskControls: {
-      maxPositionSize: 8,
-      maxSimultaneousPositions: 2,
-      exposureLimit: 15,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 2.0
-    },
-    recommendationRules: {
-      minConfidence: 85,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['EMA_CROSS_50_200', 'RSI_SLOW']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: true,
-      neuralConfidenceThreshold: 88
-    },
-    strategyExplanation: 'Enforces strict capital preservation guidelines. Positions are scaled in increments during major support tests and exited when target profit bounds are hit.',
-    recentTrades: [
-      { id: 't12', asset: 'BTC', type: 'BUY', entryPrice: 63800, exitPrice: 64900, pnlPercent: 1.72, status: 'CLOSED', timestamp: '3 days ago' }
-    ]
-  },
-  {
-    id: 'trader_chronosquant',
-    username: 'ChronosQuant',
-    tier: 'Platinum',
-    verified: true,
-    return30D: 85.45,
-    winRate: 91.2,
-    riskLevel: 'LOW',
-    style: 'DAY_TRADING',
-    preferredMarkets: ['BTC', 'ETH', 'SOL'],
-    followers: 4980,
-    status: 'Analyzing',
-    bio: 'Ultra-high accuracy statistical math models executing tight risk distribution grids on leading liquid assets.',
-    avatarSeed: 'ChronosQuant_revo',
-    strategyName: 'Chronos High Precision V1',
-    pnlHistory30D: [5, 15, 24, 32, 41, 50, 62, 70, 78, 85.45],
-    avgTradeDuration: '1.8 hours',
-    wins: 412,
-    losses: 39,
-    schedule: {
-      sessions: [{ start: '00:00', end: '24:00' }],
-      weekdays: true,
-      weekends: true,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: false
-    },
-    riskControls: {
-      maxPositionSize: 4,
-      maxSimultaneousPositions: 8,
-      exposureLimit: 25,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 0.8
-    },
-    recommendationRules: {
-      minConfidence: 90,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['VWAP_ZSCORE', 'ORDER_FLOW_IMBALANCE']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: true,
-      neuralConfidenceThreshold: 90
-    },
-    strategyExplanation: 'A sophisticated quantitative model that calculates live standard deviation bands on VWAP, capturing micro price-reversals with extremely high accuracy.',
-    recentTrades: [
-      { id: 't13', asset: 'BTC', type: 'BUY', entryPrice: 64150, exitPrice: 64320, pnlPercent: 0.26, status: 'CLOSED', timestamp: '30 mins ago' },
-      { id: 't14', asset: 'ETH', type: 'BUY', entryPrice: 3418, exitPrice: 3432, pnlPercent: 0.41, status: 'CLOSED', timestamp: '1 hour ago' }
-    ]
-  },
-  {
-    id: 'trader_matrixscalper',
-    username: 'MatrixScalper',
-    tier: 'Silver',
-    verified: false,
-    return30D: 78.19,
-    winRate: 68.4,
-    riskLevel: 'HIGH',
-    style: 'SCALPING',
-    preferredMarkets: ['SOL', 'XRP', 'AVR'],
-    followers: 3950,
-    status: 'Offline',
-    bio: 'Highly active scalper seeking alpha in micro momentum squeezes using algorithmic standard deviation filters.',
-    avatarSeed: 'Matrix_duo',
-    strategyName: 'Matrix Momentum Grid',
-    pnlHistory30D: [12, -8, 14, 28, 18, 48, 62, 50, 72, 78.19],
-    avgTradeDuration: '8 minutes',
-    wins: 342,
-    losses: 158,
-    schedule: {
-      sessions: [{ start: '08:00', end: '16:00' }],
-      weekdays: true,
-      weekends: false,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: true
-    },
-    riskControls: {
-      maxPositionSize: 15,
-      maxSimultaneousPositions: 6,
-      exposureLimit: 75,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 3.0
-    },
-    recommendationRules: {
-      minConfidence: 68,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['MOMENTUM_INDEX', 'OBV']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: false,
-      useSentimentGrounding: false,
-      neuralConfidenceThreshold: 70
-    },
-    strategyExplanation: 'Farms volatility swings in mid-cap tokens during peak hours by automatically aligning with directional volume bursts.',
-    recentTrades: [
-      { id: 't15', asset: 'XRP', type: 'BUY', entryPrice: 0.590, exitPrice: 0.598, pnlPercent: 1.35, status: 'CLOSED', timestamp: '2 days ago' }
-    ]
-  },
-  {
-    id: 'trader_apexalpha',
-    username: 'ApexAlpha',
-    tier: 'Gold',
-    verified: true,
-    return30D: 72.88,
-    winRate: 75.0,
-    riskLevel: 'LOW',
-    style: 'SWING_TRADING',
-    preferredMarkets: ['BTC', 'SOL'],
-    followers: 3120,
-    status: 'Trading',
-    bio: 'Conservative day and swing models designed for institutional capital and low exposure volatility curves.',
-    avatarSeed: 'ApexAlpha_fig',
-    strategyName: 'Apex Alpha Reversal',
-    pnlHistory30D: [2, 10, 15, 28, 35, 42, 50, 58, 65, 72.88],
-    avgTradeDuration: '3.1 days',
-    wins: 62,
-    losses: 21,
-    schedule: {
-      sessions: [{ start: '08:00', end: '18:00' }],
-      weekdays: true,
-      weekends: false,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: true
-    },
-    riskControls: {
-      maxPositionSize: 8,
-      maxSimultaneousPositions: 2,
-      exposureLimit: 20,
-      positionSizingPreference: 'PERCENTAGE',
-      lossLimit: 1.5
-    },
-    recommendationRules: {
-      minConfidence: 82,
-      allowedAssetClasses: ['CRYPTO'],
-      indicators: ['RSI', 'FIB_RETRACEMENT', 'MACD']
-    },
-    advancedBehavior: {
-      enableDeepAnalysis: true,
-      useSentimentGrounding: true,
-      neuralConfidenceThreshold: 82
-    },
-    strategyExplanation: 'A classic mathematical reversal system that utilizes Fibonacci levels and volume confirmations to establish precise swings in major coins.',
-    recentTrades: [
-      { id: 't16', asset: 'BTC', type: 'BUY', entryPrice: 63500, exitPrice: 64200, pnlPercent: 1.1, status: 'CLOSED', timestamp: '1 day ago' }
-    ]
-  }
-];
+import { safeStorage } from '../../utils/storage';
+import { 
+  SimulatedTrader as Trader, 
+  SimulatedTrade, 
+  SimulationEvent, 
+  initSimulatedTraders, 
+  runSimulationTick, 
+  getTraderEquityCurve 
+} from '../../utils/traderSimulation';
 
 export default function CopyTradeDashboard({ theme, onBack, initialSelectedTraderId }: { theme: 'light' | 'dark', onBack: () => void, initialSelectedTraderId?: string | null }) {
   const { user, addNotification } = useAuth();
@@ -557,15 +27,21 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
   const isDark = theme === 'dark';
 
   const [traders, setTraders] = useState<Trader[]>(() => {
-    const saved = localStorage.getItem('aver_copytraders');
+    const saved = safeStorage.getItem('aver_sim_traders_v4');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.length > 0) return parsed;
       } catch (e) {
-        return INITIAL_TRADERS;
+        // Fallback to init
       }
     }
-    return INITIAL_TRADERS;
+    return initSimulatedTraders();
+  });
+
+  const [events, setEvents] = useState<SimulationEvent[]>(() => {
+    const savedEvts = safeStorage.getItem('aver_copytrade_events');
+    return savedEvts ? JSON.parse(savedEvts) : [];
   });
 
   const [activeTab, setActiveTab] = useState<'top10' | 'all' | 'gold' | 'silver' | 'platinum'>('top10');
@@ -583,7 +59,8 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
 
   // Profile view sub-tab
   const [profileSubTab, setProfileSubTab] = useState<'stats' | 'strategy' | 'activity'>('stats');
-  const [chartTimeline, setChartTimeline] = useState<'monthly' | 'yearly'>('monthly');
+  const [chartTimeline, setChartTimeline] = useState<'24h' | '7d' | '30d' | '90d' | '1y' | 'all'>('30d');
+  const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
@@ -591,10 +68,15 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
     ? "bg-slate-900/60 backdrop-blur-md border border-white/5 shadow-xl"
     : "bg-white/70 backdrop-blur-md border border-slate-200/50 shadow-lg";
 
-  // Persist traders state so follow states or random fluctuations are preserved
+  // Persist traders state so follow states or dynamic updates are preserved
   useEffect(() => {
-    localStorage.setItem('aver_copytraders', JSON.stringify(traders));
+    safeStorage.setItem('aver_sim_traders_v4', JSON.stringify(traders));
   }, [traders]);
+
+  // Persist events state
+  useEffect(() => {
+    safeStorage.setItem('aver_copytrade_events', JSON.stringify(events));
+  }, [events]);
 
   // Handle initialSelectedTraderId
   useEffect(() => {
@@ -606,51 +88,49 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
     }
   }, [initialSelectedTraderId, traders]);
 
-  // Realistic dynamic updates over time based on platform performance
+  // Synchronize active selectedTrader profile details with simulated updates
+  useEffect(() => {
+    if (selectedTrader) {
+      const current = traders.find(t => t.id === selectedTrader.id);
+      if (current) {
+        setSelectedTrader(current);
+      }
+    }
+  }, [traders, selectedTrader?.id]);
+
+  // Realistic dynamic updates over time based on our high-fidelity competitive simulation engine
   useEffect(() => {
     const interval = setInterval(() => {
       setTraders(prev => {
-        // Randomly choose 1-3 traders to fluctuate
-        const copy = [...prev];
-        const numToChange = Math.floor(Math.random() * 3) + 1;
-        const indexesToChange = new Set<number>();
+        const { updatedTraders, events: newEvents } = runSimulationTick(prev as any);
         
-        while (indexesToChange.size < numToChange) {
-          indexesToChange.add(Math.floor(Math.random() * copy.length));
+        // Schedule side effects outside of the current state update cycle to avoid "Cannot update a component while rendering a different component" errors
+        if (newEvents.length > 0) {
+          setTimeout(() => {
+            setEvents(prevEvts => [
+              ...newEvents,
+              ...prevEvts
+            ].slice(0, 30)); // keep last 30 events max
+            
+            if (addNotification) {
+              newEvents.forEach(evt => {
+                addNotification(
+                  'signals',
+                  evt.type === 'rank_up' || evt.type === 'entry' ? 'high' : 'medium',
+                  'Competitive Leaderboard Update',
+                  evt.text
+                ).catch(err => console.error("Error creating workspace notification:", err));
+              });
+            }
+          }, 0);
         }
-
-        indexesToChange.forEach(idx => {
-          const t = { ...copy[idx] };
-          const delta = (Math.random() - 0.5) * 2.5; // +/- 1.25% fluctuation
-          const newReturn = parseFloat((t.return30D + delta).toFixed(2));
-          t.return30D = Math.max(10, Math.min(450, newReturn)); // clamp returns between 10% and 450%
-          
-          // Modify followers slightly
-          const followerDelta = Math.floor((Math.random() - 0.4) * 8); // slightly positive bias
-          t.followers = Math.max(1000, t.followers + followerDelta);
-
-          // Update sparkline pnlHistory
-          const history = [...t.pnlHistory30D];
-          history.shift();
-          history.push(t.return30D);
-          t.pnlHistory30D = history;
-
-          // Occasionally shift trading status
-          if (Math.random() < 0.15) {
-            const statuses: ('Trading' | 'Analyzing' | 'Online' | 'Offline')[] = ['Trading', 'Analyzing', 'Online', 'Offline'];
-            t.status = statuses[Math.floor(Math.random() * statuses.length)];
-          }
-
-          copy[idx] = t;
-        });
-
-        // Always re-sort dynamically by return30D descending
-        return copy.sort((a, b) => b.return30D - a.return30D);
+        
+        return updatedTraders as any;
       });
-    }, 6000);
+    }, 8000); // simulation tick every 8 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [addNotification]);
 
   // Filter & Search computation
   const filteredTraders = traders.filter(t => {
@@ -760,28 +240,25 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
     }
   };
 
-  // Custom high-quality mock SVG data generator for trader profile chart
-  const renderInteractiveChart = (trader: Trader, timeline: 'monthly' | 'yearly') => {
-    const isMonthly = timeline === 'monthly';
-    const dataPoints = isMonthly 
-      ? [10, 22, 18, 42, 60, 52, 98, 120, 114, 150, 182, trader.return30D]
-      : [5, 20, 48, 85, 120, trader.return30D * 1.5, trader.return30D * 2.2];
-
-    const labels = isMonthly 
-      ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-      : ['2021', '2022', '2023', '2024', '2025', '2026', 'YTD'];
+  // Custom high-quality SVG data generator for trader profile chart supporting 6 timeline periods
+  const renderInteractiveChart = (trader: Trader, timeline: '24h' | '7d' | '30d' | '90d' | '1y' | 'all') => {
+    const { labels, dataPoints } = getTraderEquityCurve(trader as any, timeline);
 
     const width = 600;
     const height = 180;
     const padding = 25;
     
     // Scale maths
-    const maxVal = Math.max(...dataPoints) * 1.15;
-    const minVal = Math.min(0, ...dataPoints);
-    const range = maxVal - minVal;
+    const maxVal = Math.max(...dataPoints);
+    const minVal = Math.min(...dataPoints);
+    const valRange = maxVal - minVal;
+    
+    // Fallbacks if flat
+    const range = valRange === 0 ? 10 : valRange;
 
     const points = dataPoints.map((val, i) => {
       const x = padding + (i / (dataPoints.length - 1)) * (width - padding * 2);
+      // invert Y coordinate for SVG
       const y = height - padding - ((val - minVal) / range) * (height - padding * 2);
       return { x, y, val };
     });
@@ -790,50 +267,91 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
       return i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
     }, '');
 
-    const areaD = `${pathD} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
+    const areaD = points.length > 0
+      ? `${pathD} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`
+      : '';
+
+    // Calculate percentage change over this timeline
+    const startVal = dataPoints[0] || 0;
+    const endVal = dataPoints[dataPoints.length - 1] || 0;
+    const timelineReturn = endVal - startVal;
 
     return (
       <div className="relative">
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center gap-1.5 font-mono text-[10px]">
+            <span className={isDark ? "text-slate-500" : "text-slate-400"}>Timeline Performance:</span>
+            <span className={`font-black ${timelineReturn >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {timelineReturn >= 0 ? '+' : ''}{timelineReturn.toFixed(2)}%
+            </span>
+          </div>
+          <span className={`text-[9px] font-mono ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+            {dataPoints.length} Dynamic Cycles Compiled
+          </span>
+        </div>
+
         <svg className="w-full h-44 overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
           <defs>
-            <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`chartGradient_${trader.id}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#10B981" stopOpacity="0.4" />
               <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
             </linearGradient>
-            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <filter id={`glow_${trader.id}`} x="-20%" y="-20%" width="140%" height="140%">
               <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#10B981" floodOpacity="0.3" />
             </filter>
           </defs>
 
-          {/* Grid lines */}
-          <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
-          <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
-          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.06)" strokeWidth="1.5" />
+          {/* Grid Lines */}
+          <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"} strokeDasharray="3,3" />
+          <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"} strokeDasharray="3,3" />
+          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"} strokeDasharray="3,3" />
 
-          {/* Fill Area */}
-          <path d={areaD} fill="url(#chartGradient)" />
+          {/* Area under curve */}
+          {areaD && (
+            <path
+              d={areaD}
+              fill={`url(#chartGradient_${trader.id})`}
+            />
+          )}
 
           {/* Line Path */}
-          <path d={pathD} fill="none" stroke="#10B981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" filter="url(#glow)" />
+          {pathD && (
+            <path
+              d={pathD}
+              fill="none"
+              stroke="#10B981"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              filter={`url(#glow_${trader.id})`}
+            />
+          )}
 
-          {/* Data Nodes */}
-          {points.map((p, i) => (
-            <g key={i} className="group/node cursor-pointer">
-              <circle cx={p.x} cy={p.y} r="4" fill="#0D0E14" stroke="#10B981" strokeWidth="2.5" />
-              <circle cx={p.x} cy={p.y} r="10" fill="#10B981" fillOpacity="0.0" className="hover:fill-opacity-10 transition-all duration-200" />
-              {/* Floating micro tooltip on hover */}
-              <text x={p.x} y={p.y - 12} textAnchor="middle" fill="#10B981" className="text-[10px] font-bold font-mono bg-black opacity-0 group-hover/node:opacity-100 transition-opacity pointer-events-none">
-                +{p.val.toFixed(1)}%
-              </text>
-            </g>
-          ))}
-
-          {/* Axis Labels */}
-          {labels.map((lbl, i) => {
-            const x = padding + (i / (labels.length - 1)) * (width - padding * 2);
+          {/* Interactive Dots */}
+          {points.map((p, i) => {
+            // Only draw dots for first, middle, last, or every few if small timeline
+            const showDot = i === 0 || i === points.length - 1 || points.length < 15 || i % Math.floor(points.length / 5) === 0;
+            if (!showDot) return null;
             return (
-              <text key={i} x={x} y={height - 6} textAnchor="middle" fill="rgba(255,255,255,0.3)" className="text-[9px] font-mono font-bold tracking-wider uppercase">
-                {lbl}
+              <g key={i}>
+                <circle cx={p.x} cy={p.y} r="3" className="fill-emerald-500 stroke-black stroke-2" />
+                <circle cx={p.x} cy={p.y} r="8" className="fill-emerald-400 opacity-0 hover:opacity-25 transition-opacity cursor-pointer" />
+              </g>
+            );
+          })}
+
+          {/* Labels */}
+          {points.map((p, i) => {
+            const showLabel = i === 0 || i === points.length - 1 || (points.length >= 6 && i === Math.floor(points.length / 2));
+            if (!showLabel) return null;
+            return (
+              <text
+                key={`lbl_${i}`}
+                x={p.x}
+                y={height - 6}
+                textAnchor="middle"
+                className={`font-mono text-[9px] font-bold ${isDark ? "fill-slate-500" : "fill-slate-400"}`}
+              >
+                {labels[i]}
               </text>
             );
           })}
@@ -874,6 +392,33 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
               </div>
             </div>
 
+            {/* DYNAMIC TELEMETRY TICKER */}
+            {events.length > 0 && (
+              <div className={`p-3 rounded-2xl ${cardClasses} border border-emerald-500/10 flex items-center gap-3 overflow-hidden`}>
+                <span className="flex-shrink-0 text-[10px] font-mono font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20 flex items-center gap-1.5 shadow-sm">
+                  <span className="flex h-1.5 w-1.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400"></span>
+                  </span>
+                  LIVE TELEMETRY
+                </span>
+                <div className="flex-1 overflow-hidden h-5 flex items-center relative">
+                  <AnimatePresence mode="popLayout">
+                    <motion.div
+                      key={events[0].id}
+                      initial={{ y: 15, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: -15, opacity: 0 }}
+                      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                      className="text-xs font-bold text-gray-300 truncate font-sans w-full"
+                    >
+                      {events[0].text}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              </div>
+            )}
+
             {/* LIVE LEADERBOARD HERO HIGHLIGHTS */}
             <div className={`p-6 rounded-[28px] ${cardClasses} relative overflow-hidden border border-emerald-500/10`}>
               {/* Background ambient lighting */}
@@ -909,19 +454,19 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <span className="absolute top-3 left-4 text-xs font-black font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">#2</span>
                     <div className="relative mt-2">
                       <div className="w-16 h-16 rounded-full border-2 border-sky-400 p-0.5 overflow-hidden flex items-center justify-center bg-black/40">
-                        <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(secondPlace.avatarSeed) }} />
-                      </div>
-                      <div className="absolute -bottom-1 -right-1 bg-sky-500 text-black rounded-full p-0.5 flex items-center justify-center">
-                        <CheckCircle2 className="w-4 h-4 fill-black text-sky-400" />
+                        {secondPlace.avatarUrl ? (
+                           <img src={secondPlace.avatarUrl} alt={secondPlace.username} className="w-full h-full rounded-full object-cover grayscale-0 hover:grayscale transition-all" />
+                        ) : (
+                           <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(secondPlace.avatarSeed) }} />
+                        )}
                       </div>
                     </div>
                     
                     <div className="text-center mt-3">
-                      <h4 className="text-sm font-black text-white flex items-center justify-center gap-1">
-                        {secondPlace.username}
-                        {secondPlace.verified && <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 fill-black" />}
+                      <h4 className="text-sm font-black text-white flex flex-col items-center justify-center leading-tight">
+                        <span className="flex items-center gap-1">{secondPlace.username} {secondPlace.verified && <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 fill-black flex-shrink-0" />}</span>
                       </h4>
-                      <span className="text-[9px] font-mono font-black text-gray-400 tracking-wider uppercase px-2 py-0.5 bg-white/5 rounded-full mt-1 inline-block">
+                      <span className="text-[9px] font-mono font-black text-gray-400 tracking-wider uppercase px-2 py-0.5 bg-white/5 rounded-full mt-1.5 inline-block">
                         {secondPlace.strategyName.split(' ')[0]}
                       </span>
                     </div>
@@ -948,19 +493,23 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     
                     <div className="relative mt-4">
                       <div className="w-20 h-20 rounded-full border-2 border-yellow-500 p-0.5 overflow-hidden flex items-center justify-center bg-black/40 shadow-lg shadow-yellow-500/10">
-                        <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(firstPlace.avatarSeed) }} />
-                      </div>
-                      <div className="absolute -top-2 -right-1.5 bg-yellow-500 text-black rounded-full p-1 shadow-md">
-                        <Trophy className="w-4 h-4 text-black" />
+                        {firstPlace.avatarUrl ? (
+                           <img src={firstPlace.avatarUrl} alt={firstPlace.username} className="w-full h-full rounded-full object-cover" />
+                        ) : (
+                           <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(firstPlace.avatarSeed) }} />
+                        )}
                       </div>
                     </div>
                     
                     <div className="text-center mt-3">
-                      <h4 className="text-base font-black text-white flex items-center justify-center gap-1">
-                        {firstPlace.username}
-                        <Trophy className="w-3.5 h-3.5 text-yellow-500" />
+                      <h4 className="text-base font-black text-white flex flex-col items-center justify-center leading-tight">
+                        <span className="flex items-center gap-1">
+                          {firstPlace.username} 
+                          {firstPlace.verified && <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 fill-black flex-shrink-0" />}
+                          <Trophy className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                        </span>
                       </h4>
-                      <span className="text-[10px] font-mono font-black text-yellow-500 tracking-wider uppercase px-2.5 py-0.5 bg-yellow-500/10 rounded-full border border-yellow-500/10 mt-1 inline-block">
+                      <span className="text-[10px] font-mono font-black text-yellow-500 tracking-wider uppercase px-2.5 py-0.5 bg-yellow-500/10 rounded-full border border-yellow-500/10 mt-1.5 inline-block">
                         {firstPlace.strategyName.split(' ')[0]}
                       </span>
                     </div>
@@ -982,15 +531,19 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <span className="absolute top-3 left-4 text-xs font-black font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">#3</span>
                     <div className="relative mt-2">
                       <div className="w-16 h-16 rounded-full border-2 border-amber-600 p-0.5 overflow-hidden flex items-center justify-center bg-black/40">
-                        <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(thirdPlace.avatarSeed) }} />
+                        {thirdPlace.avatarUrl ? (
+                           <img src={thirdPlace.avatarUrl} alt={thirdPlace.username} className="w-full h-full rounded-full object-cover" />
+                        ) : (
+                           <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(thirdPlace.avatarSeed) }} />
+                        )}
                       </div>
                     </div>
                     
                     <div className="text-center mt-3">
-                      <h4 className="text-sm font-black text-white flex items-center justify-center gap-1">
-                        {thirdPlace.username}
+                      <h4 className="text-sm font-black text-white flex flex-col items-center justify-center leading-tight">
+                        <span className="flex items-center gap-1">{thirdPlace.username} {thirdPlace.verified && <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 fill-black flex-shrink-0" />}</span>
                       </h4>
-                      <span className="text-[9px] font-mono font-black text-gray-400 tracking-wider uppercase px-2 py-0.5 bg-white/5 rounded-full mt-1 inline-block">
+                      <span className="text-[9px] font-mono font-black text-gray-400 tracking-wider uppercase px-2 py-0.5 bg-white/5 rounded-full mt-1.5 inline-block">
                         {thirdPlace.strategyName.split(' ')[0]}
                       </span>
                     </div>
@@ -1183,7 +736,11 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                         {/* Trader Information */}
                         <div className="col-span-6 sm:col-span-5 flex items-center gap-3">
                           <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border border-white/10 bg-black/30">
-                            <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(trader.avatarSeed) }} />
+                            {trader.avatarUrl ? (
+                               <img src={trader.avatarUrl} alt={trader.username} className="w-full h-full object-cover" />
+                            ) : (
+                               <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(trader.avatarSeed) }} />
+                            )}
                             {/* Live Status indicator */}
                             <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#090A0E] ${
                               trader.status === 'Trading' ? 'bg-emerald-500' :
@@ -1191,10 +748,12 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                               trader.status === 'Online' ? 'bg-teal-500' : 'bg-gray-600'
                             }`} />
                           </div>
-                          <div className="truncate">
-                            <div className="flex items-center gap-1.5">
+                          <div className="truncate flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className={`text-xs font-black text-white hover:text-emerald-400 transition-colors truncate`}>{trader.username}</span>
                               {trader.verified && <CheckCircle2 className="w-3.5 h-3.5 text-sky-400 fill-black flex-shrink-0" />}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
                               <span className={`text-[8px] font-bold font-mono px-1.5 py-0.5 rounded-md flex-shrink-0 ${
                                 trader.tier === 'Platinum' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
                                 trader.tier === 'Gold' ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' :
@@ -1202,8 +761,6 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                               }`}>
                                 {trader.tier}
                               </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
                               <span className={`text-[10px] ${textSecondary} truncate`}>{trader.strategyName}</span>
                               <span className={`text-[8px] font-mono font-bold px-1.5 rounded-full ${
                                 trader.riskLevel === 'HIGH' ? 'bg-rose-500/10 text-rose-400' :
@@ -1312,7 +869,11 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                 }}
                 className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-emerald-500/30 p-0.5 overflow-hidden flex items-center justify-center bg-black/40 shadow-xl flex-shrink-0"
               >
-                <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(selectedTrader.avatarSeed) }} />
+                {selectedTrader.avatarUrl ? (
+                   <img src={selectedTrader.avatarUrl} alt={selectedTrader.username} className="w-full h-full rounded-full object-cover" />
+                ) : (
+                   <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(selectedTrader.avatarSeed) }} />
+                )}
                 {selectedTrader.tier === 'Platinum' && (
                   <div className="absolute -top-1 -right-1 bg-indigo-500 text-white rounded-full p-1 shadow-md border border-indigo-400">
                     <Sparkles className="w-4 h-4" />
@@ -1323,8 +884,15 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
               {/* Identity descriptions */}
               <div className="flex-1 space-y-2">
                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                  <h3 className="text-2xl font-black tracking-tight text-white">{selectedTrader.username}</h3>
-                  {selectedTrader.verified && <CheckCircle2 className="w-5 h-5 text-sky-400 fill-black" />}
+                  <div className="flex flex-col items-center sm:items-start leading-tight">
+                    <h3 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
+                      {selectedTrader.username}
+                      {selectedTrader.verified && <CheckCircle2 className="w-5 h-5 text-sky-400 fill-black" />}
+                    </h3>
+                    <span className="text-sm text-slate-400">{selectedTrader.username}</span>
+                  </div>
+                </div>
+                <div className="flex justify-center sm:justify-start">
                   <span className={`text-[10px] font-bold font-mono px-2.5 py-0.5 rounded-full ${
                     selectedTrader.tier === 'Platinum' ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/20' :
                     selectedTrader.tier === 'Gold' ? 'bg-yellow-500/15 text-yellow-500 border border-yellow-500/20' :
@@ -1411,6 +979,26 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     </div>
                   </div>
 
+                  {/* SECONDARY METRIC CARD BOX GRID */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
+                      <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">All-Time ROI</p>
+                      <h4 className="text-xl font-black text-emerald-500 mt-1 font-mono">+{selectedTrader.returnAllTime.toFixed(2)}%</h4>
+                    </div>
+                    <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
+                      <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">Active Copiers</p>
+                      <h4 className="text-xl font-black text-white mt-1 font-mono">{selectedTrader.activeCopiers?.toLocaleString() || Math.floor(selectedTrader.followers * 0.15).toLocaleString()}</h4>
+                    </div>
+                    <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
+                      <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">Years Trading</p>
+                      <h4 className="text-xl font-black text-white mt-1 font-mono">{selectedTrader.historicalYearsTrading || 1} Years</h4>
+                    </div>
+                    <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
+                      <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest font-sans">Winning Streak</p>
+                      <h4 className="text-xl font-black text-white mt-1">{selectedTrader.currentWinningStreak || 0} Trades</h4>
+                    </div>
+                  </div>
+
                   {/* INTERACTIVE PREMIUM GROWTH CHART */}
                   <div className={`p-6 rounded-3xl ${cardClasses} border border-white/5`}>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
@@ -1418,23 +1006,24 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                         <h4 className="text-sm font-black text-white">Dynamic Equity Curve</h4>
                         <p className="text-xs text-gray-500 mt-0.5">Replicating cumulative performance timeline across major seasons.</p>
                       </div>
-                      <div className="flex rounded-lg bg-black/40 border border-white/5 p-1 gap-1">
-                        <button 
-                          onClick={() => setChartTimeline('monthly')}
-                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
-                            chartTimeline === 'monthly' ? 'bg-emerald-500 text-black' : 'text-gray-400 hover:text-white'
-                          }`}
-                        >
-                          Monthly (12M)
-                        </button>
-                        <button 
-                          onClick={() => setChartTimeline('yearly')}
-                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
-                            chartTimeline === 'yearly' ? 'bg-emerald-500 text-black' : 'text-gray-400 hover:text-white'
-                          }`}
-                        >
-                          Yearly Growth
-                        </button>
+                      <div className="flex flex-wrap rounded-lg bg-black/40 border border-white/5 p-1 gap-1">
+                        {(['24h', '7d', '30d', '90d', '1y', 'all'] as const).map((tl) => (
+                          <button
+                            key={tl}
+                            onClick={() => setChartTimeline(tl)}
+                            className={`px-2.5 py-1 text-[10px] font-black rounded-md transition-all cursor-pointer ${
+                              chartTimeline === tl 
+                                ? 'bg-emerald-500 text-black' 
+                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                          >
+                            {tl === '24h' ? '24H' :
+                             tl === '7d' ? '7D' :
+                             tl === '30d' ? '30D' :
+                             tl === '90d' ? '90D' :
+                             tl === '1y' ? '1Y' : 'ALL'}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
@@ -1447,7 +1036,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <div className={`p-5 rounded-2xl ${cardClasses} border border-white/5 space-y-3`}>
                       <h4 className="text-xs font-black text-gray-400 tracking-wider uppercase">Preferred Markets & Allocation</h4>
                       <div className="flex flex-wrap gap-2 pt-1">
-                        {selectedTrader.preferredMarkets.map((mkt) => (
+                        {(selectedTrader.preferredMarkets || []).map((mkt) => (
                           <div key={mkt} className="flex items-center gap-2 bg-white/5 border border-white/5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold text-white">
                             <span className="w-2 h-2 rounded-full bg-emerald-400" />
                             {mkt}/USDT
@@ -1455,7 +1044,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                         ))}
                       </div>
                       <p className="text-xs text-gray-500 leading-relaxed pt-1">
-                        AI routing allocates high priority depth index to {selectedTrader.preferredMarkets.join(', ')} due to lower spread variance and optimized volatility vectors.
+                        AI routing allocates high priority depth index to {(selectedTrader.preferredMarkets || []).join(', ')} due to lower spread variance and optimized volatility vectors.
                       </p>
                     </div>
 
@@ -1480,6 +1069,95 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                         Compounding an accurate {selectedTrader.winRate}% win rate index across {selectedTrader.wins + selectedTrader.losses} total autonomous cycles. Average drawdowns remain strictly bounded.
                       </p>
                     </div>
+                  </div>
+
+                  {/* ADVANCED PERFORMANCE BENTO GRID */}
+                  <div className={`p-6 rounded-[28px] ${cardClasses} border border-white/5 space-y-4 overflow-hidden`}>
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                      <div>
+                        <h4 className="text-sm font-black text-white">Advanced Live Performance Metrics</h4>
+                        <p className="text-xs text-gray-500 mt-0.5">Recalculated on every production block cycle and trade execution.</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all group"
+                        >
+                          <span className="text-[10px] font-mono font-black text-gray-300 group-hover:text-white uppercase tracking-wider">
+                            {showAdvancedMetrics ? 'Hide Advanced Metrics' : 'Show Advanced Metrics'}
+                          </span>
+                          <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-300 ${showAdvancedMetrics ? 'rotate-180' : ''}`} />
+                        </button>
+                        <span className="hidden sm:inline-block text-[10px] font-mono font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">
+                          PERFORMANCE SCORE: {selectedTrader.performanceScore}
+                        </span>
+                      </div>
+                    </div>
+
+                    <AnimatePresence initial={false}>
+                      {showAdvancedMetrics && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                          className="overflow-hidden"
+                        >
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 pt-4 border-t border-white/5">
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Overall Return</span>
+                              <p className="text-base font-mono font-black text-emerald-400 mt-1">+{selectedTrader.returnAllTime?.toFixed(2)}%</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">7-Day Return</span>
+                              <p className={`text-base font-mono font-black mt-1 ${selectedTrader.return7D >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {selectedTrader.return7D >= 0 ? '+' : ''}{selectedTrader.return7D?.toFixed(2)}%
+                              </p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">90-Day Return</span>
+                              <p className="text-base font-mono font-black text-emerald-400 mt-1">+{selectedTrader.return90D?.toFixed(2)}%</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Current Drawdown</span>
+                              <p className="text-base font-mono font-black text-rose-400 mt-1">-{selectedTrader.currentDrawdown?.toFixed(2)}%</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Consecutive Wins</span>
+                              <p className="text-base font-mono font-black text-emerald-400 mt-1">{selectedTrader.consecutiveWins} Trades</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Consecutive Losses</span>
+                              <p className="text-base font-mono font-black text-rose-400 mt-1">{selectedTrader.consecutiveLosses} Trades</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Profit Factor</span>
+                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.profitFactor}</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Risk Control Index</span>
+                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.riskManagementScore}/100</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Consistency Score</span>
+                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.consistencyScore}/100</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Position Accuracy</span>
+                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.positionAccuracy}%</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Weekly Frequency</span>
+                              <p className="text-base font-mono font-black text-white mt-1">~{selectedTrader.tradeFrequency} Cycles</p>
+                            </div>
+                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
+                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">AI Config Efficiency</span>
+                              <p className="text-base font-mono font-black text-emerald-400 mt-1">{selectedTrader.aiEfficiency}%</p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </motion.div>
               )}
@@ -1539,7 +1217,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <div className="pt-4 border-t border-white/5 flex flex-col sm:flex-row justify-between gap-4 text-xs">
                       <div>
                         <span className="text-gray-400 font-black">Trading Schedule:</span>
-                        <p className="text-gray-300 mt-1">Weekdays active, timezone {selectedTrader.schedule.timezone}. Sessions: {selectedTrader.schedule.sessions.map(s => `${s.start}-${s.end}`).join(', ')}.</p>
+                        <p className="text-gray-300 mt-1">Weekdays active, timezone {selectedTrader.schedule?.timezone}. Sessions: {(selectedTrader.schedule?.sessions || []).map(s => `${s.start}-${s.end}`).join(', ')}.</p>
                       </div>
                       <div>
                         <span className="text-gray-400 font-black">Confidence Threshold:</span>
@@ -1561,7 +1239,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   <h4 className="text-xs font-black text-gray-400 tracking-wider uppercase mb-2">Recent Order executions</h4>
                   
                   <div className="divide-y divide-white/5 rounded-2xl border border-white/5 overflow-hidden">
-                    {selectedTrader.recentTrades.map((t, idx) => (
+                    {(selectedTrader.recentTrades || []).map((t, idx) => (
                       <div key={t.id} className="p-4 bg-white/[0.01] flex items-center justify-between text-xs">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${

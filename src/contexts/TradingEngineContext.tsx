@@ -56,17 +56,21 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       return;
     }
 
-    const configRef = doc(db, 'users', user.uid, 'tradingConfig', 'default');
+    const configRef = query(collection(db, 'users', user.uid, 'aiConfigurations'), where('status', '==', 'ACTIVE'), limit(1));
     const positionsRef = collection(db, 'users', user.uid, 'positions');
     const tradesRef = collection(db, 'users', user.uid, 'trades');
     const activityRef = query(collection(db, 'users', user.uid, 'activity'), orderBy('timestamp', 'desc'));
     const sessionRef = query(collection(db, 'aiSessions'), where('userId', '==', user.uid), where('status', '==', 'ACTIVE'), limit(1));
 
-    const unsubConfig = onSnapshot(configRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setConfig(docSnap.data() as AiConfiguration);
+    const unsubConfig = onSnapshot(configRef, (snap) => {
+      if (!snap.empty) {
+        setConfig(snap.docs[0].data() as AiConfiguration);
       } else {
-        setConfig(null); 
+        // Fallback to first config if no active one found
+        const firstConfigRef = query(collection(db, 'users', user.uid, 'aiConfigurations'), orderBy('lastModified', 'desc'), limit(1));
+        getDocs(firstConfigRef).then(s => {
+          if (!s.empty) setConfig(s.docs[0].data() as AiConfiguration);
+        });
       }
       setLoading(false);
     });
@@ -285,18 +289,20 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   }, [user, session]);
 
   const updateConfig = useCallback(async (newConfig: Partial<AiConfiguration>) => {
-    if (!user) return;
+    if (!user || !config) return;
     try {
-      const configRef = doc(db, 'users', user.uid, 'tradingConfig', 'default');
+      const configRef = doc(db, 'users', user.uid, 'aiConfigurations', config.id);
       await updateDoc(configRef, {
         ...newConfig,
-        lastUpdated: serverTimestamp()
+        lastModified: serverTimestamp()
       });
-      await logActivity('CONFIG_UPDATED', 'Configuration updated successfully');
+      // Update local state immediately for instant feedback
+      setConfig(prev => prev ? { ...prev, ...newConfig } as AiConfiguration : null);
+      await logActivity('CONFIG_UPDATED', `Configuration "${config.name}" updated successfully`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/tradingConfig/default`);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/aiConfigurations/${config?.id}`);
     }
-  }, [user]);
+  }, [user, config]);
 
   const logActivity = useCallback(async (type: string, message: string, metadata?: Record<string, any>) => {
     if (!user) return;

@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { safeStorage } from '../utils/storage';
 
 export interface UnifiedFinancials {
   totalNetBalance: number;
@@ -17,21 +18,21 @@ export const useFinancials = () => {
   // We use local state synced to localStorage for vault and offset to ensure instant UI updates 
   // without waiting for Firestore, but we will also sync to Firestore.
   const [vaultBalance, setVaultBalanceState] = useState<number>(() => {
-    const saved = localStorage.getItem('portfolio_vault_balance');
+    const saved = safeStorage.getItem('portfolio_vault_balance');
     return saved ? parseFloat(saved) : (user?.vaultBalance || 150000);
   });
 
   const [activeOffset, setActiveOffsetState] = useState<number>(() => {
-    const saved = localStorage.getItem('portfolio_active_offset');
+    const saved = safeStorage.getItem('portfolio_active_offset');
     return saved ? parseFloat(saved) : (user?.activeOffset || 0);
   });
 
   // Keep local state in sync with user doc if it updates from another device
   useEffect(() => {
-    if (user?.vaultBalance !== undefined && !localStorage.getItem('portfolio_vault_balance')) {
+    if (user?.vaultBalance !== undefined && !safeStorage.getItem('portfolio_vault_balance')) {
       setVaultBalanceState(user.vaultBalance);
     }
-    if (user?.activeOffset !== undefined && !localStorage.getItem('portfolio_active_offset')) {
+    if (user?.activeOffset !== undefined && !safeStorage.getItem('portfolio_active_offset')) {
       setActiveOffsetState(user.activeOffset);
     }
   }, [user?.vaultBalance, user?.activeOffset]);
@@ -63,7 +64,7 @@ export const useFinancials = () => {
 
   const updateVaultBalance = async (newBalance: number) => {
     setVaultBalanceState(newBalance);
-    localStorage.setItem('portfolio_vault_balance', newBalance.toString());
+    safeStorage.setItem('portfolio_vault_balance', newBalance.toString());
     
     if (auth.currentUser) {
       try {
@@ -78,7 +79,7 @@ export const useFinancials = () => {
 
   const updateActiveBalanceOffset = async (newOffset: number) => {
     setActiveOffsetState(newOffset);
-    localStorage.setItem('portfolio_active_offset', newOffset.toString());
+    safeStorage.setItem('portfolio_active_offset', newOffset.toString());
     
     if (auth.currentUser) {
       try {
