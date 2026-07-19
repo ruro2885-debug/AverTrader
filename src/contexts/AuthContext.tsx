@@ -332,6 +332,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               }
               const updatedUser = {
                 ...userData,
+                hasCustomPhoto: !!userData.hasCustomPhoto,
                 history: userData.history || [],
                 deposits: userData.deposits || [],
                 withdrawals: userData.withdrawals || [],
@@ -622,7 +623,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       const targetUid = userCredential?.user.uid || `local-${Math.random().toString(36).substring(2, 11)}`;
-      const avatarSeed = targetUid;
+      const avatarSeed = data.email.toLowerCase();
       const dataUrl = getAvatarDataUrl(avatarSeed);
 
       const username = data.username || data.email.split('@')[0];
@@ -777,12 +778,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             console.warn("Local record not found during restricted sign-in fallback. Auto-creating a local profile on the fly...");
             const username = email.split('@')[0];
             const localUid = `local-${Math.random().toString(36).substring(2, 11)}`;
-            const dataUrl = getAvatarDataUrl(localUid);
+            const seed = email.toLowerCase();
+            const dataUrl = getAvatarDataUrl(seed);
             const autoUser: User = {
               uid: localUid,
               username: username,
               email: email,
-              avatarSeed: localUid,
+              avatarSeed: seed,
               avatarUrl: dataUrl,
               profilePhotoURL: dataUrl,
               hasCustomPhoto: true,
@@ -1463,6 +1465,11 @@ function dataURLtoBlob(dataurl: string): Blob {
       if (prefs.rememberMeEnabled !== undefined) updates.rememberMeEnabled = prefs.rememberMeEnabled;
 
       await updateDoc(userDocRef, updates);
+
+      setUser(prev => {
+        if (!prev) return null;
+        return { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
+      });
 
       await addNotification(
         'system',

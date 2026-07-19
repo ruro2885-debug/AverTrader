@@ -55,6 +55,14 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
 export const TradingEngineProvider = ({ children }: { children: React.ReactNode }) => {
   const { user, updateProfile, addNotification } = useAuth();
   const { activeTradingBalance, addFundsToActiveBalance } = useFinancials();
+  const activeTradingBalanceRef = useRef(activeTradingBalance);
+  const addFundsRef = useRef(addFundsToActiveBalance);
+
+  useEffect(() => {
+    activeTradingBalanceRef.current = activeTradingBalance;
+    addFundsRef.current = addFundsToActiveBalance;
+  }, [activeTradingBalance, addFundsToActiveBalance]);
+
   const [configs, setConfigs] = useState<AiConfiguration[]>([]);
   const [config, setConfig] = useState<AiConfiguration | null>(null);
   const [activeConfigId, setActiveConfigId] = useState<string | undefined>(undefined);
@@ -90,8 +98,12 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     
     const localConfigs = getLocalStorageItem(`aver_configs_${user.uid}`, []);
     if (localConfigs.length > 0) {
-      setConfigs(localConfigs);
-      const active = localConfigs.find((c: any) => c.status === 'ACTIVE');
+      // Filter out duplicates
+      const uniqueConfigs = localConfigs.filter((c: AiConfiguration, index: number, self: AiConfiguration[]) => 
+        index === self.findIndex((x) => x.id === c.id)
+      );
+      setConfigs(uniqueConfigs);
+      const active = uniqueConfigs.find((c: any) => c.status === 'ACTIVE');
       if (active) {
         setConfig(active);
         setActiveConfigId(active.id);
@@ -160,7 +172,11 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     
     const localTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
     if (localTrades.length > 0) {
-      setTrades(localTrades);
+      // Filter out duplicate IDs that might have been saved due to previous bug
+      const uniqueTrades = localTrades.filter((t: AiTrade, index: number, self: AiTrade[]) => 
+        index === self.findIndex((x) => x.id === t.id)
+      );
+      setTrades(uniqueTrades);
     }
     
     const localActivity = getLocalStorageItem(`aver_activity_${user.uid}`, []);
@@ -249,9 +265,13 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     });
 
     const unsubSession = onSnapshot(sessionRef, (snap) => {
+        console.log("[TradingEngineContext] Session snapshot update:", snap.size);
         if (!snap.empty) {
-            setSession({id: snap.docs[0].id, ...snap.docs[0].data()} as AiSession);
+            const newSession = {id: snap.docs[0].id, ...snap.docs[0].data()} as AiSession;
+            console.log("[TradingEngineContext] New session from snapshot:", newSession);
+            setSession(newSession);
         } else {
+            console.log("[TradingEngineContext] No active session in snapshot");
             // Keep existing local active session to avoid resetting active local simulations
         }
     }, (error) => {
@@ -322,7 +342,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     };
     
     setActivity(prev => {
-      const updated = [newAct, ...prev];
+      const updated = [newAct, ...prev].slice(0, 100);
       setLocalStorageItem(`aver_activity_${user.uid}`, updated);
       return updated;
     });
@@ -340,6 +360,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   }, [user, setLocalStorageItem]);
 
   const startSession = useCallback(async (configId: string, markets: string[]) => {
+    console.log("[TradingEngineContext] startSession called with configId:", configId);
     if (!user) return;
     
     const newSession: AiSession = {
@@ -351,7 +372,10 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       activeConfigId: configId
     };
     
+    console.log("[TradingEngineContext] Setting session to:", newSession);
     setSession(newSession);
+    sessionRefVal.current = newSession;
+    console.log("[TradingEngineContext] SessionRefVal updated");
     
     const startAct: ActivityEvent = {
       id: `act_${Date.now()}`,
@@ -362,7 +386,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       metadata: { configId, markets }
     };
     setActivity(prev => {
-      const updated = [startAct, ...prev];
+      const updated = [startAct, ...prev].slice(0, 100);
       setLocalStorageItem(`aver_activity_${user.uid}`, updated);
       return updated;
     });
@@ -370,6 +394,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     try {
         await aiTradingService.startSession(user.uid, markets, configId);
         await logActivity('SESSION_STARTED', 'AI Trading Session started');
+        console.log("[TradingEngineContext] Session started in Firestore");
     } catch (error) {
         console.warn("Failed to start session in Firestore, running in simulated local engine mode:", error);
     }
@@ -389,7 +414,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       metadata: { sessionId: session.id }
     };
     setActivity(prev => {
-      const updated = [endAct, ...prev];
+      const updated = [endAct, ...prev].slice(0, 100);
       setLocalStorageItem(`aver_activity_${user.uid}`, updated);
       return updated;
     });
@@ -405,28 +430,27 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const saveConfiguration = useCallback(async (updatedConfig: AiConfiguration) => {
     if (!user) return;
     
+    const configToSave = { ...updatedConfig, ownerId: user.uid, lastModified: Timestamp.now() as any, status: 'ACTIVE' as const };
+    
     // Immediate state updates
     setConfigs(prev => {
       const exists = prev.some(c => c.id === updatedConfig.id);
       let updated;
       if (exists) {
-        updated = prev.map(c => c.id === updatedConfig.id ? { ...c, ...updatedConfig, lastModified: Timestamp.now() } : c);
+        updated = prev.map(c => c.id === updatedConfig.id ? configToSave : { ...c, status: 'INACTIVE' as const });
       } else {
-        updated = [...prev, { ...updatedConfig, ownerId: user.uid, lastModified: Timestamp.now() }];
+        updated = [...prev.map(c => ({...c, status: 'INACTIVE' as const})), configToSave];
       }
       setLocalStorageItem(`aver_configs_${user.uid}`, updated);
       return updated;
     });
     
-    setConfig(prev => {
-      if (!prev || prev.id === updatedConfig.id) {
-        return { ...updatedConfig, ownerId: user.uid, lastModified: Timestamp.now() };
-      }
-      return prev;
-    });
+    setConfig(configToSave);
+    setActiveConfigId(configToSave.id);
 
     try {
-      await aiTradingService.saveConfiguration(user.uid, updatedConfig);
+      await aiTradingService.saveConfiguration(user.uid, configToSave);
+      await aiTradingService.activateConfiguration(user.uid, configToSave.id);
       await logActivity('CONFIG_UPDATED', `Configuration "${updatedConfig.name}" saved successfully.`);
     } catch (error) {
       console.warn("Failed to save configuration in Firestore:", error);
@@ -584,7 +608,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       metadata: { tradeId, asset: closedAsset, pnl }
     };
     setActivity(prev => {
-      const updated = [actEvent, ...prev];
+      const updated = [actEvent, ...prev].slice(0, 100);
       setLocalStorageItem(`aver_activity_${user.uid}`, updated);
       return updated;
     });
@@ -607,6 +631,11 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const sessionRefVal = useRef<AiSession | null>(null);
   const livePricesRef = useRef<Record<string, number>>({});
   const configRefVal = useRef<AiConfiguration | null>(null);
+  
+  // Refs for loop management
+  const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const positionIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const orderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     tradesRefVal.current = trades;
@@ -626,12 +655,25 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   // Unified loop for live ticks, position management, and autonomous orders
   useEffect(() => {
+    console.log("[TradingEngineContext] Trading loops useEffect triggered. Session:", session);
     if (!user || !session || session.status !== 'ACTIVE') {
+      console.log("[TradingEngineContext] Loops not starting: user/session missing or not ACTIVE");
       return;
     }
+    console.log("[TradingEngineContext] Starting trading loops...");
+    
+    let loggingInterval: NodeJS.Timeout;
+    let tickInterval: NodeJS.Timeout;
+    let positionInterval: NodeJS.Timeout;
+    let orderTimeout: NodeJS.Timeout;
+
+    // Add logging to ensure loops are firing
+    loggingInterval = setInterval(() => {
+        console.log("[TradingEngineContext] Loops running, session active:", sessionRefVal.current?.status === 'ACTIVE');
+    }, 5000);
 
     // 1. HIGH-FREQUENCY LIVE PRICES TICKER (Every 1 second)
-    const tickInterval = setInterval(() => {
+    tickInterval = setInterval(() => {
       if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
       
@@ -652,15 +694,17 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         });
 
         livePricesRef.current = next;
+        // console.log("[TradingEngineContext] Live prices updated:", next);
         return next;
       });
     }, 1000);
 
     // 2. POSITION MANAGEMENT & LIFECYCLE (Every 3 seconds)
-    const positionInterval = setInterval(async () => {
+    positionInterval = setInterval(async () => {
       if (!userRef.current || !sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
       
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
+      console.log("[TradingEngineContext] Position management, open trades:", openTrades.length);
       if (openTrades.length === 0) return;
 
       for (const trade of openTrades) {
@@ -698,8 +742,13 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     }, 3000);
 
     // 3. AUTONOMOUS ORDER GENERATOR (Every 25 seconds)
-    const orderInterval = setInterval(async () => {
-      if (!userRef.current || !sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
+    
+    const runOrderLoop = async () => {
+      console.log("[TradingEngineContext] runOrderLoop called");
+      if (!userRef.current || !sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') {
+        console.log("[TradingEngineContext] runOrderLoop: aborting - user or session missing or not ACTIVE");
+        return;
+      }
 
       const activeConfig = configRefVal.current || {
         id: 'cfg_default',
@@ -709,14 +758,21 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
       if (openTrades.length >= (activeConfig.riskControls?.maxSimultaneousPositions || 3)) {
+        orderTimeout = setTimeout(runOrderLoop, 8000);
         return;
       }
 
       const randomMarket = activeConfig.markets[Math.floor(Math.random() * activeConfig.markets.length)];
-      if (!randomMarket) return;
+      if (!randomMarket) {
+        orderTimeout = setTimeout(runOrderLoop, 8000);
+        return;
+      }
 
       // Prevent duplicate open trade for same asset
-      if (openTrades.some(t => t.asset === randomMarket)) return;
+      if (openTrades.some(t => t.asset === randomMarket)) {
+        orderTimeout = setTimeout(runOrderLoop, 8000);
+        return;
+      }
 
       const rsiVal = Math.floor(28 + Math.random() * 45);
       const price = livePricesRef.current[randomMarket] || (randomMarket === 'BTC' ? 64200 : randomMarket === 'ETH' ? 3450 : randomMarket === 'SOL' ? 145 : randomMarket === 'AAPL' ? 172 : 125);
@@ -762,7 +818,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
         // Add to recommendations list locally
         setRecommendations(prev => {
-          const updated = [rec, ...prev];
+          const updated = [rec, ...prev].slice(0, 50);
           setLocalStorageItem(`aver_recommendations_${userRef.current.uid}`, updated);
           return updated;
         });
@@ -776,7 +832,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           metadata: { recId: rec.id, asset: randomMarket }
         };
         setActivity(prev => {
-          const updated = [recAct, ...prev];
+          const updated = [recAct, ...prev].slice(0, 100);
           setLocalStorageItem(`aver_activity_${userRef.current.uid}`, updated);
           return updated;
         });
@@ -785,7 +841,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         setTimeout(async () => {
           if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
           try {
-            const quantity = parseFloat((100 / rec.entry).toFixed(4));
+            // Calculate quantity based on risk (approx 5% of active capital per trade)
+            const riskAmount = (activeTradingBalanceRef.current || 100000) * 0.05;
+            const quantity = parseFloat((riskAmount / rec.entry).toFixed(4));
             let newTrade: AiTrade;
             
             try {
@@ -810,8 +868,10 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
             // Update trades state locally
             setTrades(prev => {
-              const updated = [...prev, newTrade];
+              if (prev.some(t => t.id === newTrade.id)) return prev;
+              const updated = [...prev, newTrade].slice(-100);
               setLocalStorageItem(`aver_trades_${userRef.current.uid}`, updated);
+              console.log("[TradingEngineContext] New trade added:", newTrade);
               return updated;
             });
 
@@ -831,7 +891,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
               metadata: { tradeId: newTrade.id, asset: randomMarket }
             };
             setActivity(prev => {
-              const updated = [tradeAct, ...prev];
+              const updated = [tradeAct, ...prev].slice(0, 100);
               setLocalStorageItem(`aver_activity_${userRef.current.uid}`, updated);
               return updated;
             });
@@ -847,19 +907,35 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           } catch (ex) {
             console.error("Failed to execute autonomous background trade:", ex);
           }
-        }, 3000);
+        }, 1500);
 
       } catch (ex) {
         console.error("Failed to generate autonomous background recommendation:", ex);
       }
-    }, 25000);
+      
+      // Loop with randomness between 8-15 seconds
+      orderTimeout = setTimeout(runOrderLoop, 8000 + Math.random() * 7000);
+    };
+
+    runOrderLoop();
+
+    // 4. BALANCE DRIFT SIMULATION (Every 5 seconds)
+    const driftInterval = setInterval(() => {
+      if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE' || !addFundsRef.current) return;
+      
+      // Small random drift between -$2.50 and +$5.50 to simulate micro-pnl/fees/interest
+      const drift = (Math.random() * 8) - 2.5;
+      addFundsRef.current(drift);
+    }, 5000);
 
     return () => {
       clearInterval(tickInterval);
       clearInterval(positionInterval);
-      clearInterval(orderInterval);
+      clearInterval(loggingInterval);
+      clearInterval(driftInterval);
+      clearTimeout(orderTimeout);
     };
-  }, [user, session]);
+  }, [user, session?.id, session?.status]);
 
   const updateConfig = useCallback(async (newConfig: Partial<AiConfiguration>) => {
     if (!user || !config) return;

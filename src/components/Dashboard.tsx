@@ -39,9 +39,19 @@ import { safeStorage } from '../utils/storage';
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
-  const { activity } = useContext(TradingEngineContext);
+  const { activity, trades, liveTradePrices } = useContext(TradingEngineContext);
   const isDark = preferences.theme === 'dark';
   
+  const enrichedActiveTrades = useMemo(() => trades.filter(t => t.status === 'OPEN').map(trade => {
+    const livePrice = liveTradePrices[trade.id];
+    if (livePrice) {
+      return { ...trade, pnl: (livePrice - trade.entry) * trade.quantity };
+    }
+    return trade;
+  }), [trades, liveTradePrices]);
+
+  const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
+
   const [activeTab, setActiveTab] = useState(() => {
     return safeStorage.getItem('aver_dashboard_tab') || 'home';
   });
@@ -152,13 +162,23 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const [txLoading, setTxLoading] = useState(false);
 
   // Fallback defaults if user profile isn't fully loaded or is null
-  const { totalNetBalance, activeTradingBalance } = useFinancials();
+  const { totalNetBalance, activeTradingBalance, activeBalanceOffset } = useFinancials();
   
+  const totalValue = totalNetBalance + totalFloatingPnl;
+  const totalPlAmount = activeBalanceOffset + totalFloatingPnl;
+  const initialCapital = 100000; // baseCash fallback in useFinancials
+  const totalPlPercent = (totalPlAmount / initialCapital) * 100;
+
+  const totalValueFormatted = formatCurrency(totalValue);
+  const todayPnLFormatted = (totalPlAmount >= 0 ? '+' : '') + formatCurrency(totalPlAmount);
+  const todayPnLPercentFormatted = (totalPlPercent >= 0 ? '+' : '') + totalPlPercent.toFixed(2) + '%';
+  const overallReturnFormatted = todayPnLPercentFormatted;
+
   const referralCount = user?.referralCount || 0;
-  const completedAiTrades = user?.trades?.filter(t => t.type === 'ai').length || 0;
+  const completedAiTrades = trades.length || 0;
   
   const loginStreak = useMemo(() => {
-    const activityDates = user?.history?.map((h: any) => new Date(h.date).toDateString()) || [];
+    const activityDates = activity.map((h: any) => new Date(h.timestamp).toDateString());
     const uniqueDates = Array.from(new Set(activityDates)) as string[];
     uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
     let streak = 0;
@@ -166,29 +186,28 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     for (let i = 0; i < uniqueDates.length; i++) {
       const date = new Date(uniqueDates[i]);
       const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-      if (diffDays === i) {
+      if (diffDays <= i + 1) {
         streak++;
       } else {
         break;
       }
     }
-    return streak;
-  }, [user?.history]);
+    return Math.max(1, streak);
+  }, [activity]);
   
   const profitableDays = useMemo(() => {
-    const trades = user?.trades || [];
     let run = 0;
     for (let i = 0; i < trades.length; i++) {
       if (trades[i].pnl && trades[i].pnl! > 0) {
         run++;
-      } else {
+      } else if (trades[i].pnl && trades[i].pnl! <= 0) {
         break;
       }
     }
     return run;
-  }, [user?.trades]);
+  }, [trades]);
 
-  const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (user?.trades?.length || 0) * 80 + ((user?.totalDeposits || 0) * 0.1);
+  const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (trades.length || 0) * 80 + ((user?.totalDeposits || 0) * 0.1);
   const xpPerLevel = 1000;
   const currentLevel = Math.floor(totalXp / xpPerLevel) + 1;
   const currentXp = totalXp % xpPerLevel;
@@ -201,16 +220,6 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     { name: 'VIP Vault', unlocked: (user?.totalDeposits || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
   ];
   
-  const totalValue = totalNetBalance;
-  const todayPnL = user?.portfolio?.todayPnL ?? 0;
-  const todayPnLPercent = user?.portfolio?.todayPnLPercent ?? 0;
-  const overallReturn = user?.portfolio?.overallReturn ?? 0;
-
-  const totalValueFormatted = formatCurrency(totalValue);
-  const todayPnLFormatted = (todayPnL >= 0 ? '+' : '') + formatCurrency(todayPnL);
-  const todayPnLPercentFormatted = (todayPnLPercent >= 0 ? '+' : '') + todayPnLPercent.toFixed(2) + '%';
-  const overallReturnFormatted = (overallReturn >= 0 ? '+' : '') + overallReturn.toFixed(1) + '%';
-
   // HELPER METHODS FOR ACCOUNT ACTIVITY AND SMART ASSISTANT
   const getRelativeTime = (date: Date) => {
     const diffMs = Date.now() - date.getTime();
@@ -230,7 +239,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     const list: any[] = [];
 
     activity.forEach((act: any) => {
+      if (!act) return;
       const dateObj = act.timestamp ? (act.timestamp.toDate ? act.timestamp.toDate() : new Date(act.timestamp)) : new Date();
+      if (isNaN(dateObj.getTime())) return;
       
       let mappedType = act.type || 'system';
       let mappedTitle = 'Activity Logged';
@@ -574,13 +585,13 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                 </h2>
                 
                 <div className="flex items-center space-x-4 mb-6">
-                  <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg ${todayPnL >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                    {todayPnL >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                  <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg ${totalPlAmount >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                    {totalPlAmount >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
                     <span className="text-sm font-bold">{todayPnLFormatted}</span>
                     <span className="text-xs font-medium">({todayPnLPercentFormatted})</span>
                   </div>
                   <div className={`text-xs font-medium ${textSecondary}`}>
-                    Overall: <span className={`${overallReturn >= 0 ? 'text-emerald-500' : 'text-rose-500'} font-bold`}>{overallReturnFormatted}</span>
+                    Overall: <span className={`${totalPlPercent >= 0 ? 'text-emerald-500' : 'text-rose-500'} font-bold`}>{overallReturnFormatted}</span>
                   </div>
                 </div>
 
@@ -745,7 +756,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
                           <p className={`text-[10px] font-bold ${textSecondary}`}>Win Run</p>
-                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{profitableDays} Days</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{profitableDays}</p>
                         </div>
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <Brain className="w-4 h-4 text-blue-400 mx-auto mb-1" />

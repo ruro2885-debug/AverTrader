@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useContext, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { useFinancials } from '../hooks/useFinancials';
@@ -55,7 +55,7 @@ type EngineState = 'IDLE' | 'PREPARING' | 'LOADING_CONFIG' | 'SYNC_USER' | 'SYNC
 
 export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) {
   const { user, updateProfile, addNotification } = useAuth();
-  const { activeTradingBalance, addFundsToActiveBalance } = useFinancials();
+  const { activeTradingBalance, addFundsToActiveBalance, activeBalanceOffset } = useFinancials();
   const { preferences, formatCurrency } = usePreferences();
   const { 
     configs, 
@@ -85,6 +85,27 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   const closedTrades = trades.filter(t => t.status === 'CLOSED');
   const [loading, setLoading] = useState(false);
 
+  const enrichedActiveTrades = useMemo(() => activeTrades.map(trade => {
+    const livePrice = liveTradePrices[trade.id];
+    if (livePrice) {
+      const pnl = (livePrice - trade.entry) * trade.quantity;
+      const pnlPercent = ((livePrice - trade.entry) / trade.entry) * 100;
+      return { 
+        ...trade, 
+        currentPrice: livePrice,
+        pnl,
+        pnlPercent
+      };
+    }
+    return trade;
+  }), [activeTrades, liveTradePrices]);
+
+  const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
+
+  useEffect(() => {
+    console.log("[AiTradingModule] Stats update: activeTradingBalance=", activeTradingBalance, "totalFloatingPnl=", totalFloatingPnl);
+  }, [activeTradingBalance, totalFloatingPnl]);
+
   // Live simulation and thinking engine states
   const [liveAssetStates, setLiveAssetStates] = useState<Record<string, string>>({
     BTC: 'Ready',
@@ -95,7 +116,6 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     TSLA: 'Ready'
   });
   const [liveThinkingIdea, setLiveThinkingIdea] = useState('Neural core online. Standby for market sync...');
-  const [simulatedPnlBase, setSimulatedPnlBase] = useState(8.44);
 
   // Central State Engine Telemetry
   const [engineState, setEngineState] = useState<EngineState>('IDLE');
@@ -103,6 +123,10 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   const [cpuUsage, setCpuUsage] = useState(2.4);
   const [memoryUsage, setMemoryUsage] = useState(412);
   const [neuralCycles, setNeuralCycles] = useState(0);
+
+  const totalPnlAmount = activeBalanceOffset + totalFloatingPnl;
+  const initialCapital = 100000;
+  const totalPnlPercent = (totalPnlAmount / initialCapital) * 100;
 
   // Layout helpers
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
@@ -175,6 +199,8 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     }, 1500);
     return () => clearInterval(interval);
   }, [session]);
+
+  const [showOpportunityDesk, setShowOpportunityDesk] = useState(true);
 
   // Sync engineState with session status
   useEffect(() => {
@@ -415,23 +441,6 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
 
   const pendingRecommendations = recommendations.filter(r => r.status === 'PENDING');
 
-  const enrichedActiveTrades = activeTrades.map(trade => {
-    const livePrice = liveTradePrices[trade.id];
-    if (livePrice) {
-      const pnl = (livePrice - trade.entry) * trade.quantity;
-      const pnlPercent = ((livePrice - trade.entry) / trade.entry) * 100;
-      return { 
-        ...trade, 
-        currentPrice: livePrice,
-        pnl,
-        pnlPercent
-      };
-    }
-    return trade;
-  });
-
-  const totalFloatingPnl = enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-
   return (
     <div className="min-h-[85vh] flex flex-col lg:flex-row gap-6 py-6 font-sans">
       {/* Sidebar Sub-Navigation (Responsive desktop-first) */}
@@ -564,31 +573,23 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                     <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Trading Capital</span>
                     <div>
                       <h4 className={`${textPrimary} text-lg font-black tracking-tight`}>
-                        ${activeTradingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${(activeTradingBalance + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </h4>
                       <p className="text-[9px] font-mono text-[#00D09C] mt-1">● Synced with Wallet</p>
                     </div>
                   </div>
 
-                  {/* Card 2: Engine Equity */}
-                  <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
-                    <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Engine Equity</span>
-                    <div>
-                      <h4 className={`${textPrimary} text-lg font-black tracking-tight`}>
-                        ${(activeTradingBalance + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </h4>
-                      <p className="text-[9px] font-mono text-slate-400 mt-1">Capital + Floating P/L</p>
-                    </div>
-                  </div>
 
-                  {/* Card 3: Available (Cash) */}
+
+
+                  {/* Card: Total Positions Held */}
                   <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
-                    <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Available Cash</span>
+                    <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Total Positions Held</span>
                     <div>
                       <h4 className={`${textPrimary} text-lg font-black tracking-tight`}>
-                        ${activeTradingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {config?.markets?.length || 0}
                       </h4>
-                      <p className="text-[9px] font-mono text-slate-400 mt-1">Unallocated Funds</p>
+                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">Selected Index/Pairs</p>
                     </div>
                   </div>
 
@@ -605,25 +606,16 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                     </div>
                   </div>
 
-                  {/* Card 5: Floating P/L */}
-                  <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
-                    <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Floating P/L</span>
-                    <div>
-                      <h4 className={`text-lg font-black tracking-tight ${totalFloatingPnl >= 0 ? 'text-[#00D09C]' : 'text-red-500'}`}>
-                        {totalFloatingPnl >= 0 ? '+' : ''}${totalFloatingPnl.toFixed(2)}
-                      </h4>
-                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">Open Positions P/L</p>
-                    </div>
-                  </div>
+
 
                   {/* Card 6: Daily P/L */}
                   <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
                     <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Daily P/L</span>
                     <div>
-                      <h4 className={`text-lg font-black tracking-tight ${simulatedPnlBase + totalFloatingPnl >= 0 ? 'text-[#00D09C]' : 'text-red-500'}`}>
-                        {simulatedPnlBase + totalFloatingPnl >= 0 ? '+' : ''}${(simulatedPnlBase + totalFloatingPnl).toFixed(2)}
+                      <h4 className={`text-lg font-black tracking-tight ${totalPnlAmount >= 0 ? 'text-[#00D09C]' : 'text-red-500'}`}>
+                        {totalPnlAmount >= 0 ? '+' : ''}{totalPnlPercent.toFixed(2)}%
                       </h4>
-                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">Realized + Open</p>
+                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">Performance Yield</p>
                     </div>
                   </div>
                 </div>
@@ -668,6 +660,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                     {/* Discovery engine panel */}
                     <AiDiscoveryPanel 
                       session={session} 
+                      config={config}
                       recommendations={recommendations}
                       isDark={isDark}
                       liveStates={liveAssetStates}
@@ -679,20 +672,43 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                         <h3 className={`text-xs font-black uppercase tracking-widest ${textSecondary}`}>
                           Target Opportunity Desk
                         </h3>
-                        {pendingRecommendations.length > 0 && (
+                        <div className="flex items-center gap-3">
                           <button 
-                            onClick={() => setActiveView('RECOMMENDATIONS')}
-                            className="text-[10px] font-bold text-[#00D09C] hover:underline"
+                            onClick={() => setShowOpportunityDesk(!showOpportunityDesk)}
+                            className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
+                              showOpportunityDesk 
+                                ? 'border-slate-800 text-slate-500 hover:text-white' 
+                                : 'border-[#00D09C] text-[#00D09C] hover:bg-[#00D09C]/5'
+                            } transition-colors`}
                           >
-                            View all ({pendingRecommendations.length})
+                            {showOpportunityDesk ? 'Hide Desk' : 'Show Desk'}
                           </button>
-                        )}
+                          {pendingRecommendations.length > 0 && (
+                            <button 
+                              onClick={() => setActiveView('RECOMMENDATIONS')}
+                              className="text-[10px] font-bold text-[#00D09C] hover:underline"
+                            >
+                              View all ({pendingRecommendations.length})
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <AiRecommendationList 
-                        recommendations={pendingRecommendations.slice(0, 2)}
-                        isDark={isDark}
-                        session={session}
-                      />
+                      <AnimatePresence>
+                        {showOpportunityDesk && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <AiRecommendationList 
+                              recommendations={pendingRecommendations.slice(0, 2)}
+                              isDark={isDark}
+                              session={session}
+                            />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </div>
 
@@ -702,6 +718,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                     <AiTradeCenter 
                       trades={enrichedActiveTrades}
                       isDark={isDark}
+                      monitoredMarkets={config?.markets || []}
                     />
 
                     {/* Diagnostics and Activity Log */}
@@ -767,6 +784,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                 <AiTradeCenter 
                   trades={enrichedActiveTrades}
                   isDark={isDark}
+                  monitoredMarkets={config?.markets || []}
                 />
               </div>
             )}

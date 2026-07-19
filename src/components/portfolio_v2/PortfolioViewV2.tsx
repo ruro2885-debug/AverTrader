@@ -104,13 +104,15 @@ function AverPortfolioChart({
   onHover,
   executionEvents
 }: { 
-  data: { time: string; open: number; high: number; low: number; close: number; }[], 
+  data: { time: any; open: number; high: number; low: number; close: number; }[], 
   isDark: boolean,
   onHover: (hoverData: HoverData | null) => void,
   executionEvents: any[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const markersPluginRef = useRef<any>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -160,21 +162,7 @@ function AverPortfolioChart({
       wickDownColor: '#FF6B6B',
     });
 
-    candleSeries.setData(data);
-
-    if (executionEvents && executionEvents.length > 0) {
-      const markers = executionEvents.map(evt => ({
-        time: evt.timestamp,
-        position: evt.markerPosition === 'aboveBar' ? 'aboveBar' : 'belowBar',
-        color: evt.color,
-        shape: evt.markerShape,
-        text: evt.label,
-        id: evt.id
-      }));
-      createSeriesMarkers(candleSeries, markers as any);
-    }
-
-    chart.timeScale().fitContent();
+    seriesRef.current = candleSeries;
     chartRef.current = chart;
 
     // Crosshair subscription updates OHLC state
@@ -205,7 +193,42 @@ function AverPortfolioChart({
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [data, isDark]);
+  }, []); // Remove dependency on data to prevent full re-initialization
+
+  // Update data incrementally
+  useEffect(() => {
+    if (seriesRef.current && data.length > 0) {
+      seriesRef.current.setData(data);
+    }
+  }, [data]);
+
+  // Update markers incrementally
+  useEffect(() => {
+    if (seriesRef.current && executionEvents && executionEvents.length > 0) {
+      const markers = executionEvents
+        .filter(evt => evt.timestamp)
+        .map(evt => ({
+          time: evt.timestamp,
+          position: evt.markerPosition === 'aboveBar' ? 'aboveBar' : 'belowBar',
+          color: evt.color,
+          shape: evt.markerShape,
+          text: evt.label,
+          id: evt.id
+        }))
+        .sort((a, b) => {
+          if (a.time < b.time) return -1;
+          if (a.time > b.time) return 1;
+          return 0;
+        });
+      if (markers.length > 0) {
+        if (!markersPluginRef.current) {
+          markersPluginRef.current = createSeriesMarkers(seriesRef.current, markers as any);
+        } else {
+          markersPluginRef.current.setMarkers(markers as any);
+        }
+      }
+    }
+  }, [executionEvents]);
 
   return <div ref={containerRef} className="w-full h-[260px] relative z-10" />;
 }
@@ -244,6 +267,16 @@ export default function PortfolioViewV2({
     activeBalanceOffset,
     updateActiveBalanceOffset 
   } = useFinancials();
+
+  const enrichedActiveTrades = useMemo(() => trades.filter(t => t.status === 'OPEN').map(trade => {
+    const livePrice = liveTradePrices[trade.id];
+    if (livePrice) {
+      return { ...trade, pnl: (livePrice - trade.entry) * trade.quantity };
+    }
+    return trade;
+  }), [trades, liveTradePrices]);
+
+  const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
 
   const scrollPositionRef = useRef<number>(0);
   const { formatCurrency } = usePreferences();
@@ -629,29 +662,40 @@ export default function PortfolioViewV2({
 
   // --- DERIVED CHART DATA MAPPED TO TV LIGHTWEIGHT CHARTS (Aggregated Portfolio Value) ---
   const tvChartData = useMemo(() => {
-    const helperTimeframe = timeframe === '1H' ? '1D' : timeframe === '1D' ? '5D' : timeframe === '1W' ? '1M' : '3M';
-    const rawData = generateChartData(helperTimeframe, 'Bitcoin');
+    const helperTimeframe = timeframe === "1H" ? "1D" : timeframe === "1D" ? "5D" : timeframe === "1W" ? "1M" : "3M";
+    const rawData = generateChartData(helperTimeframe, "Bitcoin");
     
-    // Scale the raw data so it is centered around 1,410,000 USD (Aggregated total portfolio equity value)
-    const scaleFactor = 1410000 / 64230;
+    const currentTotalValue = totalNetBalance + totalFloatingPnl;
+    const lastRawPoint = rawData[rawData.length - 1];
+    const lastRawClose = (lastRawPoint && lastRawPoint.close) ? lastRawPoint.close : 64230;
+    const scaleFactor = (Number.isFinite(currentTotalValue) && currentTotalValue > 0) ? currentTotalValue / lastRawClose : 1;
+    
+    const now = Math.floor(Date.now() / 1000);
+    let secondsPerCandle = 24 * 60 * 60;
+    if (timeframe === "1D") secondsPerCandle = 15 * 60;
+    else if (timeframe === "5D") secondsPerCandle = 4 * 60 * 60;
+    else if (timeframe === "1M") secondsPerCandle = 24 * 60 * 60;
+    else if (timeframe === "3M") secondsPerCandle = 2 * 24 * 60 * 60;
+    else if (timeframe === "6M") secondsPerCandle = 4 * 24 * 60 * 60;
+    else if (timeframe === "1Y") secondsPerCandle = 8 * 24 * 60 * 60;
+    else secondsPerCandle = 24 * 60 * 60;
     
     return rawData.map((d, idx) => {
-      const date = new Date(2026, 6, 12);
-      date.setDate(date.getDate() - (rawData.length - idx));
-      const yyyy = date.getFullYear();
-      const mm = String(date.getMonth() + 1).padStart(2, '0');
-      const dd = String(date.getDate()).padStart(2, '0');
-      const timeStr = `${yyyy}-${mm}-${dd}`;
+      const timeInSeconds = now - (rawData.length - 1 - idx) * secondsPerCandle;
+      const safeScale = (val: number) => {
+        const scaled = val * scaleFactor;
+        return Number.isFinite(scaled) ? Number(scaled.toFixed(2)) : Number(val.toFixed(2));
+      };
       
       return {
-        time: timeStr,
-        open: Math.round((d.open || 64100) * scaleFactor),
-        high: Math.round((d.high || 64300) * scaleFactor),
-        low: Math.round((d.low || 63900) * scaleFactor),
-        close: Math.round((d.close || 64200) * scaleFactor),
+        time: timeInSeconds,
+        open: safeScale(d.open || 64100),
+        high: safeScale(d.high || 64300),
+        low: safeScale(d.low || 63900),
+        close: safeScale(d.close || 64200),
       };
     });
-  }, [timeframe]);
+  }, [timeframe, totalNetBalance, totalFloatingPnl]);
 
   // Live execution events mapped directly to timestamps in tvChartData
   const executionEvents = useMemo(() => {
@@ -668,7 +712,7 @@ export default function PortfolioViewV2({
 
     const chartStartTimeMs = nowMs - durationMs;
 
-    const getChartTimeForDate = (date: Date): string => {
+    const getChartTimeForDate = (date: Date): any => {
       const dateMs = date.getTime();
       if (dateMs < chartStartTimeMs) {
         return tvChartData[0]?.time || '';
@@ -948,7 +992,7 @@ export default function PortfolioViewV2({
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-3.5xl font-extrabold text-white tracking-tight">
-                ${Math.max(0, activeTradingBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${Math.max(0, activeTradingBalance + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-xs font-semibold text-slate-400 font-mono">USD</span>
             </div>
@@ -974,7 +1018,7 @@ export default function PortfolioViewV2({
                 Total Assets (AUM)
               </span>
               <div className="text-sm font-bold text-white font-mono">
-                ${totalNetBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${(totalNetBalance + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           </div>
@@ -1214,17 +1258,11 @@ export default function PortfolioViewV2({
         >
           <div className="flex items-center justify-between border-b border-white/[0.05] pb-3">
             <div className="flex items-center space-x-2.5">
-              <div className="w-9 h-9 rounded-full overflow-hidden border border-white/10 relative">
-                <div 
-                  className="w-full h-full"
-                  dangerouslySetInnerHTML={{ __html: generateAvatarSvg('catherine-vance-lead-analyst') }}
-                />
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00D09C] rounded-full border-2 border-[#0E1320]" />
-              </div>
+              <div className="w-9 h-9 rounded-full overflow-hidden border border-[#00D09C]/20 bg-[#00D09C]/10 flex items-center justify-center relative"><Sparkles className="w-5 h-5 text-[#00D09C]" /><span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00D09C] rounded-full border-2 border-[#0E1320]" /></div>
               <div>
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Dr. Catherine Vance</h4>
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Aver AI Engine</h4>
                 <span className="text-[9px] font-medium text-slate-400 uppercase tracking-widest block font-sans">
-                  Lead Strategist
+                  System Intelligence
                 </span>
               </div>
             </div>

@@ -29,12 +29,17 @@ const initialMarkets: MarketAsset[] = [
   { symbol: 'SOL', name: 'Solana', category: 'CRYPTO', price: 142, change: 5.6, rsi: 65, volatility: 'HIGH', monitored: true, favorite: false },
   { symbol: 'XRP', name: 'Ripple', category: 'CRYPTO', price: 0.58, change: 0.8, rsi: 49, volatility: 'MEDIUM', monitored: false, favorite: false },
   { symbol: 'ADA', name: 'Cardano', category: 'CRYPTO', price: 0.38, change: -0.4, rsi: 41, volatility: 'MEDIUM', monitored: false, favorite: false },
+  { symbol: 'DOT', name: 'Polkadot', category: 'CRYPTO', price: 6.2, change: -1.5, rsi: 35, volatility: 'HIGH', monitored: false, favorite: false },
+  { symbol: 'DOGE', name: 'Dogecoin', category: 'CRYPTO', price: 0.12, change: 2.1, rsi: 60, volatility: 'HIGH', monitored: false, favorite: false },
   { symbol: 'AAPL', name: 'Apple Inc.', category: 'STOCKS', price: 224.5, change: 1.1, rsi: 54, volatility: 'LOW', monitored: true, favorite: true },
   { symbol: 'TSLA', name: 'Tesla Inc.', category: 'STOCKS', price: 254.3, change: -3.4, rsi: 38, volatility: 'HIGH', monitored: true, favorite: false },
   { symbol: 'NVDA', name: 'NVIDIA Corp.', category: 'STOCKS', price: 128.2, change: 4.8, rsi: 72, volatility: 'HIGH', monitored: true, favorite: true },
   { symbol: 'MSFT', name: 'Microsoft Corp.', category: 'STOCKS', price: 442.1, change: 0.2, rsi: 51, volatility: 'LOW', monitored: false, favorite: false },
+  { symbol: 'GOOGL', name: 'Alphabet Inc.', category: 'STOCKS', price: 185.4, change: 0.5, rsi: 53, volatility: 'LOW', monitored: false, favorite: false },
+  { symbol: 'AMZN', name: 'Amazon.com', category: 'STOCKS', price: 198.2, change: -0.2, rsi: 48, volatility: 'LOW', monitored: false, favorite: false },
   { symbol: 'EUR/USD', name: 'Euro / US Dollar', category: 'FOREX', price: 1.085, change: 0.05, rsi: 48, volatility: 'LOW', monitored: false, favorite: false },
   { symbol: 'GBP/USD', name: 'British Pound / US Dollar', category: 'FOREX', price: 1.291, change: -0.1, rsi: 46, volatility: 'LOW', monitored: false, favorite: false },
+  { symbol: 'USD/JPY', name: 'US Dollar / Yen', category: 'FOREX', price: 155.2, change: 0.3, rsi: 62, volatility: 'MEDIUM', monitored: false, favorite: false },
 ];
 
 interface AiMarketScannerViewProps {

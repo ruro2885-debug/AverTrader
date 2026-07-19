@@ -10,6 +10,7 @@ import Features from './components/Features';
 import Stats from './components/Stats';
 import QuickHub from './components/QuickHub';
 import Footer from './components/Footer';
+import BackToTop from './components/BackToTop';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
@@ -300,6 +301,7 @@ function AppContent() {
 
             {/* Detailed Footer */}
             <Footer theme={theme} onNavigate={handleNavigate} />
+            <BackToTop />
             
             {/* Floating Preferences & FAQ Quick Hub Console */}
             <QuickHub

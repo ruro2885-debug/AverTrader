@@ -44,56 +44,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
-  // Load reCAPTCHA v3 script dynamically
-  useEffect(() => {
-    const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
-    if (!siteKey) return;
-
-    const existingScript = document.querySelector(`script[src*="recaptcha/api.js"]`);
-    if (!existingScript) {
-      const script = document.createElement('script');
-      script.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
-    }
-  }, []);
-
-  const executeRecaptcha = (): Promise<string | null> => {
-    return new Promise((resolve) => {
-      const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
-      if (!siteKey) {
-        console.warn("VITE_RECAPTCHA_SITE_KEY is missing, skipping recaptcha security check");
-        resolve("dummy_site_key_passed");
-        return;
-      }
-      
-      // @ts-ignore
-      if (typeof window !== 'undefined' && window.grecaptcha) {
-        // @ts-ignore
-        window.grecaptcha.ready(() => {
-          try {
-            // @ts-ignore
-            window.grecaptcha.execute(siteKey, { action: 'submit' })
-              .then((token: string) => {
-                resolve(token);
-              })
-              .catch((err: any) => {
-                console.error("reCAPTCHA execution error:", err);
-                resolve(null);
-              });
-          } catch (e) {
-            console.error("reCAPTCHA execution caught error:", e);
-            resolve(null);
-          }
-        });
-      } else {
-        console.warn("reCAPTCHA not loaded on window yet");
-        resolve(null);
-      }
-    });
-  };
-
   // Active policy reader state
   const [activePolicyId, setActivePolicyId] = useState<string | null>(null);
 
@@ -223,28 +173,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setLoading(true);
     setErrorMsg('');
     try {
-      // 1. Programmatically execute reCAPTCHA v3 to get token
-      const token = await executeRecaptcha();
-      if (!token) {
-        throw new Error('reCAPTCHA verification could not be initialized.');
-      }
-
-      // 2. Verify reCAPTCHA token on the backend first
-      const verificationResponse = await fetch('/api/verify-recaptcha', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token }),
-      });
-      
-      const verificationData = await verificationResponse.json();
-
-      if (!verificationResponse.ok || !verificationData.success) {
-        throw new Error('reCAPTCHA security check failed. Please try again.');
-      }
-
-      // 3. Proceed with Firebase Auth signup
+      // Proceed with Firebase Auth signup
       await signUp({
         username,
         email,

@@ -27,6 +27,18 @@ export const useFinancials = () => {
     return saved ? parseFloat(saved) : (user?.activeOffset || 0);
   });
 
+  // Listen to custom events to sync state across different hook instances in the same tab
+  useEffect(() => {
+    const handleSync = () => {
+      const savedVault = safeStorage.getItem('portfolio_vault_balance');
+      if (savedVault) setVaultBalanceState(parseFloat(savedVault));
+      const savedOffset = safeStorage.getItem('portfolio_active_offset');
+      if (savedOffset) setActiveOffsetState(parseFloat(savedOffset));
+    };
+    window.addEventListener('financials_updated', handleSync);
+    return () => window.removeEventListener('financials_updated', handleSync);
+  }, []);
+
   // Keep local state in sync with user doc if it updates from another device
   useEffect(() => {
     if (user?.vaultBalance !== undefined && !safeStorage.getItem('portfolio_vault_balance')) {
@@ -65,6 +77,7 @@ export const useFinancials = () => {
   const updateVaultBalance = async (newBalance: number) => {
     setVaultBalanceState(newBalance);
     safeStorage.setItem('portfolio_vault_balance', newBalance.toString());
+    window.dispatchEvent(new Event('financials_updated'));
     
     if (auth.currentUser) {
       try {
@@ -77,14 +90,29 @@ export const useFinancials = () => {
     }
   };
 
-  const updateActiveBalanceOffset = async (newOffset: number) => {
-    setActiveOffsetState(newOffset);
-    safeStorage.setItem('portfolio_active_offset', newOffset.toString());
+  const updateActiveBalanceOffset = async (newOffset: number | ((prev: number) => number)) => {
+    let finalOffset: number;
+    if (typeof newOffset === 'function') {
+      setActiveOffsetState(prev => {
+        finalOffset = newOffset(prev);
+        safeStorage.setItem('portfolio_active_offset', finalOffset.toString());
+        window.dispatchEvent(new Event('financials_updated'));
+        return finalOffset;
+      });
+      // We'll handle the Firestore sync after the state update if possible, 
+      // but for now let's just use the direct value for Firestore if provided as number
+      return; 
+    } else {
+      finalOffset = newOffset;
+      setActiveOffsetState(finalOffset);
+      safeStorage.setItem('portfolio_active_offset', finalOffset.toString());
+      window.dispatchEvent(new Event('financials_updated'));
+    }
     
     if (auth.currentUser) {
       try {
         await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-          activeOffset: newOffset
+          activeOffset: finalOffset
         });
       } catch (e) {
         console.error("Failed to sync active offset to Firestore", e);
@@ -93,9 +121,23 @@ export const useFinancials = () => {
   };
 
   // Helper to process a trade PnL or deposit
-  const addFundsToActiveBalance = async (amount: number) => {
-    const nextOffset = activeOffset + amount;
-    await updateActiveBalanceOffset(nextOffset);
+  const addFundsToActiveBalance = async (amount: number, skipSync: boolean = false) => {
+    let finalOffset = 0;
+    setActiveOffsetState(prev => {
+      finalOffset = prev + amount;
+      safeStorage.setItem('portfolio_active_offset', finalOffset.toString());
+      window.dispatchEvent(new Event('financials_updated'));
+      return finalOffset;
+    });
+    
+    // Manual firestore sync for functional updates
+    if (!skipSync && auth.currentUser) {
+      try {
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+          activeOffset: finalOffset
+        });
+      } catch (e) {}
+    }
   };
 
   return {

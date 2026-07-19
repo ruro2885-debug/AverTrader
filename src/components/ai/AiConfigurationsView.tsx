@@ -135,6 +135,7 @@ export default function AiConfigurationsView({
   };
 
   const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleSaveConfig = async () => {
     if (!editingConfig) return;
@@ -149,9 +150,13 @@ export default function AiConfigurationsView({
       return;
     }
 
-    await onSave(editingConfig);
+    const configToSave = editingConfig;
+    setIsSaving(true);
+    setEditingConfig(null);
     setIsSaved(true);
-    // Do NOT setEditingConfig(null) here, so the user stays in the editor
+    
+    await onSave(configToSave);
+    setIsSaving(false);
   };
 
   const handleExport = (cfg: AiConfiguration) => {

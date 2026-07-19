@@ -24,114 +24,62 @@ export interface ChartDataPoint {
 export function generateChartData(timeframe: string, benchmark: string): ChartDataPoint[] {
   const points: ChartDataPoint[] = [];
   let basePrice = 54000;
-  let volatility = 0.015;
-  let trendSlope = 0.001;
-
+  
   // Adjust parameters based on timeframe
-  let numPoints = 50;
+  let numPoints = 60;
   let timeLabels: string[] = [];
   const now = new Date();
-
+  
   switch (timeframe) {
-    case '1D':
-      numPoints = 40;
-      volatility = 0.004;
-      trendSlope = 0.0003;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 15 * 60 * 1000);
-        timeLabels.push(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-      }
+    case '1H':
+      numPoints = 60;
       break;
-    case '5D':
-      numPoints = 45;
-      volatility = 0.008;
-      trendSlope = 0.001;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 4 * 60 * 60 * 1000);
-        timeLabels.push(`${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.getHours()}:00`);
-      }
+    case '1D':
+      numPoints = 96;
+      break;
+    case '1W':
+      numPoints = 84;
       break;
     case '1M':
-      numPoints = 40;
-      volatility = 0.018;
-      trendSlope = 0.003;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-        timeLabels.push(d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
-      }
+      numPoints = 120;
       break;
     case '3M':
-      numPoints = 45;
-      volatility = 0.025;
-      trendSlope = 0.006;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 2 * 24 * 60 * 60 * 1000);
-        timeLabels.push(d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
-      }
-      break;
-    case '6M':
-      numPoints = 50;
-      volatility = 0.035;
-      trendSlope = 0.012;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 4 * 24 * 60 * 60 * 1000);
-        timeLabels.push(d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
-      }
-      break;
-    case 'YTD':
-      numPoints = 45;
-      volatility = 0.04;
-      trendSlope = 0.015;
-      const startOfYear = new Date(now.getFullYear(), 0, 1);
-      const diffMs = now.getTime() - startOfYear.getTime();
-      const stepMs = diffMs / numPoints;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * stepMs);
-        timeLabels.push(d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
-      }
+      numPoints = 90;
       break;
     case '1Y':
-      numPoints = 50;
-      volatility = 0.05;
-      trendSlope = 0.03;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
-        timeLabels.push(d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
-      }
-      break;
-    default: // ALL
-      numPoints = 60;
-      volatility = 0.08;
-      trendSlope = 0.06;
-      for (let i = numPoints; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 15 * 24 * 60 * 60 * 1000);
-        timeLabels.push(d.toLocaleDateString([], { month: 'short', year: '2-digit' }));
-      }
+    default:
+      numPoints = 100;
       break;
   }
 
-  // Generate historical points
+  const volatility = 0.006;
   let currentPrice = basePrice;
-  let currentBenchmark = benchmark === 'S&P 500' ? 5100 : benchmark === 'NASDAQ' ? 16000 : benchmark === 'Bitcoin' ? 58000 : 2100; // Gold
-  const bchVol = benchmark === 'Bitcoin' ? 0.03 : 0.008;
-  const bchTrend = benchmark === 'Bitcoin' ? 0.001 : 0.0004;
-
   const emaPeriod = 12;
   const smaPeriod = 26;
   const prices: number[] = [];
 
+  // Use a predictable pseudo-random seed
+  let seed = 12345;
+  const pseudoRandom = () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+
+  let currentBenchmark = benchmark === 'S&P 500' ? 5100 : benchmark === 'NASDAQ' ? 16000 : benchmark === 'Bitcoin' ? 58000 : 2100; // Gold
+  const bchVol = benchmark === 'Bitcoin' ? 0.03 : 0.008;
+
   for (let i = 0; i < numPoints; i++) {
-    const change = currentPrice * (Math.random() - 0.48) * volatility + (currentPrice * trendSlope);
+    const trend = Math.sin(i / 10) * 0.001;
+    const change = currentPrice * (pseudoRandom() - 0.48) * volatility + (currentPrice * trend);
     const open = currentPrice;
     const close = currentPrice + change;
-    const high = Math.max(open, close) + Math.random() * (currentPrice * volatility * 0.4);
-    const low = Math.min(open, close) - Math.random() * (currentPrice * volatility * 0.4);
-    const volume = Math.floor(1000 + Math.random() * 9000);
-
+    const high = Math.max(open, close) + pseudoRandom() * (currentPrice * volatility * 0.8);
+    const low = Math.min(open, close) - pseudoRandom() * (currentPrice * volatility * 0.8);
+    const volume = Math.floor(1000 + pseudoRandom() * 9000);
+    
     prices.push(close);
     currentPrice = close;
 
-    // Calculate simulated overlays
     let ema = close;
     if (i > 0 && points[i - 1]) {
       const k = 2 / (emaPeriod + 1);
@@ -148,42 +96,24 @@ export function generateChartData(timeframe: string, benchmark: string): ChartDa
       sma = close * 0.99;
     }
 
-    const vwap = sma * (1 + (Math.random() - 0.5) * 0.002);
+    const vwap = sma * (1 + (pseudoRandom() - 0.5) * 0.002);
     const bollingerUpper = ema * (1 + volatility * 1.5);
     const bollingerLower = ema * (1 - volatility * 1.5);
-    const aiPrediction = close * (1 + (Math.random() - 0.35) * volatility * 0.5);
+    const aiPrediction = close * (1 + (pseudoRandom() - 0.35) * volatility * 0.5);
 
-    // Benchmark updates
-    const bchChange = currentBenchmark * (Math.random() - 0.49) * bchVol + (currentBenchmark * bchTrend);
+    const bchChange = currentBenchmark * (pseudoRandom() - 0.49) * bchVol + (currentBenchmark * 0.0002);
     currentBenchmark += bchChange;
 
-    // MACD calculations
     const macd = (ema - sma) * 0.1;
     let macdSignal = macd * 0.8;
     if (i > 0 && points[i - 1] && points[i - 1].macdSignal !== undefined) {
-      macdSignal = macd * 0.2 + points[i - 1].macdSignal! * 0.8;
+      macdSignal = macd * 0.2 + points[i - 1].macdSignal * 0.8;
     }
     const macdHist = macd - macdSignal;
-
-    // RSI calculations (simulated oscillator)
-    const rsi = 45 + Math.sin(i * 0.3) * 15 + (Math.random() - 0.5) * 10;
-
-    // Determine markers on certain indices to avoid cluttering
-    let marker: ChartDataPoint['marker'] = null;
-    if (i === Math.floor(numPoints * 0.2)) {
-      marker = { type: 'buy', label: 'Buy Call at $' + Math.round(close) };
-    } else if (i === Math.floor(numPoints * 0.4)) {
-      marker = { type: 'dividend', label: 'Dividend Reinvested: +$420.00' };
-    } else if (i === Math.floor(numPoints * 0.55)) {
-      marker = { type: 'deposit', label: 'Vault Deposit: +$50,000' };
-    } else if (i === Math.floor(numPoints * 0.75)) {
-      marker = { type: 'sell', label: 'Hedge Sell (Profit Lock)' };
-    } else if (i === Math.floor(numPoints * 0.9)) {
-      marker = { type: 'corp', label: 'Corporate Action: Stock Split Synced' };
-    }
+    const rsi = 45 + Math.sin(i * 0.3) * 15 + (pseudoRandom() - 0.5) * 10;
 
     points.push({
-      time: timeLabels[i] || '',
+      time: '',
       open,
       high,
       low,
@@ -200,33 +130,22 @@ export function generateChartData(timeframe: string, benchmark: string): ChartDa
       macdSignal,
       macdHist,
       rsi,
-      marker,
       isFuture: false,
     });
   }
 
-  // Generate 8 Future Forecast Points (Dashed AI line only)
+  // Future points
   let lastClose = points[points.length - 1].close;
   let lastBenchmark = points[points.length - 1].benchmark;
   for (let j = 1; j <= 8; j++) {
-    const futureTime = new Date(now.getTime() + j * (timeframe === '1D' ? 15 : timeframe === '5D' ? 240 : 1440) * 60 * 1000);
-    let timeStr = '';
-    if (timeframe === '1D') {
-      timeStr = futureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else {
-      timeStr = futureTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    }
-
-    // Extend upward bullish AI trend forecast
-    lastClose = lastClose * (1 + 0.0015 * j + (Math.random() - 0.4) * volatility * 0.4);
+    lastClose = lastClose * (1 + 0.0015 * j + (pseudoRandom() - 0.4) * volatility * 0.4);
     lastBenchmark = lastBenchmark * (1 + 0.0003 * j);
-
     points.push({
-      time: timeStr,
+      time: '',
       open: 0,
       high: 0,
       low: 0,
-      close: 0, // No candles in future
+      close: 0,
       volume: 0,
       ema: 0,
       sma: 0,

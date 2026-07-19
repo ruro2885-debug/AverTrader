@@ -29,6 +29,18 @@ export const safeStorage = {
           if (k !== key) localStorage.removeItem(k);
         });
 
+        // Clear dynamically named large arrays (activities, recommendations, etc.)
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k !== key) {
+             if (k.startsWith('aver_activity_') || k.startsWith('aver_recommendations_') || k.startsWith('aver_trades_')) {
+                keysToRemove.push(k);
+             }
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+
         // Try one more time
         try {
           localStorage.setItem(key, value);
