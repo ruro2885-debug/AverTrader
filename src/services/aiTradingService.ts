@@ -194,9 +194,12 @@ export const aiTradingService = {
         });
         if (response.ok) {
           data = await response.json();
+        } else {
+          const errorText = await response.text();
+          throw new Error(`API request failed with status ${response.status}: ${errorText}`);
         }
-      } catch (e) {
-        console.warn('API analysis unavailable, generating local neural model fallback...');
+      } catch (e: any) {
+        console.warn('API analysis unavailable, generating local neural model fallback...', e.message);
       }
 
       if (!data) {
@@ -345,10 +348,13 @@ export const aiTradingService = {
         body: JSON.stringify({ trade, marketCondition })
       });
       
-      if (!response.ok) throw new Error('AI Monitor failed');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`AI Monitor failed with status ${response.status}: ${errorText}`);
+      }
       return response.json();
-    } catch (error) {
-      console.error('AI Monitor fetch error:', error);
+    } catch (error: any) {
+      console.error('AI Monitor fetch error:', error.message);
       throw error;
     }
   }

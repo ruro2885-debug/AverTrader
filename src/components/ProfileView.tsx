@@ -42,8 +42,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
     changePassword,
     updateUserPreferences,
     addNotification,
-    verifyCurrentPassword,
-    hashPassword
+    verifyCurrentPassword
   } = useAuth();
   const { preferences, updatePreference, t } = usePreferences();
 
@@ -561,7 +560,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
       return;
     }
     try {
-      const targetState = !user?.preferences?.twoFactorEnabled;
+      const targetState = !preferences?.twoFactorEnabled;
       await updateUserPreferences({ twoFactorEnabled: targetState });
       setSuccessMsg(targetState ? '2FA Enabled Successfully!' : '2FA Disabled.');
       setTwoFactorCode('');
@@ -608,7 +607,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
       items: [
         { icon: Edit3, label: t('common.edit_profile'), id: 'edit' },
         { icon: Key, label: t('common.change_password'), id: 'password' },
-        { icon: ShieldCheck, label: `Two-Factor Auth (${user?.preferences?.twoFactorEnabled ? 'On' : 'Off'})`, id: '2fa' },
+        { icon: ShieldCheck, label: `Two-Factor Auth (${preferences?.twoFactorEnabled ? 'On' : 'Off'})`, id: '2fa' },
         { icon: Bell, label: t('common.notification_settings'), id: 'notifications' },
       ]
     },

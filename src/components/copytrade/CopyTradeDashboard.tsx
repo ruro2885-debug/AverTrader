@@ -27,15 +27,6 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
   const isDark = theme === 'dark';
 
   const [traders, setTraders] = useState<Trader[]>(() => {
-    const saved = safeStorage.getItem('aver_sim_traders_v4');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.length > 0) return parsed;
-      } catch (e) {
-        // Fallback to init
-      }
-    }
     return initSimulatedTraders();
   });
 
@@ -115,7 +106,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
             if (addNotification) {
               newEvents.forEach(evt => {
                 addNotification(
-                  'signals',
+                  'copy_trading',
                   evt.type === 'rank_up' || evt.type === 'entry' ? 'high' : 'medium',
                   'Competitive Leaderboard Update',
                   evt.text
@@ -226,7 +217,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
       // Add actual workspace notification
       if (addNotification) {
         await addNotification(
-          'signals',
+          'copy_trading',
           'high',
           'AI Configuration Copied Successfully',
           `You have successfully cloned ${trader.username}'s active neural profile. Configuration '${clonedConfig.name}' is now loaded into your Neural Workspace standby deck.`

@@ -738,14 +738,121 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
  * Initializes the list of 100 simulated traders.
  * Pulls from localStorage if available, otherwise generates historical trade profiles from scratch.
  */
+function healTradeTimestamps(trader: SimulatedTrader): SimulatedTrader {
+  if (!trader.trades || trader.trades.length === 0) return trader;
+  
+  const closedTrades = trader.trades.filter(t => t.status === 'CLOSED');
+  if (closedTrades.length === 0) return trader;
+  
+  closedTrades.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const latestTradeTime = new Date(closedTrades[closedTrades.length - 1].timestamp).getTime();
+  const now = Date.now();
+  
+  const diff = now - latestTradeTime;
+  if (diff > 30 * 60 * 1000) {
+    trader.trades = trader.trades.map(t => ({
+      ...t,
+      timestamp: new Date(new Date(t.timestamp).getTime() + diff).toISOString()
+    }));
+  }
+  return trader;
+}
+
+function getDesiredReturn30D(i: number, seed: string): number {
+  const randFn = seededRandom(seed + "_return_" + i);
+  if (i === 0) {
+    return 243.99;
+  }
+  if (i < 10) {
+    const step = (243.99 - 45.0) / 9;
+    const base = 243.99 - i * step;
+    const noise = (randFn() * 0.4 - 0.2) * step;
+    return parseFloat(Math.min(242.0, Math.max(45.0, base + noise)).toFixed(2));
+  }
+  const step = (40.0 - (-15.0)) / 30;
+  const base = 40.0 - (i - 10) * step;
+  const noise = (randFn() * 0.4 - 0.2) * step;
+  const val = base + noise;
+  return parseFloat((val === 0 ? 1.25 : val).toFixed(2));
+}
+
+function adjustTradesToTargetReturn(trader: SimulatedTrader, targetReturn: number): SimulatedTrader {
+  const nowMs = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  
+  const trades30D = trader.trades.filter(t => t.status === 'CLOSED' && (nowMs - new Date(t.timestamp).getTime()) <= 30 * dayMs);
+  
+  if (trades30D.length === 0) {
+    const asset = trader.preferredMarkets[0] || 'BTC';
+    const basePrice = ASSETS_BY_MARKET[asset] || 100;
+    const entryPrice = parseFloat((basePrice * 0.98).toFixed(2));
+    const pnlPercent = targetReturn;
+    const exitPrice = parseFloat((entryPrice * (1 + pnlPercent / 100)).toFixed(2));
+    
+    trader.trades.push({
+      id: `t_${trader.id}_adj_init`,
+      asset,
+      type: 'BUY',
+      entryPrice,
+      exitPrice,
+      pnlPercent,
+      status: 'CLOSED',
+      timestamp: new Date(nowMs - 5 * dayMs).toISOString()
+    });
+    return trader;
+  }
+  
+  const currentSum = trades30D.reduce((sum, t) => sum + (t.pnlPercent || 0), 0);
+  if (Math.abs(currentSum - targetReturn) < 0.01) return trader;
+  
+  if (Math.abs(currentSum) < 0.1) {
+    const val = targetReturn / trades30D.length;
+    trades30D.forEach(t => {
+      t.pnlPercent = parseFloat(val.toFixed(2));
+      if (t.entryPrice) {
+        t.exitPrice = parseFloat((t.entryPrice * (1 + t.pnlPercent / 100)).toFixed(2));
+      }
+    });
+  } else {
+    const diff = targetReturn - currentSum;
+    const offset = diff / trades30D.length;
+    trades30D.forEach(t => {
+      t.pnlPercent = parseFloat(((t.pnlPercent || 0) + offset).toFixed(2));
+      if (t.entryPrice) {
+        t.exitPrice = parseFloat((t.entryPrice * (1 + t.pnlPercent / 100)).toFixed(2));
+      }
+    });
+  }
+  
+  return trader;
+}
+
 export function initSimulatedTraders(): SimulatedTrader[] {
-  const saved = safeStorage.getItem('aver_sim_traders_v5');
+  const saved = safeStorage.getItem('aver_sim_traders_v6');
   if (saved) {
     try {
       const parsed = JSON.parse(saved) as SimulatedTrader[];
       // verify we have all traders; if specs changed or we need to heal, fall back
       if (parsed.length >= 40) {
-        return parsed;
+        // Heal and recalculate
+        const healed = parsed.map(t => {
+          const healedTrader = healTradeTimestamps(t);
+          return calculateTraderMetrics(healedTrader);
+        });
+        
+        // Re-sort just in case rankings shifted
+        healed.sort((a, b) => b.performanceScore - a.performanceScore);
+        
+        // Enforce ranks and desired unique returns
+        healed.forEach((t, index) => {
+          t.rank = index + 1;
+          const targetReturn = getDesiredReturn30D(index, t.id);
+          adjustTradesToTargetReturn(t, targetReturn);
+          calculateTraderMetrics(t);
+        });
+        
+        safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(healed));
+        return healed;
       }
     } catch (e) {
       console.error("Failed to parse saved simulated copytraders, regenerating...", e);
@@ -762,6 +869,8 @@ export function initSimulatedTraders(): SimulatedTrader[] {
 
   // Initial ranking sort
   traders.sort((a, b) => b.performanceScore - a.performanceScore);
+  
+  // Set ranks and desired unique returns
   traders.forEach((t, index) => {
     t.rank = index + 1;
     t.prevRank = index + 1;
@@ -771,9 +880,14 @@ export function initSimulatedTraders(): SimulatedTrader[] {
     if (t.followers < minimumRankFollowers) {
       t.followers = minimumRankFollowers + Math.floor(Math.random() * 5000);
     }
+    
+    // Enforce target returns directly on initialization
+    const targetReturn = getDesiredReturn30D(index, t.id);
+    adjustTradesToTargetReturn(t, targetReturn);
+    calculateTraderMetrics(t);
   });
 
-  safeStorage.setItem('aver_sim_traders_v5', JSON.stringify(traders));
+  safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(traders));
   return traders;
 }
 
@@ -1051,8 +1165,26 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
     }
   });
 
-  // Save back to local storage
-  safeStorage.setItem('aver_sim_traders_v5', JSON.stringify(updatedTraders));
+  // Enforce ranks, return caps, and uniqueness during tick simulation
+  updatedTraders.forEach((t, index) => {
+    t.rank = index + 1;
+    if (index === 0) {
+      if (t.return30D > 243.99) {
+        adjustTradesToTargetReturn(t, 243.99);
+        calculateTraderMetrics(t);
+      }
+    } else {
+      // Ensure other traders are below the top performer and below 243.99
+      const maxAllowed = Math.min(243.0, updatedTraders[0].return30D - 0.5);
+      if (t.return30D >= maxAllowed) {
+        adjustTradesToTargetReturn(t, maxAllowed - index * 0.1);
+        calculateTraderMetrics(t);
+      }
+    }
+  });
+
+  // Save back to local storage using the correct fresh key
+  safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(updatedTraders));
 
   return {
     updatedTraders,

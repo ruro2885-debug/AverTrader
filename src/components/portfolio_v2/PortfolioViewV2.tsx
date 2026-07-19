@@ -521,7 +521,7 @@ export default function PortfolioViewV2({
             confidence: getDynamicConfidence(asset.baseConfidence, symbol)
           },
           userProfile: {
-            riskProfile: user?.riskProfile || 'Medium',
+            riskProfile: user?.aiSettings?.riskProfile || user?.riskPreference || 'Medium',
             tradingStyle: 'Aggressive',
             preferredMarkets: ['BTC', 'ETH', 'SOL']
           }

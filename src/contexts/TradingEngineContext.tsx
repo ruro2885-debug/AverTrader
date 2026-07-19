@@ -1,51 +1,217 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { doc, onSnapshot, updateDoc, setDoc, collection, addDoc, serverTimestamp, query, orderBy, where, limit, getDocs, Timestamp } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { useFinancials } from '../hooks/useFinancials';
-import { AiConfiguration, AiTrade, AiSession } from '../types/aiTrading';
+import { AiConfiguration, AiTrade, AiSession, AiRecommendation } from '../types/aiTrading';
 import { Position, ActivityEvent } from '../types/trading';
 import { seedTraders, startTraderSimulator } from '../services/traderSimulator';
 import { aiTradingService } from '../services/aiTradingService';
 
 interface TradingEngineContextType {
+  configs: AiConfiguration[];
   config: AiConfiguration | null;
+  activeConfigId: string | undefined;
   session: AiSession | null;
   positions: Position[];
   trades: AiTrade[];
   activity: ActivityEvent[];
+  recommendations: AiRecommendation[];
   updateConfig: (newConfig: Partial<AiConfiguration>) => Promise<void>;
   logActivity: (type: string, message: string, metadata?: Record<string, any>) => Promise<void>;
   startSession: (configId: string, markets: string[]) => Promise<void>;
   endSession: () => Promise<void>;
   loading: boolean;
   liveTradePrices: Record<string, number>;
+  saveConfiguration: (updatedConfig: AiConfiguration) => Promise<void>;
+  deleteConfiguration: (configId: string) => Promise<void>;
+  duplicateConfiguration: (configId: string) => Promise<void>;
+  activateConfiguration: (configId: string) => Promise<void>;
+  closeTrade: (tradeId: string, exitPrice: number, reason: AiTrade['reasonClosed']) => Promise<void>;
 }
 
 export const TradingEngineContext = createContext<TradingEngineContextType>({
+  configs: [],
   config: null,
+  activeConfigId: undefined,
   session: null,
   positions: [],
   trades: [],
   activity: [],
+  recommendations: [],
   updateConfig: async () => {},
   logActivity: async () => {},
   startSession: async () => {},
   endSession: async () => {},
   loading: true,
   liveTradePrices: {},
+  saveConfiguration: async () => {},
+  deleteConfiguration: async () => {},
+  duplicateConfiguration: async () => {},
+  activateConfiguration: async () => {},
+  closeTrade: async () => {},
 });
 
 export const TradingEngineProvider = ({ children }: { children: React.ReactNode }) => {
   const { user, updateProfile, addNotification } = useAuth();
   const { activeTradingBalance, addFundsToActiveBalance } = useFinancials();
+  const [configs, setConfigs] = useState<AiConfiguration[]>([]);
   const [config, setConfig] = useState<AiConfiguration | null>(null);
+  const [activeConfigId, setActiveConfigId] = useState<string | undefined>(undefined);
   const [session, setSession] = useState<AiSession | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [trades, setTrades] = useState<AiTrade[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [recommendations, setRecommendations] = useState<AiRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveTradePrices, setLiveTradePrices] = useState<Record<string, number>>({});
+
+  // Helper to load/save state from/to localStorage if Firestore is unavailable/offline
+  const getLocalStorageItem = useCallback((key: string, defaultValue: any) => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  }, []);
+
+  const setLocalStorageItem = useCallback((key: string, value: any) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.warn("localStorage write failed:", e);
+    }
+  }, []);
+
+  // Sync state FROM localStorage immediately on user login/availability
+  useEffect(() => {
+    if (!user) return;
+    
+    const localConfigs = getLocalStorageItem(`aver_configs_${user.uid}`, []);
+    if (localConfigs.length > 0) {
+      setConfigs(localConfigs);
+      const active = localConfigs.find((c: any) => c.status === 'ACTIVE');
+      if (active) {
+        setConfig(active);
+        setActiveConfigId(active.id);
+      } else {
+        setConfig(localConfigs[0]);
+        setActiveConfigId(localConfigs[0].id);
+      }
+    } else {
+      // Default initial config to prevent empty views
+      const defaultConfig: AiConfiguration = {
+        id: 'cfg_default',
+        ownerId: user.uid,
+        name: 'Default Neural Momentum',
+        description: 'Standard conservative configuration analyzing major crypto and tech equity indexes.',
+        version: 1,
+        createdAt: Timestamp.now(),
+        lastModified: Timestamp.now(),
+        status: 'ACTIVE',
+        markets: ['BTC', 'ETH', 'AAPL', 'NVDA'],
+        strategy: 'NEURAL_MOMENTUM',
+        schedule: {
+          sessions: [{ start: '08:00', end: '16:00' }],
+          weekdays: true,
+          weekends: false,
+          timezone: 'UTC',
+          breakPeriods: [{ start: '12:00', end: '13:00' }],
+          excludeHolidays: true
+        },
+        riskControls: {
+          maxPositionSize: 2000,
+          maxSimultaneousPositions: 3,
+          exposureLimit: 10000,
+          positionSizingPreference: 'PERCENTAGE',
+          lossLimit: 5
+        },
+        recommendationRules: {
+          minConfidence: 80,
+          allowedAssetClasses: ['CRYPTO', 'STOCKS'],
+          indicators: ['RSI', 'MACD', 'EMA']
+        },
+        notificationPreferences: {
+          newRecommendations: true,
+          tradeExecutions: true,
+          marketAlerts: true
+        },
+        advancedBehavior: {
+          enableDeepAnalysis: true,
+          useSentimentGrounding: false,
+          neuralConfidenceThreshold: 80
+        }
+      };
+      setConfigs([defaultConfig]);
+      setConfig(defaultConfig);
+      setActiveConfigId(defaultConfig.id);
+    }
+    
+    const localSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
+    if (localSession) {
+      setSession(localSession);
+    }
+    
+    const localPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
+    if (localPositions.length > 0) {
+      setPositions(localPositions);
+    }
+    
+    const localTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
+    if (localTrades.length > 0) {
+      setTrades(localTrades);
+    }
+    
+    const localActivity = getLocalStorageItem(`aver_activity_${user.uid}`, []);
+    if (localActivity.length > 0) {
+      setActivity(localActivity);
+    }
+    
+    const localRecommendations = getLocalStorageItem(`aver_recommendations_${user.uid}`, []);
+    if (localRecommendations.length > 0) {
+      setRecommendations(localRecommendations);
+    }
+    
+    setLoading(false);
+  }, [user, getLocalStorageItem]);
+
+  // Sync state TO localStorage on any state modification
+  useEffect(() => {
+    if (user && configs.length > 0) {
+      setLocalStorageItem(`aver_configs_${user.uid}`, configs);
+    }
+  }, [configs, user, setLocalStorageItem]);
+
+  useEffect(() => {
+    if (user) {
+      setLocalStorageItem(`aver_session_${user.uid}`, session);
+    }
+  }, [session, user, setLocalStorageItem]);
+
+  useEffect(() => {
+    if (user && positions.length > 0) {
+      setLocalStorageItem(`aver_positions_${user.uid}`, positions);
+    }
+  }, [positions, user, setLocalStorageItem]);
+
+  useEffect(() => {
+    if (user && trades.length > 0) {
+      setLocalStorageItem(`aver_trades_${user.uid}`, trades);
+    }
+  }, [trades, user, setLocalStorageItem]);
+
+  useEffect(() => {
+    if (user && activity.length > 0) {
+      setLocalStorageItem(`aver_activity_${user.uid}`, activity);
+    }
+  }, [activity, user, setLocalStorageItem]);
+
+  useEffect(() => {
+    if (user && recommendations.length > 0) {
+      setLocalStorageItem(`aver_recommendations_${user.uid}`, recommendations);
+    }
+  }, [recommendations, user, setLocalStorageItem]);
 
   useEffect(() => {
     seedTraders();
@@ -56,22 +222,29 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       return;
     }
 
-    const configRef = query(collection(db, 'users', user.uid, 'aiConfigurations'), where('status', '==', 'ACTIVE'), limit(1));
+    const configsRef = collection(db, 'users', user.uid, 'aiConfigurations');
     const positionsRef = collection(db, 'users', user.uid, 'positions');
     const tradesRef = collection(db, 'users', user.uid, 'trades');
     const activityRef = query(collection(db, 'users', user.uid, 'activity'), orderBy('timestamp', 'desc'));
     const sessionRef = query(collection(db, 'aiSessions'), where('userId', '==', user.uid), where('status', '==', 'ACTIVE'), limit(1));
 
-    const unsubConfig = onSnapshot(configRef, (snap) => {
-      if (!snap.empty) {
-        setConfig(snap.docs[0].data() as AiConfiguration);
-      } else {
-        // Fallback to first config if no active one found
-        const firstConfigRef = query(collection(db, 'users', user.uid, 'aiConfigurations'), orderBy('lastModified', 'desc'), limit(1));
-        getDocs(firstConfigRef).then(s => {
-          if (!s.empty) setConfig(s.docs[0].data() as AiConfiguration);
-        });
+    const unsubConfigs = onSnapshot(configsRef, (snap) => {
+      const fetchedConfigs = snap.docs.map(d => ({ id: d.id, ...d.data() }) as AiConfiguration);
+      if (fetchedConfigs.length > 0) {
+        setConfigs(fetchedConfigs);
+        
+        const active = fetchedConfigs.find(c => c.status === 'ACTIVE');
+        if (active) {
+          setConfig(active);
+          setActiveConfigId(active.id);
+        } else {
+          setConfig(fetchedConfigs[0]);
+          setActiveConfigId(fetchedConfigs[0].id);
+        }
       }
+      setLoading(false);
+    }, (error) => {
+      console.warn("[TradingEngineContext] configs subscription restricted/denied. Running in high-fidelity local state mode:", error);
       setLoading(false);
     });
 
@@ -79,31 +252,354 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         if (!snap.empty) {
             setSession({id: snap.docs[0].id, ...snap.docs[0].data()} as AiSession);
         } else {
-            setSession(null);
+            // Keep existing local active session to avoid resetting active local simulations
         }
+    }, (error) => {
+      console.warn("[TradingEngineContext] session subscription restricted/denied. Running locally:", error);
     });
 
     const unsubPositions = onSnapshot(positionsRef, (snap) => {
         setPositions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Position[]);
+    }, (error) => {
+      console.warn("[TradingEngineContext] positions subscription restricted/denied. Running locally:", error);
     });
 
     const unsubTrades = onSnapshot(tradesRef, (snap) => {
-        setTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })) as AiTrade[]);
+        const fetchedTrades = snap.docs.map(d => ({ id: d.id, ...d.data() })) as AiTrade[];
+        if (fetchedTrades.length > 0) {
+          setTrades(fetchedTrades);
+        }
+    }, (error) => {
+      console.warn("[TradingEngineContext] trades subscription restricted/denied. Running locally:", error);
     });
 
     const unsubActivity = onSnapshot(activityRef, (snap) => {
-        setActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })) as ActivityEvent[]);
+        const fetchedActivity = snap.docs.map(d => ({ id: d.id, ...d.data() })) as ActivityEvent[];
+        if (fetchedActivity.length > 0) {
+          setActivity(fetchedActivity);
+        }
+    }, (error) => {
+      console.warn("[TradingEngineContext] activity subscription restricted/denied. Running locally:", error);
+    });
+
+    const recsRef = query(collection(db, 'aiRecommendations'), where('userId', '==', user.uid));
+    const unsubRecs = onSnapshot(recsRef, (snap) => {
+        const sortedRecs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }) as AiRecommendation)
+          .sort((a, b) => {
+            const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt as any).getTime();
+            const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt as any).getTime();
+            return timeB - timeA;
+          });
+        if (sortedRecs.length > 0) {
+          setRecommendations(sortedRecs);
+        }
+    }, (error) => {
+      console.warn("[TradingEngineContext] recommendations subscription restricted/denied. Running locally:", error);
     });
 
     return () => {
-      unsubConfig();
+      unsubConfigs();
       unsubSession();
       unsubPositions();
       unsubTrades();
       unsubActivity();
+      unsubRecs();
       stopSimulator();
     };
   }, [user]);
+
+  const logActivity = useCallback(async (type: string, message: string, metadata?: Record<string, any>) => {
+    if (!user) return;
+    
+    const newAct: ActivityEvent = {
+      id: `act_${Date.now()}`,
+      userId: user.uid,
+      type,
+      message,
+      timestamp: new Date().toISOString(),
+      metadata: metadata || {}
+    };
+    
+    setActivity(prev => {
+      const updated = [newAct, ...prev];
+      setLocalStorageItem(`aver_activity_${user.uid}`, updated);
+      return updated;
+    });
+
+    try {
+        await addDoc(collection(db, 'users', user.uid, 'activity'), {
+            type,
+            message,
+            timestamp: serverTimestamp(),
+            metadata: metadata || {}
+        });
+    } catch (error) {
+        console.warn("Failed to log activity in Firestore:", error);
+    }
+  }, [user, setLocalStorageItem]);
+
+  const startSession = useCallback(async (configId: string, markets: string[]) => {
+    if (!user) return;
+    
+    const newSession: AiSession = {
+      id: `session_${Date.now()}`,
+      userId: user.uid,
+      status: 'ACTIVE',
+      startTime: Timestamp.now(),
+      marketsScanned: markets,
+      activeConfigId: configId
+    };
+    
+    setSession(newSession);
+    
+    const startAct: ActivityEvent = {
+      id: `act_${Date.now()}`,
+      userId: user.uid,
+      type: 'SESSION_STARTED',
+      message: 'AI Trading Session started',
+      timestamp: new Date().toISOString(),
+      metadata: { configId, markets }
+    };
+    setActivity(prev => {
+      const updated = [startAct, ...prev];
+      setLocalStorageItem(`aver_activity_${user.uid}`, updated);
+      return updated;
+    });
+
+    try {
+        await aiTradingService.startSession(user.uid, markets, configId);
+        await logActivity('SESSION_STARTED', 'AI Trading Session started');
+    } catch (error) {
+        console.warn("Failed to start session in Firestore, running in simulated local engine mode:", error);
+    }
+  }, [user, logActivity, setLocalStorageItem]);
+
+  const endSession = useCallback(async () => {
+    if (!session || !user) return;
+    
+    setSession(null);
+    
+    const endAct: ActivityEvent = {
+      id: `act_${Date.now()}`,
+      userId: user.uid,
+      type: 'SESSION_ENDED',
+      message: 'AI Trading Session ended',
+      timestamp: new Date().toISOString(),
+      metadata: { sessionId: session.id }
+    };
+    setActivity(prev => {
+      const updated = [endAct, ...prev];
+      setLocalStorageItem(`aver_activity_${user.uid}`, updated);
+      return updated;
+    });
+
+    try {
+        await aiTradingService.endSession(session.id);
+        await logActivity('SESSION_ENDED', 'AI Trading Session ended');
+    } catch (error) {
+        console.warn("Failed to end session in Firestore:", error);
+    }
+  }, [user, session, logActivity, setLocalStorageItem]);
+
+  const saveConfiguration = useCallback(async (updatedConfig: AiConfiguration) => {
+    if (!user) return;
+    
+    // Immediate state updates
+    setConfigs(prev => {
+      const exists = prev.some(c => c.id === updatedConfig.id);
+      let updated;
+      if (exists) {
+        updated = prev.map(c => c.id === updatedConfig.id ? { ...c, ...updatedConfig, lastModified: Timestamp.now() } : c);
+      } else {
+        updated = [...prev, { ...updatedConfig, ownerId: user.uid, lastModified: Timestamp.now() }];
+      }
+      setLocalStorageItem(`aver_configs_${user.uid}`, updated);
+      return updated;
+    });
+    
+    setConfig(prev => {
+      if (!prev || prev.id === updatedConfig.id) {
+        return { ...updatedConfig, ownerId: user.uid, lastModified: Timestamp.now() };
+      }
+      return prev;
+    });
+
+    try {
+      await aiTradingService.saveConfiguration(user.uid, updatedConfig);
+      await logActivity('CONFIG_UPDATED', `Configuration "${updatedConfig.name}" saved successfully.`);
+    } catch (error) {
+      console.warn("Failed to save configuration in Firestore:", error);
+    }
+  }, [user, logActivity, setLocalStorageItem]);
+
+  const deleteConfiguration = useCallback(async (configId: string) => {
+    if (!user) return;
+    
+    setConfigs(prev => {
+      const filtered = prev.filter(c => c.id !== configId);
+      if (activeConfigId === configId) {
+        if (filtered.length > 0) {
+          setConfig(filtered[0]);
+          setActiveConfigId(filtered[0].id);
+        } else {
+          setConfig(null);
+          setActiveConfigId(undefined);
+        }
+      }
+      setLocalStorageItem(`aver_configs_${user.uid}`, filtered);
+      return filtered;
+    });
+
+    try {
+      await aiTradingService.deleteConfiguration(user.uid, configId);
+      await logActivity('CONFIG_DELETED', `Configuration deleted successfully.`);
+    } catch (error) {
+      console.warn("Failed to delete configuration in Firestore:", error);
+    }
+  }, [user, activeConfigId, logActivity, setLocalStorageItem]);
+
+  const duplicateConfiguration = useCallback(async (configId: string) => {
+    if (!user) return;
+    try {
+      const duplicated = await aiTradingService.duplicateConfiguration(user.uid, configId);
+      
+      setConfigs(prev => {
+        const updated = [...prev, duplicated];
+        setLocalStorageItem(`aver_configs_${user.uid}`, updated);
+        return updated;
+      });
+      
+      await logActivity('CONFIG_DUPLICATED', `Configuration duplicated as "${duplicated.name}".`);
+    } catch (error) {
+      console.warn("Failed to duplicate configuration in Firestore, performing local duplication:", error);
+      const target = configs.find(c => c.id === configId);
+      if (target) {
+        const localDuplicated: AiConfiguration = {
+          ...target,
+          id: `cfg_${Date.now()}`,
+          name: `${target.name} (Copy)`,
+          createdAt: Timestamp.now(),
+          lastModified: Timestamp.now(),
+          status: 'INACTIVE'
+        };
+        setConfigs(prev => {
+          const updated = [...prev, localDuplicated];
+          setLocalStorageItem(`aver_configs_${user.uid}`, updated);
+          return updated;
+        });
+        await logActivity('CONFIG_DUPLICATED', `Configuration duplicated as "${localDuplicated.name}".`);
+      }
+    }
+  }, [user, configs, logActivity, setLocalStorageItem]);
+
+  const activateConfiguration = useCallback(async (configId: string) => {
+    if (!user) return;
+    
+    setConfigs(prev => {
+      const updated = prev.map(c => ({
+        ...c,
+        status: c.id === configId ? 'ACTIVE' as const : 'INACTIVE' as const
+      }));
+      const active = updated.find(c => c.id === configId);
+      if (active) {
+        setConfig(active);
+        setActiveConfigId(active.id);
+      }
+      setLocalStorageItem(`aver_configs_${user.uid}`, updated);
+      return updated;
+    });
+
+    try {
+      await aiTradingService.activateConfiguration(user.uid, configId);
+      await logActivity('CONFIG_ACTIVATED', `Configuration activated.`);
+    } catch (error) {
+      console.warn("Failed to activate configuration in Firestore:", error);
+    }
+  }, [user, logActivity, setLocalStorageItem]);
+
+  const closeTrade = useCallback(async (tradeId: string, exitPrice: number, reason: AiTrade['reasonClosed']) => {
+    if (!user) return;
+    
+    // 1. Calculate returns & PnL immediately
+    let pnl = 0;
+    let pnlPercent = 0;
+    let closedAsset = '';
+    
+    setTrades(prev => {
+      const target = prev.find(t => t.id === tradeId);
+      if (!target) return prev;
+      pnl = (exitPrice - target.entry) * target.quantity;
+      pnlPercent = ((exitPrice - target.entry) / target.entry) * 100;
+      closedAsset = target.asset;
+
+      const updated = prev.map(t => {
+        if (t.id === tradeId) {
+          return {
+            ...t,
+            status: 'CLOSED' as const,
+            exit: exitPrice,
+            closedAt: Timestamp.now() as any,
+            pnl,
+            pnlPercent,
+            reasonClosed: reason
+          };
+        }
+        return t;
+      });
+      setLocalStorageItem(`aver_trades_${user.uid}`, updated);
+      return updated;
+    });
+
+    // 2. Perform optimistic financials updates
+    try {
+      const nextProfit = pnl > 0 ? parseFloat(((user.totalProfit || 0) + pnl).toFixed(2)) : (user.totalProfit || 0);
+      const nextLoss = pnl < 0 ? parseFloat(((user.totalLoss || 0) + Math.abs(pnl)).toFixed(2)) : (user.totalLoss || 0);
+      const nextTodayPnL = parseFloat(((user.portfolio?.todayPnL || 0) + pnl).toFixed(2));
+      const nextAvailable = parseFloat(((user.availableBalance || 0) + pnl).toFixed(2));
+
+      await addFundsToActiveBalance(pnl);
+
+      await updateProfile({
+        availableBalance: nextAvailable,
+        totalProfit: nextProfit,
+        totalLoss: nextLoss,
+        portfolio: {
+          ...user.portfolio,
+          todayPnL: nextTodayPnL,
+          todayPnLPercent: (nextTodayPnL / (user.portfolioBalance || 100000)) * 100
+        }
+      });
+    } catch (e) {
+      console.warn("Optimistic financial balance update failed:", e);
+    }
+
+    // 3. Optimistic activity event log
+    const actEvent: ActivityEvent = {
+      id: `act_${Date.now()}`,
+      userId: user.uid,
+      type: reason === 'TARGET_HIT' ? 'TP_HIT' : reason === 'STOP_LOSS_HIT' ? 'SL_HIT' : 'MANUAL_CLOSE',
+      message: `Autonomous liquidation completed for ${closedAsset}. Net returns: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%).`,
+      timestamp: new Date().toISOString(),
+      metadata: { tradeId, asset: closedAsset, pnl }
+    };
+    setActivity(prev => {
+      const updated = [actEvent, ...prev];
+      setLocalStorageItem(`aver_activity_${user.uid}`, updated);
+      return updated;
+    });
+
+    // 4. Try Firestore
+    try {
+      await aiTradingService.closeTrade(user.uid, tradeId, exitPrice, reason);
+      await logActivity(
+        reason === 'TARGET_HIT' ? 'TP_HIT' : reason === 'STOP_LOSS_HIT' ? 'SL_HIT' : 'MANUAL_CLOSE',
+        `Autonomous liquidation completed for ${closedAsset}. Net returns: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%).`
+      );
+    } catch (error) {
+      console.warn("Failed to close trade in Firestore (offline/local simulation active):", error);
+    }
+  }, [user, updateProfile, addFundsToActiveBalance, logActivity, setLocalStorageItem]);
 
   // Background Trading Simulator Loop
   const tradesRefVal = useRef<AiTrade[]>([]);
@@ -172,7 +668,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         const pnl = (livePrice - trade.entry) * trade.quantity;
         const pnlPercent = ((livePrice - trade.entry) / trade.entry) * 100;
 
-        const ageSec = (Date.now() - (trade.openedAt as any).toDate().getTime()) / 1000;
+        const openedTime = trade.openedAt ? (trade.openedAt.toDate ? trade.openedAt.toDate().getTime() : new Date(trade.openedAt as any).getTime()) : Date.now();
+        const ageSec = (Date.now() - openedTime) / 1000;
         
         // Take profit and stop loss checks
         const hitTakeProfit = livePrice >= trade.takeProfit;
@@ -183,34 +680,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           const reason = hitTakeProfit ? 'TARGET_HIT' : hitStopLoss ? 'STOP_LOSS_HIT' : 'TARGET_HIT';
           
           try {
-            await aiTradingService.closeTrade(userRef.current.uid, trade.id, livePrice, reason);
+            await closeTrade(trade.id, livePrice, reason);
 
-            // Calculate balance updates
-            const nextProfit = pnl > 0 ? parseFloat(((userRef.current.totalProfit || 0) + pnl).toFixed(2)) : (userRef.current.totalProfit || 0);
-            const nextLoss = pnl < 0 ? parseFloat(((userRef.current.totalLoss || 0) + Math.abs(pnl)).toFixed(2)) : (userRef.current.totalLoss || 0);
-            const nextTodayPnL = parseFloat(((userRef.current.portfolio?.todayPnL || 0) + pnl).toFixed(2));
-            const nextAvailable = parseFloat(((userRef.current.availableBalance || 0) + pnl).toFixed(2));
-
-            await addFundsToActiveBalance(pnl);
-
-            await updateProfile({
-              availableBalance: nextAvailable,
-              totalProfit: nextProfit,
-              totalLoss: nextLoss,
-              portfolio: {
-                ...userRef.current.portfolio,
-                todayPnL: nextTodayPnL,
-                todayPnLPercent: (nextTodayPnL / (userRef.current.portfolioBalance || 100000)) * 100
-              }
-            });
-
-            // Log activity log timeline
-            await logActivity(
-              reason === 'TARGET_HIT' ? 'TP_HIT' : 'SL_HIT',
-              `Autonomous liquidation completed for ${trade.asset}. Net returns: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%).`
-            );
-
-            // Add notification
             if (addNotification) {
               addNotification(
                 'trading',
@@ -231,6 +702,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       if (!userRef.current || !sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
 
       const activeConfig = configRefVal.current || {
+        id: 'cfg_default',
         markets: ['BTC', 'ETH', 'SOL'],
         riskControls: { maxSimultaneousPositions: 3 }
       };
@@ -251,17 +723,118 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const mockMarketData = { asset: randomMarket, price, rsi: rsiVal };
 
       try {
-        const rec = await aiTradingService.generateRecommendation(sessionRefVal.current.id, userRef.current.uid, mockMarketData, activeConfig);
-        await logActivity('TRADE_OPENED', `Neural opportunity compiled for ${randomMarket} with confidence score: ${rec.confidence}%.`);
+        let rec: AiRecommendation;
+        try {
+          rec = await aiTradingService.generateRecommendation(sessionRefVal.current.id, userRef.current.uid, mockMarketData, activeConfig);
+        } catch (e) {
+          console.warn("[TradingEngineContext] Firestore recommendation fail, using local simulation model:", e);
+          const currentPrice = mockMarketData.price || 100;
+          const suggestedAction = Math.random() > 0.4 ? 'BUY' : 'SELL';
+          const entry = parseFloat(currentPrice.toFixed(2));
+          const stopLoss = parseFloat((suggestedAction === 'BUY' ? entry * 0.95 : entry * 1.05).toFixed(2));
+          const takeProfit = parseFloat((suggestedAction === 'BUY' ? entry * 1.15 : entry * 0.85).toFixed(2));
+          const confidence = Math.floor(80 + Math.random() * 18);
+          const rsiValue = Math.floor(mockMarketData.rsi || 50);
+          const indicators = ['RSI Over-Extended', 'MACD Bullish Cross', 'EMA 200 Support', 'Volume Delta Spike'];
+          const explanation = `The asset ${mockMarketData.asset} exhibits strong oversold characteristics. RSI stands at ${rsiValue}, indicating localized exhaustion.`;
+
+          rec = {
+            id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            sessionId: sessionRefVal.current.id,
+            userId: userRef.current.uid,
+            asset: mockMarketData.asset,
+            entry,
+            stopLoss,
+            takeProfit,
+            confidence,
+            suggestedAction,
+            riskRating: confidence > 90 ? 'LOW' : 'MEDIUM',
+            holdingWindow: '4-8 hours',
+            volatility: 'MEDIUM',
+            explanation,
+            indicators,
+            currentPrice: entry,
+            status: 'PENDING',
+            createdAt: Timestamp.now(),
+            expiresAt: Timestamp.fromMillis(Date.now() + 3600000)
+          };
+        }
+
+        // Add to recommendations list locally
+        setRecommendations(prev => {
+          const updated = [rec, ...prev];
+          setLocalStorageItem(`aver_recommendations_${userRef.current.uid}`, updated);
+          return updated;
+        });
+
+        const recAct: ActivityEvent = {
+          id: `act_${Date.now()}`,
+          userId: userRef.current.uid,
+          type: 'TRADE_OPENED',
+          message: `Neural opportunity compiled for ${randomMarket} with confidence score: ${rec.confidence}%.`,
+          timestamp: new Date().toISOString(),
+          metadata: { recId: rec.id, asset: randomMarket }
+        };
+        setActivity(prev => {
+          const updated = [recAct, ...prev];
+          setLocalStorageItem(`aver_activity_${userRef.current.uid}`, updated);
+          return updated;
+        });
 
         // Execute trade after a brief delay
         setTimeout(async () => {
           if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
           try {
             const quantity = parseFloat((100 / rec.entry).toFixed(4));
-            await aiTradingService.executeTrade(userRef.current.uid, rec, quantity);
+            let newTrade: AiTrade;
             
-            await logActivity('COPY_TRADE', `Autonomous position established for ${randomMarket}: ${quantity} units at $${rec.entry}.`);
+            try {
+              newTrade = await aiTradingService.executeTrade(userRef.current.uid, rec, quantity);
+            } catch (ex) {
+              console.warn("[TradingEngineContext] executeTrade Firestore failed, executing locally:", ex);
+              newTrade = {
+                id: `trade_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                recommendationId: rec.id,
+                userId: userRef.current.uid,
+                asset: rec.asset,
+                entry: rec.entry,
+                quantity,
+                currentPrice: rec.entry,
+                status: 'OPEN',
+                stopLoss: rec.stopLoss,
+                takeProfit: rec.takeProfit,
+                riskExposure: Math.abs((rec.entry - rec.stopLoss) * quantity),
+                openedAt: Timestamp.now()
+              };
+            }
+
+            // Update trades state locally
+            setTrades(prev => {
+              const updated = [...prev, newTrade];
+              setLocalStorageItem(`aver_trades_${userRef.current.uid}`, updated);
+              return updated;
+            });
+
+            // Update recommendation status locally
+            setRecommendations(prev => {
+              const updated = prev.map(r => r.id === rec.id ? { ...r, status: 'EXECUTED' as any } : r);
+              setLocalStorageItem(`aver_recommendations_${userRef.current.uid}`, updated);
+              return updated;
+            });
+
+            const tradeAct: ActivityEvent = {
+              id: `act_${Date.now()}`,
+              userId: userRef.current.uid,
+              type: 'COPY_TRADE',
+              message: `Autonomous position established for ${randomMarket}: ${quantity} units at $${rec.entry}.`,
+              timestamp: new Date().toISOString(),
+              metadata: { tradeId: newTrade.id, asset: randomMarket }
+            };
+            setActivity(prev => {
+              const updated = [tradeAct, ...prev];
+              setLocalStorageItem(`aver_activity_${userRef.current.uid}`, updated);
+              return updated;
+            });
             
             if (addNotification) {
               addNotification(
@@ -290,57 +863,45 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   const updateConfig = useCallback(async (newConfig: Partial<AiConfiguration>) => {
     if (!user || !config) return;
+    
+    // Immediate state updates
+    setConfig(prev => prev ? { ...prev, ...newConfig } as AiConfiguration : null);
+    setConfigs(prev => prev.map(c => c.id === config.id ? { ...c, ...newConfig } as AiConfiguration : c));
+    
     try {
       const configRef = doc(db, 'users', user.uid, 'aiConfigurations', config.id);
       await updateDoc(configRef, {
         ...newConfig,
         lastModified: serverTimestamp()
       });
-      // Update local state immediately for instant feedback
-      setConfig(prev => prev ? { ...prev, ...newConfig } as AiConfiguration : null);
       await logActivity('CONFIG_UPDATED', `Configuration "${config.name}" updated successfully`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/aiConfigurations/${config?.id}`);
+      console.warn("Failed to update config in Firestore (running locally):", error);
     }
-  }, [user, config]);
-
-  const logActivity = useCallback(async (type: string, message: string, metadata?: Record<string, any>) => {
-    if (!user) return;
-    try {
-        await addDoc(collection(db, 'users', user.uid, 'activity'), {
-            type,
-            message,
-            timestamp: serverTimestamp(),
-            metadata: metadata || {}
-        });
-    } catch (error) {
-        handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/activity`);
-    }
-  }, [user]);
-
-  const startSession = useCallback(async (configId: string, markets: string[]) => {
-    if (!user) return;
-    try {
-        await aiTradingService.startSession(user.uid, markets, configId);
-        await logActivity('SESSION_STARTED', 'AI Trading Session started');
-    } catch (error) {
-        console.error("Failed to start session:", error);
-    }
-  }, [user]);
-
-  const endSession = useCallback(async () => {
-    if (!session) return;
-    try {
-        await aiTradingService.endSession(session.id);
-        await logActivity('SESSION_ENDED', 'AI Trading Session ended');
-        setSession(null);
-    } catch (error) {
-        console.error("Failed to end session:", error);
-    }
-  }, [user, session]);
+  }, [user, config, logActivity]);
 
   return (
-    <TradingEngineContext.Provider value={{ config, session, positions, trades, activity, updateConfig, logActivity, startSession, endSession, loading, liveTradePrices }}>
+    <TradingEngineContext.Provider value={{
+      configs,
+      config,
+      activeConfigId,
+      session,
+      positions,
+      trades,
+      activity,
+      recommendations,
+      updateConfig,
+      logActivity,
+      startSession,
+      endSession,
+      loading,
+      liveTradePrices,
+      saveConfiguration,
+      deleteConfiguration,
+      duplicateConfiguration,
+      activateConfiguration,
+      closeTrade
+    }}>
       {children}
     </TradingEngineContext.Provider>
   );

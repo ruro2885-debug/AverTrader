@@ -41,9 +41,9 @@ export interface UserPreferences {
   theme: string;
   currency: string;
   notifications: {
-    marketing: boolean;
-    security: boolean;
-    signals: boolean;
+    marketing?: boolean;
+    security?: boolean;
+    signals?: boolean;
     master?: boolean;
     profile?: boolean;
     deposits?: boolean;
@@ -51,6 +51,7 @@ export interface UserPreferences {
     trading?: boolean;
     system?: boolean;
     referrals?: boolean;
+    rewards?: boolean;
     criticalAlertsSound?: boolean;
   };
   dashboardPreferences: {
@@ -307,31 +308,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               const userData = docSnap.data() as User;
               console.log("[AuthContext] User data updated from Firestore for uid:", firebaseUser.uid);
 
-              // Check and heal existing users' avatars (Universal Avatar Rule)
-              const needsSeed = !userData.avatarSeed;
-              const isStockPhoto = (url?: string) => {
-                if (!url) return false;
-                const stockPatterns = ['unsplash.com', 'dicebear.com', 'pravatar.cc', 'cloudinary.com/demo', 'images.pexels.com', 'images.stock', 'images.google', 'i.pravatar.cc'];
-                return stockPatterns.some(pattern => url.toLowerCase().includes(pattern));
-              };
-              const hasStockPhoto = userData.hasCustomPhoto && (isStockPhoto(userData.profilePhotoURL) || isStockPhoto(userData.avatarUrl));
+              // Only initialize if there is no seed AND no custom photo/avatar URL at all
+              const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
 
-              if (needsSeed || hasStockPhoto || !userData.avatarUrl) {
-                console.log("[AuthContext] User profile requires avatar reset (missing seed, stock photo, or missing URL). healing existing profile...");
+              if (needsSeed) {
+                console.log("[AuthContext] User profile requires initial avatar setup...");
                 (async () => {
                   try {
                     const resolvedSeed = userData.avatarSeed || firebaseUser.uid;
                     const newDataUrl = getAvatarDataUrl(resolvedSeed);
                     await updateDoc(userDocRef, {
                       avatarSeed: resolvedSeed,
-                      hasCustomPhoto: true,
+                      hasCustomPhoto: false,
                       profilePhotoURL: newDataUrl,
                       avatarUrl: newDataUrl,
                       lastUpdated: new Date().toISOString()
                     });
-                    console.log("[AuthContext] Successfully healed profile and removed stock photo for user:", firebaseUser.uid);
+                    console.log("[AuthContext] Successfully initialized profile avatar for user:", firebaseUser.uid);
                   } catch (assignErr) {
-                    console.error("[AuthContext] Failed to heal profile in snapshot handler:", assignErr);
+                    console.error("[AuthContext] Failed to initialize profile avatar:", assignErr);
                   }
                 })();
               }

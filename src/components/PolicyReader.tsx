@@ -284,7 +284,7 @@ export default function PolicyReader({ initialPolicyId, theme, onClose }: Policy
                     <section 
                       key={section.id} 
                       id={section.id}
-                      ref={el => sectionRefs.current[section.id] = el}
+                      ref={el => { sectionRefs.current[section.id] = el; }}
                       className="scroll-mt-28 group"
                     >
                       <div className="flex items-start space-x-4 mb-4">

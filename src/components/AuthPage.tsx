@@ -10,7 +10,6 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { ClipboardPaste, UserPlus } from 'lucide-react';
-import ReCAPTCHA from 'react-google-recaptcha';
 
 interface AuthPageProps {
   theme: 'light' | 'dark';
@@ -21,7 +20,7 @@ interface AuthPageProps {
 
 export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
-  const { signUp, signIn, forgotPassword, updatePasswordByEmail } = useAuth();
+  const { signUp, signIn, forgotPassword } = useAuth();
   const { t } = usePreferences();
   const [view, setView] = useState<'choice' | 'register' | 'login' | 'forgot-password' | 'forgot-password-success'>('choice');
   const [showPassword, setShowPassword] = useState(false);
@@ -45,9 +44,55 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
-  // ReCAPTCHA state
-  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
-  const recaptchaRef = useRef<ReCAPTCHA>(null);
+  // Load reCAPTCHA v3 script dynamically
+  useEffect(() => {
+    const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+    if (!siteKey) return;
+
+    const existingScript = document.querySelector(`script[src*="recaptcha/api.js"]`);
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+  }, []);
+
+  const executeRecaptcha = (): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+      if (!siteKey) {
+        console.warn("VITE_RECAPTCHA_SITE_KEY is missing, skipping recaptcha security check");
+        resolve("dummy_site_key_passed");
+        return;
+      }
+      
+      // @ts-ignore
+      if (typeof window !== 'undefined' && window.grecaptcha) {
+        // @ts-ignore
+        window.grecaptcha.ready(() => {
+          try {
+            // @ts-ignore
+            window.grecaptcha.execute(siteKey, { action: 'submit' })
+              .then((token: string) => {
+                resolve(token);
+              })
+              .catch((err: any) => {
+                console.error("reCAPTCHA execution error:", err);
+                resolve(null);
+              });
+          } catch (e) {
+            console.error("reCAPTCHA execution caught error:", e);
+            resolve(null);
+          }
+        });
+      } else {
+        console.warn("reCAPTCHA not loaded on window yet");
+        resolve(null);
+      }
+    });
+  };
 
   // Active policy reader state
   const [activePolicyId, setActivePolicyId] = useState<string | null>(null);
@@ -175,30 +220,31 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     e.preventDefault();
     if (!isFormValid) return;
 
-    if (!recaptchaToken) {
-      setErrorMsg('Please complete the reCAPTCHA verification.');
-      return;
-    }
-
     setLoading(true);
     setErrorMsg('');
     try {
-      // 1. Verify reCAPTCHA token on the backend first
+      // 1. Programmatically execute reCAPTCHA v3 to get token
+      const token = await executeRecaptcha();
+      if (!token) {
+        throw new Error('reCAPTCHA verification could not be initialized.');
+      }
+
+      // 2. Verify reCAPTCHA token on the backend first
       const verificationResponse = await fetch('/api/verify-recaptcha', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ token: recaptchaToken }),
+        body: JSON.stringify({ token }),
       });
       
       const verificationData = await verificationResponse.json();
 
       if (!verificationResponse.ok || !verificationData.success) {
-        throw new Error('reCAPTCHA verification failed. Please try again.');
+        throw new Error('reCAPTCHA security check failed. Please try again.');
       }
 
-      // 2. Proceed with Firebase Auth signup
+      // 3. Proceed with Firebase Auth signup
       await signUp({
         username,
         email,
@@ -210,12 +256,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       onSuccess();
     } catch (error: any) {
       console.error("Registration error:", error);
-      
-      // Reset reCAPTCHA on error
-      if (recaptchaRef.current) {
-        recaptchaRef.current.reset();
-        setRecaptchaToken(null);
-      }
 
       let displayError = '';
       
@@ -402,7 +442,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </motion.div>
-            ) : view === 'choice' ? (
+            ) : (view as any) === 'choice' ? (
               <motion.div
                 key="choice"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -939,22 +979,12 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     </div>
                   )}
                   
-                  {/* Google ReCAPTCHA */}
-                  <div className="flex justify-center mt-4">
-                    <ReCAPTCHA
-                      ref={recaptchaRef}
-                      sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY || "dummy_site_key"}
-                      onChange={(token) => setRecaptchaToken(token)}
-                      theme={isDark ? "dark" : "light"}
-                    />
-                  </div>
-
                   {/* Create Account Button */}
                   <button 
                     type="submit"
-                    disabled={!isFormValid || !acceptTerms || !recaptchaToken || loading}
+                    disabled={!isFormValid || !acceptTerms || loading}
                     className={`w-full py-4 rounded-xl font-sans font-bold text-sm tracking-wide transition-all shadow-lg flex items-center justify-center space-x-2 mt-6 cursor-pointer ${
-                      (isFormValid && acceptTerms && recaptchaToken) && !loading 
+                      (isFormValid && acceptTerms) && !loading 
                         ? 'bg-[#10b981] hover:bg-[#059669] text-black shadow-emerald-500/25 active:scale-[0.99] font-extrabold' 
                         : isDark
                           ? 'bg-slate-800 text-gray-500 border border-white/5 cursor-not-allowed'
@@ -1300,7 +1330,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         <div className="absolute bottom-[20%] right-[10%] w-64 h-64 bg-blue-500/10 rounded-full blur-[90px] pointer-events-none" />
 
         <AnimatePresence mode="wait">
-          {view === 'choice' ? (
+          {(view as any) === 'choice' ? (
             <motion.div
               key="choice"
               initial={{ opacity: 0, scale: 0.95, y: 15 }}

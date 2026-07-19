@@ -41,7 +41,7 @@ interface Task {
   icon: any;
   actionLabel: string;
   targetTab?: string;
-  customAction?: 'deposit' | 'profile' | 'verify_email' | 'claim_welcome' | 'enable_2fa';
+  customAction?: 'deposit' | 'profile' | 'verify_email' | 'claim_welcome' | 'enable_2fa' | 'kyc';
   description?: string;
   requirements?: { label: string; done: boolean }[];
   isMission?: boolean;
@@ -139,7 +139,7 @@ export default function BonusCenter({
 
   // Core Computed State
   const isEmailVerified = !!auth.currentUser?.emailVerified || !!user?.emailVerified;
-  const isTwoFactorEnabled = safeStorage.getItem('aver_twoFactorEnabled') === 'true' || !!user?.preferences?.twoFactorEnabled;
+  const isTwoFactorEnabled = safeStorage.getItem('aver_twoFactorEnabled') === 'true' || !!(user as any)?.preferences?.twoFactorEnabled;
   const isDeposited = (user?.totalDeposits || 0) > 0;
   const tradesCount = user?.trades?.length || 0;
   const isTraded = tradesCount > 0;
@@ -437,7 +437,7 @@ export default function BonusCenter({
               <div className="flex flex-col gap-3 p-4 rounded-2xl bg-slate-950/50 border border-white/5">
                 {selectedTask.requirements ? (
                   selectedTask.requirements.map((req, idx) => (
-                    <div key={idx} className="flex items-center gap-3">
+                    <div key={`${req.label}-${idx}`} className="flex items-center gap-3">
                       <CheckCircle2 className={`w-5 h-5 ${req.done ? 'text-emerald-500' : 'text-gray-600'}`} />
                       <span className={`text-sm ${req.done ? 'text-white font-bold' : 'text-gray-400'}`}>{req.label}</span>
                     </div>
@@ -627,7 +627,7 @@ export default function BonusCenter({
             { label: 'Invite an active friend', value: '+15%', icon: Users }
           ].map((item, idx) => (
             <div 
-              key={idx}
+              key={item.label}
               className="flex items-center justify-between p-4 rounded-[24px] bg-slate-900 border border-white/5 group hover:border-emerald-500/20 transition-all"
             >
               <div className="flex items-center gap-4">
@@ -764,7 +764,7 @@ export default function BonusCenter({
       {renderHeader("Reward History")}
       <div className="px-6 py-4 space-y-4">
         {rewardHistory.length > 0 ? rewardHistory.map((item, idx) => (
-          <div key={idx} className="p-5 rounded-[28px] bg-slate-900 border border-white/5 flex justify-between items-center">
+          <div key={`${item.title}-${item.date}-${idx}`} className="p-5 rounded-[28px] bg-slate-900 border border-white/5 flex justify-between items-center">
             <div className="flex gap-4 items-center">
               <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center">
                 <HistoryIcon className="w-6 h-6 text-emerald-500" />

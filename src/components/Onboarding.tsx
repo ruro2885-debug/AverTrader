@@ -9,7 +9,7 @@ interface OnboardingProps {
 
 export default function Onboarding({ theme }: OnboardingProps) {
   const [step, setStep] = useState(0);
-  const { completeOnboarding, user } = useAuth();
+  const { updateOnboarding, user } = useAuth();
   const isDark = theme === 'dark';
 
   const steps = [
@@ -49,7 +49,7 @@ export default function Onboarding({ theme }: OnboardingProps) {
     if (step < steps.length - 1) {
       setStep(step + 1);
     } else {
-      completeOnboarding();
+      updateOnboarding(true);
     }
   };
 

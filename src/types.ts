@@ -2,6 +2,7 @@ export interface UserProfile {
   uid: string;
   username: string;
   email: string;
+  displayName?: string;
   profilePhotoURL?: string;
   avatarUrl?: string;
   country: string;
@@ -57,6 +58,7 @@ export interface Preferences {
   currency: Currency;
   rememberMeEnabled?: boolean;
   biometricsEnabled?: boolean;
+  twoFactorEnabled?: boolean;
   notifications?: {
     master?: boolean;
     security?: boolean;
@@ -68,6 +70,7 @@ export interface Preferences {
     system?: boolean;
     referrals?: boolean;
     marketing?: boolean;
+    rewards?: boolean;
     criticalAlertsSound?: boolean;
   };
 }

@@ -57,7 +57,22 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   const { user, updateProfile, addNotification } = useAuth();
   const { activeTradingBalance, addFundsToActiveBalance } = useFinancials();
   const { preferences, formatCurrency } = usePreferences();
-  const { config: engineConfig, positions, trades: engineTrades, activity: engineActivity, updateConfig, logActivity, liveTradePrices } = useContext(TradingEngineContext);
+  const { 
+    configs, 
+    config, 
+    activeConfigId,
+    session, 
+    trades, 
+    activity: engineActivity, 
+    recommendations,
+    startSession, 
+    endSession, 
+    saveConfiguration, 
+    deleteConfiguration, 
+    duplicateConfiguration, 
+    activateConfiguration,
+    liveTradePrices 
+  } = useContext(TradingEngineContext);
   const isDark = theme === 'dark';
 
   // Navigation state (restored from localStorage)
@@ -66,12 +81,8 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     return (saved as AiView) || 'HOME';
   });
 
-  const [session, setSession] = useState<AiSession | null>(null);
-  const [configs, setConfigs] = useState<AiConfiguration[]>([]);
-  const [activeConfigId, setActiveConfigId] = useState<string | undefined>(undefined);
-  const [recommendations, setRecommendations] = useState<AiRecommendation[]>([]);
-  const [activeTrades, setActiveTrades] = useState<AiTrade[]>([]);
-  const [closedTrades, setClosedTrades] = useState<AiTrade[]>([]);
+  const activeTrades = trades.filter(t => t.status === 'OPEN');
+  const closedTrades = trades.filter(t => t.status === 'CLOSED');
   const [loading, setLoading] = useState(false);
 
   // Live simulation and thinking engine states
@@ -110,6 +121,34 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     setActivityEvents(prev => [newEvent, ...prev].slice(0, 50));
   }, []);
 
+  // Merge contextual engine activity into local log display
+  useEffect(() => {
+    if (engineActivity && engineActivity.length > 0) {
+      setActivityEvents(prev => {
+        const combined = [...prev];
+        engineActivity.forEach(engAct => {
+          if (!combined.some(c => c.id === engAct.id)) {
+            const rawTimestamp: any = engAct.timestamp;
+            const timestampStr = rawTimestamp 
+              ? (rawTimestamp.toDate 
+                  ? rawTimestamp.toDate().toLocaleTimeString() 
+                  : new Date(rawTimestamp).toLocaleTimeString()) 
+              : new Date().toLocaleTimeString();
+            combined.push({
+              id: engAct.id,
+              timestamp: timestampStr,
+              type: (engAct.type === 'TP_HIT' || engAct.type === 'SL_HIT' || engAct.type === 'SUCCESS') ? 'SUCCESS' : engAct.type === 'COPY_TRADE' ? 'ALERT' : 'INFO',
+              message: engAct.message,
+              source: 'NEURAL_ENGINE'
+            });
+          }
+        });
+        // Sort by id / age descending
+        return combined.sort((a, b) => b.id.localeCompare(a.id)).slice(0, 50);
+      });
+    }
+  }, [engineActivity]);
+
   // Save active tab preference
   useEffect(() => {
     safeStorage.setItem('aver_ai_active_view', activeView);
@@ -137,128 +176,14 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     return () => clearInterval(interval);
   }, [session]);
 
-  // Initial Data Fetch & Configuration Seed
+  // Sync engineState with session status
   useEffect(() => {
-    if (!user) return;
-
-    const loadData = async () => {
-      setEngineState('LOADING_CONFIG');
-      addActivityEvent('INFO', 'Loading configuration parameters...');
-      try {
-        const [activeSession, savedConfigs] = await Promise.all([
-          aiTradingService.getActiveSession(user.uid),
-          aiTradingService.getConfigurations(user.uid)
-        ]);
-
-        let finalConfigs = savedConfigs;
-        
-        // Seed default configuration if none exists
-        if (savedConfigs.length === 0) {
-          addActivityEvent('INFO', 'No configuration found. Seeding Default Neural Momentum...');
-          const defaultConfig: AiConfiguration = {
-            id: 'cfg_default',
-            ownerId: user.uid,
-            name: 'Default Neural Momentum',
-            description: 'Standard conservative configuration analyzing major crypto and tech equity indexes.',
-            version: 1,
-            createdAt: Timestamp.now(),
-            lastModified: Timestamp.now(),
-            status: 'ACTIVE',
-            markets: ['BTC', 'ETH', 'AAPL', 'NVDA'],
-            strategy: 'NEURAL_MOMENTUM',
-            schedule: {
-              sessions: [{ start: '08:00', end: '16:00' }],
-              weekdays: true,
-              weekends: false,
-              timezone: 'UTC',
-              breakPeriods: [{ start: '12:00', end: '13:00' }],
-              excludeHolidays: true
-            },
-            riskControls: {
-              maxPositionSize: 2000,
-              maxSimultaneousPositions: 3,
-              exposureLimit: 10000,
-              positionSizingPreference: 'PERCENTAGE',
-              lossLimit: 5
-            },
-            recommendationRules: {
-              minConfidence: 80,
-              allowedAssetClasses: ['CRYPTO', 'STOCKS'],
-              indicators: ['RSI', 'MACD', 'EMA']
-            },
-            notificationPreferences: {
-              newRecommendations: true,
-              tradeExecutions: true,
-              marketAlerts: true
-            },
-            advancedBehavior: {
-              enableDeepAnalysis: true,
-              useSentimentGrounding: false,
-              neuralConfidenceThreshold: 80
-            }
-          };
-          await aiTradingService.saveConfiguration(user.uid, defaultConfig);
-          finalConfigs = [defaultConfig];
-        }
-
-        setConfigs(finalConfigs);
-        const activeCfg = finalConfigs.find(c => c.status === 'ACTIVE') || finalConfigs[0];
-        setActiveConfigId(activeCfg?.id);
-        setSession(activeSession);
-        
-        if (activeSession) {
-          setEngineState('SCANNING');
-          addActivityEvent('SUCCESS', 'Neural workspace and active session loaded successfully.');
-        } else {
-          setEngineState('IDLE');
-          addActivityEvent('INFO', 'Workspace initialized. Ready to begin analysis session.');
-        }
-      } catch (error) {
-        setEngineState('ERROR');
-        addActivityEvent('WARNING', 'Error loading database resources.');
-        console.error("Error loading AI workspace data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadData();
-  }, [user]);
-
-  // Real-time Database Subscriptions
-  useEffect(() => {
-    if (!user) return;
-
-    const unsubscribeTrades = aiTradingService.subscribeToActiveTrades(user.uid, (trades) => {
-      setActiveTrades(trades);
-    });
-
-    const qClosed = query(
-      collection(db, 'users', user.uid, 'trades'),
-      where('status', '==', 'CLOSED'),
-      orderBy('closedAt', 'desc'),
-      limit(20)
-    );
-    const unsubscribeClosed = onSnapshot(qClosed, (snapshot) => {
-      const closed = snapshot.docs.map(doc => doc.data() as AiTrade);
-      setClosedTrades(closed);
-    }, (error) => {
-      console.error("Error subscribing to closed trades:", error);
-    });
-
-    let unsubscribeRecs: (() => void) | undefined;
     if (session?.status === 'ACTIVE') {
-      unsubscribeRecs = aiTradingService.subscribeToRecommendations(user.uid, session.id, (recs) => {
-        setRecommendations(recs);
-      });
+      setEngineState('SCANNING');
+    } else {
+      setEngineState('IDLE');
     }
-
-    return () => {
-      unsubscribeTrades();
-      unsubscribeClosed();
-      if (unsubscribeRecs) unsubscribeRecs();
-    };
-  }, [user, session]);
+  }, [session]);
 
   // Session Management
   const handleStartSession = async () => {
@@ -287,12 +212,11 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
       setEngineState('SYNC_MARKET');
       addActivityEvent('INFO', `Establishing live feed for ${activeConfig.markets.length} configured markets...`);
 
-      // 5. Actually start the session in the backend
-      const newSession = await aiTradingService.startSession(user.uid, activeConfig.markets, activeConfig.id);
+      // 5. Actually start the session in the backend context
+      await startSession(activeConfig.id, activeConfig.markets);
       
       // 6. Transition to Active Scanning
       await new Promise(resolve => setTimeout(resolve, 800));
-      setSession(newSession);
       setEngineState('SCANNING');
       
       addActivityEvent('SUCCESS', `AI Session online. Executing "${activeConfig.strategy.replace('_', ' ')}" strategy.`);
@@ -313,9 +237,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     setEngineState('STOPPED');
     addActivityEvent('INFO', 'Powering down neural modules...');
     try {
-      await aiTradingService.endSession(session.id);
-      setSession(null);
-      setRecommendations([]);
+      await endSession();
       setEngineState('IDLE');
       addActivityEvent('SUCCESS', 'Neural analysis engine has been safely shut down.');
       addNotification('trading', 'medium', 'AI Session Ended', 'Neural analysis engine has been powered down.');
@@ -329,70 +251,56 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   // Configurations Management Callbacks
   const handleSaveConfig = async (updatedConfig: AiConfiguration) => {
     if (!user) return;
-    
-    // Update local state immediately for instant UI feedback, supporting new creation insertions
-    setConfigs(prev => {
-      const exists = prev.some(c => c.id === updatedConfig.id);
-      if (exists) {
-        return prev.map(c => c.id === updatedConfig.id ? updatedConfig : c);
-      } else {
-        return [...prev, updatedConfig];
-      }
-    });
-    if (updatedConfig.status === 'ACTIVE' || updatedConfig.id === activeConfigId) {
-      setActiveConfigId(updatedConfig.id);
-    }
-
     try {
-      await aiTradingService.saveConfiguration(user.uid, updatedConfig);
+      setLoading(true);
+      await saveConfiguration(updatedConfig);
       addActivityEvent('SUCCESS', `Configuration "${updatedConfig.name}" saved and synchronized.`);
-      
-      // If this is the active config and engine is running, log that parameters are updated
       if (session?.status === 'ACTIVE' && (updatedConfig.id === activeConfigId)) {
         addActivityEvent('INFO', 'Active session parameters updated in real-time.');
       }
     } catch (error) {
       addActivityEvent('WARNING', `Failed to persist configuration "${updatedConfig.name}".`);
-      // Revert local state on failure
-      const revertedList = await aiTradingService.getConfigurations(user.uid);
-      setConfigs(revertedList);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDeleteConfig = async (configId: string) => {
     if (!user) return;
     try {
-      await aiTradingService.deleteConfiguration(user.uid, configId);
-      const updatedList = await aiTradingService.getConfigurations(user.uid);
-      setConfigs(updatedList);
+      setLoading(true);
+      await deleteConfiguration(configId);
       addActivityEvent('INFO', 'Configuration permanently purged.');
     } catch (error) {
       addActivityEvent('WARNING', 'Could not delete configuration.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDuplicateConfig = async (configId: string) => {
     if (!user) return;
     try {
-      const duplicated = await aiTradingService.duplicateConfiguration(user.uid, configId);
-      const updatedList = await aiTradingService.getConfigurations(user.uid);
-      setConfigs(updatedList);
-      addActivityEvent('SUCCESS', `Duplicated config as "${duplicated.name}".`);
+      setLoading(true);
+      await duplicateConfiguration(configId);
+      addActivityEvent('SUCCESS', `Configuration duplicated.`);
     } catch (error) {
       addActivityEvent('WARNING', 'Could not duplicate configuration.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleActivateConfig = async (configId: string) => {
     if (!user) return;
     try {
-      await aiTradingService.activateConfiguration(user.uid, configId);
-      const updatedList = await aiTradingService.getConfigurations(user.uid);
-      setConfigs(updatedList);
-      setActiveConfigId(configId);
+      setLoading(true);
+      await activateConfiguration(configId);
       addActivityEvent('SUCCESS', 'Target configuration activated.');
     } catch (error) {
       addActivityEvent('WARNING', 'Failed to activate configuration.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -897,7 +805,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                         </thead>
                         <tbody className="divide-y divide-slate-200/5 dark:divide-white/5 text-xs font-mono text-slate-300">
                           {closedTrades.map((trade) => {
-                            const pnl = (trade.exitPrice || trade.entry) - trade.entry;
+                            const pnl = (trade.exit || trade.entry) - trade.entry;
                             const totalPnl = pnl * trade.quantity;
                             const isProfit = totalPnl >= 0;
                             return (
@@ -912,7 +820,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                                   </span>
                                 </td>
                                 <td className="px-6 py-4 text-slate-700 dark:text-slate-300">${trade.entry.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                <td className="px-6 py-4 text-slate-700 dark:text-slate-300">${(trade.exitPrice || trade.entry).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td className="px-6 py-4 text-slate-700 dark:text-slate-300">${(trade.exit || trade.entry).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                 <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{trade.quantity}</td>
                                 <td className={`px-6 py-4 font-black ${isProfit ? 'text-[#00D09C]' : 'text-red-500'}`}>
                                   {isProfit ? '+' : ''}${totalPnl.toFixed(2)}

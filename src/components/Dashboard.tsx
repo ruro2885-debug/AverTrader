@@ -39,7 +39,6 @@ import { safeStorage } from '../utils/storage';
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
-  const { account } = useFinancials();
   const { activity } = useContext(TradingEngineContext);
   const isDark = preferences.theme === 'dark';
   
@@ -65,7 +64,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     { symbol: 'ETH', price: 3450, change: '+1.82%', isPositive: true },
     { symbol: 'SOL', price: 145, change: '-0.52%', isPositive: false }
   ]);
-  const [portfolioViewMode, setPortfolioViewMode] = useState<'overview' | 'detailed'>('overview');
+  const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
   const [selectedAsset, setSelectedAsset] = useState('BTC');
 
   const [marketData, setMarketData] = useState<any[]>([]);
@@ -430,7 +429,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const itemVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+    visible: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 300, damping: 24 } }
   };
 
   return (

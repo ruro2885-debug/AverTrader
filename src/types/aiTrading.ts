@@ -84,6 +84,7 @@ export interface AiSession {
 export interface AiRecommendation {
   id: string;
   sessionId: string;
+  userId?: string;
   asset: string;
   currentPrice: number;
   suggestedAction: 'BUY' | 'SELL';
