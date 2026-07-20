@@ -140,6 +140,60 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         setConfig(cachedConfigs[0]);
         setActiveConfigId(cachedConfigs[0].id);
       }
+    } else {
+      // Seed a default config immediately!
+      const defaultSeedConfig: AiConfiguration = {
+        id: `cfg_default`,
+        ownerId: user.uid,
+        name: 'Alpha Quant Momentum',
+        description: 'An aggressive swing-trading model optimized for high-volatility crypto and tech equities.',
+        version: 1,
+        createdAt: Timestamp.now(),
+        lastModified: Timestamp.now(),
+        status: 'ACTIVE',
+        markets: ['BTC', 'ETH', 'SOL'],
+        strategy: 'NEURAL_MOMENTUM',
+        schedule: {
+          sessions: [{ start: '08:00', end: '16:00' }],
+          weekdays: true,
+          weekends: true,
+          timezone: 'UTC',
+          breakPeriods: [{ start: '12:00', end: '13:00' }],
+          excludeHolidays: false
+        },
+        riskControls: {
+          maxPositionSize: 50,
+          maxSimultaneousPositions: 3,
+          exposureLimit: 500,
+          positionSizingPreference: 'PERCENTAGE',
+          lossLimit: 2
+        },
+        recommendationRules: {
+          minConfidence: 75,
+          allowedAssetClasses: ['CRYPTO'],
+          indicators: ['RSI', 'MACD', 'EMA']
+        },
+        notificationPreferences: {
+          newRecommendations: true,
+          tradeExecutions: true,
+          marketAlerts: true
+        },
+        advancedBehavior: {
+          enableDeepAnalysis: true,
+          useSentimentGrounding: false,
+          neuralConfidenceThreshold: 80
+        }
+      };
+      
+      setConfigs([defaultSeedConfig]);
+      setConfig(defaultSeedConfig);
+      setActiveConfigId(defaultSeedConfig.id);
+      setLocalStorageItem(`aver_configs_${user.uid}`, [defaultSeedConfig]);
+      
+      // Also try to sync it to firestore
+      try {
+        setDoc(doc(db, 'users', user.uid, 'aiConfigurations', defaultSeedConfig.id), defaultSeedConfig).catch(() => {});
+      } catch (err) {}
     }
     
     const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
@@ -169,6 +223,26 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     setLoading(false);
   }, [user?.uid, getLocalStorageItem]);
+
+  // Sync state FROM custom events (e.g., when copying a trader's AI config)
+  useEffect(() => {
+    const handleConfigsSync = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.userId === user?.uid) {
+        setConfigs(customEvent.detail.configs);
+        const active = customEvent.detail.configs.find((c: any) => c.status === 'ACTIVE');
+        if (active) {
+          setConfig(active);
+          setActiveConfigId(active.id);
+        } else if (customEvent.detail.configs.length > 0 && !activeConfigId) {
+          setConfig(customEvent.detail.configs[0]);
+          setActiveConfigId(customEvent.detail.configs[0].id);
+        }
+      }
+    };
+    window.addEventListener('configs_updated', handleConfigsSync);
+    return () => window.removeEventListener('configs_updated', handleConfigsSync);
+  }, [user?.uid, activeConfigId]);
 
   // Sync state TO localStorage on any state modification
   useEffect(() => {
@@ -839,20 +913,22 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
           try {
             // Determine size based on risk profile
-            // High risk (e.g. lossLimit >= 5, maxPositionSize >= 100, or Volatility Breakout strategy) -> trade high amounts like $156+ per trade.
+            // High risk (e.g. lossLimit >= 3, or Volatility Breakout/Neural Momentum strategy) -> trade high amounts like $156+ per trade.
             // Low risk -> trade lower like $22 per trade.
             const isHighRisk = 
               activeConfig.strategy === 'VOLATILITY_BREAKOUT' || 
-              (activeConfig.riskControls?.lossLimit !== undefined && activeConfig.riskControls.lossLimit >= 5) || 
-              (activeConfig.riskControls?.maxPositionSize !== undefined && activeConfig.riskControls.maxPositionSize >= 100);
+              activeConfig.strategy === 'NEURAL_MOMENTUM' ||
+              (activeConfig.riskControls?.lossLimit !== undefined && activeConfig.riskControls.lossLimit >= 3) || 
+              (activeConfig.riskControls?.maxPositionSize !== undefined && activeConfig.riskControls.maxPositionSize >= 50);
             
             let tradeAmount = 22; // default low risk
             if (isHighRisk) {
               // High risk: trade high amounts like $156 or more per trade
-              tradeAmount = activeConfig.riskControls?.maxPositionSize ? Math.max(156, activeConfig.riskControls.maxPositionSize) : 156;
+              const randomOffset = Math.floor(Math.random() * 30); // between 156 and 186
+              tradeAmount = 156 + randomOffset;
             } else {
               // Low risk: trade lower like $22
-              tradeAmount = activeConfig.riskControls?.maxPositionSize ? Math.min(22, activeConfig.riskControls.maxPositionSize) : 22;
+              tradeAmount = 22;
             }
             
             let quantity = parseFloat((tradeAmount / rec.entry).toFixed(6));

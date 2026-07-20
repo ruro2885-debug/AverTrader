@@ -24,6 +24,10 @@ export default function AiSessionsView({ schedule, onSaveSchedule, isDark }: AiS
   const [localSchedule, setLocalSchedule] = useState<TradingSchedule>({ ...schedule });
   const [saving, setSaving] = useState(false);
 
+  React.useEffect(() => {
+    setLocalSchedule({ ...schedule });
+  }, [schedule]);
+
   const cardClasses = isDark ? 'bg-[#0B0E14] border-white/5' : 'bg-white border-slate-200 shadow-sm';
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';

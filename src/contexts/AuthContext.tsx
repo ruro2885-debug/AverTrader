@@ -447,11 +447,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             console.warn("Firestore subcollection 'holdings' access denied. Falling back to local/cached profile data.");
             setUser(prev => {
               if (!prev) return null;
-              const defaultHoldings: Holding[] = [
-                { id: 'h-btc', ticker: 'BTC', name: 'Bitcoin', quantity: 0.85, avgEntry: 52000, currentPrice: 58000, marketValue: 49300, pnl: 5100, change24H: 2.5, allocationPct: 49.3, logoColor: 'from-amber-500 to-orange-600', logoText: '₿', aiDetails: "BTC accumulation phase strong. Support at $55k.", trend: [52000, 54000, 53500, 55000, 57000, 58000], riskRating: 'Low' as any, confidenceScore: 94, lastAiDecision: 'HODL' },
-                { id: 'h-eth', ticker: 'ETH', name: 'Ethereum', quantity: 12, avgEntry: 2800, currentPrice: 3100, marketValue: 37200, pnl: 3600, change24H: 1.8, allocationPct: 37.2, logoColor: 'from-slate-400 to-slate-600', logoText: 'Ξ', aiDetails: "ETH 2.0 staking rewards increasing.", trend: [2800, 2900, 2850, 3000, 2950, 3100], riskRating: 'Low' as any, confidenceScore: 88, lastAiDecision: 'ACCUMULATE' },
-                { id: 'h-sol', ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", trend: [110, 115, 112, 114, 111, 112], riskRating: 'Medium' as any, confidenceScore: 82, lastAiDecision: 'REBALANCE' }
-              ];
+              const defaultHoldings: Holding[] = [];
               const updated = {
                 ...prev,
                 holdings: prev.holdings && prev.holdings.length > 0 ? prev.holdings : defaultHoldings
@@ -700,11 +696,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           recoveryFactor: 0,
           riskAdjustedReturn: 0
         },
-        holdings: [
-          { id: 'h-btc', ticker: 'BTC', name: 'Bitcoin', quantity: 0.85, avgEntry: 52000, currentPrice: 58000, marketValue: 49300, pnl: 5100, change24H: 2.5, allocationPct: 49.3, logoColor: 'from-amber-500 to-orange-600', logoText: '₿', aiDetails: "BTC accumulation phase strong. Support at $55k.", trend: [52000, 54000, 53500, 55000, 57000, 58000], riskRating: 'Low', confidenceScore: 94, lastAiDecision: 'HODL' },
-          { id: 'h-eth', ticker: 'ETH', name: 'Ethereum', quantity: 12, avgEntry: 2800, currentPrice: 3100, marketValue: 37200, pnl: 3600, change24H: 1.8, allocationPct: 37.2, logoColor: 'from-slate-400 to-slate-600', logoText: 'Ξ', aiDetails: "ETH 2.0 staking rewards increasing.", trend: [2800, 2900, 2850, 3000, 2950, 3100], riskRating: 'Low', confidenceScore: 88, lastAiDecision: 'ACCUMULATE' },
-          { id: 'h-sol', ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", trend: [110, 115, 112, 114, 111, 112], riskRating: 'Medium', confidenceScore: 82, lastAiDecision: 'REBALANCE' }
-        ],
+        holdings: [],
         trades: [],
         snapshots: [],
         watchlist: []
@@ -831,26 +823,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               deposits: [],
               withdrawals: [],
               portfolio: {
-                totalValue: 100000,
-                todayPnL: 1240.50,
-                todayPnLPercent: 1.25,
-                overallReturn: 15.4,
-                realizedPnL: 8450.20,
-                unrealizedPnL: 6950.30,
-                healthScore: 94,
-                diversificationScore: 88,
-                volatility: 12.4,
-                sharpeRatio: 2.1,
-                winRate: 68,
-                maxDrawdown: 8.5,
-                recoveryFactor: 3.2,
-                riskAdjustedReturn: 18.5
+                totalValue: 0,
+                todayPnL: 0,
+                todayPnLPercent: 0,
+                overallReturn: 0,
+                realizedPnL: 0,
+                unrealizedPnL: 0,
+                healthScore: 0,
+                diversificationScore: 0,
+                volatility: 0,
+                sharpeRatio: 0,
+                winRate: 0,
+                maxDrawdown: 0,
+                recoveryFactor: 0,
+                riskAdjustedReturn: 0
               },
-              holdings: [
-                { id: 'h-btc', ticker: 'BTC', name: 'Bitcoin', quantity: 0.85, avgEntry: 52000, currentPrice: 58000, marketValue: 49300, pnl: 5100, change24H: 2.5, allocationPct: 49.3, logoColor: 'from-amber-500 to-orange-600', logoText: '₿', aiDetails: "BTC accumulation phase strong. Support at $55k.", trend: [52000, 54000, 53500, 55000, 57000, 58000], riskRating: 'Low', confidenceScore: 94, lastAiDecision: 'HODL' },
-                { id: 'h-eth', ticker: 'ETH', name: 'Ethereum', quantity: 12, avgEntry: 2800, currentPrice: 3100, marketValue: 37200, pnl: 3600, change24H: 1.8, allocationPct: 37.2, logoColor: 'from-slate-400 to-slate-600', logoText: 'Ξ', aiDetails: "ETH 2.0 staking rewards increasing.", trend: [2800, 2900, 2850, 3000, 2950, 3100], riskRating: 'Low', confidenceScore: 88, lastAiDecision: 'ACCUMULATE' },
-                { id: 'h-sol', ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", trend: [110, 115, 112, 114, 111, 112], riskRating: 'Medium', confidenceScore: 82, lastAiDecision: 'REBALANCE' }
-              ],
+              holdings: [],
               trades: [],
               snapshots: [],
               watchlist: []
@@ -926,6 +914,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signOutUser = useCallback(async () => {
     try {
       safeStorage.removeItem('aver_active_user');
+      safeStorage.removeItem('portfolio_vault_balance');
+      safeStorage.removeItem('portfolio_active_offset');
       setUser(null);
       setNotifications([]);
       setPreviewPhotoURL(null);
@@ -1708,9 +1698,29 @@ function dataURLtoBlob(dataurl: string): Blob {
         ? watchlist.filter(s => s !== symbol)
         : [...watchlist, symbol];
       
-      await updateDoc(doc(db, 'users', userRef.current.uid), {
+      const updated = {
+        ...userRef.current,
         watchlist: newWatchlist
-      });
+      };
+
+      // Always update local state first for instant UX
+      setUser(updated);
+      safeStorage.setItem('aver_active_user', JSON.stringify(updated));
+
+      // Also update the local database if running locally/fallback
+      const dbList = getLocalDB();
+      const localIdx = dbList.findIndex(u => u.email.toLowerCase() === userRef.current!.email.toLowerCase());
+      if (localIdx !== -1) {
+        dbList[localIdx].profile = updated;
+        saveLocalDB(dbList);
+      }
+
+      // If registered with Firebase, sync to Firestore
+      if (!userRef.current.uid.startsWith('local-')) {
+        await updateDoc(doc(db, 'users', userRef.current.uid), {
+          watchlist: newWatchlist
+        });
+      }
     } catch (err) {
       console.error("Error updating watchlist:", err);
     }

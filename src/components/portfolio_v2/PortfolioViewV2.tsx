@@ -628,12 +628,20 @@ export default function PortfolioViewV2({
         
         const nextTime = lastCandle ? lastCandle.time + timeGap : now;
         
-        // Profit is green, loss is red
-        const isProfit = totalFloatingPnl >= 0;
-        const changeMagnitude = (0.001 + Math.random() * 0.002) * basePrice;
+        // Profit is green, loss is red. Ensure they are organic and not straight by using strong directional biases.
+        const isProfit = totalFloatingPnl > 0;
+        const isLoss = totalFloatingPnl < 0;
+        
+        const isGreen = isProfit 
+          ? (Math.random() < 0.82) // 82% green, 18% red on profits to create an organic upward trend
+          : isLoss 
+            ? (Math.random() < 0.18) // 18% green, 82% red on losses to create an organic downward trend
+            : (Math.random() < 0.50); // 50/50 on flat/even
+            
+        const changeMagnitude = (0.001 + Math.random() * 0.003) * basePrice;
         
         const open = basePrice;
-        const close = isProfit ? basePrice + changeMagnitude : basePrice - changeMagnitude;
+        const close = isGreen ? basePrice + changeMagnitude : basePrice - changeMagnitude;
         const high = Math.max(open, close) + (Math.random() * 0.001 * basePrice);
         const low = Math.min(open, close) - (Math.random() * 0.001 * basePrice);
         

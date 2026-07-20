@@ -85,7 +85,11 @@ export const startTraderSimulator = () => {
             
             let newReturn = data.return30d + tradeChange;
             const newWinRate = Math.max(30, Math.min(95, data.winRate + (Math.random() - 0.5) * 1));
-            const newFollowers = Math.max(0, data.followers + Math.floor((Math.random() - 0.5) * 10));
+            // Growth is proportional to performance and win rate
+            const followerChange = isWin 
+                ? Math.floor(Math.random() * 25 + 5) 
+                : -Math.floor(Math.random() * 15 + 2);
+            const newFollowers = Math.max(500, data.followers + followerChange);
             const newEquityCurve = [...data.equityCurve.slice(1), data.equityCurve[data.equityCurve.length - 1] + (Math.random() - 0.5) * 5];
 
             return {

@@ -843,12 +843,9 @@ export function initSimulatedTraders(): SimulatedTrader[] {
         // Re-sort just in case rankings shifted
         healed.sort((a, b) => b.performanceScore - a.performanceScore);
         
-        // Enforce ranks and desired unique returns
+        // Enforce ranks without resetting returns to hardcoded averages
         healed.forEach((t, index) => {
           t.rank = index + 1;
-          const targetReturn = getDesiredReturn30D(index, t.id);
-          adjustTradesToTargetReturn(t, targetReturn);
-          calculateTraderMetrics(t);
         });
         
         safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(healed));
@@ -876,7 +873,7 @@ export function initSimulatedTraders(): SimulatedTrader[] {
     t.prevRank = index + 1;
     
     // We generated followers procedurally earlier, keep them unless they are lower than a realistic floor for rank
-    const minimumRankFollowers = Math.floor(50000 * Math.pow(0.85, index));
+    const minimumRankFollowers = Math.floor(50000 * Math.pow(0.97, index));
     if (t.followers < minimumRankFollowers) {
       t.followers = minimumRankFollowers + Math.floor(Math.random() * 5000);
     }
@@ -1104,7 +1101,7 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
     t.prevRank = oldRank;
 
     // Adjust followers based on new rank (simulate people following the leaderboard trends)
-    const targetFollowers = 50000 * Math.pow(0.85, newIdx) + (t.tier === 'Platinum' ? 10000 : t.tier === 'Gold' ? 2500 : 0) + Math.floor(t.performanceScore * 10);
+    const targetFollowers = 50000 * Math.pow(0.97, newIdx) + (t.tier === 'Platinum' ? 10000 : t.tier === 'Gold' ? 2500 : 0) + Math.floor(t.performanceScore * 10);
     // Smoothly transition followers towards target
     t.followers = Math.floor(t.followers + (targetFollowers - t.followers) * 0.1);
 

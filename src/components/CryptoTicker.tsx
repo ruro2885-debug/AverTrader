@@ -69,7 +69,7 @@ export default function CryptoTicker() {
 
   return (
     <div 
-      className={`fixed top-0 left-0 right-0 h-10 z-50 flex items-center overflow-hidden border-b select-none backdrop-blur-md transition-colors duration-300 ${
+      className={`fixed top-0 left-0 right-0 h-8 z-50 flex items-center overflow-hidden border-b select-none backdrop-blur-md transition-colors duration-300 ${
         isDark 
           ? 'bg-slate-950/90 border-white/5 text-gray-300' 
           : 'bg-white/90 border-slate-200 text-slate-700 shadow-sm'
@@ -106,7 +106,7 @@ export default function CryptoTicker() {
             return (
               <div
                 key={`${coin.symbol}-${index}`}
-                className={`flex items-center space-x-2 px-2.5 py-1 rounded-md transition-all duration-300 ${flashClass}`}
+                className={`flex items-center space-x-2 px-2.5 py-0.5 rounded-md transition-all duration-300 ${flashClass}`}
               >
                 {/* Visual Symbol Badge Icon */}
                 <CoinLogo symbol={coin.symbol} size={20} className="shadow-sm" />

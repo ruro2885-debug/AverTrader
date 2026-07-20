@@ -29,7 +29,9 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
           price: parseFloat(d.lastPrice),
           change: (isPositive ? '+' : '') + parseFloat(d.priceChangePercent).toFixed(2) + '%',
           isPositive,
-          rawPrice: parseFloat(d.lastPrice)
+          rawPrice: parseFloat(d.lastPrice),
+          rawChange: parseFloat(d.priceChangePercent) || 0,
+          quoteVolume: parseFloat(d.quoteVolume) || 0
         };
       });
       setAssets(mapped);
@@ -100,18 +102,56 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   const categories = ['Favorites', 'Trending', 'Gainers', 'Losers', 'AI Picks', 'New Listings'];
   const [activeCategory, setActiveCategory] = useState('Trending');
 
-  const filteredAssets = assets.filter(asset => {
+  const overviewAssets = React.useMemo(() => {
     if (activeCategory === 'Favorites') {
-      return user?.watchlist?.includes(asset.symbol);
-    } else if (activeCategory === 'Gainers') {
-      return asset.isPositive;
-    } else if (activeCategory === 'Losers') {
-      return !asset.isPositive;
+      return assets.filter(asset => user?.watchlist?.includes(asset.symbol)).slice(0, 3);
     }
-    return true;
-  });
-
-  const overviewAssets = filteredAssets.slice(0, 3);
+    
+    if (activeCategory === 'Trending') {
+      return [...assets].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 3);
+    }
+    
+    if (activeCategory === 'Gainers') {
+      return [...assets].sort((a, b) => (b.rawChange || 0) - (a.rawChange || 0)).slice(0, 3);
+    }
+    
+    if (activeCategory === 'Losers') {
+      return [...assets].sort((a, b) => (a.rawChange || 0) - (b.rawChange || 0)).slice(0, 3);
+    }
+    
+    if (activeCategory === 'AI Picks') {
+      const coinWeights: Record<string, number> = { 
+        BTC: 88, ETH: 85, SOL: 82, BNB: 78, LINK: 75, AVAX: 72, FET: 70, ADA: 65, XRP: 60, DOGE: 50 
+      };
+      return [...assets].sort((a, b) => {
+        const scoreA = (coinWeights[a.symbol] || 50) + ((a.rawChange || 0) * 1.5);
+        const scoreB = (coinWeights[b.symbol] || 50) + ((b.rawChange || 0) * 1.5);
+        return scoreB - scoreA;
+      }).slice(0, 3);
+    }
+    
+    if (activeCategory === 'New Listings') {
+      const listingAges: Record<string, number> = {
+        FET: 1,
+        AVAX: 2,
+        SOL: 3,
+        LINK: 4,
+        ADA: 5,
+        DOGE: 6,
+        XRP: 7,
+        ETH: 8,
+        BTC: 9,
+        BNB: 10
+      };
+      return [...assets].sort((a, b) => {
+        const ageA = listingAges[a.symbol] || 100;
+        const ageB = listingAges[b.symbol] || 100;
+        return ageA - ageB;
+      }).slice(0, 3);
+    }
+    
+    return assets.slice(0, 3);
+  }, [assets, activeCategory, user?.watchlist]);
 
   return (
     <div className="pt-[73px] flex-1 flex flex-col">

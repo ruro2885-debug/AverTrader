@@ -61,7 +61,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
 
   // Persist traders state so follow states or dynamic updates are preserved
   useEffect(() => {
-    safeStorage.setItem('aver_sim_traders_v4', JSON.stringify(traders));
+    safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(traders));
   }, [traders]);
 
   // Persist events state

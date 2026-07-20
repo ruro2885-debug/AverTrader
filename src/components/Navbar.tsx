@@ -54,7 +54,7 @@ export default function Navbar({
   const activeTextColor = theme === 'dark' ? 'text-emerald-400 font-medium' : 'text-emerald-600 font-medium';
 
   return (
-    <header className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${navBg}`}>
+    <header className={`fixed top-8 left-0 right-0 z-40 transition-all duration-300 ${navBg}`}>
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         
         {/* Branding */}

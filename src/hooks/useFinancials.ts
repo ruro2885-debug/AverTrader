@@ -18,16 +18,33 @@ export const useFinancials = () => {
   // We use local state synced to localStorage for vault and offset to ensure instant UI updates 
   // without waiting for Firestore, but we will also sync to Firestore.
   const [vaultBalance, setVaultBalanceState] = useState<number>(() => {
-    if (user?.vaultBalance !== undefined) return user.vaultBalance;
     const saved = safeStorage.getItem('portfolio_vault_balance');
-    return saved ? parseFloat(saved) : 150000;
+    if (saved !== null) return parseFloat(saved);
+    if (user?.vaultBalance !== undefined) return user.vaultBalance;
+    return 150000;
   });
 
   const [activeOffset, setActiveOffsetState] = useState<number>(() => {
-    if (user?.activeOffset !== undefined) return user.activeOffset;
     const saved = safeStorage.getItem('portfolio_active_offset');
-    return saved ? parseFloat(saved) : 0;
+    if (saved !== null) return parseFloat(saved);
+    if (user?.activeOffset !== undefined) return user.activeOffset;
+    return 0;
   });
+
+  // Helper to synchronize with local guest user profile if logged in as a guest
+  const syncLocalUserBalance = (newOffset: number, newVault: number) => {
+    try {
+      const activeLocalUserStr = localStorage.getItem('aver_active_user');
+      if (activeLocalUserStr) {
+        const activeLocalUser = JSON.parse(activeLocalUserStr);
+        activeLocalUser.activeOffset = newOffset;
+        activeLocalUser.vaultBalance = newVault;
+        localStorage.setItem('aver_active_user', JSON.stringify(activeLocalUser));
+      }
+    } catch (e) {
+      console.warn("Failed to sync guest user balance:", e);
+    }
+  };
 
   // Listen to custom events to sync state across different hook instances in the same tab
   useEffect(() => {
@@ -83,6 +100,7 @@ export const useFinancials = () => {
   const updateVaultBalance = async (newBalance: number) => {
     setVaultBalanceState(newBalance);
     safeStorage.setItem('portfolio_vault_balance', newBalance.toString());
+    syncLocalUserBalance(activeOffset, newBalance);
     window.dispatchEvent(new Event('financials_updated'));
     
     if (auth.currentUser) {
@@ -102,6 +120,7 @@ export const useFinancials = () => {
       setActiveOffsetState(prev => {
         finalOffset = newOffset(prev);
         safeStorage.setItem('portfolio_active_offset', finalOffset.toString());
+        syncLocalUserBalance(finalOffset, vaultBalance);
         window.dispatchEvent(new Event('financials_updated'));
         return finalOffset;
       });
@@ -112,6 +131,7 @@ export const useFinancials = () => {
       finalOffset = newOffset;
       setActiveOffsetState(finalOffset);
       safeStorage.setItem('portfolio_active_offset', finalOffset.toString());
+      syncLocalUserBalance(finalOffset, vaultBalance);
       window.dispatchEvent(new Event('financials_updated'));
     }
     
@@ -132,6 +152,7 @@ export const useFinancials = () => {
     setActiveOffsetState(prev => {
       finalOffset = prev + amount;
       safeStorage.setItem('portfolio_active_offset', finalOffset.toString());
+      syncLocalUserBalance(finalOffset, vaultBalance);
       window.dispatchEvent(new Event('financials_updated'));
       return finalOffset;
     });
