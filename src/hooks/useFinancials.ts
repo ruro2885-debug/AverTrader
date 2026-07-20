@@ -21,7 +21,7 @@ export const useFinancials = () => {
     const saved = safeStorage.getItem('portfolio_vault_balance');
     if (saved !== null) return parseFloat(saved);
     if (user?.vaultBalance !== undefined) return user.vaultBalance;
-    return 150000;
+    return 0;
   });
 
   const [activeOffset, setActiveOffsetState] = useState<number>(() => {

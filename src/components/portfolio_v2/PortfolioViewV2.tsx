@@ -1858,7 +1858,7 @@ export default function PortfolioViewV2({
                             if (confirm("Reset Vault? This will clear your passcode and existing vault data.")) {
                               setVaultPasscode('');
                               setIsVaultOnboarded(false);
-                              updateVaultBalance(150000);
+                              updateVaultBalance(0);
                               updateActiveBalanceOffset(0);
                               safeStorage.removeItem('vault_passcode');
                               safeStorage.removeItem('vault_onboarded');

@@ -12,30 +12,128 @@ import {
   Bar,
   Cell
 } from 'recharts';
+import { AiTrade, AiRecommendation } from '../../types/aiTrading';
 
 interface AiPerformanceHubProps {
   isDark: boolean;
+  trades?: AiTrade[];
+  recommendations?: AiRecommendation[];
 }
 
-const mockChartData = [
-  { name: 'Mon', pnl: 240 },
-  { name: 'Tue', pnl: 480 },
-  { name: 'Wed', pnl: -120 },
-  { name: 'Thu', pnl: 840 },
-  { name: 'Fri', pnl: 650 },
-  { name: 'Sat', pnl: 920 },
-  { name: 'Sun', pnl: 1100 },
-];
-
-const distributionData = [
-  { name: 'Accepted', value: 78, color: '#00D09C' },
-  { name: 'Rejected', value: 22, color: '#f43f5e' },
-];
-
-export default function AiPerformanceHub({ isDark }: AiPerformanceHubProps) {
+export default function AiPerformanceHub({ isDark, trades = [], recommendations = [] }: AiPerformanceHubProps) {
   const cardClasses = isDark ? 'bg-[#0B0E14] border-white/5' : 'bg-white border-slate-200 shadow-sm';
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';
+
+  const closedTrades = React.useMemo(() => trades.filter(t => t.status === 'CLOSED'), [trades]);
+  const totalTradesCount = trades.length;
+
+  // 1. Calculate accuracy (win rate)
+  const accuracyResult = React.useMemo(() => {
+    if (closedTrades.length === 0) {
+      return { value: 84.2, isLive: false };
+    }
+    const winningTrades = closedTrades.filter(t => (t.pnl || 0) > 0);
+    const winRate = (winningTrades.length / closedTrades.length) * 100;
+    return { value: parseFloat(winRate.toFixed(1)), isLive: true };
+  }, [closedTrades]);
+
+  // 2. Calculate average holding time
+  const avgHoldingTime = React.useMemo(() => {
+    if (closedTrades.length === 0) {
+      return { text: '6.4h', isLive: false };
+    }
+    let totalMs = 0;
+    let validCount = 0;
+    closedTrades.forEach(t => {
+      const openTime = t.openedAt?.toDate ? t.openedAt.toDate().getTime() : new Date(t.openedAt as any).getTime();
+      const closeTime = t.closedAt?.toDate ? t.closedAt.toDate().getTime() : new Date(t.closedAt as any).getTime();
+      if (closeTime && openTime) {
+        totalMs += (closeTime - openTime);
+        validCount++;
+      }
+    });
+    if (validCount === 0) return { text: 'N/A', isLive: true };
+    const avgHours = (totalMs / validCount) / 3600000;
+    if (avgHours < 1) {
+      const mins = Math.round(avgHours * 60);
+      return { text: `${mins}m`, isLive: true };
+    }
+    return { text: `${avgHours.toFixed(1)}h`, isLive: true };
+  }, [closedTrades]);
+
+  // 3. Calculate profit factor
+  const profitFactor = React.useMemo(() => {
+    if (closedTrades.length === 0) {
+      return { value: '3.2', isLive: false };
+    }
+    const grossProfit = closedTrades.filter(t => (t.pnl || 0) > 0).reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const grossLoss = closedTrades.filter(t => (t.pnl || 0) < 0).reduce((sum, t) => sum + Math.abs(t.pnl || 0), 0);
+    if (grossLoss === 0) {
+      return { value: grossProfit > 0 ? '9.9+' : '0.0', isLive: true };
+    }
+    return { value: (grossProfit / grossLoss).toFixed(2), isLive: true };
+  }, [closedTrades]);
+
+  // 4. Construct Cumulative Intelligence return chart
+  const chartData = React.useMemo(() => {
+    const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    // Map Javascript day indexes (0=Sunday, 1=Monday... 6=Saturday) to the ordered list
+    const dayIndices = [1, 2, 3, 4, 5, 6, 0];
+
+    const actualPnlByDay = dayIndices.map((idx, dayArrIdx) => {
+      const dayTrades = closedTrades.filter(t => {
+        const closeDate = t.closedAt?.toDate ? t.closedAt.toDate() : new Date(t.closedAt as any);
+        return closeDate.getDay() === idx;
+      });
+      const daySum = dayTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      return daySum;
+    });
+
+    const hasAnyRealPnl = actualPnlByDay.some(val => val !== 0);
+
+    return daysOfWeek.map((dayName, arrIdx) => {
+      // Static baseline if no live trades
+      const mockPnL = [240, 480, -120, 840, 650, 920, 1100][arrIdx];
+      const realPnL = actualPnlByDay[arrIdx];
+      return {
+        name: dayName,
+        pnl: hasAnyRealPnl ? parseFloat(realPnL.toFixed(2)) : mockPnL
+      };
+    });
+  }, [closedTrades]);
+
+  // 5. Calculate recommendation distribution
+  const distributionData = React.useMemo(() => {
+    const acceptedRecommendationIds = new Set(trades.map(t => t.recommendationId));
+    const acceptedCount = recommendations.filter(r => acceptedRecommendationIds.has(r.id)).length;
+    const totalRecs = recommendations.length;
+    
+    if (totalRecs === 0) {
+      return {
+        data: [
+          { name: 'Accepted', value: 78, color: '#00D09C' },
+          { name: 'Rejected', value: 22, color: '#f43f5e' },
+        ],
+        acceptedPercent: 78,
+        rejectedPercent: 22,
+        isLive: false
+      };
+    }
+    
+    const acceptedPercent = (acceptedCount / totalRecs) * 100;
+    const rejectedPercent = 100 - acceptedPercent;
+    
+    return {
+      data: [
+        { name: 'Accepted', value: parseFloat(acceptedPercent.toFixed(1)), color: '#00D09C' },
+        { name: 'Rejected', value: parseFloat(rejectedPercent.toFixed(1)), color: '#f43f5e' },
+      ],
+      acceptedPercent: parseFloat(acceptedPercent.toFixed(1)),
+      rejectedPercent: parseFloat(rejectedPercent.toFixed(1)),
+      isLive: true
+    };
+  }, [recommendations, trades]);
 
   return (
     <div className="space-y-6">
@@ -43,33 +141,33 @@ export default function AiPerformanceHub({ isDark }: AiPerformanceHubProps) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard 
           label="Strategy Accuracy" 
-          value="84.2%" 
-          trend="+2.1%" 
-          isPositive={true} 
+          value={`${accuracyResult.value}%`} 
+          trend={accuracyResult.isLive ? "Live Sync" : "Baseline"} 
+          isPositive={accuracyResult.value >= 50} 
           icon={<Target className="w-4 h-4 text-[#00D09C]" />} 
           isDark={isDark} 
         />
         <MetricCard 
           label="Total Trades" 
-          value="142" 
-          trend="+12" 
+          value={totalTradesCount.toString()} 
+          trend="Cumulative" 
           isPositive={true} 
           icon={<Activity className="w-4 h-4 text-blue-500" />} 
           isDark={isDark} 
         />
         <MetricCard 
           label="Avg Holding Time" 
-          value="6.4h" 
-          trend="-15m" 
+          value={avgHoldingTime.text} 
+          trend={avgHoldingTime.isLive ? "Live Sync" : "Baseline"} 
           isPositive={true} 
           icon={<Clock className="w-4 h-4 text-amber-500" />} 
           isDark={isDark} 
         />
         <MetricCard 
           label="Profit Factor" 
-          value="3.2" 
-          trend="+0.4" 
-          isPositive={true} 
+          value={profitFactor.value} 
+          trend={profitFactor.isLive ? "Live Sync" : "Baseline"} 
+          isPositive={parseFloat(profitFactor.value) >= 1.0} 
           icon={<ShieldCheck className="w-4 h-4 text-emerald-500" />} 
           isDark={isDark} 
         />
@@ -82,15 +180,14 @@ export default function AiPerformanceHub({ isDark }: AiPerformanceHubProps) {
             <h3 className={`text-sm font-black uppercase tracking-widest ${textSecondary} flex items-center gap-2`}>
               <TrendingUp className="w-4 h-4 text-[#00D09C]" /> Cumulative Intelligence Return
             </h3>
-            <select className={`bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px] font-bold ${textSecondary} outline-none`}>
-              <option>Last 7 Days</option>
-              <option>Last 30 Days</option>
-            </select>
+            <span className={`text-[10px] font-mono px-2 py-1 rounded bg-white/5 border border-white/5 ${textSecondary}`}>
+              {closedTrades.length > 0 ? "LIVE EXECUTIVE RETURN" : "SIMULATED TRAJECTORY"}
+            </span>
           </div>
           
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockChartData}>
+              <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorPnl" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#00D09C" stopOpacity={0.1}/>
@@ -133,11 +230,11 @@ export default function AiPerformanceHub({ isDark }: AiPerformanceHubProps) {
           <div className="flex-1 space-y-6">
             <div className="h-[200px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={distributionData}>
+                <BarChart data={distributionData.data}>
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
                   <YAxis hide />
                   <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                    {distributionData.map((entry, index) => (
+                    {distributionData.data.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Bar>
@@ -148,11 +245,11 @@ export default function AiPerformanceHub({ isDark }: AiPerformanceHubProps) {
             <div className="space-y-4">
               <div className="flex justify-between items-center text-xs">
                 <span className={textSecondary}>Accepted (Live Execution)</span>
-                <span className={`font-black ${textPrimary}`}>78.4%</span>
+                <span className={`font-black ${textPrimary}`}>{distributionData.acceptedPercent}%</span>
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className={textSecondary}>Rejected (Ignored/Dismissed)</span>
-                <span className={`font-black ${textPrimary}`}>21.6%</span>
+                <span className={`font-black ${textPrimary}`}>{distributionData.rejectedPercent}%</span>
               </div>
             </div>
           </div>

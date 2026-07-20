@@ -11,30 +11,81 @@ import { aiTradingService } from '../services/aiTradingService';
 function isWithinSchedule(schedule?: TradingSchedule): boolean {
   if (!schedule) return true;
   
-  const now = new Date();
-  const day = now.getDay(); // 0 is Sunday, 1 is Monday, ..., 6 is Saturday
-  const isWeekend = day === 0 || day === 6;
-  const isWeekday = !isWeekend;
+  let tz = 'UTC';
+  if (schedule.timezone === 'EST') tz = 'America/New_York';
+  else if (schedule.timezone === 'PST') tz = 'America/Los_Angeles';
+  else if (schedule.timezone === 'GMT') tz = 'Europe/London';
   
-  if (isWeekend && !schedule.weekends) return false;
-  if (isWeekday && !schedule.weekdays) return false;
-  
-  const hours = now.getHours().toString().padStart(2, '0');
-  const minutes = now.getMinutes().toString().padStart(2, '0');
-  const currentTimeStr = `${hours}:${minutes}`;
-  
-  if (schedule.sessions && schedule.sessions.length > 0) {
-    const inWindow = schedule.sessions.some(s => {
-      return currentTimeStr >= s.start && currentTimeStr <= s.end;
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      weekday: 'short'
     });
-    if (!inWindow) return false;
-  }
-  
-  if (schedule.breakPeriods && schedule.breakPeriods.length > 0) {
-    const inBreak = schedule.breakPeriods.some(b => {
-      return currentTimeStr >= b.start && currentTimeStr <= b.end;
+    
+    const parts = formatter.formatToParts(now);
+    const partMap: Record<string, string> = {};
+    parts.forEach(p => {
+      partMap[p.type] = p.value;
     });
-    if (inBreak) return false;
+    
+    const weekday = partMap['weekday'];
+    const hours = partMap['hour'] || '00';
+    const minutes = partMap['minute'] || '00';
+    const currentTimeStr = `${hours}:${minutes}`;
+    
+    const isWeekend = weekday === 'Sat' || weekday === 'Sun';
+    const isWeekday = !isWeekend;
+    
+    if (isWeekend && !schedule.weekends) return false;
+    if (isWeekday && !schedule.weekdays) return false;
+    
+    if (schedule.sessions && schedule.sessions.length > 0) {
+      const inWindow = schedule.sessions.some(s => {
+        return currentTimeStr >= s.start && currentTimeStr <= s.end;
+      });
+      if (!inWindow) return false;
+    }
+    
+    if (schedule.breakPeriods && schedule.breakPeriods.length > 0) {
+      const inBreak = schedule.breakPeriods.some(b => {
+        return currentTimeStr >= b.start && currentTimeStr <= b.end;
+      });
+      if (inBreak) return false;
+    }
+  } catch (e) {
+    console.error("Error calculating schedule with timezone, falling back to local time", e);
+    const now = new Date();
+    const day = now.getDay();
+    const isWeekend = day === 0 || day === 6;
+    const isWeekday = !isWeekend;
+    
+    if (isWeekend && !schedule.weekends) return false;
+    if (isWeekday && !schedule.weekdays) return false;
+    
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const currentTimeStr = `${hours}:${minutes}`;
+    
+    if (schedule.sessions && schedule.sessions.length > 0) {
+      const inWindow = schedule.sessions.some(s => {
+        return currentTimeStr >= s.start && currentTimeStr <= s.end;
+      });
+      if (!inWindow) return false;
+    }
+    
+    if (schedule.breakPeriods && schedule.breakPeriods.length > 0) {
+      const inBreak = schedule.breakPeriods.some(b => {
+        return currentTimeStr >= b.start && currentTimeStr <= b.end;
+      });
+      if (inBreak) return false;
+    }
   }
   
   return true;

@@ -794,7 +794,7 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
             )}
 
             {activeView === 'PERFORMANCE' && (
-              <AiPerformanceHub isDark={isDark} />
+              <AiPerformanceHub isDark={isDark} trades={trades} recommendations={recommendations} />
             )}
 
             {activeView === 'NOTIFICATIONS' && (

@@ -151,7 +151,7 @@ export default function VaultScreen({
       safeStorage.removeItem('portfolio_vault_balance');
       setIsVaultOnboarded(false);
       setVaultPasscode('');
-      setVaultBalance(150000);
+      setVaultBalance(0);
       setVaultState('setup');
       setVaultSetupStep(1);
       setPasscodeInput('');
