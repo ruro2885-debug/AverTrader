@@ -89,7 +89,7 @@ export default function EventsPromosPage({ theme, onBack }: { theme: 'light' | '
       className={`absolute inset-0 z-50 overflow-y-auto ${isDark ? 'bg-[#0B0E14] text-white' : 'bg-slate-50 text-slate-900'}`}
     >
       {/* Sticky Header */}
-      <header className={`sticky top-0 z-40 h-[60px] flex items-center justify-between px-4 border-b backdrop-blur-md ${isDark ? 'bg-[#0B0E14]/80 border-white/5' : 'bg-white/80 border-slate-200'}`}>
+      <header className={`fixed top-0 left-0 right-0 z-40 h-[60px] flex items-center justify-between px-4 border-b backdrop-blur-md ${isDark ? 'bg-[#0B0E14]/80 border-white/5' : 'bg-white/80 border-slate-200'}`}>
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 rounded-full hover:bg-white/10 text-slate-400 transition-colors">
             <ArrowLeft className="w-5 h-5" />
@@ -104,7 +104,7 @@ export default function EventsPromosPage({ theme, onBack }: { theme: 'light' | '
       </header>
 
       {/* Main Content */}
-      <div className="p-4 space-y-6 pb-32">
+      <div className="px-4 pt-[76px] space-y-6 pb-32">
         {activeEvents.map((event) => (
           <section key={event.id} className={`rounded-[24px] p-6 ${cardClasses} relative overflow-hidden bg-gradient-to-r from-purple-900/20 to-blue-900/20`}>
             <div className="relative z-10">

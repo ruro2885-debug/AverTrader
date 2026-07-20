@@ -35,6 +35,7 @@ import { NotificationItem, NotificationCategory, NotificationPriority } from '..
 import { UserProfile, Theme, Language, Holding, TradeHistoryItem, PortfolioSnapshot } from '../types';
 import { NotificationManager } from '../services/NotificationManager';
 import { getAvatarDataUrl } from '../utils/avatarGenerator';
+import { TradingEngineConfig } from '../types/trading';
 
 export interface UserPreferences {
   language: string;
@@ -62,6 +63,7 @@ export interface UserPreferences {
   twoFactorEnabled?: boolean;
   biometricsEnabled?: boolean;
   rememberMeEnabled?: boolean;
+  watchlist: string[];
 }
 
 export interface PortfolioData {
@@ -118,6 +120,8 @@ export interface User extends UserProfile {
   holdings: Holding[];
   trades: TradeHistoryItem[];
   snapshots: PortfolioSnapshot[];
+  tradingConfig?: TradingEngineConfig;
+  watchlist: string[];
 }
 
 interface AuthContextType {
@@ -130,6 +134,8 @@ interface AuthContextType {
   updateOnboarding: (completed: boolean) => Promise<void>;
   updateProfilePhoto: (file: File | string | null) => Promise<void>;
   updateUserPreferences: (prefs: Partial<UserPreferences>) => Promise<void>;
+  updateTradingConfig: (config: Partial<TradingEngineConfig>) => Promise<void>;
+  toggleWatchlist: (symbol: string) => Promise<void>;
   addDeposit: (amount: number) => Promise<void>;
   addWithdrawal: (amount: number) => Promise<void>;
   
@@ -166,6 +172,8 @@ const AuthContext = createContext<AuthContextType>({
   updateOnboarding: async () => {},
   updateProfilePhoto: async () => {},
   updateUserPreferences: async () => {},
+  updateTradingConfig: async () => {},
+  toggleWatchlist: async () => {},
   addDeposit: async () => {},
   addWithdrawal: async () => {},
   
@@ -270,6 +278,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let unsubHoldings: (() => void) | null = null;
     let unsubTrades: (() => void) | null = null;
     let unsubSnapshots: (() => void) | null = null;
+    let unsubTradingConfig: (() => void) | null = null;
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
@@ -278,6 +287,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubHoldings) { unsubHoldings(); unsubHoldings = null; }
       if (unsubTrades) { unsubTrades(); unsubTrades = null; }
       if (unsubSnapshots) { unsubSnapshots(); unsubSnapshots = null; }
+      if (unsubTradingConfig) { unsubTradingConfig(); unsubTradingConfig = null; }
 
       if (firebaseUser) {
         notificationManagerRef.current = new NotificationManager(firebaseUser.uid);
@@ -550,18 +560,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }
         });
 
-        // Update lastLogin in background
-        try {
-          const docSnap = await getDoc(userDocRef);
+        // Trading Engine Config Listener
+        const configRef = doc(db, 'users', firebaseUser.uid, 'tradingConfig', 'default');
+        unsubTradingConfig = onSnapshot(configRef, (docSnap) => {
           if (docSnap.exists()) {
-            await updateDoc(userDocRef, {
-              lastLogin: serverTimestamp(),
-              lastUpdated: serverTimestamp()
-            });
+            const config = docSnap.data() as TradingEngineConfig;
+            setUser(prev => prev ? { ...prev, tradingConfig: config } : null);
           }
-        } catch (err) {
-          console.error("Error updating lastLogin:", err);
-        }
+        });
       } else {
         // User is signed out from Firebase, check for active local user
         const activeLocalUserStr = safeStorage.getItem('aver_active_user');
@@ -591,6 +597,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubHoldings) unsubHoldings();
       if (unsubTrades) unsubTrades();
       if (unsubSnapshots) unsubSnapshots();
+      if (unsubTradingConfig) unsubTradingConfig();
     };
   }, []);
 
@@ -699,7 +706,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           { id: 'h-sol', ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", trend: [110, 115, 112, 114, 111, 112], riskRating: 'Medium', confidenceScore: 82, lastAiDecision: 'REBALANCE' }
         ],
         trades: [],
-        snapshots: []
+        snapshots: [],
+        watchlist: []
       };
 
       if (userCredential && !isFirebaseRestricted) {
@@ -844,7 +852,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 { id: 'h-sol', ticker: 'SOL', name: 'Solana', quantity: 120, avgEntry: 110, currentPrice: 112, marketValue: 13440, pnl: 240, change24H: -0.5, allocationPct: 13.5, logoColor: 'from-purple-500 to-teal-500', logoText: 'S', aiDetails: "Network stability improved.", trend: [110, 115, 112, 114, 111, 112], riskRating: 'Medium', confidenceScore: 82, lastAiDecision: 'REBALANCE' }
               ],
               trades: [],
-              snapshots: []
+              snapshots: [],
+              watchlist: []
             };
 
             dbList.push({
@@ -1681,6 +1690,32 @@ function dataURLtoBlob(dataurl: string): Blob {
     }
   }, [addNotification]);
 
+  const updateTradingConfig = useCallback(async (config: Partial<TradingEngineConfig>) => {
+    if (!userRef.current) return;
+    try {
+      const configRef = doc(db, 'users', userRef.current.uid, 'tradingConfig', 'default');
+      await updateDoc(configRef, { ...config, lastUpdated: serverTimestamp() });
+    } catch (err) {
+      console.error("Error updating trading config:", err);
+    }
+  }, []);
+
+  const toggleWatchlist = useCallback(async (symbol: string) => {
+    if (!userRef.current) return;
+    try {
+      const watchlist = userRef.current.watchlist || [];
+      const newWatchlist = watchlist.includes(symbol)
+        ? watchlist.filter(s => s !== symbol)
+        : [...watchlist, symbol];
+      
+      await updateDoc(doc(db, 'users', userRef.current.uid), {
+        watchlist: newWatchlist
+      });
+    } catch (err) {
+      console.error("Error updating watchlist:", err);
+    }
+  }, []);
+
   const changePassword = useCallback(async (newPassword: string) => {
     const firebaseUser = auth.currentUser;
     if (firebaseUser) {
@@ -1740,6 +1775,8 @@ function dataURLtoBlob(dataurl: string): Blob {
     updateOnboarding,
     updateProfilePhoto,
     updateUserPreferences,
+    updateTradingConfig,
+    toggleWatchlist,
     addDeposit,
     addWithdrawal,
     addNotification,
@@ -1763,6 +1800,8 @@ function dataURLtoBlob(dataurl: string): Blob {
     updateOnboarding,
     updateProfilePhoto,
     updateUserPreferences,
+    updateTradingConfig,
+    toggleWatchlist,
     addDeposit,
     addWithdrawal,
     addNotification,

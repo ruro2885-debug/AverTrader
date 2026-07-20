@@ -118,10 +118,19 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
         
         return updatedTraders as any;
       });
-    }, 8000); // simulation tick every 8 seconds
+    }, 3000); // simulation tick every 3 seconds instead of 8
 
     return () => clearInterval(interval);
   }, [addNotification]);
+
+  const [jitter, setJitter] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setJitter((Math.random() - 0.5) * 0.1);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Filter & Search computation
   const filteredTraders = traders.filter(t => {
@@ -954,11 +963,11 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">30D Performance</p>
-                      <h4 className="text-xl font-black text-emerald-500 mt-1 font-mono">+{selectedTrader.return30D.toFixed(2)}%</h4>
+                      <h4 className="text-xl font-black text-emerald-500 mt-1 font-mono">+{Math.max(0, selectedTrader.return30D + jitter).toFixed(2)}%</h4>
                     </div>
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">Win Rate Percentage</p>
-                      <h4 className="text-xl font-black text-white mt-1 font-mono">{selectedTrader.winRate}%</h4>
+                      <h4 className="text-xl font-black text-white mt-1 font-mono">{Math.max(0, Math.min(100, selectedTrader.winRate + (jitter * 10))).toFixed(1)}%</h4>
                     </div>
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">Total Positions Placed</p>
@@ -974,15 +983,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">All-Time ROI</p>
-                      <h4 className="text-xl font-black text-emerald-500 mt-1 font-mono">+{selectedTrader.returnAllTime.toFixed(2)}%</h4>
-                    </div>
-                    <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
-                      <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">Active Copiers</p>
-                      <h4 className="text-xl font-black text-white mt-1 font-mono">{selectedTrader.activeCopiers?.toLocaleString() || Math.floor(selectedTrader.followers * 0.15).toLocaleString()}</h4>
-                    </div>
-                    <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
-                      <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">Years Trading</p>
-                      <h4 className="text-xl font-black text-white mt-1 font-mono">{selectedTrader.historicalYearsTrading || 1} Years</h4>
+                      <h4 className="text-xl font-black text-emerald-500 mt-1 font-mono">+{Math.max(0, selectedTrader.returnAllTime + jitter * 5).toFixed(2)}%</h4>
                     </div>
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest font-sans">Winning Streak</p>

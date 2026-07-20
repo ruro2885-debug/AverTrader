@@ -18,13 +18,15 @@ export const useFinancials = () => {
   // We use local state synced to localStorage for vault and offset to ensure instant UI updates 
   // without waiting for Firestore, but we will also sync to Firestore.
   const [vaultBalance, setVaultBalanceState] = useState<number>(() => {
+    if (user?.vaultBalance !== undefined) return user.vaultBalance;
     const saved = safeStorage.getItem('portfolio_vault_balance');
-    return saved ? parseFloat(saved) : (user?.vaultBalance || 150000);
+    return saved ? parseFloat(saved) : 150000;
   });
 
   const [activeOffset, setActiveOffsetState] = useState<number>(() => {
+    if (user?.activeOffset !== undefined) return user.activeOffset;
     const saved = safeStorage.getItem('portfolio_active_offset');
-    return saved ? parseFloat(saved) : (user?.activeOffset || 0);
+    return saved ? parseFloat(saved) : 0;
   });
 
   // Listen to custom events to sync state across different hook instances in the same tab
@@ -41,13 +43,17 @@ export const useFinancials = () => {
 
   // Keep local state in sync with user doc if it updates from another device
   useEffect(() => {
-    if (user?.vaultBalance !== undefined && !safeStorage.getItem('portfolio_vault_balance')) {
-      setVaultBalanceState(user.vaultBalance);
+    if (user) {
+      if (user.vaultBalance !== undefined) {
+        setVaultBalanceState(user.vaultBalance);
+        safeStorage.setItem('portfolio_vault_balance', user.vaultBalance.toString());
+      }
+      if (user.activeOffset !== undefined) {
+        setActiveOffsetState(user.activeOffset);
+        safeStorage.setItem('portfolio_active_offset', user.activeOffset.toString());
+      }
     }
-    if (user?.activeOffset !== undefined && !safeStorage.getItem('portfolio_active_offset')) {
-      setActiveOffsetState(user.activeOffset);
-    }
-  }, [user?.vaultBalance, user?.activeOffset]);
+  }, [user?.uid, user?.vaultBalance, user?.activeOffset]);
 
   const financials = useMemo<UnifiedFinancials>(() => {
     // 1. Calculate total holdings value
@@ -55,9 +61,9 @@ export const useFinancials = () => {
       return sum + ((h.quantity || 0) * (h.currentPrice || 0));
     }, 0);
 
-    // 2. Base Cash Balance (from user profile or fallback to 100k)
+    // 2. Base Cash Balance (from user profile or fallback to 0)
     // In our system, 'portfolio.totalValue' or 'portfolioBalance' might be populated
-    const baseCash = user?.portfolioBalance || user?.portfolio?.totalValue || 100000;
+    const baseCash = user?.portfolioBalance || user?.portfolio?.totalValue || 0;
     
     // 3. Active capital includes base cash + any offset (profits/losses from trades, deposits)
     // We make sure it doesn't drop below 0

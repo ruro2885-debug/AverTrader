@@ -3,10 +3,42 @@ import { doc, onSnapshot, updateDoc, setDoc, collection, addDoc, serverTimestamp
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { useFinancials } from '../hooks/useFinancials';
-import { AiConfiguration, AiTrade, AiSession, AiRecommendation } from '../types/aiTrading';
+import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule } from '../types/aiTrading';
 import { Position, ActivityEvent } from '../types/trading';
 import { seedTraders, startTraderSimulator } from '../services/traderSimulator';
 import { aiTradingService } from '../services/aiTradingService';
+
+function isWithinSchedule(schedule?: TradingSchedule): boolean {
+  if (!schedule) return true;
+  
+  const now = new Date();
+  const day = now.getDay(); // 0 is Sunday, 1 is Monday, ..., 6 is Saturday
+  const isWeekend = day === 0 || day === 6;
+  const isWeekday = !isWeekend;
+  
+  if (isWeekend && !schedule.weekends) return false;
+  if (isWeekday && !schedule.weekdays) return false;
+  
+  const hours = now.getHours().toString().padStart(2, '0');
+  const minutes = now.getMinutes().toString().padStart(2, '0');
+  const currentTimeStr = `${hours}:${minutes}`;
+  
+  if (schedule.sessions && schedule.sessions.length > 0) {
+    const inWindow = schedule.sessions.some(s => {
+      return currentTimeStr >= s.start && currentTimeStr <= s.end;
+    });
+    if (!inWindow) return false;
+  }
+  
+  if (schedule.breakPeriods && schedule.breakPeriods.length > 0) {
+    const inBreak = schedule.breakPeriods.some(b => {
+      return currentTimeStr >= b.start && currentTimeStr <= b.end;
+    });
+    if (inBreak) return false;
+  }
+  
+  return true;
+}
 
 interface TradingEngineContextType {
   configs: AiConfiguration[];
@@ -55,6 +87,7 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
 export const TradingEngineProvider = ({ children }: { children: React.ReactNode }) => {
   const { user, updateProfile, addNotification } = useAuth();
   const { activeTradingBalance, addFundsToActiveBalance } = useFinancials();
+  
   const activeTradingBalanceRef = useRef(activeTradingBalance);
   const addFundsRef = useRef(addFundsToActiveBalance);
 
@@ -92,105 +125,50 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     }
   }, []);
 
-  // Sync state FROM localStorage immediately on user login/availability
+  // Sync state FROM localStorage immediately on user login/availability to prevent blank resets on refresh
   useEffect(() => {
     if (!user) return;
     
-    const localConfigs = getLocalStorageItem(`aver_configs_${user.uid}`, []);
-    if (localConfigs.length > 0) {
-      // Filter out duplicates
-      const uniqueConfigs = localConfigs.filter((c: AiConfiguration, index: number, self: AiConfiguration[]) => 
-        index === self.findIndex((x) => x.id === c.id)
-      );
-      setConfigs(uniqueConfigs);
-      const active = uniqueConfigs.find((c: any) => c.status === 'ACTIVE');
+    const cachedConfigs = getLocalStorageItem(`aver_configs_${user.uid}`, []);
+    if (cachedConfigs.length > 0) {
+      setConfigs(cachedConfigs);
+      const active = cachedConfigs.find((c: any) => c.status === 'ACTIVE');
       if (active) {
         setConfig(active);
         setActiveConfigId(active.id);
       } else {
-        setConfig(localConfigs[0]);
-        setActiveConfigId(localConfigs[0].id);
+        setConfig(cachedConfigs[0]);
+        setActiveConfigId(cachedConfigs[0].id);
       }
-    } else {
-      // Default initial config to prevent empty views
-      const defaultConfig: AiConfiguration = {
-        id: 'cfg_default',
-        ownerId: user.uid,
-        name: 'Default Neural Momentum',
-        description: 'Standard conservative configuration analyzing major crypto and tech equity indexes.',
-        version: 1,
-        createdAt: Timestamp.now(),
-        lastModified: Timestamp.now(),
-        status: 'ACTIVE',
-        markets: ['BTC', 'ETH', 'AAPL', 'NVDA'],
-        strategy: 'NEURAL_MOMENTUM',
-        schedule: {
-          sessions: [{ start: '08:00', end: '16:00' }],
-          weekdays: true,
-          weekends: false,
-          timezone: 'UTC',
-          breakPeriods: [{ start: '12:00', end: '13:00' }],
-          excludeHolidays: true
-        },
-        riskControls: {
-          maxPositionSize: 2000,
-          maxSimultaneousPositions: 3,
-          exposureLimit: 10000,
-          positionSizingPreference: 'PERCENTAGE',
-          lossLimit: 5
-        },
-        recommendationRules: {
-          minConfidence: 80,
-          allowedAssetClasses: ['CRYPTO', 'STOCKS'],
-          indicators: ['RSI', 'MACD', 'EMA']
-        },
-        notificationPreferences: {
-          newRecommendations: true,
-          tradeExecutions: true,
-          marketAlerts: true
-        },
-        advancedBehavior: {
-          enableDeepAnalysis: true,
-          useSentimentGrounding: false,
-          neuralConfidenceThreshold: 80
-        }
-      };
-      setConfigs([defaultConfig]);
-      setConfig(defaultConfig);
-      setActiveConfigId(defaultConfig.id);
     }
     
-    const localSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
-    if (localSession) {
-      setSession(localSession);
+    const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
+    if (cachedSession) {
+      setSession(cachedSession);
     }
     
-    const localPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
-    if (localPositions.length > 0) {
-      setPositions(localPositions);
+    const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
+    if (cachedPositions.length > 0) {
+      setPositions(cachedPositions);
     }
     
-    const localTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
-    if (localTrades.length > 0) {
-      // Filter out duplicate IDs that might have been saved due to previous bug
-      const uniqueTrades = localTrades.filter((t: AiTrade, index: number, self: AiTrade[]) => 
-        index === self.findIndex((x) => x.id === t.id)
-      );
-      setTrades(uniqueTrades);
+    const cachedTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
+    if (cachedTrades.length > 0) {
+      setTrades(cachedTrades);
     }
     
-    const localActivity = getLocalStorageItem(`aver_activity_${user.uid}`, []);
-    if (localActivity.length > 0) {
-      setActivity(localActivity);
+    const cachedActivity = getLocalStorageItem(`aver_activity_${user.uid}`, []);
+    if (cachedActivity.length > 0) {
+      setActivity(cachedActivity);
     }
     
-    const localRecommendations = getLocalStorageItem(`aver_recommendations_${user.uid}`, []);
-    if (localRecommendations.length > 0) {
-      setRecommendations(localRecommendations);
+    const cachedRecommendations = getLocalStorageItem(`aver_recommendations_${user.uid}`, []);
+    if (cachedRecommendations.length > 0) {
+      setRecommendations(cachedRecommendations);
     }
-    
+
     setLoading(false);
-  }, [user, getLocalStorageItem]);
+  }, [user?.uid, getLocalStorageItem]);
 
   // Sync state TO localStorage on any state modification
   useEffect(() => {
@@ -750,11 +728,23 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         return;
       }
 
-      const activeConfig = configRefVal.current || {
+      const activeConfig = (configRefVal.current || configs.find(c => c.status === 'ACTIVE') || configs[0] || {
         id: 'cfg_default',
+        name: 'Default AI Config',
         markets: ['BTC', 'ETH', 'SOL'],
-        riskControls: { maxSimultaneousPositions: 3 }
-      };
+        strategy: 'NEURAL_MOMENTUM',
+        riskControls: { maxSimultaneousPositions: 3, maxPositionSize: 50, exposureLimit: 500, positionSizingPreference: 'PERCENTAGE', lossLimit: 2 },
+        recommendationRules: { minConfidence: 75, allowedAssetClasses: ['CRYPTO'], indicators: [] },
+        schedule: { sessions: [], weekdays: true, weekends: true, timezone: 'UTC', breakPeriods: [], excludeHolidays: false }
+      }) as AiConfiguration;
+      console.log("[TradingEngineContext] runOrderLoop: Using config:", activeConfig.id, activeConfig);
+
+      // Respect the Neural Schedule Manager
+      if (!isWithinSchedule(activeConfig.schedule)) {
+        console.log("[TradingEngineContext] Outside schedule window or inside break period. Pausing auto-trading...");
+        orderTimeout = setTimeout(runOrderLoop, 15000);
+        return;
+      }
 
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
       if (openTrades.length >= (activeConfig.riskControls?.maxSimultaneousPositions || 3)) {
@@ -837,13 +827,39 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           return updated;
         });
 
+      // Recommendation rules check
+      if (rec.confidence < (activeConfig.recommendationRules?.minConfidence || 0)) {
+        console.log("[TradingEngineContext] Recommendation confidence too low, skipping:", rec.confidence);
+        orderTimeout = setTimeout(runOrderLoop, 8000);
+        return;
+      }
+
         // Execute trade after a brief delay
         setTimeout(async () => {
           if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
           try {
-            // Calculate quantity based on risk (approx 5% of active capital per trade)
-            const riskAmount = (activeTradingBalanceRef.current || 100000) * 0.05;
-            const quantity = parseFloat((riskAmount / rec.entry).toFixed(4));
+            // Determine size based on risk profile
+            // High risk (e.g. lossLimit >= 5, maxPositionSize >= 100, or Volatility Breakout strategy) -> trade high amounts like $156+ per trade.
+            // Low risk -> trade lower like $22 per trade.
+            const isHighRisk = 
+              activeConfig.strategy === 'VOLATILITY_BREAKOUT' || 
+              (activeConfig.riskControls?.lossLimit !== undefined && activeConfig.riskControls.lossLimit >= 5) || 
+              (activeConfig.riskControls?.maxPositionSize !== undefined && activeConfig.riskControls.maxPositionSize >= 100);
+            
+            let tradeAmount = 22; // default low risk
+            if (isHighRisk) {
+              // High risk: trade high amounts like $156 or more per trade
+              tradeAmount = activeConfig.riskControls?.maxPositionSize ? Math.max(156, activeConfig.riskControls.maxPositionSize) : 156;
+            } else {
+              // Low risk: trade lower like $22
+              tradeAmount = activeConfig.riskControls?.maxPositionSize ? Math.min(22, activeConfig.riskControls.maxPositionSize) : 22;
+            }
+            
+            let quantity = parseFloat((tradeAmount / rec.entry).toFixed(6));
+            if (quantity <= 0) {
+              quantity = 0.0001;
+            }
+            
             let newTrade: AiTrade;
             
             try {
@@ -920,6 +936,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     runOrderLoop();
 
     // 4. BALANCE DRIFT SIMULATION (Every 5 seconds)
+    // Removed as requested
+    /*
     const driftInterval = setInterval(() => {
       if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE' || !addFundsRef.current) return;
       
@@ -927,12 +945,13 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const drift = (Math.random() * 8) - 2.5;
       addFundsRef.current(drift);
     }, 5000);
+    */
 
     return () => {
       clearInterval(tickInterval);
       clearInterval(positionInterval);
       clearInterval(loggingInterval);
-      clearInterval(driftInterval);
+      // clearInterval(driftInterval);
       clearTimeout(orderTimeout);
     };
   }, [user, session?.id, session?.status]);

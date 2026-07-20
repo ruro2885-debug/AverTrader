@@ -921,8 +921,8 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
     t.prevRank = t.rank;
   });
 
-  // Pick 1-3 active traders to trade
-  const numTradersTrading = Math.floor(rand() * 3) + 1;
+  // Pick 5-8 active traders to trade
+  const numTradersTrading = Math.floor(rand() * 4) + 5;
   const pickedIndices = new Set<number>();
   while (pickedIndices.size < numTradersTrading) {
     pickedIndices.add(Math.floor(rand() * copy.length));
@@ -1085,8 +1085,13 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
     copy[idx] = t;
   });
 
-  // Re-calculate everyone's metrics to update their Performance Scores
-  const updatedTraders = copy.map(t => calculateTraderMetrics(t));
+  // Update only traders who actually traded in this tick
+  const updatedTraders = copy.map((t, idx) => {
+    if (pickedIndices.has(idx)) {
+      return calculateTraderMetrics(t);
+    }
+    return t;
+  });
 
   // Sort by performanceScore descending to determine new ranks!
   updatedTraders.sort((a, b) => b.performanceScore - a.performanceScore);

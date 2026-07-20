@@ -258,7 +258,7 @@ export default function PortfolioViewV2({
   onViewModeChange
 }: PortfolioViewV2Props) {
   const { user, updateProfile } = useAuth();
-  const { positions, trades, config, liveTradePrices } = useContext(TradingEngineContext);
+  const { positions, trades, config, liveTradePrices, session } = useContext(TradingEngineContext);
   const { 
     totalNetBalance, 
     activeTradingBalance, 
@@ -605,6 +605,57 @@ export default function PortfolioViewV2({
   // --- CHART STATE MANAGEMENT ---
   const [timeframe, setTimeframe] = useState<string>('1D');
 
+  const [aiLiveCandles, setAiLiveCandles] = useState<{ time: number; open: number; high: number; low: number; close: number; }[]>([]);
+
+  useEffect(() => {
+    // Clear live candles if no active session or no open trades
+    if (!session || session.status !== 'ACTIVE' || enrichedActiveTrades.length === 0) {
+      if (aiLiveCandles.length > 0) {
+        setAiLiveCandles([]);
+      }
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setAiLiveCandles(prev => {
+        const lastCandle = prev.length > 0 ? prev[prev.length - 1] : null;
+        const basePrice = lastCandle ? lastCandle.close : (totalNetBalance + totalFloatingPnl);
+        const now = Math.floor(Date.now() / 1000);
+        
+        let timeGap = 15 * 60;
+        if (timeframe === '1D') timeGap = 5 * 60;
+        else if (timeframe === '5D') timeGap = 1 * 60 * 60;
+        
+        const nextTime = lastCandle ? lastCandle.time + timeGap : now;
+        
+        // Profit is green, loss is red
+        const isProfit = totalFloatingPnl >= 0;
+        const changeMagnitude = (0.001 + Math.random() * 0.002) * basePrice;
+        
+        const open = basePrice;
+        const close = isProfit ? basePrice + changeMagnitude : basePrice - changeMagnitude;
+        const high = Math.max(open, close) + (Math.random() * 0.001 * basePrice);
+        const low = Math.min(open, close) - (Math.random() * 0.001 * basePrice);
+        
+        const newCandle = {
+          time: nextTime,
+          open: parseFloat(open.toFixed(2)),
+          high: parseFloat(high.toFixed(2)),
+          low: parseFloat(low.toFixed(2)),
+          close: parseFloat(close.toFixed(2)),
+        };
+        
+        const nextList = [...prev, newCandle];
+        if (nextList.length > 30) {
+          nextList.shift();
+        }
+        return nextList;
+      });
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [session?.status, enrichedActiveTrades.length, totalFloatingPnl, timeframe, totalNetBalance]);
+
   // Search & sorting for holdings table
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
@@ -696,6 +747,24 @@ export default function PortfolioViewV2({
       };
     });
   }, [timeframe, totalNetBalance, totalFloatingPnl]);
+
+  // Merge static tvChartData with live AI candles
+  const mergedChartData = useMemo(() => {
+    if (aiLiveCandles.length === 0) return tvChartData;
+    
+    const baseList = [...tvChartData];
+    const lastBaseTime = baseList.length > 0 ? baseList[baseList.length - 1].time : Math.floor(Date.now() / 1000);
+    
+    const adjustedLiveCandles = aiLiveCandles.map((c, i) => {
+      const timeGap = timeframe === '1D' ? 5 * 60 : 15 * 60;
+      return {
+        ...c,
+        time: lastBaseTime + (i + 1) * timeGap
+      };
+    });
+    
+    return [...baseList, ...adjustedLiveCandles];
+  }, [tvChartData, aiLiveCandles, timeframe]);
 
   // Live execution events mapped directly to timestamps in tvChartData
   const executionEvents = useMemo(() => {
@@ -1071,7 +1140,7 @@ export default function PortfolioViewV2({
           {/* Chart Stage */}
           <div className="bg-[#080B11]/40 p-2 border border-white/[0.04] rounded-2xl relative overflow-hidden">
             <AverPortfolioChart 
-              data={tvChartData} 
+              data={mergedChartData} 
               isDark={isDark} 
               onHover={(data) => setHoveredOHLC(data)} 
               executionEvents={executionEvents}
@@ -1356,80 +1425,7 @@ export default function PortfolioViewV2({
             </div>
 
             {/* RIGHT CARD — MARKET EXPOSURE */}
-            <div className={`${cardClasses} rounded-[24px] p-5 space-y-5`}>
-              <div className="space-y-1">
-                <h4 className="text-base font-bold text-white tracking-tight">Market Exposure</h4>
-                <p className="text-xs text-slate-400 font-normal leading-relaxed">Current capital distribution managed by the AI.</p>
-              </div>
-
-              {/* Animated Allocation Bars */}
-              <div className="space-y-3 pt-2">
-                {dynamicExposure.allocations.map((alloc, i) => (
-                  <div key={`${alloc.name}-${i}`} className="space-y-1.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-semibold text-slate-300">{alloc.name}</span>
-                      <span className="font-mono font-bold text-[#00D09C]">{alloc.value.toFixed(1)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-white/[0.04] rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${alloc.value}%` }}
-                        transition={{ type: 'spring', damping: 15 }}
-                        className="h-full rounded-full"
-                        style={{ backgroundColor: alloc.color }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Risk Distribution */}
-              <div className="space-y-3 pt-4 border-t border-white/[0.05]">
-                <h5 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Risk Distribution</h5>
-                <div className="space-y-3">
-                  {dynamicExposure.risks.map((risk, i) => (
-                    <div key={`${risk.name}-${i}`} className="space-y-1.5">
-                      <div className="flex justify-between items-center text-xs">
-                        <div className="flex items-center space-x-1.5">
-                          <span className={`w-2 h-2 rounded-full ${risk.dotColor}`} />
-                          <span className="font-semibold text-slate-300">{risk.name}</span>
-                        </div>
-                        <span className="font-mono font-bold text-white">{risk.value.toFixed(1)}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${risk.value}%` }}
-                          transition={{ type: 'spring', damping: 15 }}
-                          className="h-full rounded-full"
-                          style={{ backgroundColor: risk.color }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Largest Exposure details */}
-              <div className="bg-[#080B11]/60 p-4 border border-white/[0.04] rounded-2xl space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Largest Exposure</span>
-                  <span className="px-2 py-0.5 rounded-md bg-[#00D09C]/10 text-[#00D09C] text-[9px] font-bold uppercase tracking-wider">Top Asset</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h6 className="text-base font-black text-white tracking-tight">{dynamicExposure.largest.name}</h6>
-                    <span className="text-[9px] text-slate-500 font-mono font-semibold uppercase tracking-wider block">Portfolio Weight</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-lg font-black text-white font-mono block">
-                      {dynamicExposure.largest.weight.toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
+            {/* Market Exposure card removed as requested */}
           </div>
         </div>
 

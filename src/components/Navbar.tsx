@@ -54,8 +54,8 @@ export default function Navbar({
   const activeTextColor = theme === 'dark' ? 'text-emerald-400 font-medium' : 'text-emerald-600 font-medium';
 
   return (
-    <header className={`fixed top-10 left-0 right-0 z-40 transition-all duration-300 ${navBg}`}>
-      <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+    <header className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${navBg}`}>
+      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         
         {/* Branding */}
         <button onClick={() => handleNavClick('hero')} className="focus:outline-none cursor-pointer">
@@ -105,7 +105,7 @@ export default function Navbar({
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div
-          className={`md:hidden absolute top-20 left-0 right-0 border-b shadow-2xl backdrop-blur-2xl transition-all duration-300 animate-in fade-in slide-in-from-top-5 ${
+          className={`md:hidden absolute top-16 left-0 right-0 border-b shadow-2xl backdrop-blur-2xl transition-all duration-300 animate-in fade-in slide-in-from-top-5 ${
             theme === 'dark'
               ? 'bg-slate-950/95 border-white/5 text-white'
               : 'bg-white/95 border-black/5 text-gray-950'

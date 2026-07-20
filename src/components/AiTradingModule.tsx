@@ -476,14 +476,6 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
             isDark={isDark}
           />
           <SidebarButton 
-            active={activeView === 'RECOMMENDATIONS'} 
-            onClick={() => setActiveView('RECOMMENDATIONS')} 
-            icon={<Zap className="w-4 h-4" />} 
-            label="Recommendations" 
-            badge={pendingRecommendations.length > 0 ? String(pendingRecommendations.length) : undefined}
-            isDark={isDark}
-          />
-          <SidebarButton 
             active={activeView === 'TRADES'} 
             onClick={() => setActiveView('TRADES')} 
             icon={<Briefcase className="w-4 h-4" />} 
@@ -665,51 +657,6 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                       isDark={isDark}
                       liveStates={liveAssetStates}
                     />
-
-                    {/* Pending recommendations */}
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <h3 className={`text-xs font-black uppercase tracking-widest ${textSecondary}`}>
-                          Target Opportunity Desk
-                        </h3>
-                        <div className="flex items-center gap-3">
-                          <button 
-                            onClick={() => setShowOpportunityDesk(!showOpportunityDesk)}
-                            className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
-                              showOpportunityDesk 
-                                ? 'border-slate-800 text-slate-500 hover:text-white' 
-                                : 'border-[#00D09C] text-[#00D09C] hover:bg-[#00D09C]/5'
-                            } transition-colors`}
-                          >
-                            {showOpportunityDesk ? 'Hide Desk' : 'Show Desk'}
-                          </button>
-                          {pendingRecommendations.length > 0 && (
-                            <button 
-                              onClick={() => setActiveView('RECOMMENDATIONS')}
-                              className="text-[10px] font-bold text-[#00D09C] hover:underline"
-                            >
-                              View all ({pendingRecommendations.length})
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <AnimatePresence>
-                        {showOpportunityDesk && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <AiRecommendationList 
-                              recommendations={pendingRecommendations.slice(0, 2)}
-                              isDark={isDark}
-                              session={session}
-                            />
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
                   </div>
 
                   {/* Right side information widgets */}
@@ -765,17 +712,6 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                 onToggleMarket={handleToggleMarket}
                 isDark={isDark}
               />
-            )}
-
-            {activeView === 'RECOMMENDATIONS' && (
-              <div className="space-y-4">
-                <h2 className={`text-xl font-black ${textPrimary} mb-2`}>Neural Signal Desk</h2>
-                <AiRecommendationList 
-                  recommendations={pendingRecommendations}
-                  isDark={isDark}
-                  session={session}
-                />
-              </div>
             )}
 
             {activeView === 'TRADES' && (
