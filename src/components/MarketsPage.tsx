@@ -11,14 +11,19 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   
   const [assets, setAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [news, setNews] = useState<any[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
+  const [insights, setInsights] = useState<string | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
   
   const fetchAssets = async () => {
     try {
       setLoading(true);
-      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22ADAUSDT%22,%22XRPUSDT%22,%22SOLUSDT%22,%22DOGEUSDT%22,%22AVAXUSDT%22,%22LINKUSDT%22,%22BNBUSDT%22,%22FETUSDT%22%5D');
+      setError(null);
+      const res = await fetch('/api/market/ticker');
+      if (!res.ok) throw new Error('Failed to fetch market data');
       const data = await res.json();
       const mapped = data.map((d: any) => {
         const symbol = d.symbol.replace('USDT', '');
@@ -37,10 +42,34 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
       setAssets(mapped);
     } catch (err) {
       console.error(err);
+      setError('Unable to load market data.');
     } finally {
       setLoading(false);
     }
   };
+
+  const fetchInsights = async (currentAssets: any[]) => {
+    try {
+      setInsightsLoading(true);
+      const res = await fetch('/api/market/intelligence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPrices: currentAssets.slice(0, 5) })
+      });
+      const data = await res.json();
+      setInsights(data.briefing?.summary || data.intelligence || 'No insights currently available.');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (assets.length > 0) {
+      fetchInsights(assets);
+    }
+  }, [assets]);
 
   const fetchNews = async () => {
     try {
@@ -99,7 +128,7 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
   const cardClasses = isDark ? "bg-slate-900/40 backdrop-blur-md border border-white/5" : "bg-white/60 backdrop-blur-md border border-slate-200/50";
 
-  const categories = ['Favorites', 'Trending', 'Gainers', 'Losers', 'AI Picks', 'New Listings'];
+  const categories = ['Favorites', 'Trending', 'Gainers', 'Losers'];
   const [activeCategory, setActiveCategory] = useState('Trending');
 
   const overviewAssets = React.useMemo(() => {
@@ -117,37 +146,6 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
     
     if (activeCategory === 'Losers') {
       return [...assets].sort((a, b) => (a.rawChange || 0) - (b.rawChange || 0)).slice(0, 3);
-    }
-    
-    if (activeCategory === 'AI Picks') {
-      const coinWeights: Record<string, number> = { 
-        BTC: 88, ETH: 85, SOL: 82, BNB: 78, LINK: 75, AVAX: 72, FET: 70, ADA: 65, XRP: 60, DOGE: 50 
-      };
-      return [...assets].sort((a, b) => {
-        const scoreA = (coinWeights[a.symbol] || 50) + ((a.rawChange || 0) * 1.5);
-        const scoreB = (coinWeights[b.symbol] || 50) + ((b.rawChange || 0) * 1.5);
-        return scoreB - scoreA;
-      }).slice(0, 3);
-    }
-    
-    if (activeCategory === 'New Listings') {
-      const listingAges: Record<string, number> = {
-        FET: 1,
-        AVAX: 2,
-        SOL: 3,
-        LINK: 4,
-        ADA: 5,
-        DOGE: 6,
-        XRP: 7,
-        ETH: 8,
-        BTC: 9,
-        BNB: 10
-      };
-      return [...assets].sort((a, b) => {
-        const ageA = listingAges[a.symbol] || 100;
-        const ageB = listingAges[b.symbol] || 100;
-        return ageA - ageB;
-      }).slice(0, 3);
     }
     
     return assets.slice(0, 3);
@@ -181,6 +179,11 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
         <div className={`rounded-[24px] overflow-hidden ${cardClasses} shadow-xl`}>
           {loading && overviewAssets.length === 0 ? (
             <div className="p-8 text-center text-xs text-gray-500">Retrieving digital assets...</div>
+          ) : error ? (
+            <div className="p-8 text-center text-xs text-gray-500 flex flex-col items-center gap-3">
+              <span>Unable to load market data. Tap to retry.</span>
+              <button onClick={fetchAssets} className="px-4 py-2 bg-emerald-500 text-black rounded-xl text-xs font-black shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">Retry</button>
+            </div>
           ) : overviewAssets.length === 0 ? (
             <div className="p-8 text-center text-xs text-gray-500">No assets available.</div>
           ) : (
@@ -223,7 +226,13 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
       <div className="px-4 py-6">
         <h3 className={`text-lg font-black tracking-tight ${textPrimary} mb-4`}>Market Insights</h3>
         <div className={`rounded-[24px] p-6 ${cardClasses}`}>
-            <p className="text-sm text-slate-400">Live AI-driven market analysis, pulse tracking, and upcoming economic event calendar will be populated here as they become available.</p>
+            {insightsLoading ? (
+              <p className="text-sm text-slate-500 animate-pulse">Analyzing market pulse...</p>
+            ) : insights ? (
+              <p className="text-sm text-slate-300">{insights}</p>
+            ) : (
+              <p className="text-sm text-slate-400">No insights currently available.</p>
+            )}
         </div>
       </div>
 

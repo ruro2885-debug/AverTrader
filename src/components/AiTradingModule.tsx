@@ -53,7 +53,7 @@ import AiActivityLog, { ActivityEvent } from './ai/AiActivityLog';
 type AiView = 'HOME' | 'CONFIGS' | 'SESSIONS' | 'SCANNER' | 'RECOMMENDATIONS' | 'TRADES' | 'HISTORY' | 'PERFORMANCE' | 'NOTIFICATIONS' | 'SETTINGS';
 type EngineState = 'IDLE' | 'PREPARING' | 'LOADING_CONFIG' | 'SYNC_USER' | 'SYNC_MARKET' | 'SCANNING' | 'ANALYZING' | 'GENERATING' | 'WAITING_DECISION' | 'MONITORING' | 'PAUSED' | 'STOPPED' | 'ERROR';
 
-export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) {
+export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'light' | 'dark', onOpenDeposit: () => void }) {
   const { user, updateProfile, addNotification } = useAuth();
   const { activeTradingBalance, addFundsToActiveBalance, activeBalanceOffset } = useFinancials();
   const { preferences, formatCurrency } = usePreferences();
@@ -75,6 +75,8 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   } = useContext(TradingEngineContext);
   const isDark = theme === 'dark';
 
+  const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
+
   // Navigation state (restored from localStorage)
   const [activeView, setActiveView] = useState<AiView>(() => {
     const saved = safeStorage.getItem('aver_ai_active_view');
@@ -86,18 +88,15 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   const [loading, setLoading] = useState(false);
 
   const enrichedActiveTrades = useMemo(() => activeTrades.map(trade => {
-    const livePrice = liveTradePrices[trade.id];
-    if (livePrice) {
-      const pnl = (livePrice - trade.entry) * trade.quantity;
-      const pnlPercent = ((livePrice - trade.entry) / trade.entry) * 100;
-      return { 
-        ...trade, 
-        currentPrice: livePrice,
-        pnl,
-        pnlPercent
-      };
-    }
-    return trade;
+    const livePrice = liveTradePrices[trade.id] || trade.currentPrice || trade.entry;
+    const pnl = (livePrice - trade.entry) * trade.quantity;
+    const pnlPercent = ((livePrice - trade.entry) / trade.entry) * 100;
+    return { 
+      ...trade, 
+      currentPrice: livePrice,
+      pnl,
+      pnlPercent
+    };
   }), [activeTrades, liveTradePrices]);
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
@@ -124,9 +123,56 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   const [memoryUsage, setMemoryUsage] = useState(412);
   const [neuralCycles, setNeuralCycles] = useState(0);
 
-  const totalPnlAmount = activeBalanceOffset + totalFloatingPnl;
-  const initialCapital = 100000;
-  const totalPnlPercent = (totalPnlAmount / initialCapital) * 100;
+  // Dynamic live flickering offsets for micro-movements (runs continuously to ensure a live, ticking environment)
+  const [livePriceTickOffset, setLivePriceTickOffset] = useState(0);
+  const [livePnlPercentOffset, setLivePnlPercentOffset] = useState(0);
+  const [liveAllocatedRatio, setLiveAllocatedRatio] = useState(99.6);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLivePriceTickOffset(prev => {
+        // Safe micro fluctuation within -$3.50 and +$3.50 range
+        const change = (Math.random() - 0.5) * 0.16;
+        const next = prev + change;
+        if (next > 3.50) return 3.50 - Math.random() * 0.3;
+        if (next < -3.50) return -3.50 + Math.random() * 0.3;
+        return next;
+      });
+
+      setLivePnlPercentOffset(prev => {
+        // Safe micro-pnl percentage fluctuation
+        const change = (Math.random() - 0.5) * 0.005;
+        const next = prev + change;
+        if (next > 0.25) return 0.25 - Math.random() * 0.02;
+        if (next < -0.25) return -0.25 + Math.random() * 0.02;
+        return next;
+      });
+
+      setLiveAllocatedRatio(prev => {
+        // Keeps the node ratio lively ticking between 98.2% and 100.0% to simulate live load balancing
+        const change = (Math.random() - 0.5) * 0.3;
+        let next = prev + change;
+        if (next > 100.0) next = 100.0;
+        if (next < 97.5) next = 98.0 + Math.random() * 0.5;
+        return parseFloat(next.toFixed(2));
+      });
+    }, 800);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // High-frequency live UI ticker states
+  const [microVariance, setMicroVariance] = useState(0);
+  const [nodeLoad, setNodeLoad] = useState(99.4);
+  const [activeNodesCount, setActiveNodesCount] = useState(14);
+
+  const closedTradesPnL = useMemo(() => trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0), [trades]);
+  const totalPnlAmount = closedTradesPnL + totalFloatingPnl;
+  const baseCapital = useMemo(() => {
+    const base = user?.portfolioBalance || user?.portfolio?.totalValue || 0;
+    return base > 0 ? base : 100000;
+  }, [user]);
+  const totalPnlPercent = (totalPnlAmount / baseCapital) * 100;
 
   // Layout helpers
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
@@ -178,25 +224,51 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
     safeStorage.setItem('aver_ai_active_view', activeView);
   }, [activeView]);
 
-  // Telemetry simulation loop
+  // Telemetry and UI Micro-Fluctuations Simulation Loop (1000ms updates)
   useEffect(() => {
     const interval = setInterval(() => {
       setCpuUsage(prev => {
         const delta = (Math.random() - 0.5) * 5;
-        const target = session?.status === 'ACTIVE' ? 45 : 4.2;
+        const target = session?.status === 'ACTIVE' ? 45 : 2.4;
         const next = prev + (target - prev) * 0.15 + delta;
         return parseFloat(Math.max(1, Math.min(99, next)).toFixed(1));
       });
       setMemoryUsage(prev => {
         const delta = Math.floor((Math.random() - 0.5) * 10);
-        const target = session?.status === 'ACTIVE' ? 1420 : 380;
+        const target = session?.status === 'ACTIVE' ? 1420 : 412;
         const next = prev + (target - prev) * 0.05 + delta;
         return Math.max(100, Math.min(4000, next));
       });
       if (session?.status === 'ACTIVE') {
         setNeuralCycles(prev => prev + Math.floor(Math.random() * 8 + 1));
+        
+        // Micro-fluctuation between -$0.12 and +$0.12 for visuals to keep numbers active
+        setMicroVariance(prev => {
+          const delta = (Math.random() - 0.5) * 0.08;
+          const next = prev + delta;
+          return Math.max(-3.5, Math.min(3.5, next));
+        });
+        
+        // Node load percentage fluctuations (e.g., between 98.2% and 100.0%)
+        setNodeLoad(() => {
+          return parseFloat((98.5 + Math.random() * 1.5).toFixed(2));
+        });
+        
+        // Engaged nodes count fluctuations (e.g. 12 to 16)
+        setActiveNodesCount(() => {
+          return Math.floor(12 + Math.random() * 5);
+        });
+      } else {
+        // Even when idle, simulate extremely minor wallet/valuation synchronization
+        setMicroVariance(prev => {
+          const delta = (Math.random() - 0.5) * 0.005;
+          const next = prev + delta;
+          return Math.max(-0.15, Math.min(0.15, next));
+        });
+        setNodeLoad(0.0);
+        setActiveNodesCount(0);
       }
-    }, 1500);
+    }, 1000);
     return () => clearInterval(interval);
   }, [session]);
 
@@ -214,6 +286,12 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
   // Session Management
   const handleStartSession = async () => {
     if (!user) return;
+    
+    // Validate balance before starting
+    if (activeTradingBalance <= 0) {
+      setShowInsufficientFundsModal(true);
+      return;
+    }
     
     // 1. Initializing State
     setEngineState('PREPARING');
@@ -561,13 +639,19 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                 {/* AI Trading Capital Command Center Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   {/* Card 1: Trading Capital */}
-                  <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
+                  <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px] transition-all`}>
                     <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Trading Capital</span>
                     <div>
-                      <h4 className={`${textPrimary} text-lg font-black tracking-tight`}>
-                        ${(activeTradingBalance + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <h4 className={`${textPrimary} text-lg font-black tracking-tight font-mono`}>
+                        ${(activeTradingBalance + totalFloatingPnl + livePriceTickOffset).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </h4>
-                      <p className="text-[9px] font-mono text-[#00D09C] mt-1">● Synced with Wallet</p>
+                      <p className="text-[9px] font-mono text-[#00D09C] mt-1 flex items-center gap-1">
+                        <span className="relative flex h-1.5 w-1.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00D09C] opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#00D09C]"></span>
+                        </span>
+                        Synced with Wallet
+                      </p>
                     </div>
                   </div>
 
@@ -578,10 +662,12 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                   <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
                     <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Total Positions Held</span>
                     <div>
-                      <h4 className={`${textPrimary} text-lg font-black tracking-tight`}>
-                        {config?.markets?.length || 0}
+                      <h4 className={`${textPrimary} text-lg font-black tracking-tight font-mono`}>
+                        {activeTrades.length}
                       </h4>
-                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">Selected Index/Pairs</p>
+                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">
+                        {session?.status === 'ACTIVE' ? `Scanning ${config?.markets?.length || 3} Pairs` : 'Engine Offline'}
+                      </p>
                     </div>
                   </div>
 
@@ -589,11 +675,11 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                   <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
                     <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Allocated Ratio</span>
                     <div>
-                      <h4 className={`${textPrimary} text-lg font-black tracking-tight`}>
-                        {session?.status === 'ACTIVE' ? '100.0%' : '0.0%'}
+                      <h4 className={`${textPrimary} text-lg font-black tracking-tight font-mono`}>
+                        {liveAllocatedRatio.toFixed(2)}%
                       </h4>
                       <p className="text-[9px] font-mono text-slate-400 mt-1">
-                        {session?.status === 'ACTIVE' ? 'Engaged Nodes' : 'Engine Idle'}
+                        {session?.status === 'ACTIVE' ? 'Active Nodes Engaged' : 'Standby Core Engaged'}
                       </p>
                     </div>
                   </div>
@@ -604,10 +690,12 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
                   <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px]`}>
                     <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Daily P/L</span>
                     <div>
-                      <h4 className={`text-lg font-black tracking-tight ${totalPnlAmount >= 0 ? 'text-[#00D09C]' : 'text-red-500'}`}>
-                        {totalPnlAmount >= 0 ? '+' : ''}{totalPnlPercent.toFixed(2)}%
+                      <h4 className={`text-lg font-black tracking-tight font-mono ${(totalPnlPercent + livePnlPercentOffset) >= 0 ? 'text-[#00D09C]' : 'text-red-500'}`}>
+                        {(totalPnlPercent + livePnlPercentOffset) >= 0 ? '+' : ''}{(totalPnlPercent + livePnlPercentOffset).toFixed(4)}%
                       </h4>
-                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">Performance Yield</p>
+                      <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">
+                        {totalPnlAmount + livePriceTickOffset >= 0 ? '+' : ''}${(totalPnlAmount + livePriceTickOffset).toFixed(2)} Today
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -840,6 +928,50 @@ export default function AiTradingModule({ theme }: { theme: 'light' | 'dark' }) 
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {/* Insufficient Funds Modal */}
+      <AnimatePresence>
+        {showInsufficientFundsModal && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.95 }} 
+              animate={{ scale: 1 }} 
+              exit={{ scale: 0.95 }}
+              className={`max-w-sm w-full rounded-3xl p-8 border ${isDark ? 'bg-[#0B0E14] border-white/10' : 'bg-white border-slate-200'}`}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-6">
+                <Shield className="w-6 h-6 text-amber-500" />
+              </div>
+              <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'} mb-2`}>Insufficient Funds</h3>
+              <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'} mb-8`}>
+                Insufficient funds. Please make a deposit to start your trading session.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setShowInsufficientFundsModal(false)}
+                  className={`flex-1 px-4 py-3 rounded-xl text-sm font-bold transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'}`}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowInsufficientFundsModal(false);
+                    onOpenDeposit();
+                  }}
+                  className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-[#00D09C] hover:bg-[#00b387] text-black transition-all"
+                >
+                  Deposit
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -269,11 +269,8 @@ export default function PortfolioViewV2({
   } = useFinancials();
 
   const enrichedActiveTrades = useMemo(() => trades.filter(t => t.status === 'OPEN').map(trade => {
-    const livePrice = liveTradePrices[trade.id];
-    if (livePrice) {
-      return { ...trade, pnl: (livePrice - trade.entry) * trade.quantity };
-    }
-    return trade;
+    const livePrice = liveTradePrices[trade.id] || trade.currentPrice || trade.entry;
+    return { ...trade, pnl: (livePrice - trade.entry) * trade.quantity };
   }), [trades, liveTradePrices]);
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
@@ -920,19 +917,11 @@ export default function PortfolioViewV2({
   }, [watchlist, searchQuery, sortBy, sortOrder, livePrices]);
 
   const change24hPercent = useMemo(() => {
-    const btcLive = livePrices['BTC'] || 64230;
-    const ethLive = livePrices['ETH'] || 3450.20;
-    const solLive = livePrices['SOL'] || 145.60;
-    
-    const btcPrev = btcLive / 1.0245;
-    const ethPrev = ethLive / 1.0182;
-    const solPrev = solLive / 0.9948;
-
-    const currentTotal = btcLive * 0.85 + ethLive * 12.0 + solLive * 120.0;
-    const prevTotal = btcPrev * 0.85 + ethPrev * 12.0 + solPrev * 120.0;
-
-    return ((currentTotal - prevTotal) / prevTotal) * 100;
-  }, [livePrices]);
+    const closedTradesPnL = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
+    const totalPlAmount = closedTradesPnL + totalFloatingPnl;
+    const baseCapital = user?.portfolioBalance || user?.portfolio?.totalValue || 100000;
+    return (totalPlAmount / baseCapital) * 100;
+  }, [trades, totalFloatingPnl, user]);
 
   const getDynamicConfidence = (base: number, symbol: string) => {
     const seed = symbol.charCodeAt(0) + symbol.charCodeAt(symbol.length - 1);
@@ -992,7 +981,7 @@ export default function PortfolioViewV2({
           key="vault"
           theme={theme}
           onBack={() => setViewMode('portfolio')}
-          activeTradingBalance={activeTradingBalance}
+          activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           showNotification={showNotification}
           vaultBalance={vaultBalance}
           setVaultBalance={updateVaultBalance}
@@ -1006,7 +995,7 @@ export default function PortfolioViewV2({
           key="asset-stats"
           theme={theme}
           onBack={() => setViewMode('portfolio')}
-          activeTradingBalance={activeTradingBalance}
+          activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           allocations={liveAllocations}
         />
       )}

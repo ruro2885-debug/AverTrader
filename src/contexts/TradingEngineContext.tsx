@@ -963,24 +963,11 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         setTimeout(async () => {
           if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
           try {
-            // Determine size based on risk profile
-            // High risk (e.g. lossLimit >= 3, or Volatility Breakout/Neural Momentum strategy) -> trade high amounts like $156+ per trade.
-            // Low risk -> trade lower like $22 per trade.
-            const isHighRisk = 
-              activeConfig.strategy === 'VOLATILITY_BREAKOUT' || 
-              activeConfig.strategy === 'NEURAL_MOMENTUM' ||
-              (activeConfig.riskControls?.lossLimit !== undefined && activeConfig.riskControls.lossLimit >= 3) || 
-              (activeConfig.riskControls?.maxPositionSize !== undefined && activeConfig.riskControls.maxPositionSize >= 50);
+            // Determine size based on risk profile using configuration
+            const maxPosSize = activeConfig.riskControls?.maxPositionSize || 22; // default to 22 if undefined
             
-            let tradeAmount = 22; // default low risk
-            if (isHighRisk) {
-              // High risk: trade high amounts like $156 or more per trade
-              const randomOffset = Math.floor(Math.random() * 30); // between 156 and 186
-              tradeAmount = 156 + randomOffset;
-            } else {
-              // Low risk: trade lower like $22
-              tradeAmount = 22;
-            }
+            // Using maxPositionSize as the base for trade amount
+            const tradeAmount = maxPosSize; 
             
             let quantity = parseFloat((tradeAmount / rec.entry).toFixed(6));
             if (quantity <= 0) {

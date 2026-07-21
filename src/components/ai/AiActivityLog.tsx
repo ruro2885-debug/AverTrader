@@ -45,8 +45,8 @@ export default function AiActivityLog({ events, isDark }: AiActivityLogProps) {
             <p className={`${textSecondary} opacity-40`}>No recent activity events.</p>
           </div>
         ) : (
-          events.map(ev => (
-            <div key={ev.id} className="p-4 hover:bg-white/5 transition-colors flex gap-3.5 items-start">
+          events.map((ev, idx) => (
+            <div key={`${ev.id}-${idx}`} className="p-4 hover:bg-white/5 transition-colors flex gap-3.5 items-start">
               <div className="mt-0.5">
                 {ev.type === 'SUCCESS' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
                 {ev.type === 'INFO' && <Info className="w-4 h-4 text-blue-500" />}

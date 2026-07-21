@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { generateAiRecommendation, analyzeTradeAction, generateCatherineCommentary } from "./src/server/gemini";
+import { generateAiRecommendation, analyzeTradeAction, generateCatherineCommentary, generateMarketIntelligence, generateAssetAnalysis } from "./src/server/gemini";
 
 async function startServer() {
   const app = express();
@@ -52,6 +52,44 @@ async function startServer() {
       const data = await response.json();
       res.json(data);
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/market/ticker", async (req, res) => {
+    try {
+      const symbols = encodeURIComponent('["BTCUSDT","ETHUSDT","ADAUSDT","XRPUSDT","SOLUSDT","DOGEUSDT","AVAXUSDT","LINKUSDT","BNBUSDT","FETUSDT"]');
+      const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${symbols}`);
+      if (!response.ok) throw new Error('Binance API failed');
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Market ticker proxy error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/market/intelligence", async (req, res) => {
+    try {
+      const { currentPrices } = req.body;
+      const intelligence = await generateMarketIntelligence(currentPrices || {});
+      res.json(intelligence);
+    } catch (error: any) {
+      console.error("Failed to generate market intelligence:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/market/asset-analysis", async (req, res) => {
+    try {
+      const { symbol, currentPrice } = req.body;
+      if (!symbol || currentPrice === undefined) {
+        return res.status(400).json({ error: "symbol and currentPrice are required" });
+      }
+      const analysis = await generateAssetAnalysis(symbol, currentPrice);
+      res.json(analysis);
+    } catch (error: any) {
+      console.error(`Failed to analyze asset ${req.body.symbol}:`, error);
       res.status(500).json({ error: error.message });
     }
   });

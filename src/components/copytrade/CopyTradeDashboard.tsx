@@ -9,7 +9,8 @@ import { generateAvatarSvg } from '../../utils/avatarGenerator';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePreferences } from '../../contexts/PreferencesContext';
 import { aiTradingService } from '../../services/aiTradingService';
-import { Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { AiConfiguration, TradingSchedule, RiskControls, RecommendationRules } from '../../types/aiTrading';
 import { safeStorage } from '../../utils/storage';
 import { 
@@ -89,20 +90,61 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
     }
   }, [traders, selectedTrader?.id]);
 
-  // Realistic dynamic updates over time based on our high-fidelity competitive simulation engine
+  // Real-time synchronization with Firestore copy-trading simulation database
   useEffect(() => {
-    const interval = setInterval(() => {
+    const tradersRef = collection(db, 'traderProfiles');
+    const unsub = onSnapshot(tradersRef, (snapshot) => {
+      if (snapshot.empty) return;
+      const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Trader[];
+      // Sort by rank ascending
+      list.sort((a, b) => (a.rank || 99) - (b.rank || 99));
+
       setTraders(prev => {
-        const { updatedTraders, events: newEvents } = runSimulationTick(prev as any);
-        
-        // Schedule side effects outside of the current state update cycle to avoid "Cannot update a component while rendering a different component" errors
+        if (prev.length === 0) {
+          return list;
+        }
+
+        // Compare with previous state to trigger dynamic, live simulation events and notifications!
+        const newEvents: SimulationEvent[] = [];
+        list.forEach(t => {
+          const old = prev.find(p => p.id === t.id);
+          if (old) {
+            // Check for rank climbs
+            if (t.rank < old.rank) {
+              newEvents.push({
+                id: `evt_rank_up_${t.id}_${Date.now()}`,
+                text: `📈 Leaderboard Shift: ${t.username} climbed to Rank #${t.rank}!`,
+                timestamp: new Date().toISOString(),
+                traderId: t.id,
+                type: 'rank_up'
+              });
+            }
+            // Check for completed trade events
+            const oldClosedTrades = old.trades ? old.trades.filter(tr => tr.status === 'CLOSED') : [];
+            const newClosedTrades = t.trades ? t.trades.filter(tr => tr.status === 'CLOSED') : [];
+            if (newClosedTrades.length > oldClosedTrades.length) {
+              const lastTrade = newClosedTrades[newClosedTrades.length - 1];
+              if (lastTrade) {
+                const isWin = (lastTrade.pnlPercent || 0) > 0;
+                newEvents.push({
+                  id: `evt_trade_${t.id}_${Date.now()}`,
+                  text: `${isWin ? '✅ Take Profit' : '❌ Stop Loss'}: ${t.username} closed a ${lastTrade.asset} trade for ${isWin ? '+' : ''}${lastTrade.pnlPercent}%!`,
+                  timestamp: new Date().toISOString(),
+                  traderId: t.id,
+                  type: 'entry'
+                });
+              }
+            }
+          }
+        });
+
         if (newEvents.length > 0) {
           setTimeout(() => {
             setEvents(prevEvts => [
               ...newEvents,
               ...prevEvts
-            ].slice(0, 30)); // keep last 30 events max
-            
+            ].slice(0, 30));
+
             if (addNotification) {
               newEvents.forEach(evt => {
                 addNotification(
@@ -115,12 +157,12 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
             }
           }, 0);
         }
-        
-        return updatedTraders as any;
-      });
-    }, 3000); // simulation tick every 3 seconds instead of 8
 
-    return () => clearInterval(interval);
+        return list;
+      });
+    });
+
+    return () => unsub();
   }, [addNotification]);
 
   const [jitter, setJitter] = useState(0);
@@ -210,7 +252,17 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
       // Trigger beautiful UI feedback
       setCopySuccess(newConfigId);
       
-      // Increment follower count locally for feedback loop
+      // Increment follower count in Firestore for persistence and real-time sync across clients
+      try {
+        const traderDocRef = doc(db, 'traderProfiles', trader.id);
+        await updateDoc(traderDocRef, {
+          followers: trader.followers + 1
+        });
+      } catch (err) {
+        console.warn("Failed to update follower count in Firestore:", err);
+      }
+
+      // Increment follower count locally for instant feedback loop
       setTraders(prev => prev.map(t => {
         if (t.id === trader.id) {
           return { ...t, followers: t.followers + 1 };

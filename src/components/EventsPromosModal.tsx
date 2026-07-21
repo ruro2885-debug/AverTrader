@@ -7,7 +7,7 @@ export default function EventsPromosModal({ isOpen, onClose, theme }: { isOpen: 
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60]" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-[10%] rounded-t-[32px] bg-black z-[70] overflow-hidden focus:outline-none">
+        <Dialog.Content className="fixed inset-0 rounded-t-[32px] bg-black z-[70] overflow-hidden focus:outline-none">
           <EventsPromosPage theme={theme} onBack={onClose} />
         </Dialog.Content>
       </Dialog.Portal>

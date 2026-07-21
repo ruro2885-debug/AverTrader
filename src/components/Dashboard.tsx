@@ -18,6 +18,7 @@ import CopyTrading from './CopyTrading/CopyTrading';
 
 import { NotificationCenter } from './NotificationCenter';
 import EventsPromosModal from './EventsPromosModal';
+import SupportCenterModal from './SupportCenterModal';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import UserAvatar from './UserAvatar';
@@ -43,11 +44,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const isDark = preferences.theme === 'dark';
   
   const enrichedActiveTrades = useMemo(() => trades.filter(t => t.status === 'OPEN').map(trade => {
-    const livePrice = liveTradePrices[trade.id];
-    if (livePrice) {
-      return { ...trade, pnl: (livePrice - trade.entry) * trade.quantity };
-    }
-    return trade;
+    const livePrice = liveTradePrices[trade.id] || trade.currentPrice || trade.entry;
+    return { ...trade, pnl: (livePrice - trade.entry) * trade.quantity };
   }), [trades, liveTradePrices]);
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
@@ -153,6 +151,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showEventsPromosModal, setShowEventsPromosModal] = useState(false);
+  const [showSupportCenterModal, setShowSupportCenterModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
@@ -164,10 +163,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Fallback defaults if user profile isn't fully loaded or is null
   const { totalNetBalance, activeTradingBalance, activeBalanceOffset } = useFinancials();
   
+  const closedTradesPnL = useMemo(() => trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0), [trades]);
+  const totalPlAmount = closedTradesPnL + totalFloatingPnl;
+  const baseCapital = useMemo(() => {
+    const base = user?.portfolioBalance || user?.portfolio?.totalValue || 0;
+    return base > 0 ? base : 100000;
+  }, [user]);
+  const totalPlPercent = (totalPlAmount / baseCapital) * 100;
   const totalValue = totalNetBalance + totalFloatingPnl;
-  const totalPlAmount = activeBalanceOffset + totalFloatingPnl;
-  const initialCapital = 100000; // baseCash fallback in useFinancials
-  const totalPlPercent = (totalPlAmount / initialCapital) * 100;
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (totalPlAmount >= 0 ? '+' : '') + formatCurrency(totalPlAmount);
@@ -522,7 +525,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* Main content shifted left margin on desktop */}
       <div className={`${isFullScreen ? '' : 'lg:pl-64'} flex-1 flex flex-col`}>
-        <div className={`relative z-10 flex-1 flex flex-col p-0 sm:p-0 ${isFullScreen ? 'w-full max-w-none m-0' : 'lg:max-w-none lg:mx-0'} pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' ? 'pt-[60px]' : ''} ${!isFullScreen && (activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover') ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
+        <div className={`relative z-10 flex-1 flex flex-col p-0 sm:p-0 ${isFullScreen ? 'w-full max-w-none m-0' : 'lg:max-w-none lg:mx-0'} pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' ? 'pt-[50px]' : ''} ${!isFullScreen && (activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover') ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
           
           {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' && (
             <header className={`fixed top-0 left-0 lg:left-64 right-0 h-[50px] flex justify-between items-center px-4 lg:px-8 z-40 ${isDark ? 'bg-black/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
@@ -548,6 +551,10 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   </h1>
                 )}
               </div>
+            </div>
+
+            {/* Center High-Frequency Unrealized P/L Counter */}
+            <div id="header-unrealized-pl-wrapper" className="flex items-center justify-center">
             </div>
             
             <button 
@@ -807,11 +814,12 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setShowEventsPromosModal(true)} />}
-          {activeTab === 'ai' && <AiTradingModule theme={theme} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setShowEventsPromosModal(true)} onOpenSupportCenter={() => setShowSupportCenterModal(true)} />}
+          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => setShowDepositModal(true)} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
           
           {showEventsPromosModal && <EventsPromosModal isOpen={showEventsPromosModal} onClose={() => setShowEventsPromosModal(false)} theme={theme} />}
+          {showSupportCenterModal && <SupportCenterModal isOpen={showSupportCenterModal} onClose={() => setShowSupportCenterModal(false)} theme={theme} />}
           
           {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && (
             <motion.div

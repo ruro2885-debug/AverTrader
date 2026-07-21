@@ -74,7 +74,7 @@ export default function AiTradeCenter({ trades, isDark, monitoredMarkets = [] }:
               const isProfit = pnl >= 0;
               
               return (
-                <div key={trade.id} className="p-5 hover:bg-white/5 transition-colors group">
+                <div key={`active-${trade.id}-${idx}`} className="p-5 hover:bg-white/5 transition-colors group">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-white/5 border border-white/10`}>
@@ -138,7 +138,7 @@ export default function AiTradeCenter({ trades, isDark, monitoredMarkets = [] }:
               );
             } else {
               return (
-                <div key={item.asset} className="p-4 flex items-center justify-between group bg-black/5 dark:bg-white/[0.01]">
+                <div key={`scan-${item.asset}-${idx}`} className="p-4 flex items-center justify-between group bg-black/5 dark:bg-white/[0.01]">
                   <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 opacity-40`}>
                       <span className={`text-sm font-black ${textPrimary}`}>{item.asset[0]}</span>

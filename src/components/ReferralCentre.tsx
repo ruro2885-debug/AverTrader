@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { ArrowLeft, Users, Copy, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowLeft, Users, Copy, Check, Lock, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -11,6 +11,7 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
   const [referrals, setReferrals] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [showPopup, setShowPopup] = useState(false);
 
   useEffect(() => {
     const fetchReferrals = async () => {
@@ -62,8 +63,37 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
         <ArrowLeft size={24} />
       </button>
 
+      {/* Info Popup */}
+      <AnimatePresence>
+        {showPopup && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-6 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-[#1a1a1a] p-8 rounded-3xl border border-white/10 max-w-sm w-full relative"
+            >
+              <button onClick={() => setShowPopup(false)} className="absolute top-4 right-4 text-white/50 hover:text-white"><X size={20} /></button>
+              <Lock className="text-[#00e676] w-12 h-12 mb-6" />
+              <h2 className="text-xl font-bold text-white mb-4">Referral Rewards Policy</h2>
+              <p className="text-white/70 text-sm leading-relaxed">
+                To prevent fraudulent and spam activities, referral rewards are only credited after your referee verifies their account and makes a minimum deposit of $10.
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 1. Full-Width Gradient Hero */}
       <header className="bg-gradient-to-br from-[#00e676] to-[#00bcd4] w-full pt-[80px] pb-[60px] px-[20px] text-center rounded-b-[30px] shadow-[0_10px_30px_rgba(0,0,0,0.3)] mb-[40px] relative">
+        <button onClick={() => setShowPopup(true)} className="absolute top-[20px] right-[20px] p-3 rounded-full bg-black/10 hover:bg-black/20 text-black transition-colors">
+          <Lock size={20} />
+        </button>
         <motion.div 
           animate={{ y: [0, -15, 0] }} 
           transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }} 

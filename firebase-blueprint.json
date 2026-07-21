@@ -267,6 +267,36 @@
         "metadata": { "type": "object" }
       },
       "required": ["id", "userId", "type", "message", "timestamp"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Interactive user support ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "sender": { "type": "string" },
+              "text": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            },
+            "required": ["id", "sender", "text", "timestamp"]
+          }
+        }
+      },
+      "required": ["id", "userId", "title", "category", "description", "status", "priority", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -280,6 +310,8 @@
     "/users/{uid}/positions/{positionId}": { "schema": "Position", "description": "Active positions" },
     "/traderProfiles/{traderId}": { "schema": "TraderProfile", "description": "Trader profiles" },
     "/users/{uid}/activity/{eventId}": { "schema": "ActivityEvent", "description": "User activity log" },
+    "/users/{uid}/campaigns/{campaignId}": { "schema": "UserBonus", "description": "Active interactive campaign progress and claims" },
+    "/users/{uid}/supportTickets/{ticketId}": { "schema": "SupportTicket", "description": "Interactive user support tickets" },
     "/aiSessions/{sessionId}": { "schema": "AiSession", "description": "AI trading sessions" },
     "/aiRecommendations/{recId}": { "schema": "AiRecommendation", "description": "AI recommendations" },
     "/bonuses/{bonusId}": { "schema": "Bonus", "description": "Bonus templates" },

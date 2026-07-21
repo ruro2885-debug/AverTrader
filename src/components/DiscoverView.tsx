@@ -1,13 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  TrendingUp, Bot, Users, Sparkles, Flame, Calendar, BookOpen, ChevronRight, PlayCircle
+  TrendingUp, Bot, Users, Sparkles, Flame, Calendar, BookOpen, ChevronRight, PlayCircle, LifeBuoy
 } from 'lucide-react';
 import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
 import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
-export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEventsPromos }: { theme: 'light' | 'dark', onOpenMarketHighlights: () => void, onOpenEventsPromos: () => void }) {
+export default function DiscoverView({ 
+  theme, 
+  onOpenMarketHighlights, 
+  onOpenEventsPromos, 
+  onOpenSupportCenter 
+}: { 
+  theme: 'light' | 'dark', 
+  onOpenMarketHighlights: () => void, 
+  onOpenEventsPromos: () => void,
+  onOpenSupportCenter: () => void
+}) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
   
@@ -218,23 +228,37 @@ export default function DiscoverView({ theme, onOpenMarketHighlights, onOpenEven
       </div>
 
       {/* Dynamic Grid: Secondary sections */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2, duration: 0.5 }}
+        className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+      >
         {[
-          { title: 'Market Highlights', icon: Sparkles, color: 'text-amber-500', bg: isDark ? 'bg-amber-500/10' : 'bg-amber-50', onClick: onOpenMarketHighlights },
-          { title: 'Events & Promos', icon: Calendar, color: 'text-purple-500', bg: isDark ? 'bg-purple-500/10' : 'bg-purple-50', onClick: onOpenEventsPromos },
-          { title: 'Aver Academy', icon: BookOpen, color: 'text-emerald-500', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
+          { title: 'Market Highlights', icon: Sparkles, color: 'text-amber-500', bg: 'bg-gradient-to-br from-amber-500/20 to-amber-500/5', onClick: onOpenMarketHighlights },
+          { title: 'Events & Promos', icon: Calendar, color: 'text-purple-500', bg: 'bg-gradient-to-br from-purple-500/20 to-purple-500/5', onClick: onOpenEventsPromos },
+          { title: 'Support Center', icon: LifeBuoy, color: 'text-emerald-500', bg: 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/5', onClick: onOpenSupportCenter },
         ].map((item, i) => (
-          <button key={`${item.title}-${i}`} onClick={item.onClick} className={`p-5 rounded-[20px] ${cardClasses} flex flex-col items-start transition-transform hover:scale-[1.02] text-left group`}>
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${item.bg}`}>
-              <item.icon className={`w-5 h-5 ${item.color}`} />
+          <motion.button 
+            key={`${item.title}-${i}`} 
+            onClick={item.onClick}
+            whileHover={{ scale: 1.03, y: -5 }}
+            whileTap={{ scale: 0.98 }}
+            className={`p-6 rounded-[24px] ${cardClasses} flex flex-col items-start text-left group relative overflow-hidden transition-all duration-300 hover:shadow-2xl hover:border-white/20`}
+          >
+            {/* Texture/Graphics Effect */}
+            <div className={`absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white/20 to-transparent pointer-events-none`}></div>
+            
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-5 ${item.bg} backdrop-blur-sm border border-white/5 shadow-inner`}>
+              <item.icon className={`w-6 h-6 ${item.color}`} />
             </div>
-            <h4 className={`font-bold text-sm ${textPrimary} mb-1`}>{item.title}</h4>
-            <div className={`flex items-center text-[11px] ${textSecondary} group-hover:text-emerald-500 transition-colors`}>
-              Explore <ChevronRight className="w-3 h-3 ml-1" />
+            <h4 className={`font-black text-base ${textPrimary} mb-1 tracking-tight`}>{item.title}</h4>
+            <div className={`flex items-center text-xs font-bold ${textSecondary} group-hover:text-white transition-colors`}>
+              Access Now <ChevronRight className="w-4 h-4 ml-1" />
             </div>
-          </button>
+          </motion.button>
         ))}
-      </div>
+      </motion.div>
       
       
       {isModalVisible && selectedStrategy && (
