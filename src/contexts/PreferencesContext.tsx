@@ -101,7 +101,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [user]);
 
-  const updatePreference = (key: keyof Preferences, value: any) => {
+  const updatePreference = React.useCallback((key: keyof Preferences, value: any) => {
     setPreferences(prev => ({ ...prev, [key]: value }));
     safeStorage.setItem(`aver_${key}`, typeof value === 'object' ? JSON.stringify(value) : value);
     
@@ -109,9 +109,9 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     if (user && updateUserPreferences) {
       updateUserPreferences({ [key]: value });
     }
-  };
+  }, [user, updateUserPreferences]);
 
-  const resetPreferences = () => {
+  const resetPreferences = React.useCallback(() => {
     setPreferences(defaultPreferences);
     
     // Clear individual local storage items
@@ -122,9 +122,9 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     if (user && updateUserPreferences) {
       updateUserPreferences(defaultPreferences);
     }
-  };
+  }, [user, updateUserPreferences]);
 
-  const t = (key: string): string => {
+  const t = React.useCallback((key: string): string => {
     const langDict = translations[preferences.language];
     if (langDict && langDict[key]) {
       return langDict[key];
@@ -132,9 +132,9 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     // Fallback to English
     const fallbackDict = translations['EN'];
     return fallbackDict[key] || key;
-  };
+  }, [preferences.language]);
 
-  const formatCurrency = (usdValue: number, compact: boolean = false): string => {
+  const formatCurrency = React.useCallback((usdValue: number, compact: boolean = false): string => {
     const rate = EXCHANGE_RATES[preferences.currency];
     const convertedValue = usdValue * rate;
 
@@ -185,12 +185,20 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     }
 
     return result;
-  };
+  }, [preferences.currency, preferences.language]);
+
+  const contextValue = React.useMemo(() => ({ 
+    preferences, 
+    updatePreference, 
+    resetPreferences, 
+    t, 
+    formatCurrency 
+  }), [preferences, updatePreference, resetPreferences, t, formatCurrency]);
 
   if (!isLoaded) return null;
 
   return (
-    <PreferencesContext.Provider value={{ preferences, updatePreference, resetPreferences, t, formatCurrency }}>
+    <PreferencesContext.Provider value={contextValue}>
       {children}
     </PreferencesContext.Provider>
   );

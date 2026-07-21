@@ -18,9 +18,10 @@ interface AiTradeCenterProps {
   trades: AiTrade[];
   isDark: boolean;
   monitoredMarkets?: string[];
+  isSessionActive: boolean;
 }
 
-export default function AiTradeCenter({ trades, isDark, monitoredMarkets = [] }: AiTradeCenterProps) {
+export default function AiTradeCenter({ trades, isDark, monitoredMarkets = [], isSessionActive }: AiTradeCenterProps) {
   const { user, addNotification } = useAuth();
   const { formatCurrency } = usePreferences();
   
@@ -43,14 +44,16 @@ export default function AiTradeCenter({ trades, isDark, monitoredMarkets = [] }:
     const items: any[] = trades.map(t => ({ ...t, type: 'ACTIVE' }));
     
     // Add monitored markets that don't have an active trade
-    Array.from(new Set(monitoredMarkets)).forEach(market => {
-      if (!trades.some(t => t.asset === market)) {
-        items.push({ asset: market, type: 'SCANNING' });
-      }
-    });
+    if (isSessionActive) {
+      Array.from(new Set(monitoredMarkets)).forEach(market => {
+        if (!trades.some(t => t.asset === market)) {
+          items.push({ asset: market, type: 'SCANNING' });
+        }
+      });
+    }
 
     return items;
-  }, [trades, monitoredMarkets]);
+  }, [trades, monitoredMarkets, isSessionActive]);
 
   return (
     <div className={`rounded-2xl border ${cardClasses} overflow-hidden`}>

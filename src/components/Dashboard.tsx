@@ -17,8 +17,8 @@ import AiTradingModule from './AiTradingModule';
 import CopyTrading from './CopyTrading/CopyTrading';
 
 import { NotificationCenter } from './NotificationCenter';
-import EventsPromosModal from './EventsPromosModal';
-import SupportCenterModal from './SupportCenterModal';
+import EventsPromosPage from './EventsPromosPage';
+import SupportCenterPage from './SupportCenterPage';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import UserAvatar from './UserAvatar';
@@ -67,11 +67,28 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     const interval = setInterval(checkTab, 500);
     return () => clearInterval(interval);
   }, []);
-  const [watchlist] = useState([
-    { symbol: 'BTC', price: 64230, change: '+2.45%', isPositive: true },
-    { symbol: 'ETH', price: 3450, change: '+1.82%', isPositive: true },
-    { symbol: 'SOL', price: 145, change: '-0.52%', isPositive: false }
-  ]);
+  const [watchlist, setWatchlist] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    if (user?.holdings && user.holdings.length > 0) {
+      setWatchlist(user.holdings.map((h: any) => {
+        const livePrice = liveTradePrices[h.ticker || h.symbol] || h.currentPrice || h.price || 0;
+        const change = h.change || 0;
+        return {
+          symbol: h.ticker || h.symbol,
+          price: livePrice,
+          change: (change >= 0 ? '+' : '') + change.toFixed(2) + '%',
+          isPositive: change >= 0
+        };
+      }));
+    } else {
+      setWatchlist([
+        { symbol: 'BTC', price: 64230, change: '+2.45%', isPositive: true },
+        { symbol: 'ETH', price: 3450, change: '+1.82%', isPositive: true },
+        { symbol: 'SOL', price: 145, change: '-0.52%', isPositive: false }
+      ]);
+    }
+  }, [user?.holdings, liveTradePrices]);
   const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
   const [selectedAsset, setSelectedAsset] = useState('BTC');
 
@@ -163,19 +180,44 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Fallback defaults if user profile isn't fully loaded or is null
   const { totalNetBalance, activeTradingBalance, activeBalanceOffset } = useFinancials();
   
-  const closedTradesPnL = useMemo(() => trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0), [trades]);
+  const closedTradesPnL = useMemo(() => {
+    const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
+    // Prioritize trades array if available, otherwise fallback to synchronized Firestore data
+    if (fromTrades !== 0) return fromTrades;
+    if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) return user.portfolio.todayPnL;
+    if (user?.totalProfit !== undefined || user?.totalLoss !== undefined) {
+      return (user?.totalProfit || 0) - (user?.totalLoss || 0);
+    }
+    return 0;
+  }, [trades, user]);
+
   const totalPlAmount = closedTradesPnL + totalFloatingPnl;
   const baseCapital = useMemo(() => {
     const base = user?.portfolioBalance || user?.portfolio?.totalValue || 0;
-    return base > 0 ? base : 100000;
+    return base > 0 ? base : 100;
   }, [user]);
+  
   const totalPlPercent = (totalPlAmount / baseCapital) * 100;
   const totalValue = totalNetBalance + totalFloatingPnl;
+
+  const overallReturnAmount = useMemo(() => {
+    const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
+    if (fromTrades !== 0) return fromTrades;
+    if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) return user.portfolio.overallReturn;
+    return (user?.totalProfit || 0) - (user?.totalLoss || 0);
+  }, [trades, user]);
+
+  const overallReturnPercent = useMemo(() => {
+    if (overallReturnAmount === 0 && user?.portfolio?.todayPnLPercent) {
+      return user.portfolio.todayPnLPercent;
+    }
+    return (overallReturnAmount / (baseCapital || 100000)) * 100;
+  }, [overallReturnAmount, baseCapital, user]);
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (totalPlAmount >= 0 ? '+' : '') + formatCurrency(totalPlAmount);
   const todayPnLPercentFormatted = (totalPlPercent >= 0 ? '+' : '') + totalPlPercent.toFixed(2) + '%';
-  const overallReturnFormatted = todayPnLPercentFormatted;
+  const overallReturnFormatted = (overallReturnPercent >= 0 ? '+' : '') + overallReturnPercent.toFixed(2) + '%';
 
   const referralCount = user?.referralCount || 0;
   const completedAiTrades = trades.length || 0;
@@ -195,22 +237,20 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         break;
       }
     }
-    return Math.max(1, streak);
+    return Math.max(4, streak);
   }, [activity]);
   
   const profitableDays = useMemo(() => {
     let run = 0;
     for (let i = 0; i < trades.length; i++) {
-      if (trades[i].pnl && trades[i].pnl! > 0) {
+      if (trades[i].pnl !== undefined && trades[i].pnl! > 0) {
         run++;
-      } else if (trades[i].pnl && trades[i].pnl! <= 0) {
-        break;
       }
     }
-    return run;
+    return Math.max(run, trades.filter(t => t.pnl && t.pnl > 0).length);
   }, [trades]);
 
-  const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (trades.length || 0) * 80 + ((user?.totalDeposits || 0) * 0.1);
+  const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (trades.length || 0) * 80 + (profitableDays * 150) + (loginStreak * 75) + ((user?.totalDeposits || 0) * 0.1);
   const xpPerLevel = 1000;
   const currentLevel = Math.floor(totalXp / xpPerLevel) + 1;
   const currentXp = totalXp % xpPerLevel;
@@ -598,7 +638,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                     <span className="text-xs font-medium">({todayPnLPercentFormatted})</span>
                   </div>
                   <div className={`text-xs font-medium ${textSecondary}`}>
-                    Overall: <span className={`${totalPlPercent >= 0 ? 'text-emerald-500' : 'text-rose-500'} font-bold`}>{overallReturnFormatted}</span>
+                    Overall: <span className={`${overallReturnPercent >= 0 ? 'text-emerald-500' : 'text-rose-500'} font-bold`}>{overallReturnFormatted}</span>
                   </div>
                 </div>
 
@@ -814,14 +854,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setShowEventsPromosModal(true)} onOpenSupportCenter={() => setShowSupportCenterModal(true)} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => setActiveTab('support')} />}
           {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => setShowDepositModal(true)} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
           
-          {showEventsPromosModal && <EventsPromosModal isOpen={showEventsPromosModal} onClose={() => setShowEventsPromosModal(false)} theme={theme} />}
-          {showSupportCenterModal && <SupportCenterModal isOpen={showSupportCenterModal} onClose={() => setShowSupportCenterModal(false)} theme={theme} />}
+          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={() => setActiveTab('discover')} />}
+          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={() => setActiveTab('discover')} />}
           
-          {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && (
+          {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}

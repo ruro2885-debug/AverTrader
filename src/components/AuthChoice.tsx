@@ -25,13 +25,9 @@ export default function AuthChoice({ theme, onBack, onSelect }: AuthChoiceProps)
       <div className="w-full max-w-2xl space-y-10">
         
         {/* Hero Section: Welcome Bonus */}
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-        >
+        <div className="transform translate-y-0 opacity-100 transition-all duration-700">
             <WelcomeBonusCard theme="dark" onCtaClick={() => onSelect('register')} />
-        </motion.div>
+        </div>
 
         {/* Premium Buttons (Completely Solid & Isolated) */}
         <div className="flex flex-col sm:flex-row gap-4 relative z-10">

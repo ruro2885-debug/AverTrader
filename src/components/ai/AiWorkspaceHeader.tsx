@@ -8,9 +8,10 @@ interface AiWorkspaceHeaderProps {
   onEnd: () => void;
   isDark: boolean;
   hasPrefs: boolean;
+  disabled?: boolean;
 }
 
-export default function AiWorkspaceHeader({ session, onStart, onEnd, isDark, hasPrefs }: AiWorkspaceHeaderProps) {
+export default function AiWorkspaceHeader({ session, onStart, onEnd, isDark, hasPrefs, disabled }: AiWorkspaceHeaderProps) {
   const isActive = session?.status === 'ACTIVE';
   
   return (
@@ -51,11 +52,16 @@ export default function AiWorkspaceHeader({ session, onStart, onEnd, isDark, has
           </button>
         ) : (
           <button
-            onClick={onStart}
-            className="flex items-center gap-2 px-4 py-2 bg-[#00D09C] hover:bg-[#00B585] text-black rounded-xl text-xs font-black transition-all active:scale-95 shadow-lg shadow-[#00D09C]/20"
+            onClick={disabled ? undefined : onStart}
+            disabled={disabled}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg ${
+              disabled 
+                ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed border border-gray-500/20 shadow-none'
+                : 'bg-[#00D09C] hover:bg-[#00B585] text-black active:scale-95 shadow-[#00D09C]/20'
+            }`}
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Launch Analysis Session</span>
+            <span>Launch session</span>
           </button>
         )}
       </div>

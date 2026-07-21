@@ -39,8 +39,8 @@ export default function WelcomeBonusCard({ theme, onCtaClick }: WelcomeBonusCard
   return (
     <div className={`relative w-full max-w-xl p-4 sm:p-5 rounded-3xl border overflow-hidden backdrop-blur-xl transition-all shadow-2xl ${
       isDark 
-        ? 'bg-gradient-to-br from-slate-900/60 via-black/80 to-slate-950/70 border-white/10 shadow-black/80' 
-        : 'bg-gradient-to-br from-white/90 via-slate-50/80 to-slate-100/90 border-slate-200/80 shadow-slate-200/50'
+        ? 'bg-gradient-to-br from-slate-900/60 via-black/80 to-slate-950/70 border-white/10 shadow-black/80 text-white' 
+        : 'bg-gradient-to-br from-white/90 via-slate-50/80 to-slate-100/90 border-slate-200/80 shadow-slate-200/50 text-slate-900'
     }`}>
       
       {/* Moving background glowing orbs */}
@@ -198,7 +198,7 @@ export default function WelcomeBonusCard({ theme, onCtaClick }: WelcomeBonusCard
                 : 'bg-gradient-to-b from-amber-50 to-yellow-50 border-amber-300 shadow-amber-500/20'
             }`}
           >
-            <Gift className={`w-6 h-6 ${isDark ? 'text-amber-400 filter drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]' : 'text-amber-600'}`} />
+            <Gift className={`w-6 h-6 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
             
             {/* Sparkling particles on the box */}
             <motion.div
@@ -215,7 +215,7 @@ export default function WelcomeBonusCard({ theme, onCtaClick }: WelcomeBonusCard
         <div className="space-y-1 max-w-sm">
           <h2 className="text-xl sm:text-2xl font-display font-black tracking-tight leading-tight">
             🎁 Sign Up & Get Up to{' '}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 filter drop-shadow-[0_0_10px_rgba(245,158,11,0.4)]">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500">
               ${bonusCount}
             </span>{' '}
             Welcome Bonus

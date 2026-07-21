@@ -45,29 +45,34 @@ interface HoverData {
 // --- DYNAMIC AI COMMENTARY GENERATION ENGINE ---
 function generateCatherineCommentary(
   totalValue: number, 
-  holdings: WatchlistItem[], 
+  holdings: any[], // User holdings from AuthContext
   livePrices: Record<string, number>
 ) {
-  const btcPrice = livePrices['BTC'] || holdings.find(h => h.ticker === 'BTC')?.price || 64000;
-  const ethPrice = livePrices['ETH'] || holdings.find(h => h.ticker === 'ETH')?.price || 3450;
-  const solPrice = livePrices['SOL'] || holdings.find(h => h.ticker === 'SOL')?.price || 145;
-
-  const btcVal = btcPrice * 0.85;
-  const ethVal = ethPrice * 12.0;
-  const solVal = solPrice * 120.0;
-  const cryptoTotalVal = btcVal + ethVal + solVal;
+  // Use actual user holdings instead of hardcoded mock values
+  const cryptoTotalVal = (holdings || []).reduce((sum, h) => {
+    const price = livePrices[h.ticker || h.symbol] || h.currentPrice || h.price || 0;
+    return sum + (price * (h.quantity || 0));
+  }, 0);
   
-  const cashVal = Math.max(25000, totalValue - cryptoTotalVal);
-  const cryptoPercent = ((cryptoTotalVal / totalValue) * 100).toFixed(1);
-  const cashPercent = ((cashVal / totalValue) * 100).toFixed(1);
+  const cashVal = Math.max(0, totalValue - cryptoTotalVal);
+  const cryptoPercent = totalValue > 0 ? ((cryptoTotalVal / totalValue) * 100).toFixed(1) : '0';
+  const cashPercent = totalValue > 0 ? ((cashVal / totalValue) * 100).toFixed(1) : '0';
 
-  const sortedByChange = [...holdings].sort((a, b) => b.change - a.change);
+  // Find the top performer from actual holdings or use defaults if empty
+  const enrichedHoldings = (holdings || []).map(h => {
+    const price = livePrices[h.ticker || h.symbol] || h.currentPrice || h.price || 0;
+    const prevPrice = h.avgPrice || price * 0.98; // Fallback for change calc
+    const change = ((price - prevPrice) / prevPrice) * 100;
+    return { ticker: h.ticker || h.symbol, price, change };
+  });
+
+  const sortedByChange = [...enrichedHoldings].sort((a, b) => b.change - a.change);
   const topAsset = sortedByChange[0]?.ticker || 'BTC';
-  const topAssetChange = sortedByChange[0]?.change?.toFixed(2) || '2.45';
-  const topAssetPrice = (livePrices[topAsset] || sortedByChange[0]?.price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const topAssetChange = sortedByChange[0]?.change?.toFixed(2) || '0.00';
+  const topAssetPrice = (sortedByChange[0]?.price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   const worstAsset = sortedByChange[sortedByChange.length - 1]?.ticker || 'SOL';
-  const worstAssetChange = Math.abs(sortedByChange[sortedByChange.length - 1]?.change || 0.52).toFixed(2);
+  const worstAssetChange = sortedByChange.length > 0 ? Math.abs(sortedByChange[sortedByChange.length - 1]?.change || 0).toFixed(2) : '0.00';
 
   const commentaries = [
     {
@@ -317,7 +322,54 @@ export default function PortfolioViewV2({
     : "bg-white/60 backdrop-blur-md border border-slate-200/50 shadow-lg";
 
   // Real-time fluctuating asset tick simulation state
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>(initialWatchlistData);
+  // Initialize watchlist with actual holdings from user document
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
+    if (user?.holdings && user.holdings.length > 0) {
+      return user.holdings.map((h: any) => ({
+        ticker: h.ticker || h.symbol || '???',
+        name: h.name || h.asset || 'Asset',
+        price: h.currentPrice || h.price || 0,
+        change: h.change || 0,
+        allocation: 0, // Will be calculated
+        aiRating: h.aiRating || 85,
+        aiDecision: h.aiDecision || 'HODL',
+        news: h.news || 'Market sentiment is currently being analyzed by AI.',
+        newsSentiment: h.newsSentiment || 'Neutral',
+        logoColor: h.logoColor || 'from-emerald-500 to-teal-500',
+        logoText: h.logoText || (h.ticker ? h.ticker[0] : '?'),
+        quantity: h.quantity || 0,
+        avgEntry: h.avgEntry || h.entryPrice || 0,
+        aiDetails: h.aiDetails || 'Autonomous analysis in progress.'
+      })) as WatchlistItem[];
+    }
+    return initialWatchlistData;
+  });
+
+  // Sync watchlist with holdings whenever user document updates
+  useEffect(() => {
+    if (user?.holdings && user.holdings.length > 0) {
+      const updatedWatchlist = user.holdings.map((h: any) => {
+        const livePrice = liveTradePrices[h.ticker || h.symbol] || h.currentPrice || h.price || 0;
+        return {
+          ticker: h.ticker || h.symbol || '???',
+          name: h.name || h.asset || 'Asset',
+          price: livePrice,
+          change: h.change || 0,
+          allocation: totalNetBalance > 0 ? ((livePrice * (h.quantity || 0)) / totalNetBalance) * 100 : 0,
+          aiRating: h.aiRating || 85,
+          aiDecision: h.aiDecision || 'HODL',
+          news: h.news || 'Market sentiment is currently being analyzed by AI.',
+          newsSentiment: h.newsSentiment || 'Neutral',
+          logoColor: h.logoColor || 'from-emerald-500 to-teal-500',
+          logoText: h.logoText || (h.ticker ? h.ticker[0] : '?'),
+          quantity: h.quantity || 0,
+          avgEntry: h.avgEntry || h.entryPrice || 0,
+          aiDetails: h.aiDetails || 'Autonomous analysis in progress.'
+        };
+      });
+      setWatchlist(updatedWatchlist as WatchlistItem[]);
+    }
+  }, [user?.holdings, totalNetBalance, liveTradePrices]);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({
     BTC: 64230.00,
     ETH: 3450.20,
@@ -918,8 +970,14 @@ export default function PortfolioViewV2({
 
   const change24hPercent = useMemo(() => {
     const closedTradesPnL = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
-    const totalPlAmount = closedTradesPnL + totalFloatingPnl;
-    const baseCapital = user?.portfolioBalance || user?.portfolio?.totalValue || 100000;
+    // Fallback logic for synchronized display
+    let effectivePnl = closedTradesPnL;
+    if (effectivePnl === 0 && user?.portfolio?.todayPnL) {
+      effectivePnl = user.portfolio.todayPnL;
+    }
+    
+    const totalPlAmount = effectivePnl + totalFloatingPnl;
+    const baseCapital = user?.portfolioBalance || user?.portfolio?.totalValue || 100;
     return (totalPlAmount / baseCapital) * 100;
   }, [trades, totalFloatingPnl, user]);
 

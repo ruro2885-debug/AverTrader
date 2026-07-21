@@ -18,9 +18,10 @@ interface AiPerformanceHubProps {
   isDark: boolean;
   trades?: AiTrade[];
   recommendations?: AiRecommendation[];
+  isSessionActive: boolean;
 }
 
-export default function AiPerformanceHub({ isDark, trades = [], recommendations = [] }: AiPerformanceHubProps) {
+export default function AiPerformanceHub({ isDark, trades = [], recommendations = [], isSessionActive }: AiPerformanceHubProps) {
   const cardClasses = isDark ? 'bg-[#0B0E14] border-white/5' : 'bg-white border-slate-200 shadow-sm';
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';
@@ -30,18 +31,18 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
 
   // 1. Calculate accuracy (win rate)
   const accuracyResult = React.useMemo(() => {
-    if (closedTrades.length === 0) {
-      return { value: 84.2, isLive: false };
+    if (closedTrades.length === 0 || !isSessionActive) {
+      return { value: 0, isLive: false };
     }
     const winningTrades = closedTrades.filter(t => (t.pnl || 0) > 0);
     const winRate = (winningTrades.length / closedTrades.length) * 100;
     return { value: parseFloat(winRate.toFixed(1)), isLive: true };
-  }, [closedTrades]);
+  }, [closedTrades, isSessionActive]);
 
   // 2. Calculate average holding time
   const avgHoldingTime = React.useMemo(() => {
-    if (closedTrades.length === 0) {
-      return { text: '6.4h', isLive: false };
+    if (closedTrades.length === 0 || !isSessionActive) {
+      return { text: '0h', isLive: false };
     }
     let totalMs = 0;
     let validCount = 0;
@@ -60,26 +61,30 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
       return { text: `${mins}m`, isLive: true };
     }
     return { text: `${avgHours.toFixed(1)}h`, isLive: true };
-  }, [closedTrades]);
+  }, [closedTrades, isSessionActive]);
 
   // 3. Calculate profit factor
   const profitFactor = React.useMemo(() => {
-    if (closedTrades.length === 0) {
-      return { value: '3.2', isLive: false };
+    if (closedTrades.length === 0 || !isSessionActive) {
+      return { value: '0.00', isLive: false };
     }
     const grossProfit = closedTrades.filter(t => (t.pnl || 0) > 0).reduce((sum, t) => sum + (t.pnl || 0), 0);
     const grossLoss = closedTrades.filter(t => (t.pnl || 0) < 0).reduce((sum, t) => sum + Math.abs(t.pnl || 0), 0);
     if (grossLoss === 0) {
-      return { value: grossProfit > 0 ? '9.9+' : '0.0', isLive: true };
+      return { value: grossProfit > 0 ? '9.9+' : '0.00', isLive: true };
     }
     return { value: (grossProfit / grossLoss).toFixed(2), isLive: true };
-  }, [closedTrades]);
+  }, [closedTrades, isSessionActive]);
 
   // 4. Construct Cumulative Intelligence return chart
   const chartData = React.useMemo(() => {
     const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     // Map Javascript day indexes (0=Sunday, 1=Monday... 6=Saturday) to the ordered list
     const dayIndices = [1, 2, 3, 4, 5, 6, 0];
+
+    if (!isSessionActive) {
+        return daysOfWeek.map(day => ({ name: day, pnl: 0 }));
+    }
 
     const actualPnlByDay = dayIndices.map((idx, dayArrIdx) => {
       const dayTrades = closedTrades.filter(t => {
@@ -93,15 +98,13 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
     const hasAnyRealPnl = actualPnlByDay.some(val => val !== 0);
 
     return daysOfWeek.map((dayName, arrIdx) => {
-      // Static baseline if no live trades
-      const mockPnL = [240, 480, -120, 840, 650, 920, 1100][arrIdx];
       const realPnL = actualPnlByDay[arrIdx];
       return {
         name: dayName,
-        pnl: hasAnyRealPnl ? parseFloat(realPnL.toFixed(2)) : mockPnL
+        pnl: hasAnyRealPnl ? parseFloat(realPnL.toFixed(2)) : 0
       };
     });
-  }, [closedTrades]);
+  }, [closedTrades, isSessionActive]);
 
   // 5. Calculate recommendation distribution
   const distributionData = React.useMemo(() => {
@@ -109,14 +112,14 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
     const acceptedCount = recommendations.filter(r => acceptedRecommendationIds.has(r.id)).length;
     const totalRecs = recommendations.length;
     
-    if (totalRecs === 0) {
+    if (totalRecs === 0 || !isSessionActive) {
       return {
         data: [
-          { name: 'Accepted', value: 78, color: '#00D09C' },
-          { name: 'Rejected', value: 22, color: '#f43f5e' },
+          { name: 'Accepted', value: 0, color: '#00D09C' },
+          { name: 'Rejected', value: 0, color: '#f43f5e' },
         ],
-        acceptedPercent: 78,
-        rejectedPercent: 22,
+        acceptedPercent: 0,
+        rejectedPercent: 0,
         isLive: false
       };
     }
@@ -133,7 +136,7 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
       rejectedPercent: parseFloat(rejectedPercent.toFixed(1)),
       isLive: true
     };
-  }, [recommendations, trades]);
+  }, [recommendations, trades, isSessionActive]);
 
   return (
     <div className="space-y-6">

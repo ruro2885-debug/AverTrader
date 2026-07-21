@@ -59,6 +59,8 @@ export interface SimulatedTrader {
   performanceScore: number;
   rank: number;
   prevRank: number;
+  prev30DReturn: number;
+  lastFollowerUpdate: string; // ISO string
   return7D: number;
   return90D: number;
   return1Y: number;
@@ -483,14 +485,15 @@ export function generateHistoricalTradesForTrader(traderSpec: Partial<SimulatedT
     const dayOfYear = Math.floor((currentDate.getTime() - baseDate.getTime()) / (24 * 60 * 60 * 1000) + 365);
     
     // Season effects:
-    // 1. Bear season (drawdowns): days 50 to 90, days 220 to 250
-    // 2. Bull season (strong trends): days 100 to 180, days 280 to 330
-    // 3. Sideways season (flat/choppy): other days
+    // Every trader has their own unique "seasons" of luck/performance
+    const traderPhaseShift = (rand() * 365);
+    const dayWithShift = (dayOfYear + traderPhaseShift) % 365;
+    
     let seasonalBias = 0;
-    if ((dayOfYear >= 50 && dayOfYear <= 90) || (dayOfYear >= 220 && dayOfYear <= 250)) {
-      seasonalBias = -0.08; // more losing trades, pullbacks
-    } else if ((dayOfYear >= 100 && dayOfYear <= 180) || (dayOfYear >= 280 && dayOfYear <= 330)) {
-      seasonalBias = 0.08; // strong trends, higher win rates
+    if ((dayWithShift >= 50 && dayWithShift <= 120)) {
+      seasonalBias = -0.12; // individual drawdown period
+    } else if ((dayWithShift >= 180 && dayWithShift <= 260)) {
+      seasonalBias = 0.12; // individual bull run
     }
 
     const isWin = rand() < (winChance + seasonalBias);
@@ -758,75 +761,6 @@ function healTradeTimestamps(trader: SimulatedTrader): SimulatedTrader {
   return trader;
 }
 
-function getDesiredReturn30D(i: number, seed: string): number {
-  const randFn = seededRandom(seed + "_return_" + i);
-  if (i === 0) {
-    return 243.99;
-  }
-  if (i < 10) {
-    const step = (243.99 - 45.0) / 9;
-    const base = 243.99 - i * step;
-    const noise = (randFn() * 0.4 - 0.2) * step;
-    return parseFloat(Math.min(242.0, Math.max(45.0, base + noise)).toFixed(2));
-  }
-  const step = (40.0 - (-15.0)) / 30;
-  const base = 40.0 - (i - 10) * step;
-  const noise = (randFn() * 0.4 - 0.2) * step;
-  const val = base + noise;
-  return parseFloat((val === 0 ? 1.25 : val).toFixed(2));
-}
-
-function adjustTradesToTargetReturn(trader: SimulatedTrader, targetReturn: number): SimulatedTrader {
-  const nowMs = Date.now();
-  const dayMs = 24 * 60 * 60 * 1000;
-  
-  const trades30D = trader.trades.filter(t => t.status === 'CLOSED' && (nowMs - new Date(t.timestamp).getTime()) <= 30 * dayMs);
-  
-  if (trades30D.length === 0) {
-    const asset = trader.preferredMarkets[0] || 'BTC';
-    const basePrice = ASSETS_BY_MARKET[asset] || 100;
-    const entryPrice = parseFloat((basePrice * 0.98).toFixed(2));
-    const pnlPercent = targetReturn;
-    const exitPrice = parseFloat((entryPrice * (1 + pnlPercent / 100)).toFixed(2));
-    
-    trader.trades.push({
-      id: `t_${trader.id}_adj_init`,
-      asset,
-      type: 'BUY',
-      entryPrice,
-      exitPrice,
-      pnlPercent,
-      status: 'CLOSED',
-      timestamp: new Date(nowMs - 5 * dayMs).toISOString()
-    });
-    return trader;
-  }
-  
-  const currentSum = trades30D.reduce((sum, t) => sum + (t.pnlPercent || 0), 0);
-  if (Math.abs(currentSum - targetReturn) < 0.01) return trader;
-  
-  if (Math.abs(currentSum) < 0.1) {
-    const val = targetReturn / trades30D.length;
-    trades30D.forEach(t => {
-      t.pnlPercent = parseFloat(val.toFixed(2));
-      if (t.entryPrice) {
-        t.exitPrice = parseFloat((t.entryPrice * (1 + t.pnlPercent / 100)).toFixed(2));
-      }
-    });
-  } else {
-    const diff = targetReturn - currentSum;
-    const offset = diff / trades30D.length;
-    trades30D.forEach(t => {
-      t.pnlPercent = parseFloat(((t.pnlPercent || 0) + offset).toFixed(2));
-      if (t.entryPrice) {
-        t.exitPrice = parseFloat((t.entryPrice * (1 + t.pnlPercent / 100)).toFixed(2));
-      }
-    });
-  }
-  
-  return trader;
-}
-
 export function initSimulatedTraders(): SimulatedTrader[] {
   const saved = safeStorage.getItem('aver_sim_traders_v6');
   if (saved) {
@@ -871,17 +805,14 @@ export function initSimulatedTraders(): SimulatedTrader[] {
   traders.forEach((t, index) => {
     t.rank = index + 1;
     t.prevRank = index + 1;
+    t.prev30DReturn = t.return30D || 0;
+    t.lastFollowerUpdate = new Date(Date.now() - Math.floor(Math.random() * 6 * 3600000)).toISOString();
     
     // We generated followers procedurally earlier, keep them unless they are lower than a realistic floor for rank
     const minimumRankFollowers = Math.floor(50000 * Math.pow(0.97, index));
     if (t.followers < minimumRankFollowers) {
       t.followers = minimumRankFollowers + Math.floor(Math.random() * 5000);
     }
-    
-    // Enforce target returns directly on initialization
-    const targetReturn = getDesiredReturn30D(index, t.id);
-    adjustTradesToTargetReturn(t, targetReturn);
-    calculateTraderMetrics(t);
   });
 
   safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(traders));
@@ -902,294 +833,227 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
   updatedTraders: SimulatedTrader[];
   events: SimulationEvent[];
 } {
-  const copy = traders.map(t => ({
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const nowMs = now.getTime();
+  const events: SimulationEvent[] = [];
+  
+  // Create deep copy to avoid mutation issues during calculation
+  let tradersList = traders.map(t => ({
     ...t,
     trades: t.trades.map(tr => ({ ...tr })),
     preferredMarkets: [...t.preferredMarkets]
   })) as SimulatedTrader[];
 
-  const events: SimulationEvent[] = [];
-  const rand = seededRandom(Math.random().toString());
-
-  // Save ranks before tick
-  const oldRanks: Record<string, number> = {};
-  copy.forEach(t => {
-    oldRanks[t.id] = t.rank;
+  // 1. Save old states for delta calculations
+  const oldStateMap: Record<string, { rank: number; return30D: number; followers: number }> = {};
+  tradersList.forEach(t => {
+    oldStateMap[t.id] = {
+      rank: t.rank,
+      return30D: t.return30D,
+      followers: t.followers
+    };
     t.prevRank = t.rank;
+    t.prev30DReturn = t.return30D;
   });
 
-  // Pick 5-8 active traders to trade
-  const numTradersTrading = Math.floor(rand() * 4) + 5;
-  const pickedIndices = new Set<number>();
-  while (pickedIndices.size < numTradersTrading) {
-    pickedIndices.add(Math.floor(rand() * copy.length));
-  }
-
-  pickedIndices.forEach(idx => {
-    const t = copy[idx];
+  // 2. Process EACH trader independently
+  tradersList = tradersList.map(t => {
+    // Unique seed per trader AND tick to ensure independence
+    const rand = seededRandom(t.id + "_" + nowMs + "_" + Math.random());
     
-    // Simulate completing their oldest open trade (if any) or adding a closed trade
-    const openTradeIdx = t.trades.findIndex(tr => tr.status === 'OPEN');
-    const asset = t.preferredMarkets[Math.floor(rand() * t.preferredMarkets.length)];
-    const basePrice = ASSETS_BY_MARKET[asset] || 100;
-    
-    // Outcome parameters
-    let basePnlRange = 2.0;
-    let winChance = 0.74;
-    
-    if (t.style === 'SCALPING') {
-      basePnlRange = 1.2;
-      winChance = 0.81;
-    } else if (t.style === 'SWING_TRADING') {
-      basePnlRange = 8.5;
-      winChance = 0.58;
-    } else {
-      basePnlRange = 3.2;
-      winChance = 0.71;
-    }
+    // Determine if this trader executes a trade this tick
+    // We increase the chance to make it more lively
+    const tradeChance = (t.tradeFrequency / (7 * 24 * 60)) * 20; 
+    const shouldTrade = rand() < (tradeChance * 60); 
 
-    if (t.riskLevel === 'HIGH') {
-      basePnlRange *= 1.7;
-      winChance -= 0.05;
-    } else if (t.riskLevel === 'LOW') {
-      basePnlRange *= 0.6;
-      winChance += 0.06;
-    }
-
-    // Add some random performance fluctuations for authenticity
-    const performanceFluctuation = (rand() - 0.5) * 0.1;
-    winChance += performanceFluctuation;
-
-    const isWin = rand() < winChance;
-    let pnlPercent = 0;
-    if (isWin) {
-      pnlPercent = parseFloat((rand() * basePnlRange + 0.15).toFixed(2));
-    } else {
-      pnlPercent = parseFloat((-(rand() * basePnlRange * 1.05 + 0.15)).toFixed(2));
-    }
-
-    if (openTradeIdx !== -1) {
-      // Close existing open trade
-      const openTrade = t.trades[openTradeIdx];
-      openTrade.status = 'CLOSED';
-      openTrade.exitPrice = parseFloat((openTrade.entryPrice * (1 + pnlPercent / 100)).toFixed(2));
-      openTrade.pnlPercent = pnlPercent;
-      openTrade.timestamp = new Date().toISOString();
-    } else {
-      // Create and close a brand new trade immediately
-      const entryPrice = parseFloat((basePrice * (1 + (rand() - 0.5) * 0.05)).toFixed(2));
-      const exitPrice = parseFloat((entryPrice * (1 + pnlPercent / 100)).toFixed(2));
+    if (shouldTrade) {
+      // Pick a market
+      const asset = t.preferredMarkets[Math.floor(rand() * t.preferredMarkets.length)];
+      const basePrice = ASSETS_BY_MARKET[asset] || 100;
       
-      t.trades.push({
-        id: `t_${t.id}_live_${Date.now()}`,
-        asset,
-        type: rand() < 0.5 ? 'BUY' : 'SELL',
-        entryPrice,
-        exitPrice,
-        pnlPercent,
-        status: 'CLOSED',
-        timestamp: new Date().toISOString()
-      });
+      // Individual luck cycle
+      const traderSeed = t.id + "_luck_" + Math.floor(nowMs / (4 * 3600000));
+      const luckRand = seededRandom(traderSeed);
+      const traderLuck = (luckRand() - 0.5) * 0.25; // -12.5% to +12.5% bias
+      
+      const effectiveWinRate = (t.winRate / 100) + traderLuck;
+      const isWin = rand() < effectiveWinRate;
+      
+      // Magnitude based on risk level - make it more volatile as requested
+      let magnitude = t.riskLevel === 'HIGH' ? 8.5 : t.riskLevel === 'MEDIUM' ? 4.2 : 1.8;
+      magnitude *= (0.5 + rand() * 1.5); // 50% to 200% noise
+      
+      let pnlPercent = 0;
+      if (isWin) {
+        pnlPercent = parseFloat((rand() * magnitude + 0.1).toFixed(2));
+      } else {
+        pnlPercent = parseFloat((-(rand() * magnitude * 1.2 + 0.1)).toFixed(2));
+      }
+
+      // Check for open trades to close
+      const openTradeIdx = t.trades.findIndex(tr => tr.status === 'OPEN');
+      if (openTradeIdx !== -1) {
+        const tr = t.trades[openTradeIdx];
+        tr.status = 'CLOSED';
+        tr.pnlPercent = pnlPercent;
+        tr.exitPrice = parseFloat((tr.entryPrice * (1 + pnlPercent / 100)).toFixed(2));
+        tr.timestamp = nowIso;
+      } else {
+        // Just add a closed trade if none open
+        const entryPrice = parseFloat((basePrice * (1 + (rand() - 0.5) * 0.1)).toFixed(2));
+        const exitPrice = parseFloat((entryPrice * (1 + pnlPercent / 100)).toFixed(2));
+        t.trades.push({
+          id: `t_${t.id}_${nowMs}_${Math.floor(Math.random() * 1000)}`,
+          asset,
+          type: rand() < 0.5 ? 'BUY' : 'SELL',
+          entryPrice,
+          exitPrice,
+          pnlPercent,
+          status: 'CLOSED',
+          timestamp: nowIso
+        });
+      }
+
+      // Always ensure they have at least one open trade
+      if (t.trades.filter(tr => tr.status === 'OPEN').length === 0) {
+        const nextAsset = t.preferredMarkets[Math.floor(rand() * t.preferredMarkets.length)];
+        const nextPrice = ASSETS_BY_MARKET[nextAsset] || 100;
+        t.trades.push({
+          id: `t_${t.id}_open_${nowMs}`,
+          asset: nextAsset,
+          type: rand() < 0.5 ? 'BUY' : 'SELL',
+          entryPrice: parseFloat((nextPrice * (1 + (rand() - 0.5) * 0.02)).toFixed(2)),
+          status: 'OPEN',
+          timestamp: nowIso
+        });
+      }
+
+      // Cleanup history (keep 200 trades)
+      if (t.trades.length > 200) {
+        const open = t.trades.filter(tr => tr.status === 'OPEN');
+        const closed = t.trades.filter(tr => tr.status === 'CLOSED');
+        t.trades = [...closed.slice(closed.length - 190), ...open];
+      }
+
+      // Recalculate metrics
+      calculateTraderMetrics(t);
     }
 
-    // Always append 1 new open trade to keep them looking active
-    const nextOpenAsset = t.preferredMarkets[Math.floor(rand() * t.preferredMarkets.length)];
-    const openPrice = ASSETS_BY_MARKET[nextOpenAsset] || 100;
-    const entryPrice = parseFloat((openPrice * (1 + (rand() - 0.5) * 0.02)).toFixed(2));
-    
-    t.trades.push({
-      id: `t_${t.id}_open_${Date.now()}`,
-      asset: nextOpenAsset,
-      type: rand() < 0.5 ? 'BUY' : 'SELL',
-      entryPrice,
-      status: 'OPEN',
-      timestamp: new Date().toISOString()
-    });
-
-    // Clean up older history to keep memory usage low but maintain deep history (keep last 500 trades max)
-    if (t.trades.length > 500) {
-      const openOnes = t.trades.filter(tr => tr.status === 'OPEN');
-      const closedOnes = t.trades.filter(tr => tr.status === 'CLOSED');
-      t.trades = [...closedOnes.slice(closedOnes.length - 480), ...openOnes];
-    }
-
-    // Dynamic follower growth depending strictly on trade outcome and status!
-    const oldFollowers = t.followers;
-    if (pnlPercent > 0) {
-      // Followers increase! More followers if high returns, rank etc.
-      const multiplier = t.rank <= 3 ? 3.5 : t.rank <= 10 ? 2.0 : 1.2;
-      const fDelta = Math.floor((rand() * 25 + 10) * multiplier);
-      t.followers += fDelta;
-    } else {
-      // Followers decrease on losses!
-      const multiplier = t.rank <= 3 ? 3.0 : t.rank <= 10 ? 1.8 : 1.0;
-      const fDelta = Math.floor((rand() * 20 + 5) * multiplier);
-      t.followers = Math.max(500, t.followers - fDelta);
-    }
-    
-    // Occasional random social fluctuation
-    if (rand() < 0.2) {
-      const socialDelta = Math.floor((rand() - 0.5) * 40);
-      t.followers = Math.max(500, t.followers + socialDelta);
-    }
-
-    // Trigger follower milestone event
-    const milestoneThresh = 10000;
-    if (oldFollowers < 10000 && t.followers >= 10000) {
-      events.push({
-        id: `evt_milestone_${t.id}_${Date.now()}`,
-        text: `🔥 ${t.username} reached 10,000 followers after several weeks of consistent trading!`,
-        timestamp: new Date().toISOString(),
-        traderId: t.id,
-        type: 'milestone'
-      });
-    } else if (oldFollowers < 15000 && t.followers >= 15000) {
-      events.push({
-        id: `evt_milestone_${t.id}_${Date.now()}`,
-        text: `🚀 ${t.username} reached 15,000 followers following an exceptional win streak!`,
-        timestamp: new Date().toISOString(),
-        traderId: t.id,
-        type: 'milestone'
-      });
-    } else if (oldFollowers < 20000 && t.followers >= 20000) {
-      events.push({
-        id: `evt_milestone_${t.id}_${Date.now()}`,
-        text: `💎 ${t.username} reached 20,000 followers! Now ranked as a premier institutional advisor.`,
-        timestamp: new Date().toISOString(),
-        traderId: t.id,
-        type: 'milestone'
-      });
-    }
-
-    // Trigger consecutive win streaks event
-    calculateTraderMetrics(t); // re-calculate to get latest consec wins
-    if (t.consecutiveWins >= 6 && rand() < 0.3) {
-      events.push({
-        id: `evt_streak_${t.id}_${Date.now()}`,
-        text: `⚡ Win Streak: ${t.username} secured ${t.consecutiveWins} consecutive profitable trades using their ${t.strategyName}!`,
-        timestamp: new Date().toISOString(),
-        traderId: t.id,
-        type: 'win_streak'
-      });
-    }
-
-    // Shift online/offline status occasionally
-    if (rand() < 0.10) {
+    // 3. Status Rotator (Online/Offline)
+    if (rand() < 0.05) {
       const statuses: ('Trading' | 'Analyzing' | 'Online' | 'Offline')[] = ['Trading', 'Analyzing', 'Online', 'Offline'];
       t.status = statuses[Math.floor(rand() * statuses.length)];
     }
 
-    copy[idx] = t;
-  });
-
-  // Update only traders who actually traded in this tick
-  const updatedTraders = copy.map((t, idx) => {
-    if (pickedIndices.has(idx)) {
-      return calculateTraderMetrics(t);
-    }
     return t;
   });
 
-  // Sort by performanceScore descending to determine new ranks!
-  updatedTraders.sort((a, b) => b.performanceScore - a.performanceScore);
+  // 4. Calculate Ranks based on performanceScore
+  tradersList.sort((a, b) => b.performanceScore - a.performanceScore);
+  tradersList.forEach((t, index) => {
+    t.rank = index + 1;
+  });
 
-  // Re-assign ranks and capture rank changes
-  updatedTraders.forEach((t, newIdx) => {
-    const oldRank = oldRanks[t.id] || (newIdx + 1);
-    const newRank = newIdx + 1;
-    t.rank = newRank;
-    t.prevRank = oldRank;
+  // 5. Follower Recalculation (Every 6 "hours" simulated - or just check lastFollowerUpdate)
+  // To make it responsive, we'll run a check every tick but only apply large changes if time elapsed
+  // or a small "per-tick" adjustment based on recent performance.
+  tradersList = tradersList.map(t => {
+    const lastUpdate = new Date(t.lastFollowerUpdate).getTime();
+    const SIX_HOURS_MS = 6 * 3600000;
+    const isMajorUpdate = (nowMs - lastUpdate) >= SIX_HOURS_MS;
+    
+    if (isMajorUpdate) {
+      const rand = seededRandom(t.id + "_followers_" + nowMs);
+      const old = oldStateMap[t.id];
+      const rankDelta = old.rank - t.rank; // positive if rank improved (e.g. 10 -> 5)
+      const pnlDelta = t.return30D - t.prev30DReturn;
+      
+      let followerChange = 0;
+      
+      // Gain followers for rank improvement
+      if (rankDelta > 0) {
+        followerChange += rankDelta * (50 + rand() * 150);
+        if (t.rank <= 10) followerChange *= 2.5; // Big boost for top 10
+      } else if (rankDelta < 0) {
+        followerChange += rankDelta * (30 + rand() * 80); // Lose followers for dropping
+      }
+      
+      // Gain/Lose based on PnL performance
+      if (pnlDelta > 0) {
+        followerChange += (pnlDelta * 10) * (1 + rand() * 2);
+      } else {
+        followerChange += (pnlDelta * 15) * (1 + rand() * 1.5);
+      }
 
-    // Adjust followers based on new rank (simulate people following the leaderboard trends)
-    const targetFollowers = 50000 * Math.pow(0.97, newIdx) + (t.tier === 'Platinum' ? 10000 : t.tier === 'Gold' ? 2500 : 0) + Math.floor(t.performanceScore * 10);
-    // Smoothly transition followers towards target
-    t.followers = Math.floor(t.followers + (targetFollowers - t.followers) * 0.1);
+      // Add base growth for high rankers
+      if (t.rank <= 5) followerChange += (100 + rand() * 200);
 
-    // We only generate rank movement notifications occasionally to avoid clutter,
-    // prioritizing dramatic rank up/down or entering/leaving top 10
-    if (oldRank !== newRank) {
-      if (oldRank > 10 && newRank <= 10) {
-        // Entered top 10!
+      // Random noise
+      followerChange += (rand() - 0.5) * 100;
+
+      t.followers = Math.max(500, Math.floor(t.followers + followerChange));
+      t.lastFollowerUpdate = nowIso;
+
+      // Milestone events
+      if (followerChange > 2000 && t.rank <= 10) {
         events.push({
-          id: `evt_rank_${t.id}_${Date.now()}`,
-          text: `🌟 ${t.username} entered the Top 10 after outperforming the previous Rank #10 with a +${t.return30D.toFixed(2)}% monthly return.`,
-          timestamp: new Date().toISOString(),
+          id: `evt_social_${t.id}_${nowMs}`,
+          text: `🔥 ${t.username} gained ${Math.floor(followerChange).toLocaleString()} new followers this period following a Rank #${t.rank} breakthrough!`,
+          timestamp: nowIso,
+          traderId: t.id,
+          type: 'milestone'
+        });
+      }
+    }
+
+    // Small per-tick adjustment for visual live feel
+    const miniRand = seededRandom(t.id + "_mini_" + nowMs);
+    if (miniRand() < 0.3) {
+      const shift = Math.floor((miniRand() - 0.45) * 5); // slightly biased to growth
+      t.followers = Math.max(500, t.followers + shift);
+    }
+
+    return t;
+  });
+
+  // 6. Generate Rank change events
+  tradersList.forEach(t => {
+    const old = oldStateMap[t.id];
+    if (old.rank !== t.rank) {
+      if (old.rank > 10 && t.rank <= 10) {
+        events.push({
+          id: `evt_rank_${t.id}_${nowMs}`,
+          text: `🌟 ${t.username} entered the Top 10 with a blistering +${t.return30D.toFixed(2)}% return!`,
+          timestamp: nowIso,
           traderId: t.id,
           type: 'entry'
         });
-      } else if (oldRank <= 10 && newRank > 10) {
-        // Dropped out of top 10
+      } else if (old.rank <= 10 && t.rank > 10) {
         events.push({
-          id: `evt_rank_${t.id}_${Date.now()}`,
-          text: `⚠️ ${t.username} dropped below Rank #10 following a series of tight protective stops being triggered.`,
-          timestamp: new Date().toISOString(),
+          id: `evt_rank_${t.id}_${nowMs}`,
+          text: `⚠️ ${t.username} dropped out of the Top 10 due to recent drawdowns.`,
+          timestamp: nowIso,
           traderId: t.id,
           type: 'rank_down'
         });
-      } else if (oldRank === 1 && newRank > 1) {
-        // Dropped from #1!
+      } else if (t.rank === 1 && old.rank > 1) {
         events.push({
-          id: `evt_rank_${t.id}_${Date.now()}`,
-          text: `📉 ${t.username} dropped from Rank #1 to Rank #${newRank} following several losing trades. No champion is permanent!`,
-          timestamp: new Date().toISOString(),
-          traderId: t.id,
-          type: 'rank_down'
-        });
-      } else if (oldRank > 1 && newRank === 1) {
-        // Climbed to #1!
-        events.push({
-          id: `evt_rank_${t.id}_${Date.now()}`,
-          text: `🏆 ${t.username} has claimed the Rank #1 position, outperforming all competitors with an immaculate performance score of ${t.performanceScore}!`,
-          timestamp: new Date().toISOString(),
+          id: `evt_rank_${t.id}_${nowMs}`,
+          text: `🏆 NEW CHAMPION: ${t.username} has claimed the #1 spot on the leaderboard!`,
+          timestamp: nowIso,
           traderId: t.id,
           type: 'rank_up'
         });
-      } else if (Math.abs(oldRank - newRank) >= 3 && newRank <= 10 && rand() < 0.5) {
-        // Significant climb inside top 10
-        if (newRank < oldRank) {
-          events.push({
-            id: `evt_rank_${t.id}_${Date.now()}`,
-            text: `📈 ${t.username} climbed from Rank #${oldRank} to Rank #${newRank} after improving their overall return.`,
-            timestamp: new Date().toISOString(),
-            traderId: t.id,
-            type: 'rank_up'
-          });
-        } else {
-          events.push({
-            id: `evt_rank_${t.id}_${Date.now()}`,
-            text: `📉 ${t.username} dropped from Rank #${oldRank} to Rank #${newRank} after experiencing a temporary drawdown.`,
-            timestamp: new Date().toISOString(),
-            traderId: t.id,
-            type: 'rank_down'
-          });
-        }
       }
     }
   });
 
-  // Enforce ranks, return caps, and uniqueness during tick simulation
-  updatedTraders.forEach((t, index) => {
-    t.rank = index + 1;
-    if (index === 0) {
-      if (t.return30D > 243.99) {
-        adjustTradesToTargetReturn(t, 243.99);
-        calculateTraderMetrics(t);
-      }
-    } else {
-      // Ensure other traders are below the top performer and below 243.99
-      const maxAllowed = Math.min(243.0, updatedTraders[0].return30D - 0.5);
-      if (t.return30D >= maxAllowed) {
-        adjustTradesToTargetReturn(t, maxAllowed - index * 0.1);
-        calculateTraderMetrics(t);
-      }
-    }
-  });
-
-  // Save back to local storage using the correct fresh key
-  safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(updatedTraders));
+  // Save back to local storage
+  safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(tradersList));
 
   return {
-    updatedTraders,
+    updatedTraders: tradersList,
     events
   };
 }

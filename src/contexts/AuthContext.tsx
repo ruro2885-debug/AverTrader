@@ -25,7 +25,9 @@ import {
   where,
   orderBy,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  increment,
+  arrayUnion
 } from "firebase/firestore";
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { getDocs } from "firebase/firestore";
@@ -247,6 +249,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const userRef = useRef<User | null>(null);
   const notificationManagerRef = useRef<NotificationManager | null>(null);
+  const avatarSetupRef = useRef<boolean>(false);
 
   useEffect(() => {
     userRef.current = user;
@@ -321,7 +324,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               // Only initialize if there is no seed AND no custom photo/avatar URL at all
               const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
 
-              if (needsSeed) {
+              if (needsSeed && !avatarSetupRef.current) {
+                avatarSetupRef.current = true;
                 console.log("[AuthContext] User profile requires initial avatar setup...");
                 (async () => {
                   try {
@@ -337,6 +341,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                     console.log("[AuthContext] Successfully initialized profile avatar for user:", firebaseUser.uid);
                   } catch (assignErr) {
                     console.error("[AuthContext] Failed to initialize profile avatar:", assignErr);
+                    // Reset so we can try again later if it failed
+                    avatarSetupRef.current = false;
                   }
                 })();
               }
@@ -1528,11 +1534,12 @@ function dataURLtoBlob(dataurl: string): Blob {
 
       const userDocRef = doc(db, 'users', userRef.current.uid);
       await updateDoc(userDocRef, {
-        portfolioBalance: (userRef.current.portfolioBalance || 0) + amount,
-        availableBalance: (userRef.current.availableBalance || 0) + amount,
-        totalDeposits: (userRef.current.totalDeposits || 0) + amount,
-        deposits: [newDeposit, ...(userRef.current.deposits || [])],
-        history: [newHistoryItem, ...(userRef.current.history || [])],
+        portfolioBalance: increment(amount),
+        availableBalance: increment(amount),
+        totalDeposits: increment(amount),
+        deposits: arrayUnion(newDeposit),
+        history: arrayUnion(newHistoryItem),
+        'portfolio.totalValue': increment(amount),
         lastUpdated: serverTimestamp()
       });
 
@@ -1594,11 +1601,12 @@ function dataURLtoBlob(dataurl: string): Blob {
 
       const userDocRef = doc(db, 'users', userRef.current.uid);
       await updateDoc(userDocRef, {
-        portfolioBalance: (userRef.current.portfolioBalance || 0) - amount,
-        availableBalance: (userRef.current.availableBalance || 0) - amount,
-        totalWithdrawals: (userRef.current.totalWithdrawals || 0) + amount,
-        withdrawals: [newWithdrawal, ...(userRef.current.withdrawals || [])],
-        history: [newHistoryItem, ...(userRef.current.history || [])],
+        portfolioBalance: increment(-amount),
+        availableBalance: increment(-amount),
+        totalWithdrawals: increment(amount),
+        withdrawals: arrayUnion(newWithdrawal),
+        history: arrayUnion(newHistoryItem),
+        'portfolio.totalValue': increment(-amount),
         lastUpdated: serverTimestamp()
       });
 

@@ -48,18 +48,50 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
     }
   };
 
+  const generateLocalInsights = (currentAssets: any[]) => {
+    if (!currentAssets || currentAssets.length === 0) return 'No insights available.';
+    const btc = currentAssets.find(a => a.symbol === 'BTC');
+    const eth = currentAssets.find(a => a.symbol === 'ETH');
+    const gainers = [...currentAssets].sort((a, b) => b.rawChange - a.rawChange);
+    const topGainer = gainers[0];
+    
+    let insight = `Market analysis indicates a ${btc?.isPositive ? 'bullish' : 'bearish'} trend led by Bitcoin at ${formatCurrency(btc?.price || 0)}. `;
+    if (topGainer && topGainer.rawChange > 5) {
+      insight += `${topGainer.name} (${topGainer.symbol}) is showing exceptionally strong momentum, up ${topGainer.change}. `;
+    }
+    if (eth) {
+      insight += `Ethereum is currently trading at ${formatCurrency(eth.price)}, showing a ${eth.change} shift. `;
+    }
+    insight += `Overall liquidity remains concentrated in top-tier assets. Quantum engine recommends maintaining a balanced exposure weighted towards high-conviction momentum plays.`;
+    return insight;
+  };
+
   const fetchInsights = async (currentAssets: any[]) => {
     try {
       setInsightsLoading(true);
+      const currentPrices = currentAssets.reduce((acc, asset) => {
+        acc[asset.symbol] = asset.price;
+        return acc;
+      }, {} as Record<string, number>);
+      
       const res = await fetch('/api/market/intelligence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPrices: currentAssets.slice(0, 5) })
+        body: JSON.stringify({ currentPrices })
       });
+      if (!res.ok) {
+        setInsights(generateLocalInsights(currentAssets));
+        return;
+      }
       const data = await res.json();
-      setInsights(data.briefing?.summary || data.intelligence || 'No insights currently available.');
+      if (!data || (!data.briefing && !data.intelligence)) {
+        setInsights(generateLocalInsights(currentAssets));
+        return;
+      }
+      setInsights(data.briefing?.summary || data.intelligence || generateLocalInsights(currentAssets));
     } catch (err) {
       console.error(err);
+      setInsights(generateLocalInsights(currentAssets));
     } finally {
       setInsightsLoading(false);
     }

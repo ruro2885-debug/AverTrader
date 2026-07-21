@@ -590,7 +590,7 @@ export default function EventsPromosPage({ theme, onBack }: { theme: 'light' | '
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`absolute inset-0 z-50 overflow-y-auto flex flex-col ${bgApp} ${isDark ? 'text-white' : 'text-slate-900'}`}
+      className={`flex-1 overflow-y-auto flex flex-col ${bgApp} ${isDark ? 'text-white' : 'text-slate-900'} w-full h-full`}
     >
       {/* Decorative Texture */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[radial-gradient(circle_at_50%_0%,#a855f7,transparent_50%)]"></div>
@@ -692,28 +692,35 @@ export default function EventsPromosPage({ theme, onBack }: { theme: 'light' | '
       </AnimatePresence>
 
       {/* Hero Banner Grid section */}
-      <div className="shrink-0 bg-gradient-to-b from-[#121422] to-transparent pt-6 pb-2 px-5">
-        <div className="w-full max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-3xl bg-slate-900/30 border border-white/5">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="bg-purple-500/20 text-purple-400 text-[9px] font-black px-2 py-0.5 rounded-full tracking-wider uppercase">V3.5 Neural Engine</span>
-              <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black px-2 py-0.5 rounded-full tracking-wider uppercase">Live Sync</span>
+      <div className="shrink-0 bg-gradient-to-b from-[#121422] to-transparent pt-6 pb-2 px-5 relative overflow-hidden">
+        {/* Cinematic Animated Assets */}
+        <div className="absolute top-[-20%] right-[-10%] w-96 h-96 bg-purple-600/15 rounded-full blur-[100px] pointer-events-none mix-blend-screen animate-pulse duration-1000"></div>
+        <div className="absolute top-1/2 left-[-10%] w-72 h-72 bg-emerald-600/15 rounded-full blur-[80px] pointer-events-none mix-blend-screen animate-pulse delay-500 duration-1000"></div>
+
+        <div className="w-full max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 p-8 rounded-3xl bg-slate-900/40 border border-white/5 relative z-10 backdrop-blur-xl shadow-2xl overflow-hidden">
+          {/* Internal gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-emerald-500/5 pointer-events-none"></div>
+          
+          <div className="space-y-2 relative z-10">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="bg-purple-500/20 text-purple-400 text-[9px] font-black px-2 py-0.5 rounded-full tracking-wider uppercase border border-purple-500/20">V3.5 Neural Engine</span>
+              <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black px-2 py-0.5 rounded-full tracking-wider uppercase border border-emerald-500/20">Live Sync</span>
             </div>
-            <h2 className="text-2xl font-black text-white leading-tight">Quantum Campaign Hub</h2>
-            <p className="text-xs text-slate-400 max-w-xl">
+            <h2 className="text-3xl sm:text-4xl font-black text-white leading-tight tracking-tight drop-shadow-md">Quantum Campaign Hub</h2>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-xl leading-relaxed font-medium">
               Earn real cash bonuses directly settled into your sovereign wallet balance. Complete active technical tasks, set your AI profiles, and copy trade with neural parameters.
             </p>
           </div>
           
-          <div className="flex gap-4 p-4 rounded-2xl bg-white/[0.02] border border-white/5 font-mono text-center shrink-0">
+          <div className="flex gap-6 p-5 rounded-2xl bg-[#090C12]/80 border border-white/10 font-mono text-center shrink-0 relative z-10 shadow-inner">
             <div>
-              <span className="text-[9px] text-slate-500 block uppercase font-bold">Total Finished</span>
-              <span className="text-lg font-black text-purple-400">{campaigns.filter(c => c.status !== 'ACTIVE').length} / 4</span>
+              <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-widest mb-1">Total Finished</span>
+              <span className="text-2xl font-black text-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.4)]">{campaigns.filter(c => c.status !== 'ACTIVE').length} / 4</span>
             </div>
-            <div className="border-r border-white/5 h-8 my-auto" />
+            <div className="border-r border-white/10 h-10 my-auto" />
             <div>
-              <span className="text-[9px] text-slate-500 block uppercase font-bold">Claimed Rewards</span>
-              <span className="text-lg font-black text-emerald-400">
+              <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-widest mb-1">Claimed Rewards</span>
+              <span className="text-2xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]">
                 ${campaigns.filter(c => c.status === 'CLAIMED').reduce((acc, c) => acc + c.rewardAmount, 0)}
               </span>
             </div>

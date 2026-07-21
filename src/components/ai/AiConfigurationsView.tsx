@@ -34,6 +34,7 @@ interface AiConfigurationsViewProps {
   onActivate: (configId: string) => Promise<void>;
   onStartSession: (configId: string, markets: string[]) => Promise<void>;
   isDark: boolean;
+  userId: string;
 }
 
 const defaultNewConfig = (userId: string): AiConfiguration => ({
@@ -87,7 +88,8 @@ export default function AiConfigurationsView({
   onDuplicate,
   onActivate,
   onStartSession,
-  isDark
+  isDark,
+  userId
 }: AiConfigurationsViewProps) {
   const [editingConfig, setEditingConfig] = useState<AiConfiguration | null>(null);
   const [activeStep, setActiveStep] = useState<'general' | 'markets' | 'schedule' | 'risk' | 'rules' | 'advanced'>('general');
@@ -101,7 +103,7 @@ export default function AiConfigurationsView({
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';
 
   const handleCreateNew = () => {
-    const fresh = defaultNewConfig('user_id_placeholder');
+    const fresh = defaultNewConfig(userId || 'guest_user');
     setEditingConfig(fresh);
     setIsCreating(true);
     setActiveStep('general');
