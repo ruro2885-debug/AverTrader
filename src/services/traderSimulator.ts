@@ -10,12 +10,14 @@ import {
 } from '../utils/traderSimulation';
 
 const mapSimulatedTraderToFirestore = (t: SimulatedTrader): any => {
+  const ret30 = t.return30D || (12 + (parseInt(t.id.replace(/\D/g, '')) || 1) % 50);
   return {
     ...t, // Keep all high-fidelity SimulatedTrader fields so CopyTradeDashboard works perfectly
-    return30d: t.return30D,
-    overallReturn: t.returnAllTime,
-    lossRate: 100 - t.winRate,
-    strategy: t.strategyName,
+    return30D: ret30,
+    return30d: ret30,
+    overallReturn: t.returnAllTime || ret30 * 2.5 || 120,
+    lossRate: 100 - (t.winRate || 75),
+    strategy: t.strategyName || 'Algorithmic Alpha Engine',
     riskRating: t.riskLevel === 'HIGH' ? 'High' : t.riskLevel === 'MEDIUM' ? 'Medium' : 'Low',
     avatar: t.avatarUrl || getAvatarDataUrl(t.avatarSeed),
     equityCurve: getTraderEquityCurve(t, '30d').dataPoints

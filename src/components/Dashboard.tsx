@@ -1,4 +1,4 @@
-import React, { useState, useContext, useMemo } from 'react';
+import React, { useState, useContext, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
@@ -36,11 +36,13 @@ import { TradingEngineContext } from '../contexts/TradingEngineContext';
 
 import { useFinancials } from '../hooks/useFinancials';
 import { safeStorage } from '../utils/storage';
+import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
+import { walletService, WalletData } from '../services/walletService';
 
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
-  const { activity, trades, liveTradePrices } = useContext(TradingEngineContext);
+  const { activity, trades, liveTradePrices, session } = useContext(TradingEngineContext);
   const isDark = preferences.theme === 'dark';
   
   const enrichedActiveTrades = useMemo(() => trades.filter(t => t.status === 'OPEN').map(trade => {
@@ -54,6 +56,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return safeStorage.getItem('aver_dashboard_tab') || 'home';
   });
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
 
   React.useEffect(() => {
     const checkTab = () => {
@@ -67,11 +70,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     const interval = setInterval(checkTab, 500);
     return () => clearInterval(interval);
   }, []);
-  const [watchlist, setWatchlist] = useState<any[]>([]);
-
-  React.useEffect(() => {
+  const watchlist = useMemo(() => {
     if (user?.holdings && user.holdings.length > 0) {
-      setWatchlist(user.holdings.map((h: any) => {
+      return user.holdings.map((h: any) => {
         const livePrice = liveTradePrices[h.ticker || h.symbol] || h.currentPrice || h.price || 0;
         const change = h.change || 0;
         return {
@@ -80,16 +81,24 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           change: (change >= 0 ? '+' : '') + change.toFixed(2) + '%',
           isPositive: change >= 0
         };
-      }));
-    } else {
-      setWatchlist([
-        { symbol: 'BTC', price: 64230, change: '+2.45%', isPositive: true },
-        { symbol: 'ETH', price: 3450, change: '+1.82%', isPositive: true },
-        { symbol: 'SOL', price: 145, change: '-0.52%', isPositive: false }
-      ]);
+      });
     }
+    return [
+      { symbol: 'BTC', price: 64230, change: '+2.45%', isPositive: true },
+      { symbol: 'ETH', price: 3450, change: '+1.82%', isPositive: true },
+      { symbol: 'SOL', price: 145, change: '-0.52%', isPositive: false }
+    ];
   }, [user?.holdings, liveTradePrices]);
-  const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
+
+  const handleNavigate = useCallback((tab: string) => {
+    setActiveTab(tab);
+    safeStorage.setItem('aver_dashboard_tab', tab);
+  }, []);
+
+  const handleViewModeChange = useCallback((mode: any) => {
+    setPortfolioViewMode(mode);
+  }, []);
+
   const [selectedAsset, setSelectedAsset] = useState('BTC');
 
   const [marketData, setMarketData] = useState<any[]>([]);
@@ -165,6 +174,36 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return () => clearInterval(interval);
   }, []);
 
+  const [walletData, setWalletData] = useState<WalletData | null>(null);
+
+  React.useEffect(() => {
+    if (user?.uid) {
+      portfolioPersistenceService.getPortfolioCurrent(user.uid).then(pState => {
+        console.log("[Dashboard] Hydrated state from portfolioPersistenceService:", pState?.lastUpdated);
+      });
+
+      const unsubWallet = walletService.subscribeWallet(user.uid, (wDoc) => {
+        if (wDoc) {
+          setWalletData(prev => {
+            if (
+              prev &&
+              prev.portfolioBalance === wDoc.portfolioBalance &&
+              prev.availableBalance === wDoc.availableBalance &&
+              prev.vaultBalance === wDoc.vaultBalance &&
+              prev.aiTradingCapital === wDoc.aiTradingCapital &&
+              prev.portfolioValue === wDoc.portfolioValue
+            ) {
+              return prev;
+            }
+            return wDoc;
+          });
+        }
+      });
+
+      return () => unsubWallet();
+    }
+  }, [user?.uid]);
+
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showEventsPromosModal, setShowEventsPromosModal] = useState(false);
@@ -178,13 +217,18 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const [txLoading, setTxLoading] = useState(false);
 
   // Fallback defaults if user profile isn't fully loaded or is null
-  const { totalNetBalance, activeTradingBalance, activeBalanceOffset } = useFinancials();
+  const { totalNetBalance, activeTradingBalance } = useFinancials();
   
   const closedTradesPnL = useMemo(() => {
+    // Prioritize synchronized Firestore data for absolute persistence across sessions
+    if (user?.portfolio?.todayPnL !== undefined) {
+      return user.portfolio.todayPnL;
+    }
+    
+    // Fallback to trades array if available
     const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
-    // Prioritize trades array if available, otherwise fallback to synchronized Firestore data
     if (fromTrades !== 0) return fromTrades;
-    if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) return user.portfolio.todayPnL;
+    
     if (user?.totalProfit !== undefined || user?.totalLoss !== undefined) {
       return (user?.totalProfit || 0) - (user?.totalLoss || 0);
     }
@@ -193,17 +237,24 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const totalPlAmount = closedTradesPnL + totalFloatingPnl;
   const baseCapital = useMemo(() => {
+    // Priority: Session start capital (for accurate ROI from session start), then current balance
+    if (session?.initialCapital && session.initialCapital > 0) return session.initialCapital;
+    
     const base = user?.portfolioBalance || user?.portfolio?.totalValue || 0;
     return base > 0 ? base : 100;
-  }, [user]);
+  }, [user, session]);
   
-  const totalPlPercent = (totalPlAmount / baseCapital) * 100;
+  const totalPlPercent = (totalPlAmount / (baseCapital || 1)) * 100;
   const totalValue = totalNetBalance + totalFloatingPnl;
 
   const overallReturnAmount = useMemo(() => {
+    // Prioritize synchronized Firestore data for absolute persistence across sessions
+    if (user?.portfolio?.overallReturn !== undefined) {
+      return user.portfolio.overallReturn;
+    }
+    
     const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
     if (fromTrades !== 0) return fromTrades;
-    if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) return user.portfolio.overallReturn;
     return (user?.totalProfit || 0) - (user?.totalLoss || 0);
   }, [trades, user]);
 
@@ -237,17 +288,18 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         break;
       }
     }
-    return Math.max(4, streak);
+    return streak;
   }, [activity]);
   
   const profitableDays = useMemo(() => {
-    let run = 0;
-    for (let i = 0; i < trades.length; i++) {
-      if (trades[i].pnl !== undefined && trades[i].pnl! > 0) {
-        run++;
-      }
-    }
-    return Math.max(run, trades.filter(t => t.pnl && t.pnl > 0).length);
+    const profitByDate = trades.reduce((acc: Record<string, number>, t) => {
+        if (t.pnl === undefined) return acc;
+        const date = new Date(t.timestamp).toDateString();
+        acc[date] = (acc[date] || 0) + t.pnl;
+        return acc;
+    }, {});
+    
+    return Object.values(profitByDate).filter((pnl: unknown) => (pnl as number) > 0).length;
   }, [trades]);
 
   const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (trades.length || 0) * 80 + (profitableDays * 150) + (loginStreak * 75) + ((user?.totalDeposits || 0) * 0.1);
@@ -260,7 +312,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     { name: 'Pioneer', unlocked: true, icon: '🚀', desc: 'Aver platform voyager' },
     { name: 'AI Pilot', unlocked: completedAiTrades > 0, icon: '🤖', desc: 'Executed AI trade' },
     { name: 'Alpha', unlocked: referralCount > 0, icon: '👑', desc: 'Referred active user' },
-    { name: 'VIP Vault', unlocked: (user?.totalDeposits || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
+    { name: 'VIP Vault', unlocked: (Number(user?.totalDeposits) || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
   ];
   
   // HELPER METHODS FOR ACCOUNT ACTIVITY AND SMART ASSISTANT
@@ -631,14 +683,21 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   {totalValueFormatted}
                 </h2>
                 
-                <div className="flex items-center space-x-4 mb-6">
-                  <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg ${totalPlAmount >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                <div className="flex items-center space-x-3 mb-6">
+                  <div 
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border"
+                    style={{
+                      backgroundColor: totalPlAmount >= 0 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                      borderColor: totalPlAmount >= 0 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                      color: totalPlAmount >= 0 ? '#22c55e' : '#ef4444'
+                    }}
+                  >
                     {totalPlAmount >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                    <span className="text-sm font-bold">{todayPnLFormatted}</span>
-                    <span className="text-xs font-medium">({todayPnLPercentFormatted})</span>
+                    <span className="text-sm font-black">{todayPnLFormatted}</span>
+                    <span className="text-xs font-bold opacity-90">({todayPnLPercentFormatted})</span>
                   </div>
-                  <div className={`text-xs font-medium ${textSecondary}`}>
-                    Overall: <span className={`${overallReturnPercent >= 0 ? 'text-emerald-500' : 'text-rose-500'} font-bold`}>{overallReturnFormatted}</span>
+                  <div className={`text-xs font-semibold ${textSecondary}`}>
+                    Overall: <span className="font-bold" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
                   </div>
                 </div>
 
@@ -886,7 +945,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       </div>
     </div>
       
-      {!isFullScreen && (
+      {/* Persistent Bottom Navigation - Conditional Rendering */}
+      {!isFullScreen && activeTab !== 'coin-details' && !(activeTab === 'portfolio' && (portfolioViewMode === 'vault' || portfolioViewMode === 'asset-stats')) && (
         <>
           <div className="h-32 flex-shrink-0 lg:hidden" aria-hidden="true" />
           <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />

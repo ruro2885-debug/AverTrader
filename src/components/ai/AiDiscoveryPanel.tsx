@@ -16,7 +16,7 @@ export default function AiDiscoveryPanel({ session, config, recommendations, isD
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';
 
-  const markets = Array.from(new Set(session?.marketsScanned || (config?.markets || [])));
+  const markets = config?.aiTradingRules.assetSelection || [];
   
   return (
     <div className={`rounded-2xl border ${cardClasses} overflow-hidden`}>
@@ -121,7 +121,7 @@ export default function AiDiscoveryPanel({ session, config, recommendations, isD
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${session ? 'bg-[#00D09C]' : 'bg-slate-700'}`} />
-            <span className={textSecondary}>Analyzed: {session ? Math.floor(Math.random() * 5000 + 1200).toLocaleString() : '0'}</span>
+            <span className={textSecondary}>Analyzed: 1,200</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${recommendations.length > 0 ? 'bg-amber-500' : 'bg-slate-700'}`} />
@@ -129,7 +129,7 @@ export default function AiDiscoveryPanel({ session, config, recommendations, isD
           </div>
         </div>
         <div className={textSecondary}>
-          Cycle Speed: {session ? (1.1 + Math.random() * 0.4).toFixed(1) : '0.0'}ms
+          Cycle Speed: {1.2}ms
         </div>
       </div>
     </div>

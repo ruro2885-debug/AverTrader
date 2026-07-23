@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useContext, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Activity, Bell, X, RefreshCw, ZoomIn, 
@@ -9,14 +9,14 @@ import {
   ArrowUpRight, ArrowDownRight, BarChart3, Wallet, Menu, Vault, KeyRound,
   ShieldAlert
 } from 'lucide-react';
-import { createChart, IChartApi, ISeriesApi, CandlestickSeries, createSeriesMarkers } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, AreaSeries, createSeriesMarkers } from 'lightweight-charts';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePreferences } from '../../contexts/PreferencesContext';
 import { useFinancials } from '../../hooks/useFinancials';
 import { TradingEngineContext } from '../../contexts/TradingEngineContext';
 import { safeStorage } from '../../utils/storage';
 import { 
-  generateChartData, 
+
   initialWatchlistData, 
   WatchlistItem 
 } from '../../utils/portfolioHelpers';
@@ -158,13 +158,11 @@ function AverPortfolioChart({
       },
     });
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#00D09C',
-      downColor: '#FF6B6B',
-      borderUpColor: '#00D09C',
-      borderDownColor: '#FF6B6B',
-      wickUpColor: '#00D09C',
-      wickDownColor: '#FF6B6B',
+    const candleSeries = chart.addSeries(AreaSeries, {
+      lineColor: '#00D09C',
+      topColor: 'rgba(0, 208, 156, 0.4)',
+      bottomColor: 'rgba(0, 208, 156, 0.0)',
+      lineWidth: 2,
     });
 
     seriesRef.current = candleSeries;
@@ -176,10 +174,10 @@ function AverPortfolioChart({
         const seriesData = param.seriesData.get(candleSeries);
         if (seriesData) {
           onHover({
-            open: (seriesData as any).open,
-            high: (seriesData as any).high,
-            low: (seriesData as any).low,
-            close: (seriesData as any).close,
+            open: (seriesData as any).value,
+            high: (seriesData as any).value,
+            low: (seriesData as any).value,
+            close: (seriesData as any).value,
           });
           return;
         }
@@ -266,12 +264,16 @@ export default function PortfolioViewV2({
   const { positions, trades, config, liveTradePrices, session } = useContext(TradingEngineContext);
   const { 
     totalNetBalance, 
-    activeTradingBalance, 
+    tokenBalance,
+    aiTradingCapital,
+    activeTradingBalance,
     vaultBalance, 
     updateVaultBalance, 
-    activeBalanceOffset,
-    updateActiveBalanceOffset 
   } = useFinancials();
+
+  // Placeholders for removed functionality to satisfy existing component props
+  const activeBalanceOffset = 0;
+  const updateActiveBalanceOffset = (_val: any) => {};
 
   const enrichedActiveTrades = useMemo(() => trades.filter(t => t.status === 'OPEN').map(trade => {
     const livePrice = liveTradePrices[trade.id] || trade.currentPrice || trade.entry;
@@ -280,20 +282,31 @@ export default function PortfolioViewV2({
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
 
+  const totalValue = totalNetBalance + totalFloatingPnl;
+
   const scrollPositionRef = useRef<number>(0);
   const { formatCurrency } = usePreferences();
 
   // State to hold hover indicators
   const [hoveredOHLC, setHoveredOHLC] = useState<HoverData | null>(null);
 
+  const handleHover = useCallback((h: HoverData | null) => {
+    setHoveredOHLC(h);
+  }, []);
+
   // Navigation mode to switch full-screen pages
   const [viewMode, setViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
 
+  const onViewModeChangeRef = useRef(onViewModeChange);
   useEffect(() => {
-    if (onViewModeChange) {
-      onViewModeChange(viewMode);
+    onViewModeChangeRef.current = onViewModeChange;
+  }, [onViewModeChange]);
+
+  useEffect(() => {
+    if (onViewModeChangeRef.current) {
+      onViewModeChangeRef.current(viewMode);
     }
-  }, [viewMode, onViewModeChange]);
+  }, [viewMode]);
 
   useEffect(() => {
     if (viewMode === 'portfolio') {
@@ -322,33 +335,10 @@ export default function PortfolioViewV2({
     : "bg-white/60 backdrop-blur-md border border-slate-200/50 shadow-lg";
 
   // Real-time fluctuating asset tick simulation state
-  // Initialize watchlist with actual holdings from user document
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
+  // Derived watchlist with actual holdings from user document and live prices
+  const watchlist = useMemo<WatchlistItem[]>(() => {
     if (user?.holdings && user.holdings.length > 0) {
-      return user.holdings.map((h: any) => ({
-        ticker: h.ticker || h.symbol || '???',
-        name: h.name || h.asset || 'Asset',
-        price: h.currentPrice || h.price || 0,
-        change: h.change || 0,
-        allocation: 0, // Will be calculated
-        aiRating: h.aiRating || 85,
-        aiDecision: h.aiDecision || 'HODL',
-        news: h.news || 'Market sentiment is currently being analyzed by AI.',
-        newsSentiment: h.newsSentiment || 'Neutral',
-        logoColor: h.logoColor || 'from-emerald-500 to-teal-500',
-        logoText: h.logoText || (h.ticker ? h.ticker[0] : '?'),
-        quantity: h.quantity || 0,
-        avgEntry: h.avgEntry || h.entryPrice || 0,
-        aiDetails: h.aiDetails || 'Autonomous analysis in progress.'
-      })) as WatchlistItem[];
-    }
-    return initialWatchlistData;
-  });
-
-  // Sync watchlist with holdings whenever user document updates
-  useEffect(() => {
-    if (user?.holdings && user.holdings.length > 0) {
-      const updatedWatchlist = user.holdings.map((h: any) => {
+      return user.holdings.map((h: any) => {
         const livePrice = liveTradePrices[h.ticker || h.symbol] || h.currentPrice || h.price || 0;
         return {
           ticker: h.ticker || h.symbol || '???',
@@ -366,10 +356,11 @@ export default function PortfolioViewV2({
           avgEntry: h.avgEntry || h.entryPrice || 0,
           aiDetails: h.aiDetails || 'Autonomous analysis in progress.'
         };
-      });
-      setWatchlist(updatedWatchlist as WatchlistItem[]);
+      }) as WatchlistItem[];
     }
+    return initialWatchlistData;
   }, [user?.holdings, totalNetBalance, liveTradePrices]);
+
   const [livePrices, setLivePrices] = useState<Record<string, number>>({
     BTC: 64230.00,
     ETH: 3450.20,
@@ -435,30 +426,28 @@ export default function PortfolioViewV2({
     }
   ], [radarAssets]);
 
-  const [allocations, setAllocations] = useState<any[]>([
-    { ticker: 'BTC', name: 'Bitcoin', color: '#f59e0b', icon: '₿', quantity: 0.85 },
-    { ticker: 'ETH', name: 'Ethereum', color: '#6366f1', icon: 'Ξ', quantity: 12.0 },
-    { ticker: 'SOL', name: 'Solana', color: '#a855f7', icon: 'S', quantity: 120.0 },
-    { ticker: 'Cash', name: 'USD Cash', color: '#10b981', icon: '$', quantity: 169200 },
-    { ticker: 'AAPL', name: 'Apple Inc.', color: '#3b82f6', icon: '', quantity: 820 },
-    { ticker: 'ETFs', name: 'S&P 500 ETF', color: '#ec4899', icon: 'E', quantity: 240 },
-    { ticker: 'Gold', name: 'Gold Spot', color: '#eab308', icon: 'G', quantity: 50 },
-  ]);
+  const allocations = useMemo<any[]>(() => {
+    const baseList = [
+      { ticker: 'BTC', name: 'Bitcoin', color: '#f59e0b', icon: '₿', quantity: 0.85 },
+      { ticker: 'ETH', name: 'Ethereum', color: '#6366f1', icon: 'Ξ', quantity: 12.0 },
+      { ticker: 'SOL', name: 'Solana', color: '#a855f7', icon: 'S', quantity: 120.0 },
+      { ticker: 'Cash', name: 'USD Cash', color: '#10b981', icon: '$', quantity: 169200 },
+      { ticker: 'AAPL', name: 'Apple Inc.', color: '#3b82f6', icon: '', quantity: 820 },
+      { ticker: 'ETFs', name: 'S&P 500 ETF', color: '#ec4899', icon: 'E', quantity: 240 },
+      { ticker: 'Gold', name: 'Gold Spot', color: '#eab308', icon: 'G', quantity: 50 },
+    ];
 
-  useEffect(() => {
-    setAllocations(prev => {
-      return prev.map(a => {
-        if (a.ticker === 'Cash' && user?.availableBalance !== undefined) {
-          return { ...a, quantity: user.availableBalance };
+    return baseList.map(a => {
+      if (a.ticker === 'Cash' && user?.availableBalance !== undefined) {
+        return { ...a, quantity: user.availableBalance };
+      }
+      if (user?.holdings && user.holdings.length > 0) {
+        const match = user.holdings.find(h => h.ticker === a.ticker || h.symbol === a.ticker);
+        if (match) {
+          return { ...a, quantity: match.quantity };
         }
-        if (user?.holdings && user.holdings.length > 0) {
-          const match = user.holdings.find(h => h.ticker === a.ticker);
-          if (match) {
-            return { ...a, quantity: match.quantity };
-          }
-        }
-        return a;
-      });
+      }
+      return a;
     });
   }, [user?.holdings, user?.availableBalance]);
 
@@ -504,6 +493,35 @@ export default function PortfolioViewV2({
   });
   const [lastCommentaryUpdate, setLastCommentaryUpdate] = useState<Date>(new Date());
   const [isRefreshingCommentary, setIsRefreshingCommentary] = useState(false);
+
+  // Missing States for Vault and Trading dialogs
+  const [activeDialog, setActiveDialog] = useState<'trade' | 'vault' | null>(null);
+  const [vaultState, setVaultState] = useState<'closed' | 'deposit' | 'withdraw' | 'goal'>('closed');
+  const [vaultActionType, setVaultActionType] = useState<'DEPOSIT' | 'WITHDRAW' | null>(null);
+  const [vaultActionAsset, setVaultActionAsset] = useState<string>('BTC');
+  const [vaultActionAmount, setVaultActionAmount] = useState<string>('');
+  const [vaultGoalName, setVaultGoalName] = useState<string>('');
+  const [vaultPasscode, setVaultPasscode] = useState<string>('1234'); // Default simulated passcode
+  const [showWithdrawPasscodeVerify, setShowWithdrawPasscodeVerify] = useState<boolean>(false);
+  const [withdrawVerifyInput, setWithdrawVerifyInput] = useState<string>('');
+  const [passcodeError, setPasscodeError] = useState<string | null>(null);
+  const [shakeTrigger, setShakeTrigger] = useState<number>(0);
+
+  const [tradeType, setTradeType] = useState<'BUY' | 'SELL'>('BUY');
+  const [tradeAsset, setTradeAsset] = useState<string>('BTC');
+  const [tradeAmount, setTradeAmount] = useState<string>('0');
+
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [vaultSetupStep, setVaultSetupStep] = useState<number>(1);
+  const [isPasscodeConfirming, setIsPasscodeConfirming] = useState<boolean>(false);
+  const [passcodeInput, setPasscodeInput] = useState<string>('');
+  const [passcodeConfirm, setPasscodeConfirm] = useState<string>('');
+  const [isVaultOnboarded, setIsVaultOnboarded] = useState<boolean>(false);
+  const [vaultTargetDate, setVaultTargetDate] = useState<string>('');
+  const [vaultNotes, setVaultNotes] = useState<string>('');
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
 
   // Updates analyst advice dynamically based on hourly rotation or live changes
   const updateAnalystAdvice = async (force = false) => {
@@ -570,8 +588,15 @@ export default function PortfolioViewV2({
     }
   };
 
-  // Run update on mount
+  const lastAnalyzedBalanceRef = useRef<number | null>(null);
+
+  // Run update on mount / major balance updates
   useEffect(() => {
+    // Prevent infinite render loops and API spamming by only updating if balance shifts by more than $1000
+    if (lastAnalyzedBalanceRef.current !== null && Math.abs(lastAnalyzedBalanceRef.current - totalNetBalance) < 1000) {
+      return;
+    }
+    lastAnalyzedBalanceRef.current = totalNetBalance;
     updateAnalystAdvice();
   }, [totalNetBalance]);
 
@@ -649,179 +674,32 @@ export default function PortfolioViewV2({
     BTC: 'https://images.unsplash.com/photo-1516245834210-c4c142787335?auto=format&fit=crop&q=80&w=200',
     ETH: 'https://images.unsplash.com/photo-1621761191319-c6fb62004040?auto=format&fit=crop&q=80&w=200',
     SOL: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&q=80&w=200'
-  }), []);
-
-  // --- CHART STATE MANAGEMENT ---
+  }), []);  // --- CHART STATE MANAGEMENT ---
   const [timeframe, setTimeframe] = useState<string>('1D');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('ticker');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  const [aiLiveCandles, setAiLiveCandles] = useState<{ time: number; open: number; high: number; low: number; close: number; }[]>([]);
-
-  useEffect(() => {
-    // Clear live candles if no active session or no open trades
-    if (!session || session.status !== 'ACTIVE' || enrichedActiveTrades.length === 0) {
-      if (aiLiveCandles.length > 0) {
-        setAiLiveCandles([]);
-      }
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setAiLiveCandles(prev => {
-        const lastCandle = prev.length > 0 ? prev[prev.length - 1] : null;
-        const basePrice = lastCandle ? lastCandle.close : (totalNetBalance + totalFloatingPnl);
-        const now = Math.floor(Date.now() / 1000);
-        
-        let timeGap = 15 * 60;
-        if (timeframe === '1D') timeGap = 5 * 60;
-        else if (timeframe === '5D') timeGap = 1 * 60 * 60;
-        
-        const nextTime = lastCandle ? lastCandle.time + timeGap : now;
-        
-        // Profit is green, loss is red. Ensure they are organic and not straight by using strong directional biases.
-        const isProfit = totalFloatingPnl > 0;
-        const isLoss = totalFloatingPnl < 0;
-        
-        const isGreen = isProfit 
-          ? (Math.random() < 0.82) // 82% green, 18% red on profits to create an organic upward trend
-          : isLoss 
-            ? (Math.random() < 0.18) // 18% green, 82% red on losses to create an organic downward trend
-            : (Math.random() < 0.50); // 50/50 on flat/even
-            
-        const changeMagnitude = (0.001 + Math.random() * 0.003) * basePrice;
-        
-        const open = basePrice;
-        const close = isGreen ? basePrice + changeMagnitude : basePrice - changeMagnitude;
-        const high = Math.max(open, close) + (Math.random() * 0.001 * basePrice);
-        const low = Math.min(open, close) - (Math.random() * 0.001 * basePrice);
-        
-        const newCandle = {
-          time: nextTime,
-          open: parseFloat(open.toFixed(2)),
-          high: parseFloat(high.toFixed(2)),
-          low: parseFloat(low.toFixed(2)),
-          close: parseFloat(close.toFixed(2)),
-        };
-        
-        const nextList = [...prev, newCandle];
-        if (nextList.length > 30) {
-          nextList.shift();
-        }
-        return nextList;
-      });
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [session?.status, enrichedActiveTrades.length, totalFloatingPnl, timeframe, totalNetBalance]);
-
-  // Search & sorting for holdings table
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<'ticker' | 'value' | 'change'>('value');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Action Drawer Dialog Toggles
-  const [activeDialog, setActiveDialog] = useState<'vault' | 'trade' | null>(null);
-
-  // Vault Savings System States
-  // Vault state is now fully synchronized with unified useFinancials
-
-  const [isVaultOnboarded, setIsVaultOnboarded] = useState<boolean>(() => {
-    return safeStorage.getItem('vault_onboarded') === 'true';
-  });
-
-  const [vaultPasscode, setVaultPasscode] = useState<string>(() => {
-    return safeStorage.getItem('vault_passcode') || '';
-  });
-
-  const [vaultState, setVaultState] = useState<'closed' | 'setup' | 'locked' | 'unlocked'>('closed');
-  const [vaultSetupStep, setVaultSetupStep] = useState<number | null>(null);
-  const [passcodeInput, setPasscodeInput] = useState<string>('');
-  const [passcodeConfirm, setPasscodeConfirm] = useState<string>('');
-  const [passcodeError, setPasscodeError] = useState<string | null>(null);
-  const [isPasscodeConfirming, setIsPasscodeConfirming] = useState<boolean>(false);
-  const [shakeTrigger, setShakeTrigger] = useState<boolean>(false);
-
-  // Deposit/Withdraw parameters
-  const [vaultActionType, setVaultActionType] = useState<'deposit' | 'withdraw' | null>(null);
-  const [vaultActionAsset, setVaultActionAsset] = useState<string>('BTC');
-  const [vaultActionAmount, setVaultActionAmount] = useState<string>('');
-  const [vaultGoalName, setVaultGoalName] = useState<string>('');
-  const [vaultTargetDate, setVaultTargetDate] = useState<string>('');
-  const [vaultNotes, setVaultNotes] = useState<string>('');
-  const [showWithdrawPasscodeVerify, setShowWithdrawPasscodeVerify] = useState<boolean>(false);
-  const [withdrawVerifyInput, setWithdrawVerifyInput] = useState<string>('');
-
-  // Asset Statistics states
-  const [isAssetStatsExpanded, setIsAssetStatsExpanded] = useState<boolean>(false);
-  const [hoveredAllocIndex, setHoveredAllocIndex] = useState<number | null>(null);
-
-  // Selected Execution Event state
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-
-  // Trade Executor Modal Parameters
-  const [tradeAsset, setTradeAsset] = useState<string>('BTC');
-  const [tradeAmount, setTradeAmount] = useState<string>('0.05');
-  const [tradeType, setTradeType] = useState<'BUY' | 'SELL'>('BUY');
-
-  // Sync animations
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [lastSyncTime, setLastSyncTime] = useState<string>('Just now');
-
-  // --- DERIVED CHART DATA MAPPED TO TV LIGHTWEIGHT CHARTS (Aggregated Portfolio Value) ---
   const tvChartData = useMemo(() => {
-    const helperTimeframe = timeframe === "1H" ? "1D" : timeframe === "1D" ? "5D" : timeframe === "1W" ? "1M" : "3M";
-    const rawData = generateChartData(helperTimeframe, "Bitcoin");
+    if (!user?.snapshots || user.snapshots.length === 0) return [];
     
-    const currentTotalValue = totalNetBalance + totalFloatingPnl;
-    const lastRawPoint = rawData[rawData.length - 1];
-    const lastRawClose = (lastRawPoint && lastRawPoint.close) ? lastRawPoint.close : 64230;
-    const scaleFactor = (Number.isFinite(currentTotalValue) && currentTotalValue > 0) ? currentTotalValue / lastRawClose : 1;
-    
-    const now = Math.floor(Date.now() / 1000);
-    let secondsPerCandle = 24 * 60 * 60;
-    if (timeframe === "1D") secondsPerCandle = 15 * 60;
-    else if (timeframe === "5D") secondsPerCandle = 4 * 60 * 60;
-    else if (timeframe === "1M") secondsPerCandle = 24 * 60 * 60;
-    else if (timeframe === "3M") secondsPerCandle = 2 * 24 * 60 * 60;
-    else if (timeframe === "6M") secondsPerCandle = 4 * 24 * 60 * 60;
-    else if (timeframe === "1Y") secondsPerCandle = 8 * 24 * 60 * 60;
-    else secondsPerCandle = 24 * 60 * 60;
-    
-    return rawData.map((d, idx) => {
-      const timeInSeconds = now - (rawData.length - 1 - idx) * secondsPerCandle;
-      const safeScale = (val: number) => {
-        const scaled = val * scaleFactor;
-        return Number.isFinite(scaled) ? Number(scaled.toFixed(2)) : Number(val.toFixed(2));
-      };
-      
+    // Sort snapshots ascending
+    const sorted = [...user.snapshots].sort((a, b) => {
+      const aTime = (a.timestamp as any)?.seconds || (a.timestamp as any)?._seconds || (new Date(a.timestamp).getTime() / 1000);
+      const bTime = (b.timestamp as any)?.seconds || (b.timestamp as any)?._seconds || (new Date(b.timestamp).getTime() / 1000);
+      return aTime - bTime;
+    });
+
+    return sorted.map(snap => {
+      const timeInSeconds = (snap.timestamp as any)?.seconds || (snap.timestamp as any)?._seconds || Math.floor(new Date(snap.timestamp).getTime() / 1000);
       return {
         time: timeInSeconds,
-        open: safeScale(d.open || 64100),
-        high: safeScale(d.high || 64300),
-        low: safeScale(d.low || 63900),
-        close: safeScale(d.close || 64200),
+        value: snap.totalValue
       };
     });
-  }, [timeframe, totalNetBalance, totalFloatingPnl]);
+  }, [user?.snapshots, timeframe]);
 
-  // Merge static tvChartData with live AI candles
-  const mergedChartData = useMemo(() => {
-    if (aiLiveCandles.length === 0) return tvChartData;
-    
-    const baseList = [...tvChartData];
-    const lastBaseTime = baseList.length > 0 ? baseList[baseList.length - 1].time : Math.floor(Date.now() / 1000);
-    
-    const adjustedLiveCandles = aiLiveCandles.map((c, i) => {
-      const timeGap = timeframe === '1D' ? 5 * 60 : 15 * 60;
-      return {
-        ...c,
-        time: lastBaseTime + (i + 1) * timeGap
-      };
-    });
-    
-    return [...baseList, ...adjustedLiveCandles];
-  }, [tvChartData, aiLiveCandles, timeframe]);
+  const mergedChartData = tvChartData;
 
   // Live execution events mapped directly to timestamps in tvChartData
   const executionEvents = useMemo(() => {
@@ -910,12 +788,17 @@ export default function PortfolioViewV2({
     return list;
   }, [tvChartData, trades, timeframe, formatCurrency]);
 
+  const watchlistRef = useRef<WatchlistItem[]>([]);
+  useEffect(() => {
+    watchlistRef.current = watchlist;
+  }, [watchlist]);
+
   // Real-time simulated price feed WebSocket/Ticks simulation
   useEffect(() => {
     const interval = setInterval(() => {
       setLivePrices(prev => {
         const next: Record<string, number> = { ...prev };
-        watchlist.forEach(w => {
+        watchlistRef.current.forEach(w => {
           const currentPrice = prev[w.ticker] || w.price;
           const fluctuation = currentPrice * (Math.random() - 0.495) * 0.0008;
           next[w.ticker] = +(currentPrice + fluctuation).toFixed(2);
@@ -925,7 +808,7 @@ export default function PortfolioViewV2({
       setTickTracker(prev => prev + 1);
     }, 2500);
     return () => clearInterval(interval);
-  }, [watchlist]);
+  }, []);
 
   const triggerSync = () => {
     setIsSyncing(true);
@@ -1108,41 +991,50 @@ export default function PortfolioViewV2({
         <div 
           className={`${cardClasses} p-6 rounded-[24px] space-y-4 relative overflow-hidden`}
         >
-          {/* Main Top Header: Active Trading Capital */}
+          {/* Main Top Header: Total Net Balance */}
           <div className="space-y-1">
             <span className="text-[9px] text-slate-400 uppercase tracking-widest font-bold block flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 bg-[#00D09C] rounded-full animate-pulse" />
-              Active Trading Capital
+              Total Net Balance
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-3.5xl font-extrabold text-white tracking-tight">
-                ${Math.max(0, activeTradingBalance + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-xs font-semibold text-slate-400 font-mono">USD</span>
             </div>
             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-              Actively rotated and balanced across positions by Aver AI engine.
+              Consolidated value of wallet, AI sessions, and vault holdings.
             </p>
           </div>
 
           {/* Breakdown Grid */}
-          <div className="grid grid-cols-2 gap-3.5 pt-3.5 border-t border-white/[0.05]">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3.5 pt-3.5 border-t border-white/[0.05]">
             <div className="space-y-0.5">
               <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold block flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
-                Protected Savings
+                Wallet Balance
               </span>
               <div className="text-sm font-bold text-slate-100 font-mono">
-                ${vaultBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${tokenBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
             <div className="space-y-0.5">
               <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold block flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-[#a855f7] rounded-full" />
-                Total Assets (AUM)
+                <span className={`w-1.5 h-1.5 ${session?.status === 'ACTIVE' ? 'bg-[#00D09C]' : 'bg-slate-500'} rounded-full`} />
+                Active Engine
               </span>
-              <div className="text-sm font-bold text-white font-mono">
-                ${(totalNetBalance + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <div className={`text-sm font-bold font-mono ${session?.status === 'ACTIVE' ? 'text-[#00D09C]' : 'text-slate-400'}`}>
+                ${(aiTradingCapital + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="space-y-0.5 col-span-2 md:col-span-1">
+              <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold block flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                Vault Savings
+              </span>
+              <div className="text-sm font-bold text-slate-100 font-mono">
+                ${vaultBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           </div>
@@ -1194,12 +1086,20 @@ export default function PortfolioViewV2({
 
           {/* Chart Stage */}
           <div className="bg-[#080B11]/40 p-2 border border-white/[0.04] rounded-2xl relative overflow-hidden">
-            <AverPortfolioChart 
-              data={mergedChartData} 
-              isDark={isDark} 
-              onHover={(data) => setHoveredOHLC(data)} 
-              executionEvents={executionEvents}
-            />
+            {mergedChartData.length === 0 ? (
+              <div className="h-[260px] flex flex-col items-center justify-center text-slate-500 space-y-3">
+                <BarChart3 className="w-8 h-8 opacity-50" />
+                <span className="text-sm font-semibold tracking-wide">No Chart Data Available</span>
+                <span className="text-xs text-slate-600">Trading activity will populate this chart.</span>
+              </div>
+            ) : (
+              <AverPortfolioChart 
+                data={mergedChartData} 
+                isDark={isDark} 
+                onHover={handleHover} 
+                executionEvents={executionEvents}
+              />
+            )}
 
             {/* Live Interactive Overlay Tooltip for Selected Event */}
             <AnimatePresence>

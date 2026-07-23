@@ -215,16 +215,6 @@ export default function MarketHighlightsPage({ theme, onBack }: { theme: 'light'
     fetchMarketIntelligence();
   }, []);
 
-  // Sync selected asset price live if analysis exists
-  useEffect(() => {
-    if (analysisResult && !analyzing) {
-      const activeAsset = assetOptions.find(a => a.symbol === analysisResult.symbol);
-      if (activeAsset) {
-        setAnalysisResult(prev => prev ? { ...prev, price: activeAsset.currentPrice } : null);
-      }
-    }
-  }, [liveTradePrices, analyzing]);
-
   // Layout Styles
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";

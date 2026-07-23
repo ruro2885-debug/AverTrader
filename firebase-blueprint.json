@@ -1,5 +1,24 @@
 {
   "entities": {
+    "Wallet": {
+      "title": "Wallet",
+      "description": "User wallet document containing balances and capital",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "portfolioBalance": { "type": "number" },
+        "availableBalance": { "type": "number" },
+        "vaultBalance": { "type": "number" },
+        "aiTradingCapital": { "type": "number" },
+        "portfolioValue": { "type": "number" },
+        "totalDeposits": { "type": "number" },
+        "totalWithdrawals": { "type": "number" },
+        "cashBalance": { "type": "number" },
+        "tokenBalance": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "portfolioBalance", "availableBalance"]
+    },
     "Account": {
       "title": "Account",
       "description": "User master financial account",
@@ -301,13 +320,16 @@
   },
   "firestore": {
     "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/wallets/{uid}": { "schema": "Wallet", "description": "User wallet document" },
     "/users/{uid}/account/master": { "schema": "Account", "description": "User master financial account" },
     "/users/{uid}/holdings/{holdingId}": { "schema": "Holding", "description": "User portfolio holdings" },
     "/users/{uid}/trades/{tradeId}": { "schema": "Trade", "description": "User trade records" },
     "/users/{uid}/snapshots/{snapshotId}": { "schema": "Snapshot", "description": "User portfolio history snapshots" },
     "/users/{uid}/aiPreferences/default": { "schema": "AiPreference", "description": "User AI preferences" },
+    "/aiPreferences/{userId}": { "schema": "AiPreference", "description": "User AI preferences and risk settings" },
     "/users/{uid}/tradingConfig/default": { "schema": "TradingEngineConfig", "description": "User AI engine config" },
     "/users/{uid}/positions/{positionId}": { "schema": "Position", "description": "Active positions" },
+    "/users/{uid}/portfolio/current": { "schema": "Snapshot", "description": "User current portfolio, wallet, and session state" },
     "/traderProfiles/{traderId}": { "schema": "TraderProfile", "description": "Trader profiles" },
     "/users/{uid}/activity/{eventId}": { "schema": "ActivityEvent", "description": "User activity log" },
     "/users/{uid}/campaigns/{campaignId}": { "schema": "UserBonus", "description": "Active interactive campaign progress and claims" },

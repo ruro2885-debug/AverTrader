@@ -7,6 +7,8 @@ import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule 
 import { Position, ActivityEvent } from '../types/trading';
 import { seedTraders, startTraderSimulator } from '../services/traderSimulator';
 import { aiTradingService } from '../services/aiTradingService';
+import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
+import { walletService } from '../services/walletService';
 
 function isWithinSchedule(schedule?: TradingSchedule): boolean {
   if (!schedule) return true;
@@ -137,9 +139,10 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
 
 export const TradingEngineProvider = ({ children }: { children: React.ReactNode }) => {
   const { user, updateProfile, addNotification } = useAuth();
-  const { activeTradingBalance, addFundsToActiveBalance } = useFinancials();
+  const { activeTradingBalance, addFundsToActiveBalance, tokenBalance } = useFinancials();
   
   const activeTradingBalanceRef = useRef(activeTradingBalance);
+  const tokenBalanceRef = useRef(tokenBalance);
   const addFundsRef = useRef(addFundsToActiveBalance);
 
   const [configs, setConfigs] = useState<AiConfiguration[]>([]);
@@ -195,42 +198,44 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           id: `cfg_default`,
           ownerId: user.uid,
           name: 'Alpha Quant Momentum',
-          description: 'An aggressive swing-trading model optimized for high-volatility crypto and tech equities.',
-          version: 1,
           createdAt: Timestamp.now(),
           lastModified: Timestamp.now(),
           status: 'ACTIVE',
-          markets: ['BTC', 'ETH', 'SOL'],
-          strategy: 'NEURAL_MOMENTUM',
-          schedule: {
-            sessions: [{ start: '08:00', end: '16:00' }],
-            weekdays: true,
-            weekends: true,
-            timezone: 'UTC',
-            breakPeriods: [{ start: '12:00', end: '13:00' }],
-            excludeHolidays: false
+          sessionSetup: {
+            amountToAllocate: 1000,
+            fundingSource: 'WALLET',
+            sessionDuration: 24
           },
-          riskControls: {
-            maxPositionSize: 50,
+          profitRiskManagement: {
+            sessionTakeProfit: 5,
+            sessionStopLoss: 2,
+            maxRiskPerTrade: 1,
+            maxPositionSize: 500
+          },
+          aiTradingRules: {
+            minConfidence: 85,
             maxSimultaneousPositions: 3,
-            exposureLimit: 500,
-            positionSizingPreference: 'PERCENTAGE',
-            lossLimit: 2
+            assetSelection: ['BTC', 'ETH', 'SOL'],
+            tradingStrategy: 'NEURAL_MOMENTUM'
           },
-          recommendationRules: {
-            minConfidence: 75,
-            allowedAssetClasses: ['CRYPTO'],
-            indicators: ['RSI', 'MACD', 'EMA']
+          configurationDetails: {
+            description: 'Aggressive alpha-capture strategy targeting neural momentum patterns.',
+            category: 'Scalping',
+            version: '1.2.0'
+          },
+          analyticsAndNotes: {
+            riskScore: 65,
+            strategyNotes: 'Focus on 5m timeframe crossovers with volume validation.',
+            performanceStats: {
+              winRate: 0,
+              totalReturn: 0,
+              drawdown: 0
+            }
           },
           notificationPreferences: {
             newRecommendations: true,
             tradeExecutions: true,
-            marketAlerts: true
-          },
-          advancedBehavior: {
-            enableDeepAnalysis: true,
-            useSentimentGrounding: false,
-            neuralConfidenceThreshold: 80
+            marketAlerts: false
           }
         };
         
@@ -275,6 +280,60 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     setLoading(false);
   }, [user?.uid, getLocalStorageItem, setLocalStorageItem]);
 
+  // Fetch saved AI Preferences & Risk Settings directly from Firestore aiPreferences/{userId}
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    async function loadSavedAiPreferences() {
+      try {
+        const savedPrefs = await aiTradingService.getPreferences(user.uid);
+        if (savedPrefs) {
+          setConfigs(prevConfigs => {
+            if (prevConfigs.length === 0) return prevConfigs;
+            return prevConfigs.map(c => ({
+              ...c,
+              profitRiskManagement: {
+                ...c.profitRiskManagement,
+                maxPositionSize: savedPrefs.maxPositionSize ?? c.profitRiskManagement.maxPositionSize,
+                maxRiskPerTrade: savedPrefs.maxRiskPerTrade ?? c.profitRiskManagement.maxRiskPerTrade,
+                sessionStopLoss: savedPrefs.lossLimit ?? c.profitRiskManagement.sessionStopLoss,
+              },
+              aiTradingRules: {
+                ...c.aiTradingRules,
+                minConfidence: savedPrefs.minConfidence ?? savedPrefs.minimumConfidenceScore ?? c.aiTradingRules.minConfidence,
+                maxSimultaneousPositions: savedPrefs.maxSimultaneousPositions ?? c.aiTradingRules.maxSimultaneousPositions,
+                assetSelection: savedPrefs.preferredMarkets && savedPrefs.preferredMarkets.length > 0 ? savedPrefs.preferredMarkets : c.aiTradingRules.assetSelection
+              }
+            }));
+          });
+
+          setConfig(prevConfig => {
+            if (!prevConfig) return prevConfig;
+            return {
+              ...prevConfig,
+              profitRiskManagement: {
+                ...prevConfig.profitRiskManagement,
+                maxPositionSize: savedPrefs.maxPositionSize ?? prevConfig.profitRiskManagement.maxPositionSize,
+                maxRiskPerTrade: savedPrefs.maxRiskPerTrade ?? prevConfig.profitRiskManagement.maxRiskPerTrade,
+                sessionStopLoss: savedPrefs.lossLimit ?? prevConfig.profitRiskManagement.sessionStopLoss,
+              },
+              aiTradingRules: {
+                ...prevConfig.aiTradingRules,
+                minConfidence: savedPrefs.minConfidence ?? savedPrefs.minimumConfidenceScore ?? prevConfig.aiTradingRules.minConfidence,
+                maxSimultaneousPositions: savedPrefs.maxSimultaneousPositions ?? prevConfig.aiTradingRules.maxSimultaneousPositions,
+                assetSelection: savedPrefs.preferredMarkets && savedPrefs.preferredMarkets.length > 0 ? savedPrefs.preferredMarkets : prevConfig.aiTradingRules.assetSelection
+              }
+            };
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to load saved aiPreferences from Firestore:", err);
+      }
+    }
+
+    loadSavedAiPreferences();
+  }, [user?.uid]);
+
   // Sync state FROM custom events (e.g., when copying a trader's AI config)
   useEffect(() => {
     const handleConfigsSync = (e: Event) => {
@@ -300,37 +359,37 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     if (user && configs.length > 0) {
       setLocalStorageItem(`aver_configs_${user.uid}`, configs);
     }
-  }, [configs, user, setLocalStorageItem]);
+  }, [configs, user?.uid, setLocalStorageItem]);
 
   useEffect(() => {
     if (user) {
       setLocalStorageItem(`aver_session_${user.uid}`, session);
     }
-  }, [session, user, setLocalStorageItem]);
+  }, [session, user?.uid, setLocalStorageItem]);
 
   useEffect(() => {
     if (user && positions.length > 0) {
       setLocalStorageItem(`aver_positions_${user.uid}`, positions);
     }
-  }, [positions, user, setLocalStorageItem]);
+  }, [positions, user?.uid, setLocalStorageItem]);
 
   useEffect(() => {
     if (user && trades.length > 0) {
       setLocalStorageItem(`aver_trades_${user.uid}`, trades);
     }
-  }, [trades, user, setLocalStorageItem]);
+  }, [trades, user?.uid, setLocalStorageItem]);
 
   useEffect(() => {
     if (user && activity.length > 0) {
       setLocalStorageItem(`aver_activity_${user.uid}`, activity);
     }
-  }, [activity, user, setLocalStorageItem]);
+  }, [activity, user?.uid, setLocalStorageItem]);
 
   useEffect(() => {
     if (user && recommendations.length > 0) {
       setLocalStorageItem(`aver_recommendations_${user.uid}`, recommendations);
     }
-  }, [recommendations, user, setLocalStorageItem]);
+  }, [recommendations, user?.uid, setLocalStorageItem]);
 
   useEffect(() => {
     seedTraders();
@@ -376,8 +435,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         } else {
           // If no active session found in Firestore, but we have one locally, 
           // we might want to check if it's just a sync delay or if it was truly ended.
-          // For now, if Firestore says no active session, we clear local.
-          if (sessionRefVal.current) {
+          // Only clear local session if we have finished initial loading to avoid race conditions.
+          if (!loading && sessionRefVal.current) {
             console.log("[TradingEngineContext] No active session in Firestore, clearing local session.");
             setSession(null);
             sessionRefVal.current = null;
@@ -432,7 +491,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       unsubRecs();
       stopSimulator();
     };
-  }, [user]);
+  }, [user?.uid]);
 
   const logActivity = useCallback(async (type: string, message: string, metadata?: Record<string, any>) => {
     if (!user) return;
@@ -462,33 +521,72 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     } catch (error) {
         console.warn("Failed to log activity in Firestore:", error);
     }
-  }, [user, setLocalStorageItem]);
+  }, [user?.uid, setLocalStorageItem]);
 
   const startSession = useCallback(async (configId: string, markets: string[]) => {
     console.log("[TradingEngineContext] startSession called with configId:", configId);
     if (!user) return;
     
+    const activeConfig = configs.find(c => c.id === configId) || config;
+    if (!activeConfig) return;
+
+    const allocationAmount = activeConfig.sessionSetup.amountToAllocate;
+    const fundingSource = activeConfig.sessionSetup.fundingSource;
+    
+    // Validate funds
+    const sourceBalance = fundingSource === 'WALLET' ? tokenBalanceRef.current : user.vaultBalance || 0;
+    if (sourceBalance < allocationAmount) {
+      addNotification?.('trading', 'high', 'Insufficient Funds', `Your ${fundingSource.toLowerCase()} balance is insufficient to start this session.`);
+      return;
+    }
+
+    // Deduct funds from source to isolate them for trading
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      if (fundingSource === 'WALLET') {
+        await updateDoc(userRef, {
+          tokenBalance: increment(-allocationAmount),
+          availableBalance: increment(-allocationAmount)
+        });
+      } else {
+        await updateDoc(userRef, {
+          vaultBalance: increment(-allocationAmount)
+        });
+      }
+    } catch (err) {
+      console.error("Failed to isolate trading funds:", err);
+      addNotification?.('system', 'high', 'Engine Error', 'Could not secure trading funds. Please try again.');
+      return;
+    }
+
     const newSession: AiSession = {
       id: `session_${Date.now()}`,
       userId: user.uid,
       status: 'ACTIVE',
       startTime: Timestamp.now(),
-      marketsScanned: markets,
-      activeConfigId: configId
+      activeConfigId: configId,
+      tradingCapital: allocationAmount,
+      initialCapital: allocationAmount,
+      openPositionsCount: 0,
+      totalProfit: 0,
+      totalLoss: 0,
+      lastUpdate: Timestamp.now()
     };
     
     console.log("[TradingEngineContext] Setting session to:", newSession);
     setSession(newSession);
     sessionRefVal.current = newSession;
-    console.log("[TradingEngineContext] SessionRefVal updated");
+    
+    // Deduct funds from source if necessary (simulation)
+    // For now, we'll just track it in the session
     
     const startAct: ActivityEvent = {
       id: `act_${Date.now()}`,
       userId: user.uid,
       type: 'SESSION_STARTED',
-      message: 'AI Trading Session started',
+      message: `AI Trading Session started with $${allocationAmount} from ${fundingSource}`,
       timestamp: new Date().toISOString(),
-      metadata: { configId, markets }
+      metadata: { configId, markets, allocationAmount }
     };
     setActivity(prev => {
       const updated = [startAct, ...prev].slice(0, 100);
@@ -497,26 +595,42 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     });
 
     try {
-        await aiTradingService.startSession(user.uid, markets, configId);
-        await logActivity('SESSION_STARTED', 'AI Trading Session started');
-        console.log("[TradingEngineContext] Session started in Firestore");
+        await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
+        // Lock config status
+        await updateDoc(doc(db, 'users', user.uid, 'aiConfigurations', configId), {
+          status: 'ACTIVE',
+          lastModified: serverTimestamp()
+        });
+        
+        await portfolioPersistenceService.updateSessionDetails(user.uid, {
+          sessionId: newSession.id,
+          status: 'ACTIVE',
+          marketsScanned: markets,
+          activeConfigId: configId || null,
+          startTime: new Date().toISOString(),
+          engineState: 'ACTIVE'
+        });
+        await logActivity('SESSION_STARTED', `AI Trading Session started with $${allocationAmount} from ${fundingSource}`);
     } catch (error) {
-        console.warn("Failed to start session in Firestore, running in simulated local engine mode:", error);
+        console.warn("Failed to start session in Firestore:", error);
     }
-  }, [user, logActivity, setLocalStorageItem]);
+  }, [user, configs, config, addNotification, logActivity, setLocalStorageItem]);
 
   const endSession = useCallback(async () => {
     if (!session || !user) return;
     
+    const finalCapital = session.tradingCapital;
+    const fundingSource = config?.sessionSetup.fundingSource || 'WALLET';
+
     setSession(null);
     
     const endAct: ActivityEvent = {
       id: `act_${Date.now()}`,
       userId: user.uid,
       type: 'SESSION_ENDED',
-      message: 'AI Trading Session ended',
+      message: `AI Trading Session ended. Returning $${finalCapital.toFixed(2)} to ${fundingSource.toLowerCase()}.`,
       timestamp: new Date().toISOString(),
-      metadata: { sessionId: session.id }
+      metadata: { sessionId: session.id, finalCapital }
     };
     setActivity(prev => {
       const updated = [endAct, ...prev].slice(0, 100);
@@ -525,52 +639,88 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     });
 
     try {
+        // Return isolated funds + profit/loss to the main wallet
+        const userRef = doc(db, 'users', user.uid);
+        if (fundingSource === 'WALLET') {
+          await updateDoc(userRef, {
+            tokenBalance: increment(finalCapital),
+            availableBalance: increment(finalCapital)
+          });
+        } else {
+          await updateDoc(userRef, {
+            vaultBalance: increment(finalCapital)
+          });
+        }
+
         await aiTradingService.endSession(session.id);
-        await logActivity('SESSION_ENDED', 'AI Trading Session ended');
+        await portfolioPersistenceService.updateSessionDetails(user.uid, {
+          sessionId: null,
+          status: 'INACTIVE',
+          engineState: 'IDLE'
+        });
+        await logActivity('SESSION_ENDED', `AI Trading Session ended. Funds settled: $${finalCapital.toFixed(2)}`);
     } catch (error) {
         console.warn("Failed to end session in Firestore:", error);
+        await portfolioPersistenceService.updateSessionDetails(user.uid, {
+          sessionId: null,
+          status: 'INACTIVE',
+          engineState: 'IDLE'
+        });
     }
-  }, [user, session, logActivity, setLocalStorageItem]);
+  }, [user?.uid, session, logActivity, setLocalStorageItem]);
+
+  const endSessionRef = useRef(endSession);
+  useEffect(() => {
+    endSessionRef.current = endSession;
+  }, [endSession]);
 
   useEffect(() => {
     activeTradingBalanceRef.current = activeTradingBalance;
+    tokenBalanceRef.current = tokenBalance;
     addFundsRef.current = addFundsToActiveBalance;
 
-    if (activeTradingBalance <= 0 && session?.status === 'ACTIVE') {
+    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : activeTradingBalance;
+
+    if (!loading && currentTokenBalance <= 0 && session?.status === 'ACTIVE') {
       console.log("[TradingEngineContext] Insufficient funds detected. Terminating AI session.");
-      endSession(); // Use endSession helper to ensure clean shutdown
+      endSessionRef.current();
     }
-  }, [activeTradingBalance, addFundsToActiveBalance, session?.status, user, endSession]);
+  }, [activeTradingBalance, tokenBalance, addFundsToActiveBalance, session?.status, user?.uid, loading]);
 
   const saveConfiguration = useCallback(async (updatedConfig: AiConfiguration) => {
     if (!user) return;
     
-    const configToSave = { ...updatedConfig, ownerId: user.uid, lastModified: Timestamp.now() as any, status: 'ACTIVE' as const };
+    const configToSave = { ...updatedConfig, ownerId: user.uid, lastModified: Timestamp.now() as any };
     
     // Immediate state updates
     setConfigs(prev => {
-      const exists = prev.some(c => c.id === updatedConfig.id);
-      let updated;
-      if (exists) {
-        updated = prev.map(c => c.id === updatedConfig.id ? configToSave : { ...c, status: 'INACTIVE' as const });
-      } else {
-        updated = [...prev.map(c => ({...c, status: 'INACTIVE' as const})), configToSave];
+      const updated = prev.map(c => c.id === updatedConfig.id ? configToSave : c);
+      if (!prev.some(c => c.id === updatedConfig.id)) {
+        updated.push(configToSave);
       }
       setLocalStorageItem(`aver_configs_${user.uid}`, updated);
       return updated;
     });
     
-    setConfig(configToSave);
-    setActiveConfigId(configToSave.id);
+    if (activeConfigId === configToSave.id) {
+      setConfig(configToSave);
+    }
 
     try {
-      await aiTradingService.saveConfiguration(user.uid, configToSave);
-      await aiTradingService.activateConfiguration(user.uid, configToSave.id);
+      await setDoc(doc(db, 'users', user.uid, 'aiConfigurations', configToSave.id), configToSave);
+      await aiTradingService.savePreferences(user.uid, {
+        maxPositionSize: configToSave.profitRiskManagement.maxPositionSize,
+        maxRiskPerTrade: configToSave.profitRiskManagement.maxRiskPerTrade,
+        lossLimit: configToSave.profitRiskManagement.sessionStopLoss,
+        minConfidence: configToSave.aiTradingRules.minConfidence,
+        maxSimultaneousPositions: configToSave.aiTradingRules.maxSimultaneousPositions,
+        preferredMarkets: configToSave.aiTradingRules.assetSelection
+      });
       await logActivity('CONFIG_UPDATED', `Configuration "${updatedConfig.name}" saved successfully.`);
     } catch (error) {
       console.warn("Failed to save configuration in Firestore:", error);
     }
-  }, [user, logActivity, setLocalStorageItem]);
+  }, [user?.uid, activeConfigId, logActivity, setLocalStorageItem]);
 
   const deleteConfiguration = useCallback(async (configId: string) => {
     if (!user) return;
@@ -596,7 +746,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     } catch (error) {
       console.warn("Failed to delete configuration in Firestore:", error);
     }
-  }, [user, activeConfigId, logActivity, setLocalStorageItem]);
+  }, [user?.uid, activeConfigId, logActivity, setLocalStorageItem]);
 
   const duplicateConfiguration = useCallback(async (configId: string) => {
     if (!user) return;
@@ -630,7 +780,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         await logActivity('CONFIG_DUPLICATED', `Configuration duplicated as "${localDuplicated.name}".`);
       }
     }
-  }, [user, configs, logActivity, setLocalStorageItem]);
+  }, [user?.uid, configs, logActivity, setLocalStorageItem]);
 
   const activateConfiguration = useCallback(async (configId: string) => {
     if (!user) return;
@@ -655,7 +805,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     } catch (error) {
       console.warn("Failed to activate configuration in Firestore:", error);
     }
-  }, [user, logActivity, setLocalStorageItem]);
+  }, [user?.uid, logActivity, setLocalStorageItem]);
 
   const closeTrade = useCallback(async (tradeId: string, exitPrice: number, reason: AiTrade['reasonClosed']) => {
     if (!user) return;
@@ -690,39 +840,57 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       return updated;
     });
 
-      // 2. Perform financials updates using Firestore increment to ensure synchronization
+    // Update active session metrics
+    setSession(prev => {
+      if (!prev || prev.status !== 'ACTIVE') return prev;
+      const updated = {
+        ...prev,
+        tradingCapital: prev.tradingCapital + pnl,
+        totalProfit: pnl > 0 ? prev.totalProfit + pnl : prev.totalProfit,
+        totalLoss: pnl < 0 ? prev.totalLoss + Math.abs(pnl) : prev.totalLoss,
+        lastUpdate: Timestamp.now()
+      };
+      setLocalStorageItem(`aver_session_${user.uid}`, updated);
+      sessionRefVal.current = updated;
+      
+      // Sync the session P/L to Firestore so it reflects on Dashboard/Portfolio as part of "Active Engine Capital"
+      updateDoc(doc(db, 'aiSessions', prev.id), {
+        tradingCapital: updated.tradingCapital,
+        totalProfit: updated.totalProfit,
+        totalLoss: updated.totalLoss,
+        lastUpdate: serverTimestamp()
+      }).catch(err => console.warn("Session financial sync failed:", err));
+
+      return updated;
+    });
+
+    // 2. We DO NOT update tokenBalance or availableBalance here anymore.
+    // Profits/Losses stay within the session until endSession is called.
+    try {
+      const userId = user.uid;
+      
+      // We still update historical stats and overall portfolio tracking for charts
+      const userUpdate = {
+        totalProfit: pnl > 0 ? increment(pnl) : increment(0),
+        totalLoss: pnl < 0 ? increment(Math.abs(pnl)) : increment(0),
+        'portfolio.todayPnL': increment(pnl),
+        'portfolio.overallReturn': increment(pnl),
+        lastUpdated: serverTimestamp()
+      };
+      await updateDoc(doc(db, 'users', userId), userUpdate);
+
+      // Synchronize 'portfolio' collection
       try {
-        const userId = user.uid;
-        
-        // We use increment() for absolute source of truth synchronization across all components
-        // A profit increases every master balance field.
-        await updateDoc(doc(db, 'users', userId), {
-          portfolioBalance: increment(pnl),
-          availableBalance: increment(pnl),
-          totalProfit: pnl > 0 ? increment(pnl) : increment(0),
-          totalLoss: pnl < 0 ? increment(Math.abs(pnl)) : increment(0),
-          'portfolio.totalValue': increment(pnl),
-          'portfolio.todayPnL': increment(pnl),
-          'portfolio.overallReturn': increment(pnl),
-          // We DO NOT increment activeOffset here because portfolioBalance is already being incremented,
-          // and activeTradingBalance = portfolioBalance + activeOffset.
+        await updateDoc(doc(db, 'portfolio', userId), {
+          todayPnL: increment(pnl),
+          overallReturn: increment(pnl),
           lastUpdated: serverTimestamp()
         });
+      } catch (portErr) {}
 
-        // We also update todayPnLPercent based on the NEW estimated balance
-        const currentPort = user.portfolioBalance || user.portfolio?.totalValue || 100000;
-        const nextPort = currentPort + pnl;
-        const nextTodayPnL = (user.portfolio?.todayPnL || 0) + pnl;
-        
-        if (nextPort > 0) {
-          await updateDoc(doc(db, 'users', userId), {
-            'portfolio.todayPnLPercent': (nextTodayPnL / nextPort) * 100
-          });
-        }
-
-      } catch (e) {
-        console.warn("Financial balance update failed:", e);
-      }
+    } catch (e) {
+      console.warn("Financial balance update failed:", e);
+    }
 
     // 3. Optimistic activity event log
     const actEvent: ActivityEvent = {
@@ -749,7 +917,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     } catch (error) {
       console.warn("Failed to close trade in Firestore (offline/local simulation active):", error);
     }
-  }, [user, updateProfile, addFundsToActiveBalance, logActivity, setLocalStorageItem]);
+  }, [user?.uid, updateProfile, addFundsToActiveBalance, logActivity, setLocalStorageItem]);
 
   // Background Trading Simulator Loop
   const tradesRefVal = useRef<AiTrade[]>([]);
@@ -798,36 +966,55 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         console.log("[TradingEngineContext] Loops running, session active:", sessionRefVal.current?.status === 'ACTIVE');
     }, 5000);
 
-    // 1. HIGH-FREQUENCY LIVE PRICES TICKER (Every 1 second)
-    tickInterval = setInterval(() => {
+        // 1. HIGH-FREQUENCY LIVE PRICES TICKER (Every 5 seconds, real API)
+    tickInterval = setInterval(async () => {
       const currentSession = sessionRefVal.current;
       if (!currentSession || currentSession.status !== 'ACTIVE') {
         clearInterval(tickInterval);
         return;
       }
-      const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
-      
-      setLiveTradePrices(prev => {
-        const next = { ...prev };
-        openTrades.forEach(trade => {
-          const basePrice = next[trade.id] || trade.entry;
-          const fluctuation = (Math.random() - 0.5) * 0.001 * basePrice;
-          next[trade.id] = parseFloat((basePrice + fluctuation).toFixed(2));
-        });
 
-        // Also fluctuate general asset prices for BTC, ETH, SOL, AAPL, NVDA, TSLA
-        const assets = ['BTC', 'ETH', 'SOL', 'AAPL', 'NVDA', 'TSLA'];
-        assets.forEach(asset => {
-          const basePrice = next[asset] || (asset === 'BTC' ? 64000 : asset === 'ETH' ? 3450 : asset === 'SOL' ? 145 : asset === 'AAPL' ? 172 : asset === 'NVDA' ? 120 : 180);
-          const fluctuation = (Math.random() - 0.5) * 0.0005 * basePrice;
-          next[asset] = parseFloat((basePrice + fluctuation).toFixed(2));
-        });
+      try {
+        const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22SOLUSDT%22,%22BNBUSDT%22,%22XRPUSDT%22,%22ADAUSDT%22,%22DOGEUSDT%22%5D');
+        if (res.ok) {
+          const data = await res.json();
+          const priceMap = {};
+          data.forEach(item => {
+            const asset = item.symbol.replace('USDT', '');
+            priceMap[asset] = parseFloat(item.price);
+          });
+          
+          setLiveTradePrices(prev => {
+            const next = { ...prev };
+            // Update open trades with real prices
+            const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
+            openTrades.forEach(trade => {
+              if (priceMap[trade.asset]) {
+                next[trade.id] = priceMap[trade.asset];
+              } else {
+                next[trade.id] = prev[trade.id] || trade.entry; // Fallback
+              }
+            });
+            
+            // Update general asset prices
+            Object.keys(priceMap).forEach(asset => {
+               next[asset] = priceMap[asset];
+            });
+            
+            // Keep non-crypto mock fallbacks static
+            const stocks = ['AAPL', 'NVDA', 'TSLA'];
+            stocks.forEach(stock => {
+               if (!next[stock]) next[stock] = (stock === 'AAPL' ? 172 : stock === 'NVDA' ? 120 : 180);
+            });
 
-        livePricesRef.current = next;
-        // console.log("[TradingEngineContext] Live prices updated:", next);
-        return next;
-      });
-    }, 1000);
+            livePricesRef.current = next;
+            return next;
+          });
+        }
+      } catch (err) {
+        console.warn("[TradingEngineContext] Failed to fetch real prices", err);
+      }
+    }, 5000);
 
     // 2. POSITION MANAGEMENT & LIFECYCLE (Every 3 seconds)
     positionInterval = setInterval(async () => {
@@ -836,8 +1023,47 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         clearInterval(positionInterval);
         return;
       }
+
+      const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current;
+      if (!activeConfig) return;
+
+      // Check Session Duration
+      const startTime = currentSession.startTime ? (currentSession.startTime.toDate ? currentSession.startTime.toDate().getTime() : new Date(currentSession.startTime as any).getTime()) : Date.now();
+      const elapsedHours = (Date.now() - startTime) / (1000 * 60 * 60);
+      if (elapsedHours >= activeConfig.sessionSetup.sessionDuration) {
+        console.log("[TradingEngineContext] Session duration reached. Ending session.");
+        endSession();
+        return;
+      }
       
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
+      
+      // Check Session-Wide Take Profit and Stop Loss
+      const currentTradingCapital = currentSession.tradingCapital;
+      const initialCapital = currentSession.initialCapital;
+      const profitTargetPercent = activeConfig.profitRiskManagement.sessionTakeProfit;
+      const lossLimitPercent = activeConfig.profitRiskManagement.sessionStopLoss;
+
+      const currentPnLPercent = ((currentTradingCapital - initialCapital) / initialCapital) * 100;
+
+      if (currentPnLPercent >= profitTargetPercent) {
+        console.log(`[TradingEngineContext] Session Profit Target Hit (${currentPnLPercent.toFixed(2)}% >= ${profitTargetPercent}%). Ending session.`);
+        if (addNotification) {
+          addNotification('trading', 'medium', 'Profit Target Reached', `AI Session ended after reaching the ${profitTargetPercent}% profit target.`);
+        }
+        endSession();
+        return;
+      }
+
+      if (currentPnLPercent <= -lossLimitPercent) {
+        console.log(`[TradingEngineContext] Session Stop Loss Hit (${currentPnLPercent.toFixed(2)}% <= -${lossLimitPercent}%). Ending session.`);
+        if (addNotification) {
+          addNotification('trading', 'high', 'Stop Loss Reached', `AI Session ended after hitting the ${lossLimitPercent}% stop loss limit.`);
+        }
+        endSession();
+        return;
+      }
+
       console.log("[TradingEngineContext] Position management, open trades:", openTrades.length);
       if (openTrades.length === 0) return;
 
@@ -886,7 +1112,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         return;
       }
       
-      if (activeTradingBalanceRef.current <= 0) {
+      const currentTokenBalance = tokenBalanceRef.current !== undefined ? tokenBalanceRef.current : activeTradingBalanceRef.current;
+      if (currentTokenBalance <= 0) {
         console.log("[TradingEngineContext] runOrderLoop: aborting - insufficient funds");
         // End the session automatically if funds run out
         endSession();
@@ -897,41 +1124,33 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const activeConfig = (configs.find(c => c.id === sessionConfigId) || configRefVal.current || configs[0] || {
         id: 'cfg_default',
         name: 'Default AI Config',
-        markets: ['BTC', 'ETH', 'SOL'],
-        strategy: 'NEURAL_MOMENTUM',
-        riskControls: { maxSimultaneousPositions: 3, maxPositionSize: 50, exposureLimit: 500, positionSizingPreference: 'PERCENTAGE', lossLimit: 2 },
-        recommendationRules: { minConfidence: 75, allowedAssetClasses: ['CRYPTO'], indicators: [] },
-        schedule: { sessions: [], weekdays: true, weekends: true, timezone: 'UTC', breakPeriods: [], excludeHolidays: false }
+        aiTradingRules: {
+          assetSelection: ['BTC', 'ETH', 'SOL'],
+          tradingStrategy: 'NEURAL_MOMENTUM',
+          minConfidence: 85,
+          maxSimultaneousPositions: 3
+        },
+        profitRiskManagement: {
+          maxPositionSize: 500,
+          maxRiskPerTrade: 1,
+          sessionTakeProfit: 5,
+          sessionStopLoss: 2
+        }
       }) as AiConfiguration;
       console.log("[TradingEngineContext] runOrderLoop: Using locked session config:", activeConfig.id);
-
-      // Respect the Neural Schedule Manager
-      if (!isWithinSchedule(activeConfig.schedule)) {
-        console.log("[TradingEngineContext] Outside schedule window or inside break period. Pausing auto-trading...");
-        orderTimeout = setTimeout(runOrderLoop, 15000);
-        return;
-      }
 
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
       const currentExposure = openTrades.reduce((sum, t) => sum + (t.quantity * t.entry), 0);
       
       // Respect Max Simultaneous Positions
-      const maxPositions = activeConfig.riskControls?.maxSimultaneousPositions || 3;
+      const maxPositions = activeConfig.aiTradingRules?.maxSimultaneousPositions || 3;
       if (openTrades.length >= maxPositions) {
         console.log(`[TradingEngineContext] Max positions reached (${openTrades.length}/${maxPositions}), skipping scan cycle.`);
         orderTimeout = setTimeout(runOrderLoop, 10000);
         return;
       }
 
-      // Respect Exposure Limit
-      const exposureLimit = activeConfig.riskControls?.exposureLimit || 200;
-      if (currentExposure >= exposureLimit) {
-        console.log(`[TradingEngineContext] Exposure limit reached ($${currentExposure.toFixed(2)}/$${exposureLimit}), skipping scan cycle.`);
-        orderTimeout = setTimeout(runOrderLoop, 15000);
-        return;
-      }
-
-      const randomMarket = activeConfig.markets[Math.floor(Math.random() * activeConfig.markets.length)];
+      const randomMarket = activeConfig.aiTradingRules.assetSelection[Math.floor(Math.random() * activeConfig.aiTradingRules.assetSelection.length)];
       if (!randomMarket) {
         orderTimeout = setTimeout(runOrderLoop, 8000);
         return;
@@ -952,7 +1171,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         price, 
         rsi: rsiVal,
         timestamp: new Date().toISOString(),
-        indicators: activeConfig.recommendationRules?.indicators || ['RSI', 'MACD', 'EMA']
+        indicators: ['RSI', 'MACD', 'EMA', 'Volume Delta']
       };
 
       try {
@@ -1015,7 +1234,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         });
 
       // Recommendation rules check (MANDATORY)
-      const minRequiredConfidence = activeConfig.recommendationRules?.minConfidence || 82;
+      const minRequiredConfidence = activeConfig.aiTradingRules?.minConfidence || 85;
       if (rec.confidence < minRequiredConfidence) {
         console.log(`[TradingEngineContext] Recommendation confidence (${rec.confidence}%) below threshold (${minRequiredConfidence}%), ignoring setup.`);
         orderTimeout = setTimeout(runOrderLoop, 12000);
@@ -1027,8 +1246,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           if (!sessionRefVal.current || sessionRefVal.current.status !== 'ACTIVE') return;
           try {
             // Respect Max Risk Per Trade (%)
-            const balance = activeTradingBalanceRef.current || 1000;
-            const riskPercent = activeConfig.riskControls?.lossLimit || 2;
+            const balance = currentSession.tradingCapital || 1000;
+            const riskPercent = activeConfig.profitRiskManagement?.maxRiskPerTrade || 1;
             const riskAmount = balance * (riskPercent / 100);
             const stopDistance = Math.abs(rec.entry - rec.stopLoss);
             
@@ -1036,20 +1255,10 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             let quantity = stopDistance > 0 ? riskAmount / stopDistance : 0;
             
             // Respect Max Position Size ($ value)
-            const maxPosSize = activeConfig.riskControls?.maxPositionSize || 50;
+            const maxPosSize = activeConfig.profitRiskManagement?.maxPositionSize || 500;
             const maxPosQty = maxPosSize / rec.entry;
             
             quantity = Math.min(quantity, maxPosQty);
-
-            // Respect Exposure Limit ($ value)
-            const openTradesNow = tradesRefVal.current.filter(t => t.status === 'OPEN');
-            const totalExposureNow = openTradesNow.reduce((sum, t) => sum + (t.quantity * (livePricesRef.current[t.asset] || t.entry)), 0);
-            const limit = activeConfig.riskControls?.exposureLimit || 200;
-            
-            if (totalExposureNow + (quantity * rec.entry) > limit) {
-              const remainingExposure = Math.max(0, limit - totalExposureNow);
-              quantity = Math.min(quantity, remainingExposure / rec.entry);
-            }
 
             quantity = parseFloat(quantity.toFixed(6));
             
@@ -1171,7 +1380,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     } catch (error) {
       console.warn("Failed to update config in Firestore (running locally):", error);
     }
-  }, [user, config, logActivity]);
+  }, [user?.uid, config, logActivity]);
 
   const contextValue = React.useMemo(() => ({
     configs,

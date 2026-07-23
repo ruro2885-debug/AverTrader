@@ -410,10 +410,10 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
 export const BASE_TRADERS_SPECS: Partial<SimulatedTrader>[] = generateProceduralTradersSpecs();
 
 /**
- * Generates 150 unique, highly realistic historical trades for a trader based on their style, risk level, and intrinsic bias.
+ * Generates unique, highly realistic historical trades for a trader based on their style, risk level, and intrinsic bias.
  * Ensures the equity curve contains pullbacks, recovery periods, sideways trends, and volatility.
  */
-export function generateHistoricalTradesForTrader(traderSpec: Partial<SimulatedTrader>): SimulatedTrade[] {
+export function generateHistoricalTradesForTrader(traderSpec: Partial<SimulatedTrader>, intendedRank?: number): SimulatedTrade[] {
   const rand = seededRandom(traderSpec.id || 'seed');
   const style = traderSpec.style || 'DAY_TRADING';
   const risk = traderSpec.riskLevel || 'MEDIUM';
@@ -425,27 +425,52 @@ export function generateHistoricalTradesForTrader(traderSpec: Partial<SimulatedT
   
   if (style === 'SCALPING') {
     basePnlRange = 1.2;
-    winChance = 0.80; // Scalpers typically have higher win rate, smaller wins
+    winChance = 0.80; 
     frequencyMultiplier = 0.5;
   } else if (style === 'SWING_TRADING') {
     basePnlRange = 8.0;
-    winChance = 0.60; // Swing traders have lower win rate, larger wins
+    winChance = 0.60; 
     frequencyMultiplier = 3;
-  } else { // DAY_TRADING
+  } else { 
     basePnlRange = 3.5;
     winChance = 0.70;
     frequencyMultiplier = 1;
   }
 
+  // Elite ranking boost for Top 10
+  // To hit 60%-240% in 30 days:
+  const isElite = intendedRank !== undefined && intendedRank <= 10;
+  // Elite traders trade more frequently to show activity
+  const eliteMultiplier = isElite ? (3.5 - (intendedRank! * 0.22)) : 1.0;
+
   if (traderSpec.tier === 'Platinum') {
-    winChance = 0.88 + (rand() * 0.09); // Platinum are elite: 88-97% base
+    winChance = 0.88 + (rand() * 0.09); 
     basePnlRange *= 1.4;
   } else if (traderSpec.tier === 'Gold') {
-    winChance = 0.78 + (rand() * 0.10); // Gold: 78-88%
+    winChance = 0.78 + (rand() * 0.10); 
     basePnlRange *= 1.1;
   }
 
-  if (risk === 'HIGH') {
+  if (isElite) {
+    // For Rank 1-10, we want to target 60% to 240% return in 30 days.
+    // Rank 1: 240%, Rank 10: 60%
+    const target30D = 240 - ((intendedRank! - 1) * 20); // 1: 240, 2: 220, ..., 10: 60
+    
+    // Boost win chance and magnitude to hit this target
+    winChance = 0.92 + (rand() * 0.06); // 92-98% win rate
+    
+    // Estimate trades in 30 days (about 30-60 trades)
+    // pnlSum = (wins * avgWin) - (losses * avgLoss)
+    // We want pnlSum to be around target30D.
+    const estTrades30D = 45;
+    const estWins = Math.floor(estTrades30D * winChance);
+    const estLosses = estTrades30D - estWins;
+    
+    // (estWins * pnl) - (estLosses * pnl) = target30D
+    // pnl * (estWins - estLosses) = target30D
+    const netWins = estWins - estLosses;
+    basePnlRange = (target30D / netWins) * 1.5; // Multiply by 1.5 because rand() * pnlRange averages to 0.5 * pnlRange
+  } else if (risk === 'HIGH') {
     basePnlRange *= 1.8;
     winChance -= 0.04; 
   } else if (risk === 'LOW') {
@@ -453,7 +478,8 @@ export function generateHistoricalTradesForTrader(traderSpec: Partial<SimulatedT
     winChance += 0.04; 
   }
 
-  const tradesCount = traderSpec.tier === 'Platinum' ? 250 + Math.floor(rand() * 150) : 
+  const tradesCount = isElite ? 1800 + Math.floor(rand() * 400) : // Elite traders have deep history
+                     traderSpec.tier === 'Platinum' ? 250 + Math.floor(rand() * 150) : 
                      traderSpec.tier === 'Gold' ? 150 + Math.floor(rand() * 100) : 
                      80 + Math.floor(rand() * 70);
   const trades: SimulatedTrade[] = [];
@@ -552,27 +578,35 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   const closedTrades = trader.trades.filter(t => t.status === 'CLOSED');
   const totalTrades = closedTrades.length;
   
-  if (totalTrades === 0) {
-    trader.returnAllTime = 0;
-    trader.return1Y = 0;
-    trader.return90D = 0;
-    trader.return30D = 0;
-    trader.return7D = 0;
-    trader.winRate = 0;
-    trader.wins = 0;
-    trader.losses = 0;
-    trader.currentDrawdown = 0;
-    trader.consecutiveWins = 0;
-    trader.consecutiveLosses = 0;
-    trader.profitFactor = 1.0;
-    trader.riskManagementScore = 80;
-    trader.consistencyScore = 80;
-    trader.positionAccuracy = 80;
-    trader.tradeFrequency = 10;
-    trader.aiEfficiency = 90;
-    trader.volatilityHandling = 80;
-    return trader;
-  }
+    if (totalTrades === 0) {
+      // Ensure no 0.00% placeholders exist by providing a realistic default if trades are missing
+      const isElite = trader.rank && trader.rank <= 10;
+      // Target 60% to 240% for elite
+      const rank = trader.rank || 1;
+      const boost = isElite ? (3.5 - (rank * 0.25)) : 1.0;
+      
+      const target30D = isElite ? (240 - ((rank - 1) * 20)) : 15.5;
+
+      trader.returnAllTime = parseFloat((trader.historicalPnlBase || 450 * boost).toFixed(2));
+      trader.return1Y = parseFloat((trader.returnAllTime * 0.6).toFixed(2));
+      trader.return90D = parseFloat((target30D * 2.5).toFixed(2));
+      trader.return30D = parseFloat(target30D.toFixed(2));
+      trader.return7D = parseFloat((target30D / 4).toFixed(2));
+      trader.winRate = isElite ? 94 - rank : 65;
+      trader.wins = isElite ? 82 : 65;
+      trader.losses = isElite ? 18 : 35;
+      trader.currentDrawdown = parseFloat((4.2 / boost).toFixed(2));
+      trader.consecutiveWins = isElite ? 12 : 3;
+      trader.consecutiveLosses = 1;
+      trader.profitFactor = isElite ? 3.25 : 1.45;
+      trader.riskManagementScore = isElite ? 94 : 82;
+      trader.consistencyScore = isElite ? 92 : 78;
+      trader.positionAccuracy = 88;
+      trader.tradeFrequency = isElite ? 55 : 12;
+      trader.aiEfficiency = 94;
+      trader.volatilityHandling = 88;
+      return trader;
+    }
 
   // Chronological sorting
   closedTrades.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -587,7 +621,6 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   const trades1Y = closedTrades.filter(t => (nowMs - new Date(t.timestamp).getTime()) <= 365 * dayMs);
 
   // 1. Returns calculation (cumulative compounding returns or sum of PnL)
-  // Let's use simple cumulative sum for returns, starting from 0, to make them easy to follow.
   const basePnl = trader.historicalPnlBase || 0;
   trader.returnAllTime = parseFloat((basePnl + closedTrades.reduce((sum, t) => sum + (t.pnlPercent || 0), 0)).toFixed(2));
   trader.return1Y = parseFloat(trades1Y.reduce((sum, t) => sum + (t.pnlPercent || 0), 0).toFixed(2));
@@ -595,8 +628,25 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   trader.return30D = parseFloat(trades30D.reduce((sum, t) => sum + (t.pnlPercent || 0), 0).toFixed(2));
   trader.return7D = parseFloat(trades7D.reduce((sum, t) => sum + (t.pnlPercent || 0), 0).toFixed(2));
 
-  // No artificial floors - let performance be authentic
-  
+  // Enforce requested Rank 1-10 performance floors
+  if (trader.rank && trader.rank <= 10) {
+    const floor = 240 - ((trader.rank - 1) * 20);
+    if (trader.return30D < floor) {
+      trader.return30D = parseFloat((floor + Math.random() * 5).toFixed(2));
+    }
+  }
+
+  // Ensure no 0.00% placeholders - if a calculation ends up at 0, give it a tiny jitter
+  if (trader.return30D === 0) {
+    const isElite = trader.rank && trader.rank <= 10;
+    if (isElite) {
+      trader.return30D = parseFloat((240 - ((trader.rank! - 1) * 20) + Math.random() * 5).toFixed(2));
+    } else {
+      trader.return30D = parseFloat((Math.random() * 0.5 + 0.1).toFixed(2));
+    }
+  }
+  if (trader.returnAllTime === 0) trader.returnAllTime = parseFloat((Math.random() * 2 + 5).toFixed(2));
+
   // 2. Win rate, wins, losses
   const winningTrades = closedTrades.filter(t => (t.pnlPercent || 0) > 0);
   const losingTrades = closedTrades.filter(t => (t.pnlPercent || 0) <= 0);
@@ -629,7 +679,6 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   trader.consecutiveLosses = maxConsecLosses;
 
   // 4. Current Drawdown
-  // Calculate dynamic equity curve peak to trough drawdown
   let currentEquity = 100;
   let peak = 100;
   let maxDrawdown = 0;
@@ -645,7 +694,6 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
     }
   });
 
-  // Scale drawdown by style and risk
   trader.currentDrawdown = parseFloat(Math.max(1.2, Math.min(35, maxDrawdown)).toFixed(2));
 
   // 5. Profit Factor
@@ -655,48 +703,45 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   if (trader.profitFactor < 0.1) trader.profitFactor = 0.1;
   if (trader.profitFactor > 15) trader.profitFactor = 15;
 
-  // 6. Risk Management Score (1 to 100)
-  // Higher is better. Penalized by drawdown, losses, high risk setting
+  // 6. Risk Management Score
   let rms = 100 - trader.currentDrawdown * 1.5;
   if (trader.riskLevel === 'HIGH') rms -= 15;
   if (trader.riskLevel === 'LOW') rms += 10;
   rms -= (trader.riskControls.lossLimit || 2) * 2;
   trader.riskManagementScore = Math.floor(Math.max(45, Math.min(99, rms)));
 
-  // 7. Consistency Score (1 to 100)
-  // standard deviation of trade outcomes. Lower variance means more consistent
+  // 7. Consistency Score
   const averagePnL = closedTrades.reduce((sum, t) => sum + (t.pnlPercent || 0), 0) / totalTrades;
   const variance = closedTrades.reduce((sum, t) => sum + Math.pow((t.pnlPercent || 0) - averagePnL, 2), 0) / totalTrades;
   const stdDev = Math.sqrt(variance);
   let consistency = 100 - stdDev * 5;
-  if (trader.style === 'SCALPING') consistency += 10; // Scalpers are intrinsically more consistent
+  if (trader.style === 'SCALPING') consistency += 10;
   trader.consistencyScore = Math.floor(Math.max(50, Math.min(98, consistency)));
 
   // 8. Position Accuracy & Trade Frequency
   trader.positionAccuracy = Math.floor(trader.winRate);
-  trader.tradeFrequency = Math.round(totalTrades / 52); // Average trades per week over 1 year
+  trader.tradeFrequency = Math.round(totalTrades / 52); 
   if (trader.tradeFrequency < 1) trader.tradeFrequency = 1;
 
-  // 9. AI Configuration Efficiency (80 to 98)
+  // 9. AI Efficiency
   let aie = 82;
   if (trader.advancedBehavior.enableDeepAnalysis) aie += 5;
   if (trader.advancedBehavior.useSentimentGrounding) aie += 4;
   aie += (trader.recommendationRules.indicators?.length || 2) * 1.5;
   trader.aiEfficiency = Math.floor(Math.max(80, Math.min(98, aie)));
 
-  // 10. Volatility Handling (1 to 100)
+  // 10. Volatility Handling
   let vh = 75;
   if (trader.riskLevel === 'HIGH' && trader.winRate > 75) vh += 15;
-  if (trader.riskLevel === 'LOW') vh -= 10; // doesn't handle volatility as aggressively
+  if (trader.riskLevel === 'LOW') vh -= 10;
   vh += (trader.preferredMarkets.includes('SOL') || trader.preferredMarkets.includes('AVR') ? 8 : 0);
   trader.volatilityHandling = Math.floor(Math.max(55, Math.min(97, vh)));
 
-  // 11. Recent Activity Score (1 to 100)
+  // 11. Recent Activity Score
   const recentTradesCount = trades7D.length;
   trader.recentActivityScore = Math.floor(Math.max(30, Math.min(100, recentTradesCount * 12)));
 
-  // 12. PnL Sparkline (Exactly 10 points)
-  // Sample 10 points chronologically from allTrades return curve
+  // 12. PnL Sparkline
   const sparkline: number[] = [];
   const chunkSize = Math.max(1, Math.floor(closedTrades.length / 10));
   let cumulative = 0;
@@ -706,21 +751,17 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
     cumulative = subtrades.reduce((sum, t) => sum + (t.pnlPercent || 0), 0);
     sparkline.push(parseFloat(cumulative.toFixed(2)));
   }
-  // Ensure the final point matches return30D or returnAllTime based on sparkline design
-  // The UI uses it for 30D Sparkline return context, so let's normalize it to return30D range
   trader.pnlHistory30D = sparkline.map(val => {
-    // scale to end up near return30D
-    const ratio = trader.return30D / (sparkline[sparkline.length - 1] || 1);
+    const lastVal = sparkline[sparkline.length - 1] || 1;
+    const ratio = trader.return30D / lastVal;
     return parseFloat((val * (isNaN(ratio) ? 1 : ratio)).toFixed(2));
   });
 
-  // Ensure recentTrades field contains the 3-5 latest sorted descending
   const openTrades = trader.trades.filter(t => t.status === 'OPEN');
   const sortedClosed = [...closedTrades].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   trader.recentTrades = [...openTrades, ...sortedClosed.slice(0, 4)];
 
-  // 13. Dynamic Performance Score calculation
-  // Weighs multiple metrics as requested by the user
+  // 13. Performance Score
   const score = (trader.return30D * 0.40) + 
                 (trader.return7D * 0.35) + 
                 (trader.returnAllTime * 0.05) + 
@@ -735,6 +776,72 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   trader.performanceScore = parseFloat(Math.max(50, score).toFixed(2));
 
   return trader;
+}
+
+/**
+ * Executes a subtle ranking update.
+ * Traders can only move up/down by at most 2 positions.
+ */
+export function runScheduledRankingsUpdate(traders: SimulatedTrader[]): {
+  updatedTraders: SimulatedTrader[];
+  events: SimulationEvent[];
+} {
+  const now = Date.now();
+  const FIVE_HOURS_MS = 5 * 3600000;
+  
+  const lastUpdateStr = safeStorage.getItem('aver_last_ranking_update');
+  const lastUpdate = lastUpdateStr ? parseInt(lastUpdateStr) : 0;
+  
+  // If 5 hours haven't passed, just return existing (unless force update needed)
+  if (now - lastUpdate < FIVE_HOURS_MS && lastUpdate !== 0) {
+    return { updatedTraders: traders, events: [] };
+  }
+
+  console.log("Executing scheduled 5-hour leaderboard recalculation...");
+  
+  // 1. Run simulation tick to update performance data for everyone
+  const { updatedTraders, events } = runSimulationTick(traders);
+  
+  // 2. Sort by current rank to have a stable starting point
+  const currentOrderedList = [...updatedTraders].sort((a, b) => a.rank - b.rank);
+  
+  // 3. Calculate "Target Rank" based on new performance scores
+  const targetOrderedList = [...updatedTraders].sort((a, b) => b.performanceScore - a.performanceScore);
+  const targetRankMap: Record<string, number> = {};
+  targetOrderedList.forEach((t, i) => {
+    targetRankMap[t.id] = i + 1;
+  });
+
+  // 4. Subtle movement logic:
+  // We perform two passes of neighbor swaps (bubble sort limited to 2 steps)
+  // This ensures a trader can move at most 2 positions in one 5-hour cycle.
+  for (let step = 0; step < 2; step++) {
+    for (let i = 0; i < currentOrderedList.length - 1; i++) {
+      const traderA = currentOrderedList[i];
+      const traderB = currentOrderedList[i + 1];
+      
+      // If trader B is performing better (has a lower target rank) than A, swap them
+      // We add a small probability factor so not every out-of-place trader moves immediately
+      if (targetRankMap[traderB.id] < targetRankMap[traderA.id]) {
+        const moveProbability = step === 0 ? 0.8 : 0.4; // 80% chance for 1st move, 40% for 2nd
+        if (Math.random() < moveProbability) {
+          currentOrderedList[i] = traderB;
+          currentOrderedList[i + 1] = traderA;
+        }
+      }
+    }
+  }
+
+  // 5. Apply final ranks and update prevRank
+  currentOrderedList.forEach((t, index) => {
+    t.prevRank = t.rank;
+    t.rank = index + 1;
+  });
+
+  safeStorage.setItem('aver_last_ranking_update', now.toString());
+  safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(currentOrderedList));
+  
+  return { updatedTraders: currentOrderedList, events };
 }
 
 /**
@@ -762,7 +869,7 @@ function healTradeTimestamps(trader: SimulatedTrader): SimulatedTrader {
 }
 
 export function initSimulatedTraders(): SimulatedTrader[] {
-  const saved = safeStorage.getItem('aver_sim_traders_v6');
+  const saved = safeStorage.getItem('aver_sim_traders_v7');
   if (saved) {
     try {
       const parsed = JSON.parse(saved) as SimulatedTrader[];
@@ -774,15 +881,15 @@ export function initSimulatedTraders(): SimulatedTrader[] {
           return calculateTraderMetrics(healedTrader);
         });
         
-        // Re-sort just in case rankings shifted
-        healed.sort((a, b) => b.performanceScore - a.performanceScore);
+        // Re-sort to maintain existing ranking order
+        healed.sort((a, b) => a.rank - b.rank);
         
-        // Enforce ranks without resetting returns to hardcoded averages
+        // Ensure ranks are clean and sequential
         healed.forEach((t, index) => {
           t.rank = index + 1;
         });
         
-        safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(healed));
+        safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(healed));
         return healed;
       }
     } catch (e) {
@@ -791,10 +898,11 @@ export function initSimulatedTraders(): SimulatedTrader[] {
   }
 
   // Generate brand new simulation database!
-  console.log("Simulating 40 full-fidelity historical trader profiles from trade histories...");
-  const traders = BASE_TRADERS_SPECS.map(spec => {
+  console.log("Simulating 40 full-fidelity historical trader profiles with elite performance seeding...");
+  const traders = BASE_TRADERS_SPECS.map((spec, index) => {
     const fullTrader = { ...spec } as SimulatedTrader;
-    fullTrader.trades = generateHistoricalTradesForTrader(fullTrader);
+    // Inject intended rank for initialization to seed elite returns
+    fullTrader.trades = generateHistoricalTradesForTrader(fullTrader, index < 10 ? index + 1 : undefined);
     return calculateTraderMetrics(fullTrader);
   });
 
@@ -815,7 +923,7 @@ export function initSimulatedTraders(): SimulatedTrader[] {
     }
   });
 
-  safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(traders));
+  safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(traders));
   return traders;
 }
 
@@ -881,8 +989,13 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
       const isWin = rand() < effectiveWinRate;
       
       // Magnitude based on risk level - make it more volatile as requested
+      // Elite performance boost for Top 10 to sustain high returns
+      const isElite = t.rank <= 10;
+      const eliteMultiplier = isElite ? (8.0 - (t.rank * 0.55)) : 1.0;
+      
       let magnitude = t.riskLevel === 'HIGH' ? 8.5 : t.riskLevel === 'MEDIUM' ? 4.2 : 1.8;
       magnitude *= (0.5 + rand() * 1.5); // 50% to 200% noise
+      magnitude *= eliteMultiplier;
       
       let pnlPercent = 0;
       if (isWin) {
@@ -1050,7 +1163,7 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
   });
 
   // Save back to local storage
-  safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(tradersList));
+  safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(tradersList));
 
   return {
     updatedTraders: tradersList,

@@ -37,6 +37,15 @@ export interface AiPreferenceProfile {
   defaultPositionSizing: 'FIXED' | 'PERCENTAGE';
   defaultPositionSize: number; // Amount or %
   marketScanFrequency: number; // in minutes
+  // Risk Controls & Settings
+  maxPositionSize?: number;
+  maxRiskPerTrade?: number;
+  lossLimit?: number;
+  minConfidence?: number;
+  minimumConfidenceScore?: number;
+  exposureLimit?: number;
+  maxSimultaneousPositions?: number;
+  updatedAt?: string;
   notificationPreferences: {
     newRecommendations: boolean;
     tradeExecutions: boolean;
@@ -48,26 +57,56 @@ export interface AiConfiguration {
   id: string;
   ownerId: string;
   name: string;
-  description: string;
-  version: number;
   createdAt: Timestamp;
   lastModified: Timestamp;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
-  // Configuration Data Sections
-  markets: string[];
-  schedule: TradingSchedule;
-  strategy: 'NEURAL_MOMENTUM' | 'VOLATILITY_BREAKOUT' | 'MEAN_REVERSION' | 'QUANT_GRID';
-  riskControls: RiskControls;
-  recommendationRules: RecommendationRules;
+  
+  // Section 1: Session Setup
+  sessionSetup: {
+    amountToAllocate: number;
+    fundingSource: 'WALLET' | 'VAULT';
+    sessionDuration: number; // in hours
+  };
+
+  // Section 2: Profit & Risk Management
+  profitRiskManagement: {
+    sessionTakeProfit: number; // %
+    sessionStopLoss: number; // %
+    maxRiskPerTrade: number; // %
+    maxPositionSize: number; // amount in USD
+  };
+
+  // Section 3: AI Trading Rules
+  aiTradingRules: {
+    minConfidence: number; // 0-100
+    maxSimultaneousPositions: number;
+    assetSelection: string[];
+    tradingStrategy: 'NEURAL_MOMENTUM' | 'VOLATILITY_BREAKOUT' | 'MEAN_REVERSION' | 'QUANT_GRID';
+  };
+
+  // Section 4: Configuration Details
+  configurationDetails: {
+    description: string;
+    category: string;
+    version: string;
+  };
+
+  // Section 5: Configuration Analytics & Notes
+  analyticsAndNotes: {
+    riskScore: number; // 0-100
+    strategyNotes: string;
+    performanceStats?: {
+      winRate: number;
+      totalReturn: number;
+      drawdown: number;
+    };
+    executionHistory?: string[];
+  };
+
   notificationPreferences: {
     newRecommendations: boolean;
     tradeExecutions: boolean;
     marketAlerts: boolean;
-  };
-  advancedBehavior: {
-    enableDeepAnalysis: boolean;
-    useSentimentGrounding: boolean;
-    neuralConfidenceThreshold: number;
   };
 }
 
@@ -77,8 +116,13 @@ export interface AiSession {
   status: AiSessionStatus;
   startTime: Timestamp;
   endTime?: Timestamp;
-  marketsScanned: string[];
-  activeConfigId?: string; // Track which configuration is running
+  activeConfigId: string;
+  tradingCapital: number;
+  initialCapital: number;
+  openPositionsCount: number;
+  totalProfit: number;
+  totalLoss: number;
+  lastUpdate: Timestamp;
 }
 
 export interface AiRecommendation {

@@ -258,7 +258,7 @@ export default function VaultScreen({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className={`min-h-screen pt-[73px] pb-12 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'} ${isDark ? 'text-slate-100' : 'text-slate-800'} font-sans relative flex flex-col justify-start`}
+      className={`min-h-screen pt-[73px] pb-32 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'} ${isDark ? 'text-slate-100' : 'text-slate-800'} font-sans relative flex flex-col justify-start`}
     >
       {/* HEADER BAR */}
       <header className={`fixed top-0 left-0 right-0 h-[60px] z-40 backdrop-blur-md border-b ${isDark ? 'bg-[#000000]/80 border-white/5' : 'bg-slate-50/80 border-slate-200'} px-4 lg:px-8 flex justify-between items-center box-border`}>

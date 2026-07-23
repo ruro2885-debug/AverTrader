@@ -49,13 +49,14 @@ import AiConfigurationsView from './ai/AiConfigurationsView';
 import AiSessionsView from './ai/AiSessionsView';
 import AiMarketScannerView from './ai/AiMarketScannerView';
 import AiActivityLog, { ActivityEvent } from './ai/AiActivityLog';
+import AiSettingsView from './ai/AiSettingsView';
 
 type AiView = 'HOME' | 'CONFIGS' | 'SESSIONS' | 'SCANNER' | 'RECOMMENDATIONS' | 'TRADES' | 'HISTORY' | 'PERFORMANCE' | 'NOTIFICATIONS' | 'SETTINGS';
 type EngineState = 'IDLE' | 'PREPARING' | 'LOADING_CONFIG' | 'SYNC_USER' | 'SYNC_MARKET' | 'SCANNING' | 'ANALYZING' | 'GENERATING' | 'WAITING_DECISION' | 'MONITORING' | 'PAUSED' | 'STOPPED' | 'ERROR';
 
 export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'light' | 'dark', onOpenDeposit: () => void }) {
   const { user, updateProfile, addNotification } = useAuth();
-  const { activeTradingBalance, addFundsToActiveBalance, activeBalanceOffset } = useFinancials();
+  const { activeTradingBalance, addFundsToActiveBalance, activeBalanceOffset, tokenBalance } = useFinancials();
   const { preferences, formatCurrency } = usePreferences();
   const { 
     configs, 
@@ -65,6 +66,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     trades, 
     activity: engineActivity, 
     recommendations,
+    loading: engineLoading,
     startSession, 
     endSession, 
     saveConfiguration, 
@@ -83,7 +85,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     return (saved as AiView) || 'HOME';
   });
 
-  const activeTrades = trades.filter(t => t.status === 'OPEN');
+  const activeTrades = useMemo(() => trades.filter(t => t.status === 'OPEN'), [trades]);
   const closedTrades = trades.filter(t => t.status === 'CLOSED');
   const [loading, setLoading] = useState(false);
 
@@ -123,43 +125,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const [memoryUsage, setMemoryUsage] = useState(412);
   const [neuralCycles, setNeuralCycles] = useState(0);
 
-  // Dynamic live flickering offsets for micro-movements (runs continuously to ensure a live, ticking environment)
-  const [livePriceTickOffset, setLivePriceTickOffset] = useState(0);
-  const [livePnlPercentOffset, setLivePnlPercentOffset] = useState(0);
-  const [liveAllocatedRatio, setLiveAllocatedRatio] = useState(99.6);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setLivePriceTickOffset(prev => {
-        // Safe micro fluctuation within -$3.50 and +$3.50 range
-        const change = (Math.random() - 0.5) * 0.16;
-        const next = prev + change;
-        if (next > 3.50) return 3.50 - Math.random() * 0.3;
-        if (next < -3.50) return -3.50 + Math.random() * 0.3;
-        return next;
-      });
-
-      setLivePnlPercentOffset(prev => {
-        // Safe micro-pnl percentage fluctuation
-        const change = (Math.random() - 0.5) * 0.005;
-        const next = prev + change;
-        if (next > 0.25) return 0.25 - Math.random() * 0.02;
-        if (next < -0.25) return -0.25 + Math.random() * 0.02;
-        return next;
-      });
-
-      setLiveAllocatedRatio(prev => {
-        // Keeps the node ratio lively ticking between 98.2% and 100.0% to simulate live load balancing
-        const change = (Math.random() - 0.5) * 0.3;
-        let next = prev + change;
-        if (next > 100.0) next = 100.0;
-        if (next < 97.5) next = 98.0 + Math.random() * 0.5;
-        return parseFloat(next.toFixed(2));
-      });
-    }, 800);
-
-    return () => clearInterval(interval);
-  }, []);
+  
 
   // High-frequency live UI ticker states
   const [microVariance, setMicroVariance] = useState(0);
@@ -167,25 +133,63 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const [activeNodesCount, setActiveNodesCount] = useState(0);
 
   const closedTradesPnL = useMemo(() => {
+    // Prioritize synchronized Firestore data for absolute persistence across sessions
+    if (user?.portfolio?.todayPnL !== undefined) {
+      return user.portfolio.todayPnL;
+    }
+    
+    // Fallback to trades array if available
     const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
     if (fromTrades !== 0) return fromTrades;
-    if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) return user.portfolio.todayPnL;
-    return (user?.totalProfit || 0) - (user?.totalLoss || 0);
+    
+    if (user?.totalProfit !== undefined || user?.totalLoss !== undefined) {
+      return (user?.totalProfit || 0) - (user?.totalLoss || 0);
+    }
+    return 0;
   }, [trades, user]);
 
   const rawTotalPnlAmount = closedTradesPnL + totalFloatingPnl;
   const baseCapital = useMemo(() => {
+    // Priority: Session start capital (for accurate ROI from session start), then current balance
+    if (session?.initialCapital && session.initialCapital > 0) return session.initialCapital;
+    
     const base = user?.portfolioBalance || user?.portfolio?.totalValue || 0;
     return base > 0 ? base : 100;
-  }, [user]);
-  const rawTotalPnlPercent = (rawTotalPnlAmount / baseCapital) * 100;
+  }, [user, session]);
+  const rawTotalPnlPercent = (rawTotalPnlAmount / (baseCapital || 1)) * 100;
 
-  const hasInsufficientFunds = activeTradingBalance <= 0;
+  const hasInsufficientFunds = (tokenBalance !== undefined ? tokenBalance <= 0 : activeTradingBalance <= 0);
   const isSessionActive = session?.status === 'ACTIVE';
 
-  const displayAllocatedRatio = !isSessionActive ? 0 : liveAllocatedRatio;
-  const displayPnlPercent = !isSessionActive ? 0 : (rawTotalPnlPercent + livePnlPercentOffset);
-  const displayPnlAmount = !isSessionActive ? 0 : (rawTotalPnlAmount + livePriceTickOffset);
+  const displayAllocatedRatio = useMemo(() => {
+    if (!config || !tokenBalance) return 0;
+    // If session is active, we show the actual allocation ratio from when it started
+    const allocated = session?.initialCapital || config.sessionSetup.amountToAllocate;
+    return (allocated / tokenBalance) * 100;
+  }, [config, tokenBalance, session]);
+  
+  const displayTradingCapital = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      return session.tradingCapital;
+    }
+    // When idle, show the configured target allocation from the active/selected config
+    return config?.sessionSetup?.amountToAllocate || 0;
+  }, [session, config]);
+
+  const displayPnlAmount = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      return session.totalProfit - session.totalLoss + totalFloatingPnl;
+    }
+    return 0; // Don't show P/L when no session is active
+  }, [session, totalFloatingPnl]);
+
+  const displayPnlPercent = useMemo(() => {
+    if (session?.status === 'ACTIVE' && session.initialCapital > 0) {
+      return (displayPnlAmount / session.initialCapital) * 100;
+    }
+    return 0;
+  }, [session, displayPnlAmount]);
+
   const displayCpuUsage = !isSessionActive ? 0 : cpuUsage;
   const displayMemoryUsage = !isSessionActive ? 0 : memoryUsage;
   const displayNeuralCycles = !isSessionActive ? 0 : neuralCycles;
@@ -193,7 +197,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const displayThinkingIdea = !isSessionActive 
     ? (hasInsufficientFunds ? 'Insufficient funds. Deposit funds to start AI trading.' : 'Neural core offline. Standby for market sync...') 
     : liveThinkingIdea;
-  const displayLivePriceTickOffset = !isSessionActive ? 0 : livePriceTickOffset;
 
   // Layout helpers
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
@@ -247,6 +250,8 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
   // Telemetry and UI Micro-Fluctuations Simulation Loop (1000ms updates)
   useEffect(() => {
+    if (engineLoading) return;
+    
     if (!session || session.status !== 'ACTIVE') {
       setCpuUsage(0);
       setMemoryUsage(0);
@@ -258,40 +263,26 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     }
 
     const interval = setInterval(() => {
-      setCpuUsage(prev => {
-        const delta = (Math.random() - 0.5) * 5;
-        const target = 45;
-        const next = prev + (target - prev) * 0.15 + delta;
-        return parseFloat(Math.max(1, Math.min(99, next)).toFixed(1));
+      setCpuUsage(() => {
+        const target = activeTrades.length > 0 ? 45 + (activeTrades.length * 2.5) : 15;
+        return parseFloat(Math.min(99, target).toFixed(1));
       });
-      setMemoryUsage(prev => {
-        const delta = Math.floor((Math.random() - 0.5) * 10);
-        const target = 1420;
-        const next = prev + (target - prev) * 0.05 + delta;
-        return Math.max(100, Math.min(4000, next));
+
+      setMemoryUsage(() => {
+        const target = activeTrades.length > 0 ? 1420 + (activeTrades.length * 50) : 500;
+        return Math.min(4000, target);
       });
       
-      setNeuralCycles(prev => prev + Math.floor(Math.random() * 8 + 1));
+      setNeuralCycles(prev => prev + (activeTrades.length > 0 ? 3 : 1));
       
-      // Micro-fluctuation between -$0.12 and +$0.12 for visuals to keep numbers active
-      setMicroVariance(prev => {
-        const delta = (Math.random() - 0.5) * 0.08;
-        const next = prev + delta;
-        return Math.max(-3.5, Math.min(3.5, next));
-      });
+      setMicroVariance(0);
+      setNodeLoad(98.5);
       
-      // Node load percentage fluctuations (e.g., between 98.2% and 100.0%)
-      setNodeLoad(() => {
-        return parseFloat((98.5 + Math.random() * 1.5).toFixed(2));
-      });
-      
-      // Engaged nodes count fluctuations (e.g. 12 to 16)
-      setActiveNodesCount(() => {
-        return Math.floor(12 + Math.random() * 5);
-      });
+      setActiveNodesCount(Math.floor(12));
     }, 1000);
+
     return () => clearInterval(interval);
-  }, [session]);
+  }, [session, activeTrades.length]);
 
   const [showOpportunityDesk, setShowOpportunityDesk] = useState(true);
 
@@ -308,7 +299,8 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const handleStartSession = async () => {
     if (!user) return;
 
-    if (activeTradingBalance <= 0) {
+    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : activeTradingBalance;
+    if (currentTokenBalance <= 0) {
       addNotification('trading', 'high', 'Insufficient Funds', 'Insufficient funds. Deposit funds before starting an AI trading session.');
       setShowInsufficientFundsModal(true);
       return;
@@ -335,10 +327,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
       // 4. Sync Market State (Scanning only configured markets)
       await new Promise(resolve => setTimeout(resolve, 1000));
       setEngineState('SYNC_MARKET');
-      addActivityEvent('INFO', `Establishing live feed for ${activeConfig.markets.length} configured markets...`);
+      addActivityEvent('INFO', `Establishing live feed for ${activeConfig.aiTradingRules.assetSelection.length} configured markets...`);
 
       // 5. Actually start the session in the backend context
-      await startSession(activeConfig.id, activeConfig.markets);
+      await startSession(activeConfig.id, activeConfig.aiTradingRules.assetSelection);
       
       // 6. Transition to Active Scanning
       await new Promise(resolve => setTimeout(resolve, 800));
@@ -442,12 +434,15 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const handleToggleMarket = async (symbol: string) => {
     const activeConfig = configs.find(c => c.id === activeConfigId);
     if (!activeConfig) return;
-    const nextMarkets = activeConfig.markets.includes(symbol)
-      ? activeConfig.markets.filter(m => m !== symbol)
-      : [...activeConfig.markets, symbol];
+    const nextMarkets = activeConfig.aiTradingRules.assetSelection.includes(symbol)
+      ? activeConfig.aiTradingRules.assetSelection.filter(m => m !== symbol)
+      : [...activeConfig.aiTradingRules.assetSelection, symbol];
     const updated = {
       ...activeConfig,
-      markets: nextMarkets
+      aiTradingRules: {
+        ...activeConfig.aiTradingRules,
+        assetSelection: nextMarkets
+      }
     };
     await handleSaveConfig(updated);
   };
@@ -501,7 +496,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
       // Rotate active asset states randomly
       setLiveAssetStates(prev => {
         const next = { ...prev };
-        const markets = activeConfig.markets || ['BTC', 'ETH', 'SOL'];
+        const markets = activeConfig.aiTradingRules.assetSelection || ['BTC', 'ETH', 'SOL'];
         markets.forEach(asset => {
           const currentState = prev[asset] || 'Ready';
           const currentIndex = ASSET_STATE_CYCLES.indexOf(currentState);
@@ -526,7 +521,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     return () => {
       clearInterval(rotationInterval);
     };
-  }, [session, configs, activeConfigId, user, activeTrades]);
+  }, [session?.status, session?.id, activeConfigId, user?.uid, activeTrades.length, configs.length]);
 
   const pendingRecommendations = recommendations.filter(r => r.status === 'PENDING');
 
@@ -652,17 +647,17 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   {/* Card 1: Trading Capital */}
                   <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col justify-between min-h-[100px] transition-all`}>
-                    <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Trading Capital</span>
+                    <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>{isSessionActive ? 'Active Trading Capital' : 'Configured Allocation'}</span>
                     <div>
                       <h4 className={`${textPrimary} text-lg font-black tracking-tight font-mono`}>
-                        ${(Math.max(0, isSessionActive ? (activeTradingBalance + totalFloatingPnl + displayLivePriceTickOffset) : activeTradingBalance)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${displayTradingCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </h4>
-                      <p className="text-[9px] font-mono text-[#00D09C] mt-1 flex items-center gap-1">
+                      <p className={`text-[9px] font-mono mt-1 flex items-center gap-1 ${isSessionActive ? 'text-[#00D09C]' : 'text-amber-500'}`}>
                         <span className="relative flex h-1.5 w-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00D09C] opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#00D09C]"></span>
+                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isSessionActive ? 'bg-[#00D09C]' : 'bg-amber-500'} opacity-75`}></span>
+                          <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${isSessionActive ? 'bg-[#00D09C]' : 'bg-amber-500'}`}></span>
                         </span>
-                        Synced with Wallet
+                        {isSessionActive ? 'Isolated Session Fund' : 'Target Setup Ready'}
                       </p>
                     </div>
                   </div>
@@ -675,10 +670,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider`}>Total Positions Held</span>
                     <div>
                       <h4 className={`${textPrimary} text-lg font-black tracking-tight font-mono`}>
-                        {isSessionActive ? activeTrades.length : 0}
+                        {activeTrades.length}
                       </h4>
                       <p className="text-[9px] font-mono text-slate-400 mt-1 font-black">
-                        {isSessionActive ? `Scanning ${config?.markets?.length || 3} Pairs` : 'Engine Offline'}
+                        {isSessionActive ? `Scanning ${config?.aiTradingRules?.assetSelection?.length || 3} Pairs` : 'Engine Offline'}
                       </p>
                     </div>
                   </div>
@@ -810,7 +805,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
             {activeView === 'SCANNER' && (
               <AiMarketScannerView 
-                monitoredMarkets={configs.find(c => c.id === activeConfigId)?.markets || []}
+                monitoredMarkets={configs.find(c => c.id === activeConfigId)?.aiTradingRules.assetSelection || []}
                 onToggleMarket={handleToggleMarket}
                 isDark={isDark}
               />
@@ -913,37 +908,11 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
             )}
 
             {activeView === 'SETTINGS' && (
-              <div className="max-w-3xl space-y-6">
-                <div>
-                  <h2 className={`text-xl font-black ${textPrimary}`}>Global AI Settings</h2>
-                  <p className={`text-xs ${textSecondary} mt-1`}>Manage macro override rules, safety buffers, and risk triggers.</p>
-                </div>
-
-                <div className={`rounded-2xl border p-6 space-y-6 ${cardClasses}`}>
-                  <div className="space-y-4">
-                    <h3 className={`text-xs font-black uppercase tracking-widest ${textSecondary}`}>Macro Safety Breaks</h3>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className={`text-xs font-black ${textPrimary}`}>Global Drawdown Halt</p>
-                        <p className={`text-[10px] ${textSecondary}`}>Power down engine if daily portfolio loss exceeds 5%</p>
-                      </div>
-                      <button className="w-10 h-5 rounded-full relative bg-[#00D09C]">
-                        <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-white" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                      <div>
-                        <p className={`text-xs font-black ${textPrimary}`}>Asymmetric Drift Filter</p>
-                        <p className={`text-[10px] ${textSecondary}`}>Ignore patterns when asset volatility spikes above 80%</p>
-                      </div>
-                      <button className="w-10 h-5 rounded-full relative bg-[#00D09C]">
-                        <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-white" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <AiSettingsView 
+                config={config} 
+                onSaveConfig={saveConfiguration} 
+                isDark={isDark} 
+              />
             )}
           </motion.div>
         </AnimatePresence>

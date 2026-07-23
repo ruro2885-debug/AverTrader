@@ -68,7 +68,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
       setUsername(user.username || '');
       setEmail(user.email || '');
     }
-  }, [user, activeModal]);
+  }, [user?.displayName, user?.username, user?.email, activeModal]);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');

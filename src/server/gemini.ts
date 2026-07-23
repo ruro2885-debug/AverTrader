@@ -21,137 +21,177 @@ const getAiClient = () => {
 };
 
 export async function generateAiRecommendation(marketData: any, userProfile: any) {
-  const ai = getAiClient();
-
-  const prompt = `
-    Analyze the following market data and user profile to generate a professional trading recommendation.
-    
-    Market Data:
-    ${JSON.stringify(marketData, null, 2)}
-    
-    User Profile:
-    - Risk Profile: ${userProfile.riskProfile}
-    - Trading Style: ${userProfile.tradingStyle}
-    - Preferred Markets: ${userProfile.preferredMarkets?.join(", ")}
-    - Trading Sessions: ${JSON.stringify(userProfile.schedule, null, 2)}
-    
-    Return a JSON object matching this structure:
-    {
-      "asset": "STRING",
-      "currentPrice": NUMBER,
-      "suggestedAction": "BUY" | "SELL",
-      "entry": NUMBER,
-      "stopLoss": NUMBER,
-      "takeProfit": NUMBER,
-      "riskRating": "LOW" | "MEDIUM" | "HIGH",
-      "confidence": NUMBER (0-100),
-      "holdingWindow": "STRING",
-      "volatility": "LOW" | "MEDIUM" | "HIGH",
-      "indicators": ["STRING"],
-      "explanation": "STRING"
-    }
-    
-    Only return valid JSON. Do not include markdown formatting.
-  `;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
-    contents: prompt,
-  });
-
-  const text = response.text;
-  if (!text) throw new Error("No response from AI");
-  
   try {
+    const ai = getAiClient();
+
+    const prompt = `
+      Analyze the following market data and user profile to generate a professional trading recommendation.
+      
+      Market Data:
+      ${JSON.stringify(marketData, null, 2)}
+      
+      User Profile:
+      - Risk Profile: ${userProfile.riskProfile}
+      - Trading Style: ${userProfile.tradingStyle}
+      - Preferred Markets: ${userProfile.preferredMarkets?.join(", ")}
+      - Trading Sessions: ${JSON.stringify(userProfile.schedule, null, 2)}
+      
+      Return a JSON object matching this structure:
+      {
+        "asset": "STRING",
+        "currentPrice": NUMBER,
+        "suggestedAction": "BUY" | "SELL",
+        "entry": NUMBER,
+        "stopLoss": NUMBER,
+        "takeProfit": NUMBER,
+        "riskRating": "LOW" | "MEDIUM" | "HIGH",
+        "confidence": NUMBER (0-100),
+        "holdingWindow": "STRING",
+        "volatility": "LOW" | "MEDIUM" | "HIGH",
+        "indicators": ["STRING"],
+        "explanation": "STRING"
+      }
+      
+      Only return valid JSON. Do not include markdown formatting.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response from AI");
+    
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr);
-  } catch (error) {
-    console.error("Failed to parse Gemini response:", text);
-    throw new Error("Invalid AI response");
+  } catch (error: any) {
+    console.warn("AI Recommendation failed, using rule-based fallback:", error.message);
+    // Dynamic rule-based fallback
+    const btcPrice = marketData?.BTC?.price || 64000;
+    const isBullish = (marketData?.BTC?.change24h || 0) > 0;
+    
+    return {
+      asset: "BTC",
+      currentPrice: btcPrice,
+      suggestedAction: isBullish ? "BUY" : "SELL",
+      entry: btcPrice,
+      stopLoss: isBullish ? btcPrice * 0.95 : btcPrice * 1.05,
+      takeProfit: isBullish ? btcPrice * 1.12 : btcPrice * 0.88,
+      riskRating: "MEDIUM",
+      confidence: 75,
+      holdingWindow: "2-4 Days",
+      volatility: "MEDIUM",
+      indicators: ["Moving Average Convergence Divergence", "Relative Strength Index"],
+      explanation: `Based on current ${isBullish ? 'upward' : 'downward'} momentum in primary pairs, we suggest a tactical ${isBullish ? 'long' : 'short'} position with controlled risk parameters.`
+    };
   }
 }
 
 export async function analyzeTradeAction(trade: any, marketCondition: any) {
-  const ai = getAiClient();
-
-  const prompt = `
-    Analyze the following active trade and current market conditions.
-    Suggest if the user should take any action to protect gains or reduce exposure.
-    
-    Trade:
-    ${JSON.stringify(trade, null, 2)}
-    
-    Market Condition:
-    ${JSON.stringify(marketCondition, null, 2)}
-    
-    Return a JSON object:
-    {
-      "suggestion": "REDUCE_EXPOSURE" | "PROTECT_GAINS" | "CLOSE_POSITION" | "HOLD" | "MONITOR_VOLATILITY",
-      "explanation": "STRING",
-      "priority": "LOW" | "MEDIUM" | "HIGH"
-    }
-    
-    Only return valid JSON. Do not include markdown formatting.
-  `;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
-    contents: prompt,
-  });
-
-  const text = response.text;
-  if (!text) throw new Error("No response from AI");
-  
   try {
+    const ai = getAiClient();
+
+    const prompt = `
+      Analyze the following active trade and current market conditions.
+      Suggest if the user should take any action to protect gains or reduce exposure.
+      
+      Trade:
+      ${JSON.stringify(trade, null, 2)}
+      
+      Market Condition:
+      ${JSON.stringify(marketCondition, null, 2)}
+      
+      Return a JSON object:
+      {
+        "suggestion": "REDUCE_EXPOSURE" | "PROTECT_GAINS" | "CLOSE_POSITION" | "HOLD" | "MONITOR_VOLATILITY",
+        "explanation": "STRING",
+        "priority": "LOW" | "MEDIUM" | "HIGH"
+      }
+      
+      Only return valid JSON. Do not include markdown formatting.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response from AI");
+    
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr);
-  } catch (error) {
-    throw new Error("Invalid AI response");
+  } catch (error: any) {
+    console.warn("Trade analysis failed, using local heuristic:", error.message);
+    const pnl = trade.pnl || 0;
+    const pnlPercent = (pnl / (trade.entry * trade.quantity)) * 100;
+    
+    if (pnlPercent > 10) return { suggestion: "PROTECT_GAINS", explanation: "Significant unrealized gains detected. Suggest trailing stop adjustment.", priority: "HIGH" };
+    if (pnlPercent < -5) return { suggestion: "REDUCE_EXPOSURE", explanation: "Position is testing primary support levels. Monitor closely for exit.", priority: "MEDIUM" };
+    
+    return { suggestion: "HOLD", explanation: "Current price action remains within expected volatility bands.", priority: "LOW" };
   }
 }
 
 export async function generateCatherineCommentary(portfolioMetrics: any) {
-  const ai = getAiClient();
-
-  const prompt = `
-    You are Dr. Catherine Vance, an elite, world-class Lead Strategist and Portfolio Analyst for Aver, an ultra-luxury digital asset wealth and capital management institution.
-    Analyze the following user portfolio metrics to draft a professional, authoritative, and elegant market briefing (exactly 1-2 paragraphs, or about 60-100 words).
-    
-    User Portfolio Metrics:
-    - Total Managed Balance: $${portfolioMetrics.totalValue.toLocaleString()}
-    - Core Holdings and Allocation Percentage: ${JSON.stringify(portfolioMetrics.holdings)}
-    - Active Cash Reserves: $${portfolioMetrics.cashVal.toLocaleString()}
-    
-    Format the response as a single clean JSON object with this EXACT schema:
-    {
-      "topic": "STRING (A brief elegant sub-header matching the primary insight, e.g., 'Strategic Position Balance' or 'Yield Aggregation Index')",
-      "text": "STRING (Your highly sophisticated, institutional, and articulate analyst commentary. Insulate the user with absolute elite financial posture. Pair elegance with real data analysis.)"
-    }
-
-    Only return valid JSON. Do not include markdown formatting or backticks. Keep the tone dignified, professional, and slightly academic.
-  `;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
-    contents: prompt,
-  });
-
-  const text = response.text;
-  if (!text) throw new Error("No response from AI");
-
-  try {
-    const jsonStr = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(jsonStr);
-  } catch (error) {
-    console.error("Failed to parse Catherine Vance commentary from Gemini:", text);
-    throw new Error("Invalid AI response");
-  }
-}
-
-export async function generateMarketIntelligence(currentPrices: any) {
   try {
     const ai = getAiClient();
 
+    const prompt = `
+      You are Dr. Catherine Vance, an elite, world-class Lead Strategist and Portfolio Analyst for Aver, an ultra-luxury digital asset wealth and capital management institution.
+      Analyze the following user portfolio metrics to draft a professional, authoritative, and elegant market briefing (exactly 1-2 paragraphs, or about 60-100 words).
+      
+      User Portfolio Metrics:
+      - Total Managed Balance: $${portfolioMetrics.totalValue.toLocaleString()}
+      - Core Holdings and Allocation Percentage: ${JSON.stringify(portfolioMetrics.holdings)}
+      - Active Cash Reserves: $${portfolioMetrics.cashVal.toLocaleString()}
+      
+      Format the response as a single clean JSON object with this EXACT schema:
+      {
+        "topic": "STRING (A brief elegant sub-header matching the primary insight, e.g., 'Strategic Position Balance' or 'Yield Aggregation Index')",
+        "text": "STRING (Your highly sophisticated, institutional, and articulate analyst commentary. Insulate the user with absolute elite financial posture. Pair elegance with real data analysis.)"
+      }
+
+      Only return valid JSON. Do not include markdown formatting or backticks. Keep the tone dignified, professional, and slightly academic.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response from AI");
+
+    const jsonStr = text.replace(/```json|```/g, "").trim();
+    return JSON.parse(jsonStr);
+  } catch (error: any) {
+    console.warn("Catherine Commentary failed, using fallback:", error.message);
+    return {
+      topic: "Institutional Capital Overview",
+      text: "Your current allocation demonstrates a refined balance between active liquidity and strategic asset exposure. We continue to monitor the overarching macroeconomic variables to ensure your portfolio remains resilient against systemic volatility while capturing emerging alpha clusters across the digital estate."
+    };
+  }
+}
+
+// Simple memory cache for market intelligence to avoid rate limits
+let intelligenceCache: {
+  data: any;
+  timestamp: number;
+} | null = null;
+
+const CACHE_DURATION = 15 * 60 * 1000; // Increased to 15 minutes
+
+export async function generateMarketIntelligence(currentPrices: any) {
+  const now = Date.now();
+  if (intelligenceCache && (now - intelligenceCache.timestamp < CACHE_DURATION)) {
+    return intelligenceCache.data;
+  }
+
+  // Define the actual AI call in a sub-function for easier retries/fallbacks
+  const callAi = async (useSearch: boolean) => {
+    const ai = getAiClient();
     const prompt = `
       You are the Lead Strategist and Chief Market Intelligence Officer at Aver, an ultra-luxury digital asset wealth and capital management institution.
       Generate a highly professional, institutional-grade market intelligence briefing.
@@ -162,7 +202,7 @@ export async function generateMarketIntelligence(currentPrices: any) {
       - Apple (AAPL): $USD ${currentPrices?.AAPL?.toLocaleString() || "172"}
       - NVIDIA (NVDA): $USD ${currentPrices?.NVDA?.toLocaleString() || "120"}
       
-      Please use your search capability to find real, current breaking news, sentiment, or major macroeconomic events in crypto and tech.
+      ${useSearch ? 'Please use your search capability to find real, current breaking news, sentiment, or major macroeconomic events in crypto and tech.' : 'Analyze the current state based on these price points and general market trends.'}
       
       Return a single JSON object matching this schema EXACTLY:
       {
@@ -186,13 +226,18 @@ export async function generateMarketIntelligence(currentPrices: any) {
       Only return valid JSON. Do not include markdown formatting or backticks.
     `;
 
+    const config: any = {
+      responseMimeType: "application/json"
+    };
+
+    if (useSearch) {
+      config.tools = [{ googleSearch: {} }];
+    }
+
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json"
-      }
+      config
     });
 
     const text = response.text;
@@ -200,8 +245,32 @@ export async function generateMarketIntelligence(currentPrices: any) {
     
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr);
-  } catch (error) {
-    console.warn("Gemini API error in generateMarketIntelligence, falling back to rule-based intelligence generator:", error);
+  };
+
+  try {
+    let data;
+    try {
+      // Primary attempt: With Search
+      data = await callAi(true);
+    } catch (e: any) {
+      // If 429 or search failure, try secondary: WITHOUT Search
+      if (e.message?.includes('429') || e.message?.includes('RESOURCE_EXHAUSTED')) {
+        console.warn("Market Intelligence Search rate-limited, retrying without search...");
+        data = await callAi(false);
+      } else {
+        throw e;
+      }
+    }
+    
+    // Update cache
+    intelligenceCache = {
+      data,
+      timestamp: Date.now()
+    };
+    
+    return data;
+  } catch (error: any) {
+    console.warn("Gemini API error in generateMarketIntelligence, falling back to rule-based intelligence generator:", error.message);
     const btc = currentPrices?.BTC || 64230;
     const eth = currentPrices?.ETH || 3450.20;
     const sol = currentPrices?.SOL || 145.60;
@@ -265,7 +334,7 @@ export async function generateAssetAnalysis(symbol: string, currentPrice: number
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json"

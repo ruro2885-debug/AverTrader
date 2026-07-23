@@ -79,7 +79,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       }));
     }
     setIsLoaded(true);
-  }, [user]);
+  }, [user?.uid]);
 
   // Keep a local storage listener to synchronize across tabs for global settings
   useEffect(() => {
@@ -99,7 +99,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [user]);
+  }, [user?.uid]);
 
   const updatePreference = React.useCallback((key: keyof Preferences, value: any) => {
     setPreferences(prev => ({ ...prev, [key]: value }));

@@ -38,6 +38,8 @@ import { UserProfile, Theme, Language, Holding, TradeHistoryItem, PortfolioSnaps
 import { NotificationManager } from '../services/NotificationManager';
 import { getAvatarDataUrl } from '../utils/avatarGenerator';
 import { TradingEngineConfig } from '../types/trading';
+import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
+import { walletService } from '../services/walletService';
 
 export interface UserPreferences {
   language: string;
@@ -282,6 +284,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let unsubTrades: (() => void) | null = null;
     let unsubSnapshots: (() => void) | null = null;
     let unsubTradingConfig: (() => void) | null = null;
+    let unsubPortfolioCurrent: (() => void) | null = null;
+    let unsubWallet: (() => void) | null = null;
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
@@ -291,10 +295,84 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubTrades) { unsubTrades(); unsubTrades = null; }
       if (unsubSnapshots) { unsubSnapshots(); unsubSnapshots = null; }
       if (unsubTradingConfig) { unsubTradingConfig(); unsubTradingConfig = null; }
+      if (unsubPortfolioCurrent) { unsubPortfolioCurrent(); unsubPortfolioCurrent = null; }
+      if (unsubWallet) { unsubWallet(); unsubWallet = null; }
 
       if (firebaseUser) {
         notificationManagerRef.current = new NotificationManager(firebaseUser.uid);
         notificationManagerRef.current.subscribe(setNotifications);
+
+        // Fetch or create initial wallet document in 'wallets/{userId}'
+        unsubWallet = walletService.subscribeWallet(firebaseUser.uid, (wData) => {
+          if (!wData) return;
+          setUser(prev => {
+            if (!prev) return null;
+            const portVal = wData.portfolioValue || wData.portfolioBalance || prev.portfolio?.totalValue || 0;
+            if (
+              prev.portfolioBalance === wData.portfolioBalance &&
+              prev.availableBalance === wData.availableBalance &&
+              prev.vaultBalance === wData.vaultBalance &&
+              prev.totalDeposits === wData.totalDeposits &&
+              prev.totalWithdrawals === wData.totalWithdrawals &&
+              prev.portfolio?.totalValue === portVal
+            ) {
+              return prev;
+            }
+            const updated: User = {
+              ...prev,
+              portfolioBalance: wData.portfolioBalance ?? prev.portfolioBalance,
+              availableBalance: wData.availableBalance ?? prev.availableBalance,
+              vaultBalance: wData.vaultBalance ?? prev.vaultBalance,
+              totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
+              totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
+              portfolio: {
+                ...prev.portfolio,
+                totalValue: portVal
+              }
+            };
+            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+            return updated;
+          });
+        });
+
+        // Subscribe to dedicated portfolio current persistence document
+        unsubPortfolioCurrent = portfolioPersistenceService.subscribePortfolioCurrent(firebaseUser.uid, (pState) => {
+          if (!pState) return;
+          setUser(prev => {
+            if (!prev) return null;
+            if (
+              (pState.walletState.portfolioBalance === undefined || prev.portfolioBalance === pState.walletState.portfolioBalance) &&
+              (pState.walletState.availableBalance === undefined || prev.availableBalance === pState.walletState.availableBalance) &&
+              (pState.walletState.vaultBalance === undefined || prev.vaultBalance === pState.walletState.vaultBalance) &&
+              (pState.walletState.totalDeposits === undefined || prev.totalDeposits === pState.walletState.totalDeposits) &&
+              (pState.walletState.totalWithdrawals === undefined || prev.totalWithdrawals === pState.walletState.totalWithdrawals) &&
+              (pState.walletState.totalProfit === undefined || prev.totalProfit === pState.walletState.totalProfit) &&
+              (pState.walletState.totalLoss === undefined || prev.totalLoss === pState.walletState.totalLoss)
+            ) {
+              return prev;
+            }
+            const updated: User = {
+              ...prev,
+              portfolioBalance: pState.walletState.portfolioBalance ?? prev.portfolioBalance,
+              availableBalance: pState.walletState.availableBalance ?? prev.availableBalance,
+              vaultBalance: pState.walletState.vaultBalance ?? prev.vaultBalance,
+              totalDeposits: pState.walletState.totalDeposits ?? prev.totalDeposits,
+              totalWithdrawals: pState.walletState.totalWithdrawals ?? prev.totalWithdrawals,
+              totalProfit: pState.walletState.totalProfit ?? prev.totalProfit,
+              totalLoss: pState.walletState.totalLoss ?? prev.totalLoss,
+              portfolio: {
+                ...prev.portfolio,
+                ...(pState.portfolioMetrics || {})
+              },
+              aiSettings: {
+                ...prev.aiSettings,
+                ...(pState.commandCenter?.aiSettings || {})
+              }
+            };
+            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
+            return updated;
+          });
+        });
 
         // Retrieve and apply cached user profile immediately to avoid flickering
         const cachedUserStr = safeStorage.getItem(`user_profile_${firebaseUser.uid}`);
@@ -378,6 +456,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 }
               } as User;
               setUser(prev => {
+                if (
+                  prev &&
+                  prev.portfolioBalance === updatedUser.portfolioBalance &&
+                  prev.availableBalance === updatedUser.availableBalance &&
+                  prev.vaultBalance === updatedUser.vaultBalance &&
+                  prev.totalDeposits === updatedUser.totalDeposits &&
+                  prev.totalWithdrawals === updatedUser.totalWithdrawals &&
+                  prev.portfolio?.totalValue === updatedUser.portfolio?.totalValue
+                ) {
+                  return prev;
+                }
                 const merged = {
                   ...updatedUser,
                   holdings: prev?.holdings || [],
@@ -600,6 +689,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubTrades) unsubTrades();
       if (unsubSnapshots) unsubSnapshots();
       if (unsubTradingConfig) unsubTradingConfig();
+      if (unsubPortfolioCurrent) unsubPortfolioCurrent();
+      if (unsubWallet) unsubWallet();
     };
   }, []);
 
@@ -1510,11 +1601,14 @@ function dataURLtoBlob(dataurl: string): Blob {
       if (!auth.currentUser) {
         setUser(prev => {
           if (!prev) return null;
+          const nextPort = (prev.portfolioBalance || 0) + amount;
+          const nextAvail = (prev.availableBalance || 0) + amount;
+          const nextDep = (prev.totalDeposits || 0) + amount;
           const updated = {
             ...prev,
-            portfolioBalance: (prev.portfolioBalance || 0) + amount,
-            availableBalance: (prev.availableBalance || 0) + amount,
-            totalDeposits: (prev.totalDeposits || 0) + amount,
+            portfolioBalance: nextPort,
+            availableBalance: nextAvail,
+            totalDeposits: nextDep,
             deposits: [newDeposit, ...(prev.deposits || [])],
             history: [newHistoryItem, ...(prev.history || [])],
             lastUpdated: new Date().toISOString()
@@ -1524,6 +1618,33 @@ function dataURLtoBlob(dataurl: string): Blob {
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
           if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
+          
+          portfolioPersistenceService.savePortfolioCurrent(prev.uid, {
+            walletState: {
+              portfolioBalance: nextPort,
+              availableBalance: nextAvail,
+              vaultBalance: prev.vaultBalance || 0,
+              activeOffset: prev.activeOffset || 0,
+              totalDeposits: nextDep,
+              totalWithdrawals: prev.totalWithdrawals || 0,
+              totalProfit: prev.totalProfit || 0,
+              totalLoss: prev.totalLoss || 0
+            },
+            portfolioMetrics: {
+              ...prev.portfolio,
+              totalValue: nextPort + (prev.vaultBalance || 0)
+            }
+          });
+
+          walletService.updateWallet(prev.uid, {
+            portfolioBalance: nextPort,
+            availableBalance: nextAvail,
+            totalDeposits: nextDep,
+            portfolioValue: nextPort + (prev.vaultBalance || 0),
+            cashBalance: nextPort,
+            tokenBalance: nextPort
+          });
+
           return updated;
         });
 
@@ -1536,11 +1657,42 @@ function dataURLtoBlob(dataurl: string): Blob {
       await updateDoc(userDocRef, {
         portfolioBalance: increment(amount),
         availableBalance: increment(amount),
+        tokenBalance: increment(amount),
         totalDeposits: increment(amount),
         deposits: arrayUnion(newDeposit),
         history: arrayUnion(newHistoryItem),
         'portfolio.totalValue': increment(amount),
         lastUpdated: serverTimestamp()
+      });
+
+      const updatedPort = (userRef.current.portfolioBalance || 0) + amount;
+      const updatedAvail = (userRef.current.availableBalance || 0) + amount;
+      const updatedTotalDep = (userRef.current.totalDeposits || 0) + amount;
+
+      await portfolioPersistenceService.savePortfolioCurrent(userRef.current.uid, {
+        walletState: {
+          portfolioBalance: updatedPort,
+          availableBalance: updatedAvail,
+          vaultBalance: userRef.current.vaultBalance || 0,
+          activeOffset: userRef.current.activeOffset || 0,
+          totalDeposits: updatedTotalDep,
+          totalWithdrawals: userRef.current.totalWithdrawals || 0,
+          totalProfit: userRef.current.totalProfit || 0,
+          totalLoss: userRef.current.totalLoss || 0
+        },
+        portfolioMetrics: {
+          ...(userRef.current.portfolio || {}),
+          totalValue: updatedPort + (userRef.current.vaultBalance || 0)
+        }
+      });
+
+      await walletService.updateWallet(userRef.current.uid, {
+        portfolioBalance: updatedPort,
+        availableBalance: updatedAvail,
+        totalDeposits: updatedTotalDep,
+        portfolioValue: updatedPort + (userRef.current.vaultBalance || 0),
+        cashBalance: updatedPort,
+        tokenBalance: updatedPort
       });
 
       await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} has been submitted for processing.`);
@@ -1577,11 +1729,14 @@ function dataURLtoBlob(dataurl: string): Blob {
       if (!auth.currentUser) {
         setUser(prev => {
           if (!prev) return null;
+          const nextPort = (prev.portfolioBalance || 0) - amount;
+          const nextAvail = (prev.availableBalance || 0) - amount;
+          const nextWth = (prev.totalWithdrawals || 0) + amount;
           const updated = {
             ...prev,
-            portfolioBalance: (prev.portfolioBalance || 0) - amount,
-            availableBalance: (prev.availableBalance || 0) - amount,
-            totalWithdrawals: (prev.totalWithdrawals || 0) + amount,
+            portfolioBalance: nextPort,
+            availableBalance: nextAvail,
+            totalWithdrawals: nextWth,
             withdrawals: [newWithdrawal, ...(prev.withdrawals || [])],
             history: [newHistoryItem, ...(prev.history || [])],
             lastUpdated: new Date().toISOString()
@@ -1591,6 +1746,31 @@ function dataURLtoBlob(dataurl: string): Blob {
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
           if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
+
+          portfolioPersistenceService.savePortfolioCurrent(prev.uid, {
+            walletState: {
+              portfolioBalance: nextPort,
+              availableBalance: nextAvail,
+              vaultBalance: prev.vaultBalance || 0,
+              activeOffset: prev.activeOffset || 0,
+              totalDeposits: prev.totalDeposits || 0,
+              totalWithdrawals: nextWth,
+              totalProfit: prev.totalProfit || 0,
+              totalLoss: prev.totalLoss || 0
+            },
+            portfolioMetrics: {
+              ...prev.portfolio,
+              totalValue: nextPort + (prev.vaultBalance || 0)
+            }
+          });
+
+          walletService.updateWallet(prev.uid, {
+            portfolioBalance: nextPort,
+            availableBalance: nextAvail,
+            totalWithdrawals: nextWth,
+            portfolioValue: nextPort + (prev.vaultBalance || 0)
+          });
+
           return updated;
         });
 
@@ -1603,11 +1783,40 @@ function dataURLtoBlob(dataurl: string): Blob {
       await updateDoc(userDocRef, {
         portfolioBalance: increment(-amount),
         availableBalance: increment(-amount),
+        tokenBalance: increment(-amount),
         totalWithdrawals: increment(amount),
         withdrawals: arrayUnion(newWithdrawal),
         history: arrayUnion(newHistoryItem),
         'portfolio.totalValue': increment(-amount),
         lastUpdated: serverTimestamp()
+      });
+
+      const updatedPort = (userRef.current.portfolioBalance || 0) - amount;
+      const updatedAvail = (userRef.current.availableBalance || 0) - amount;
+      const updatedTotalWth = (userRef.current.totalWithdrawals || 0) + amount;
+
+      await portfolioPersistenceService.savePortfolioCurrent(userRef.current.uid, {
+        walletState: {
+          portfolioBalance: updatedPort,
+          availableBalance: updatedAvail,
+          vaultBalance: userRef.current.vaultBalance || 0,
+          activeOffset: userRef.current.activeOffset || 0,
+          totalDeposits: userRef.current.totalDeposits || 0,
+          totalWithdrawals: updatedTotalWth,
+          totalProfit: userRef.current.totalProfit || 0,
+          totalLoss: userRef.current.totalLoss || 0
+        },
+        portfolioMetrics: {
+          ...(userRef.current.portfolio || {}),
+          totalValue: updatedPort + (userRef.current.vaultBalance || 0)
+        }
+      });
+
+      await walletService.updateWallet(userRef.current.uid, {
+        portfolioBalance: updatedPort,
+        availableBalance: updatedAvail,
+        totalWithdrawals: updatedTotalWth,
+        portfolioValue: updatedPort + (userRef.current.vaultBalance || 0)
       });
 
       await addNotification('withdrawal', 'medium', 'Withdrawal Requested', `Your withdrawal request of $${amount.toLocaleString()} has been received.`);

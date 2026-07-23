@@ -15,6 +15,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { db, OperationType, handleFirestoreError } from '../lib/firebase';
+import { safeStorage } from '../utils/storage';
 import { 
   AiSession, 
   AiPreferenceProfile, 
@@ -36,8 +37,13 @@ export const aiTradingService = {
         userId,
         status: 'ACTIVE',
         startTime: Timestamp.now(),
-        marketsScanned: markets,
-        activeConfigId
+        activeConfigId: activeConfigId || '',
+        tradingCapital: 1000, // Default or derived
+        initialCapital: 1000,
+        openPositionsCount: 0,
+        totalProfit: 0,
+        totalLoss: 0,
+        lastUpdate: Timestamp.now()
       };
       await setDoc(sessionRef, newSession);
       return newSession;
@@ -210,25 +216,75 @@ export const aiTradingService = {
   },
 
   // Preferences
-  async savePreferences(userId: string, prefs: AiPreferenceProfile): Promise<void> {
+  async savePreferences(userId: string, prefs: Partial<AiPreferenceProfile>): Promise<void> {
+    const dataToSave = {
+      ...prefs,
+      userId,
+      updatedAt: new Date().toISOString()
+    };
+    safeStorage.setItem(`ai_preferences_${userId}`, JSON.stringify(dataToSave));
+
     try {
-      const prefsRef = doc(db, 'users', userId, 'aiPreferences', 'default');
-      await setDoc(prefsRef, { ...prefs, userId });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `users/${userId}/aiPreferences/default`);
-      throw error;
+      const prefsRef = doc(db, 'aiPreferences', userId);
+      await setDoc(prefsRef, dataToSave, { merge: true });
+      
+      // Also sync to legacy subcollection path for fallback
+      try {
+        const legacyRef = doc(db, 'users', userId, 'aiPreferences', 'default');
+        await setDoc(legacyRef, dataToSave, { merge: true });
+      } catch (legacyErr) {
+        // ignore legacy error if rule differs
+      }
+    } catch (error: any) {
+      const errMsg = error?.message || '';
+      if (errMsg.includes('offline') || errMsg.includes('quota') || errMsg.includes('unavailable') || errMsg.includes('resource-exhausted')) {
+        console.warn(`[aiTradingService] Offline/Quota warning when saving preferences, saved locally: ${errMsg}`);
+        return;
+      }
+      handleFirestoreError(error, OperationType.WRITE, `aiPreferences/${userId}`);
     }
   },
 
   async getPreferences(userId: string): Promise<AiPreferenceProfile | null> {
     try {
-      const prefsRef = doc(db, 'users', userId, 'aiPreferences', 'default');
+      const prefsRef = doc(db, 'aiPreferences', userId);
       const snapshot = await getDoc(prefsRef);
-      if (!snapshot.exists()) return null;
-      return snapshot.data() as AiPreferenceProfile;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `users/${userId}/aiPreferences/default`);
-      throw error;
+      if (snapshot.exists()) {
+        const data = snapshot.data() as AiPreferenceProfile;
+        safeStorage.setItem(`ai_preferences_${userId}`, JSON.stringify(data));
+        return data;
+      }
+      
+      // Fallback check legacy path
+      try {
+        const legacyRef = doc(db, 'users', userId, 'aiPreferences', 'default');
+        const legacySnap = await getDoc(legacyRef);
+        if (legacySnap.exists()) {
+          const data = legacySnap.data() as AiPreferenceProfile;
+          safeStorage.setItem(`ai_preferences_${userId}`, JSON.stringify(data));
+          return data;
+        }
+      } catch (err) {}
+
+      // Fallback to local storage cache
+      const cached = safeStorage.getItem(`ai_preferences_${userId}`);
+      if (cached) {
+        return JSON.parse(cached) as AiPreferenceProfile;
+      }
+
+      return null;
+    } catch (error: any) {
+      const errMsg = error?.message || '';
+      if (errMsg.includes('offline') || errMsg.includes('quota') || errMsg.includes('unavailable') || errMsg.includes('resource-exhausted')) {
+        console.warn(`[aiTradingService] Offline/Quota warning when fetching preferences, using local cache: ${errMsg}`);
+        const cached = safeStorage.getItem(`ai_preferences_${userId}`);
+        if (cached) {
+          return JSON.parse(cached) as AiPreferenceProfile;
+        }
+        return null;
+      }
+      handleFirestoreError(error, OperationType.GET, `aiPreferences/${userId}`);
+      return null;
     }
   },
 
@@ -261,12 +317,12 @@ export const aiTradingService = {
         const takeProfit = parseFloat((suggestedAction === 'BUY' ? entry * 1.05 : entry * 0.95).toFixed(2));
         
         // Use a wider range for confidence (50-98) so some recommendations are filtered out
-        const minConf = userProfile?.recommendationRules?.minConfidence || 82;
+        const minConf = userProfile?.aiTradingRules?.minConfidence || 82;
         const confidence = Math.floor(Math.min(98, Math.max(50, minConf - 20 + Math.random() * 40)));
         const rsiValue = Math.floor(marketData.rsi || (20 + Math.random() * 60));
 
-        // Use ONLY the indicators enabled in the user profile
-        const availableIndicators = userProfile?.recommendationRules?.indicators || ['RSI', 'MACD', 'EMA'];
+        // Use ONLY the indicators enabled in the user profile (fallback to defaults if profile is old/missing)
+        const availableIndicators = ['RSI', 'MACD', 'EMA'];
         const indicators = availableIndicators.map((ind: string) => {
           if (ind === 'RSI') return `RSI ${rsiValue < 30 ? 'Oversold' : rsiValue > 70 ? 'Overbought' : 'Neutral'} (${rsiValue})`;
           if (ind === 'MACD') return 'MACD Trend Alignment';

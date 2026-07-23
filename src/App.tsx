@@ -19,6 +19,7 @@ import Preferences from './components/Preferences';
 import BonusCenter from './components/BonusCenter';
 import MarketHighlightsPage from './components/MarketHighlightsPage';
 import EventsPromosPage from './components/EventsPromosPage';
+import AdminLayout from './components/admin/AdminLayout';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
@@ -51,16 +52,16 @@ function AppContent() {
 
     // Handle session restoration and view management
     if (user) {
-      if (currentView === 'home' || currentView === 'auth') {
-        setCurrentView('dashboard');
-      }
+      setCurrentView(prev => (prev === 'home' || prev === 'auth' ? 'dashboard' : prev));
     } else {
       // If no user and we were on a protected view, go to login
-      if (currentView === 'dashboard' || currentView === 'referral-centre' || currentView === 'preferences' || currentView === 'bonus-center') {
-        setCurrentView('auth');
-      }
+      setCurrentView(prev => (
+        prev === 'dashboard' || prev === 'referral-centre' || prev === 'preferences' || prev === 'bonus-center' 
+          ? 'auth' 
+          : prev
+      ));
     }
-  }, [user, authLoading, currentView]);
+  }, [user?.uid, authLoading]);
 
   // Preference Toggle callback
   useEffect(() => {
@@ -150,6 +151,17 @@ function AppContent() {
 
   if (authLoading) {
     return <Loader onComplete={() => {}} />;
+  }
+
+  // Check if current route is /admin
+  const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  if (isAdminRoute) {
+    return (
+      <AdminLayout 
+        theme={theme} 
+        onToggleTheme={() => handlePreferenceChange('theme', theme === 'dark' ? 'light' : 'dark')} 
+      />
+    );
   }
 
   const containerBg = theme === 'dark' 

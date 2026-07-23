@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { AiConfiguration, RiskRating } from '../../types/aiTrading';
 import { Timestamp } from 'firebase/firestore';
+import { aiTradingService } from '../../services/aiTradingService';
 
 interface AiConfigurationsViewProps {
   configs: AiConfiguration[];
@@ -40,43 +41,46 @@ interface AiConfigurationsViewProps {
 const defaultNewConfig = (userId: string): AiConfiguration => ({
   id: `cfg_${Date.now()}`,
   ownerId: userId,
-  name: 'Alpha Quant Momentum',
-  description: 'An aggressive swing-trading model optimized for high-volatility crypto and tech equities.',
-  version: 1,
+  name: 'New AI Configuration',
   createdAt: Timestamp.now(),
   lastModified: Timestamp.now(),
   status: 'INACTIVE',
-  markets: ['BTC', 'ETH', 'SOL', 'AAPL', 'NVDA'],
-  strategy: 'NEURAL_MOMENTUM',
-  schedule: {
-    sessions: [{ start: '08:00', end: '16:00' }],
-    weekdays: true,
-    weekends: false,
-    timezone: 'UTC',
-    breakPeriods: [{ start: '12:00', end: '13:00' }],
-    excludeHolidays: true
+  sessionSetup: {
+    amountToAllocate: 1000,
+    fundingSource: 'WALLET',
+    sessionDuration: 24
   },
-  riskControls: {
-    maxPositionSize: 5000,
-    maxSimultaneousPositions: 4,
-    exposureLimit: 20000,
-    positionSizingPreference: 'PERCENTAGE',
-    lossLimit: 10
+  profitRiskManagement: {
+    sessionTakeProfit: 5,
+    sessionStopLoss: 2,
+    maxRiskPerTrade: 1,
+    maxPositionSize: 500
   },
-  recommendationRules: {
-    minConfidence: 82,
-    allowedAssetClasses: ['CRYPTO', 'STOCKS'],
-    indicators: ['RSI', 'MACD', 'EMA']
+  aiTradingRules: {
+    minConfidence: 85,
+    maxSimultaneousPositions: 3,
+    assetSelection: ['BTC', 'ETH', 'SOL'],
+    tradingStrategy: 'NEURAL_MOMENTUM'
+  },
+  configurationDetails: {
+    description: 'A newly created AI trading configuration.',
+    category: 'Scalping',
+    version: '1.0.0'
+  },
+  analyticsAndNotes: {
+    riskScore: 50,
+    strategyNotes: '',
+    performanceStats: {
+      winRate: 0,
+      totalReturn: 0,
+      drawdown: 0
+    },
+    executionHistory: []
   },
   notificationPreferences: {
     newRecommendations: true,
     tradeExecutions: true,
-    marketAlerts: true
-  },
-  advancedBehavior: {
-    enableDeepAnalysis: true,
-    useSentimentGrounding: true,
-    neuralConfidenceThreshold: 85
+    marketAlerts: false
   }
 });
 
@@ -92,7 +96,7 @@ export default function AiConfigurationsView({
   userId
 }: AiConfigurationsViewProps) {
   const [editingConfig, setEditingConfig] = useState<AiConfiguration | null>(null);
-  const [activeStep, setActiveStep] = useState<'general' | 'markets' | 'schedule' | 'risk' | 'rules' | 'advanced'>('general');
+  const [activeStep, setActiveStep] = useState<'setup' | 'risk' | 'rules' | 'details' | 'analytics'>('setup');
   const [isCreating, setIsCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
@@ -106,14 +110,33 @@ export default function AiConfigurationsView({
     const fresh = defaultNewConfig(userId || 'guest_user');
     setEditingConfig(fresh);
     setIsCreating(true);
-    setActiveStep('general');
+    setActiveStep('setup');
     setIsSaved(false);
   };
 
   const handleEdit = (cfg: AiConfiguration) => {
-    setEditingConfig({ ...cfg });
+    // Migration for old configs
+    const migrated = {
+      ...cfg,
+      configurationDetails: cfg.configurationDetails || {
+        description: '',
+        category: 'Scalping',
+        version: '1.0.0'
+      },
+      analyticsAndNotes: cfg.analyticsAndNotes || {
+        riskScore: 50,
+        strategyNotes: '',
+        performanceStats: {
+          winRate: 0,
+          totalReturn: 0,
+          drawdown: 0
+        },
+        executionHistory: []
+      }
+    };
+    setEditingConfig(migrated);
     setIsCreating(false);
-    setActiveStep('general');
+    setActiveStep('setup');
     setIsSaved(false);
   };
 
@@ -124,7 +147,7 @@ export default function AiConfigurationsView({
       if (section === null) {
         return { ...prev, [field]: value };
       } else {
-        const sectData = prev[section] as any;
+        const sectData = (prev[section] || {}) as any;
         return {
           ...prev,
           [section]: {
@@ -143,12 +166,8 @@ export default function AiConfigurationsView({
     if (!editingConfig) return;
     
     // Simple validation
-    if (!editingConfig.name || editingConfig.name.trim() === '') {
-      alert('Please enter a configuration name.');
-      return;
-    }
-    if (editingConfig.riskControls.maxPositionSize <= 0) {
-      alert('Please enter a valid max position size greater than 0.');
+    if (editingConfig.sessionSetup.amountToAllocate <= 0) {
+      alert('Please enter a valid amount to allocate.');
       return;
     }
 
@@ -157,64 +176,111 @@ export default function AiConfigurationsView({
     setEditingConfig(null);
     setIsSaved(true);
     
+    // We update the preferences as well for backward compatibility where needed
+    try {
+      if (userId) {
+        await aiTradingService.savePreferences(userId, {
+          maxPositionSize: configToSave.profitRiskManagement.maxPositionSize,
+          maxRiskPerTrade: configToSave.profitRiskManagement.maxRiskPerTrade,
+          lossLimit: configToSave.profitRiskManagement.sessionStopLoss,
+          minConfidence: configToSave.aiTradingRules.minConfidence,
+          maxSimultaneousPositions: configToSave.aiTradingRules.maxSimultaneousPositions,
+          preferredMarkets: configToSave.aiTradingRules.assetSelection
+        });
+      }
+    } catch (prefErr) {
+      console.warn("Failed to save aiPreferences in Firestore:", prefErr);
+    }
+
     await onSave(configToSave);
     setIsSaving(false);
   };
 
-  const handleExport = (cfg: AiConfiguration) => {
-    const configData = { ...cfg };
-    // Remove internal metadata before export if any, but keep logic
-    const jsonString = JSON.stringify(configData, null, 2);
-    
-    // Copy to clipboard
-    navigator.clipboard.writeText(jsonString).then(() => {
-      alert('Configuration serialized and copied to clipboard.');
-    }).catch(err => {
-      console.error('Clipboard failed, falling back to download:', err);
-    });
-
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', url);
-    downloadAnchor.setAttribute('download', `${cfg.name.toLowerCase().replace(/\s+/g, '_')}_config.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    URL.revokeObjectURL(url);
-  };
 
   const handleImportConfig = async () => {
     try {
       if (!importText.trim()) throw new Error('Empty input');
       const parsed = JSON.parse(importText);
       
-      // Strict validation
-      if (!parsed.name || !parsed.strategy || !parsed.riskControls || !parsed.recommendationRules || !parsed.schedule) {
-        throw new Error('Incomplete configuration structure. Missing critical strategy or risk parameters.');
+      // Strict validation for core fields
+      if (!parsed.name || !parsed.sessionSetup || !parsed.profitRiskManagement || !parsed.aiTradingRules) {
+        throw new Error('Incomplete configuration structure. Missing critical strategy, setup or risk parameters.');
       }
 
       const imported: AiConfiguration = {
         ...parsed,
         id: `cfg_import_${Date.now()}`,
-        ownerId: configs[0]?.ownerId || 'unknown',
+        ownerId: userId || 'unknown',
         status: 'INACTIVE',
         createdAt: Timestamp.now(),
-        lastModified: Timestamp.now()
+        lastModified: Timestamp.now(),
+        // Ensure new sections exist even if importing from a slightly older version of the new interface
+        configurationDetails: parsed.configurationDetails || {
+          description: '',
+          category: 'Scalping',
+          version: '1.0.0'
+        },
+        analyticsAndNotes: parsed.analyticsAndNotes || {
+          riskScore: 50,
+          strategyNotes: '',
+          performanceStats: {
+            winRate: 0,
+            totalReturn: 0,
+            drawdown: 0
+          },
+          executionHistory: []
+        },
+        notificationPreferences: parsed.notificationPreferences || {
+          newRecommendations: true,
+          tradeExecutions: true,
+          marketAlerts: false
+        }
       };
       
       await onSave(imported);
       setShowImportModal(false);
       setImportText('');
-      alert('Configuration imported successfully with perfect logic synchronization.');
+      alert('Configuration imported successfully with all sections synchronized.');
     } catch (e: any) {
       alert(`Import Failed: ${e.message || 'Invalid JSON structure'}`);
     }
   };
 
+  const handleExport = (config: AiConfiguration) => {
+    try {
+      // Create a clean copy of the configuration for export
+      const exportData = {
+        ...config,
+        exportedAt: new Date().toISOString(),
+        client: "Aver Project AI Engine"
+      };
+
+      const jsonString = JSON.stringify(exportData, null, 2);
+      
+      // Copy to clipboard
+      navigator.clipboard.writeText(jsonString).catch(err => {
+        console.error('Clipboard failed:', err);
+      });
+
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `aver_config_${config.name.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      alert(`"${config.name}" data file has been downloaded and copied to clipboard.`);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Failed to export configuration.");
+    }
+  };
+
   const filteredConfigs = configs.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    c.description.toLowerCase().includes(searchQuery.toLowerCase())
+    c.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -281,34 +347,30 @@ export default function AiConfigurationsView({
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-full ${
-                          cfg.strategy === 'NEURAL_MOMENTUM' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
+                          cfg.aiTradingRules.tradingStrategy === 'NEURAL_MOMENTUM' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
                         }`}>
-                          {cfg.strategy.replace('_', ' ')}
+                          {cfg.aiTradingRules.tradingStrategy.replace('_', ' ')}
                         </span>
                       </div>
                     </div>
 
-                    <p className={`text-xs ${textSecondary} mb-6 leading-relaxed`}>
-                      {cfg.description}
-                    </p>
-
                     <div className="grid grid-cols-3 gap-3 mb-6 border-t border-b border-white/5 py-4">
                       <div>
-                        <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Risk Threshold</p>
+                        <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Allocated</p>
                         <p className={`text-xs font-bold ${textPrimary} mt-1`}>
-                          {cfg.riskControls.lossLimit}% Risk Limit
+                          ${cfg.sessionSetup.amountToAllocate.toLocaleString()}
                         </p>
                       </div>
                       <div>
-                        <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Monitored</p>
+                        <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Risk Limit</p>
                         <p className={`text-xs font-bold ${textPrimary} mt-1`}>
-                          {cfg.markets.length} Indexes
+                          {cfg.profitRiskManagement.sessionStopLoss}% SL
                         </p>
                       </div>
                       <div>
                         <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Confidence</p>
-                        <p className={`text-xs font-bold text-emerald-500 mt-1`}>
-                          &gt; {cfg.recommendationRules.minConfidence}%
+                        <p className={`text-xs font-bold text-[#00D09C] mt-1`}>
+                          &gt; {cfg.aiTradingRules.minConfidence}%
                         </p>
                       </div>
                     </div>
@@ -332,7 +394,7 @@ export default function AiConfigurationsView({
                       <button 
                         onClick={() => handleExport(cfg)}
                         className={`p-1.5 border rounded-lg text-slate-400 hover:text-white transition-colors ${isDark ? 'border-white/10' : 'border-slate-200'}`}
-                        title="Export JSON"
+                        title="Export Configuration"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
@@ -351,7 +413,7 @@ export default function AiConfigurationsView({
                       {!isActive ? (
                         <button
                           onClick={() => onActivate(cfg.id)}
-                          className="px-3 py-1.5 bg-[#00D09C] hover:bg-[#00B585] text-black rounded-lg text-[10px] font-black transition-all flex items-center gap-1"
+                          className="px-3 py-1.5 bg-[#00D09C] hover:bg-[#00B585] text-black rounded-xl text-[10px] font-black transition-all flex items-center gap-1"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" /> Activate
                         </button>
@@ -393,7 +455,7 @@ export default function AiConfigurationsView({
               </button>
               {isSaved ? (
                 <button
-                  onClick={() => onStartSession(editingConfig.id, editingConfig.markets)}
+                  onClick={() => onStartSession(editingConfig.id, editingConfig.aiTradingRules.assetSelection)}
                   className="px-5 py-2.5 bg-[#00D09C] hover:bg-[#00B585] text-black rounded-xl text-xs font-black transition-all shadow-lg shadow-[#00D09C]/20 flex items-center gap-2"
                 >
                   <Play className="w-4 h-4 fill-current" /> Start Session
@@ -412,87 +474,157 @@ export default function AiConfigurationsView({
           <div className="grid grid-cols-1 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-white/5 min-h-[500px]">
             {/* Steps Left Panel */}
             <div className="p-4 space-y-1 bg-black/5 lg:col-span-1">
-              <StepButton active={activeStep === 'general'} onClick={() => setActiveStep('general')} label="1. General Profile" icon={<Layers className="w-4 h-4" />} />
-              <StepButton active={activeStep === 'markets'} onClick={() => setActiveStep('markets')} label="2. Markets & Indexes" icon={<Globe className="w-4 h-4" />} />
-              <StepButton active={activeStep === 'schedule'} onClick={() => setActiveStep('schedule')} label="3. Trading Schedule" icon={<Calendar className="w-4 h-4" />} />
-              <StepButton active={activeStep === 'risk'} onClick={() => setActiveStep('risk')} label="4. Risk Controls" icon={<ShieldAlert className="w-4 h-4" />} />
-              <StepButton active={activeStep === 'rules'} onClick={() => setActiveStep('rules')} label="5. Intelligence Rules" icon={<Brain className="w-4 h-4" />} />
-              <StepButton active={activeStep === 'advanced'} onClick={() => setActiveStep('advanced')} label="6. Advanced Settings" icon={<Settings className="w-4 h-4" />} />
+              <StepButton active={activeStep === 'setup'} onClick={() => setActiveStep('setup')} label="1. Session Setup" icon={<Layers className="w-4 h-4" />} />
+              <StepButton active={activeStep === 'risk'} onClick={() => setActiveStep('risk')} label="2. Profit & Risk Management" icon={<ShieldAlert className="w-4 h-4" />} />
+              <StepButton active={activeStep === 'rules'} onClick={() => setActiveStep('rules')} label="3. AI Trading Rules" icon={<Brain className="w-4 h-4" />} />
+              <StepButton active={activeStep === 'details'} onClick={() => setActiveStep('details')} label="4. Configuration Details" icon={<Info className="w-4 h-4" />} />
+              <StepButton active={activeStep === 'analytics'} onClick={() => setActiveStep('analytics')} label="5. Analytics & Notes" icon={<RefreshCw className="w-4 h-4" />} />
             </div>
 
             {/* Editing Work Area */}
             <div className="p-8 lg:col-span-3 space-y-6">
-              {activeStep === 'general' && (
+              {activeStep === 'setup' && (
                 <div className="space-y-6 max-w-2xl">
-                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>General Configuration</h4>
+                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Session Setup</h4>
                   
                   <div className="space-y-2">
-                    <label className={`block text-xs font-bold ${textSecondary}`}>Profile Name</label>
+                    <label className={`block text-xs font-bold ${textSecondary}`}>Configuration Name</label>
                     <input 
                       type="text" 
                       value={editingConfig.name}
                       onChange={(e) => handleFieldChange(null, 'name', e.target.value)}
                       className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      placeholder="e.g. Ultra Alpha Momentum"
+                      placeholder="e.g. Scalp High Yield Session"
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <label className={`block text-xs font-bold ${textSecondary}`}>Description</label>
-                    <textarea 
-                      value={editingConfig.description}
-                      onChange={(e) => handleFieldChange(null, 'description', e.target.value)}
-                      className={`w-full h-24 bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      placeholder="Enter details of this configuration..."
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className={`block text-xs font-bold ${textSecondary}`}>Core Strategy Model</label>
-                    <select 
-                      value={editingConfig.strategy}
-                      onChange={(e) => handleFieldChange(null, 'strategy', e.target.value)}
-                      className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                    >
-                      <option value="NEURAL_MOMENTUM">Neural Momentum (High Win Rate)</option>
-                      <option value="VOLATILITY_BREAKOUT">Volatility Breakout (High Risk/Reward)</option>
-                      <option value="MEAN_REVERSION">Mean Reversion (Range Trading)</option>
-                      <option value="QUANT_GRID">Quant Grid Scalper (Ultra-Fast)</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {activeStep === 'markets' && (
-                <div className="space-y-6 max-w-2xl">
-                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Market and Indexes Scope</h4>
-                  
-                  <div className="space-y-4 p-5 rounded-2xl bg-black/10 border border-white/5">
-                    <div className="flex items-start gap-3">
-                      <Info className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
-                      <div className="text-xs">
-                        <p className={`font-bold ${textPrimary}`}>What does this setting do?</p>
-                        <p className={`${textSecondary} mt-1`}>
-                          Determines which trade pairs and assets the neural engine parses. Limiting markets reduces noise and focuses capital.
-                        </p>
-                      </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Amount to Allocate (USD)</label>
+                      <input 
+                        type="number" 
+                        value={editingConfig.sessionSetup.amountToAllocate}
+                        onChange={(e) => handleFieldChange('sessionSetup', 'amountToAllocate', Number(e.target.value))}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Funding Source</label>
+                      <select 
+                        value={editingConfig.sessionSetup.fundingSource}
+                        onChange={(e) => handleFieldChange('sessionSetup', 'fundingSource', e.target.value)}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                      >
+                        <option value="WALLET">Wallet Balance</option>
+                        <option value="VAULT">Vault (Safety Stash)</option>
+                      </select>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className={`block text-xs font-bold ${textSecondary}`}>Preferred Trading Pairs</label>
+                    <label className={`block text-xs font-bold ${textSecondary}`}>Session Duration (Hours)</label>
+                    <input 
+                      type="number" 
+                      value={editingConfig.sessionSetup.sessionDuration}
+                      onChange={(e) => handleFieldChange('sessionSetup', 'sessionDuration', Number(e.target.value))}
+                      className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                    />
+                    <p className="text-[10px] text-slate-500 font-mono">The AI will automatically shut down after this period expires.</p>
+                  </div>
+                </div>
+              )}
+
+              {activeStep === 'risk' && (
+                <div className="space-y-6 max-w-2xl">
+                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Profit & Risk Management</h4>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Session Take Profit (%)</label>
+                      <input 
+                        type="number"
+                        value={editingConfig.profitRiskManagement.sessionTakeProfit}
+                        onChange={(e) => handleFieldChange('profitRiskManagement', 'sessionTakeProfit', Number(e.target.value))}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Session Stop Loss (%)</label>
+                      <input 
+                        type="number"
+                        value={editingConfig.profitRiskManagement.sessionStopLoss}
+                        onChange={(e) => handleFieldChange('profitRiskManagement', 'sessionStopLoss', Number(e.target.value))}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Max Risk Per Trade (%)</label>
+                      <input 
+                        type="number"
+                        value={editingConfig.profitRiskManagement.maxRiskPerTrade}
+                        onChange={(e) => handleFieldChange('profitRiskManagement', 'maxRiskPerTrade', Number(e.target.value))}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Max Position Size (USD)</label>
+                      <input 
+                        type="number"
+                        value={editingConfig.profitRiskManagement.maxPositionSize}
+                        onChange={(e) => handleFieldChange('profitRiskManagement', 'maxPositionSize', Number(e.target.value))}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeStep === 'rules' && (
+                <div className="space-y-6 max-w-2xl">
+                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>AI Trading Rules</h4>
+
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <label className={`text-xs font-bold ${textSecondary}`}>Minimum Confidence Score (%)</label>
+                      <span className="text-xs font-mono font-bold text-[#00D09C]">{editingConfig.aiTradingRules.minConfidence}%</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="50" 
+                      max="98"
+                      value={editingConfig.aiTradingRules.minConfidence}
+                      onChange={(e) => handleFieldChange('aiTradingRules', 'minConfidence', Number(e.target.value))}
+                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D09C]"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className={`block text-xs font-bold ${textSecondary}`}>Maximum Simultaneous Positions</label>
+                    <input 
+                      type="number"
+                      value={editingConfig.aiTradingRules.maxSimultaneousPositions}
+                      onChange={(e) => handleFieldChange('aiTradingRules', 'maxSimultaneousPositions', Number(e.target.value))}
+                      className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className={`block text-xs font-bold ${textSecondary}`}>Asset Selection</label>
                     <div className="flex flex-wrap gap-2">
                       {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN'].map(m => {
-                        const included = editingConfig.markets.includes(m);
+                        const included = editingConfig.aiTradingRules.assetSelection.includes(m);
                         return (
                           <button
                             key={m}
                             type="button"
                             onClick={() => {
                               const next = included 
-                                ? editingConfig.markets.filter(x => x !== m)
-                                : [...editingConfig.markets, m];
-                              handleFieldChange(null, 'markets', next);
+                                ? editingConfig.aiTradingRules.assetSelection.filter(x => x !== m)
+                                : [...editingConfig.aiTradingRules.assetSelection, m];
+                              handleFieldChange('aiTradingRules', 'assetSelection', next);
                             }}
                             className={`px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${
                               included 
@@ -506,211 +638,155 @@ export default function AiConfigurationsView({
                       })}
                     </div>
                   </div>
-                </div>
-              )}
-
-              {activeStep === 'schedule' && (
-                <div className="space-y-6 max-w-2xl">
-                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Trading Sessions Schedule</h4>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className={`block text-xs font-bold ${textSecondary}`}>Select Timezone</label>
-                      <select 
-                        value={editingConfig.schedule.timezone}
-                        onChange={(e) => handleFieldChange('schedule', 'timezone', e.target.value)}
-                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      >
-                        <option value="UTC">Coordinated Universal Time (UTC)</option>
-                        <option value="EST">Eastern Standard Time (EST)</option>
-                        <option value="PST">Pacific Standard Time (PST)</option>
-                        <option value="GMT">Greenwich Mean Time (GMT)</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className={`block text-xs font-bold ${textSecondary}`}>Excluded Days</label>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleFieldChange('schedule', 'weekdays', !editingConfig.schedule.weekdays)}
-                          className={`flex-1 py-3 rounded-xl border text-[10px] font-black transition-all ${
-                            editingConfig.schedule.weekdays ? 'bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]' : 'bg-white/5 border-white/5 text-slate-500'
-                          }`}
-                        >
-                          WEEKDAYS
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleFieldChange('schedule', 'weekends', !editingConfig.schedule.weekends)}
-                          className={`flex-1 py-3 rounded-xl border text-[10px] font-black transition-all ${
-                            editingConfig.schedule.weekends ? 'bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]' : 'bg-white/5 border-white/5 text-slate-500'
-                          }`}
-                        >
-                          WEEKENDS
-                        </button>
-                      </div>
-                    </div>
-                  </div>
 
                   <div className="space-y-2">
-                    <label className={`block text-xs font-bold ${textSecondary}`}>Active Session Start/End</label>
-                    <div className="flex gap-4">
-                      <input 
-                        type="time" 
-                        value={editingConfig.schedule.sessions[0]?.start || '08:00'}
-                        onChange={(e) => {
-                          const s = [...editingConfig.schedule.sessions];
-                          s[0] = { ...s[0], start: e.target.value };
-                          handleFieldChange('schedule', 'sessions', s);
-                        }}
-                        className={`flex-1 bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      />
-                      <input 
-                        type="time" 
-                        value={editingConfig.schedule.sessions[0]?.end || '16:00'}
-                        onChange={(e) => {
-                          const s = [...editingConfig.schedule.sessions];
-                          s[0] = { ...s[0], end: e.target.value };
-                          handleFieldChange('schedule', 'sessions', s);
-                        }}
-                        className={`flex-1 bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      />
-                    </div>
+                    <label className={`block text-xs font-bold ${textSecondary}`}>Trading Strategy</label>
+                    <select 
+                      value={editingConfig.aiTradingRules.tradingStrategy}
+                      onChange={(e) => handleFieldChange('aiTradingRules', 'tradingStrategy', e.target.value)}
+                      className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                    >
+                      <option value="NEURAL_MOMENTUM">Neural Momentum (Balanced)</option>
+                      <option value="VOLATILITY_BREAKOUT">Volatility Breakout (Aggressive)</option>
+                      <option value="MEAN_REVERSION">Mean Reversion (Conservative)</option>
+                      <option value="QUANT_GRID">Quant Grid Scalper (High Frequency)</option>
+                    </select>
                   </div>
                 </div>
               )}
 
-              {activeStep === 'risk' && (
+              {activeStep === 'details' && (
                 <div className="space-y-6 max-w-2xl">
-                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Neural Risk controls</h4>
+                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Configuration Details</h4>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Description</label>
+                      <textarea 
+                        value={editingConfig.configurationDetails?.description || ''}
+                        onChange={(e) => handleFieldChange('configurationDetails', 'description', e.target.value)}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C] h-24`}
+                        placeholder="Detailed explanation of this configuration's purpose..."
+                      />
+                    </div>
 
-                  <div className="space-y-4 p-5 rounded-2xl bg-rose-500/5 border border-rose-500/10">
-                    <div className="flex items-start gap-3">
-                      <ShieldAlert className="w-5 h-5 text-rose-500 mt-0.5 flex-shrink-0" />
-                      <div className="text-xs">
-                        <p className={`font-bold text-rose-500`}>Why would someone change these settings?</p>
-                        <p className={`${textSecondary} mt-1`}>
-                          Tighter stop limits reduce drawdowns but may exit positions during normal high-volatility spikes before a turnaround. Balance with style.
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className={`block text-xs font-bold ${textSecondary}`}>Category</label>
+                        <select 
+                          value={editingConfig.configurationDetails?.category || 'Scalping'}
+                          onChange={(e) => handleFieldChange('configurationDetails', 'category', e.target.value)}
+                          className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                        >
+                          <option value="Scalping">Scalping</option>
+                          <option value="Day Trading">Day Trading</option>
+                          <option value="Swing Trading">Swing Trading</option>
+                          <option value="Long Term">Long Term</option>
+                          <option value="Experimental">Experimental</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className={`block text-xs font-bold ${textSecondary}`}>Version</label>
+                        <input 
+                          type="text" 
+                          value={editingConfig.configurationDetails?.version || '1.0.0'}
+                          onChange={(e) => handleFieldChange('configurationDetails', 'version', e.target.value)}
+                          className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                          placeholder="1.0.0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4 p-4 rounded-2xl bg-white/5 border border-white/5">
+                      <div>
+                        <p className={`text-[10px] font-black uppercase tracking-wider ${textSecondary}`}>Status</p>
+                        <p className={`text-xs font-bold mt-1 ${editingConfig.status === 'ACTIVE' ? 'text-[#00D09C]' : 'text-slate-400'}`}>
+                          {editingConfig.status}
+                        </p>
+                      </div>
+                      <div>
+                        <p className={`text-[10px] font-black uppercase tracking-wider ${textSecondary}`}>Created</p>
+                        <p className={`text-xs font-bold mt-1 ${textPrimary}`}>
+                          {editingConfig.createdAt.toDate().toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className={`text-[10px] font-black uppercase tracking-wider ${textSecondary}`}>Modified</p>
+                        <p className={`text-xs font-bold mt-1 ${textPrimary}`}>
+                          {editingConfig.lastModified.toDate().toLocaleDateString()}
                         </p>
                       </div>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className={`block text-xs font-bold ${textSecondary}`}>Max Position Size ($)</label>
-                      <input 
-                        type="number"
-                        value={editingConfig.riskControls.maxPositionSize}
-                        onChange={(e) => handleFieldChange('riskControls', 'maxPositionSize', Number(e.target.value))}
-                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className={`block text-xs font-bold ${textSecondary}`}>Max Risk Per Trade (%)</label>
-                      <input 
-                        type="number"
-                        value={editingConfig.riskControls.lossLimit}
-                        onChange={(e) => handleFieldChange('riskControls', 'lossLimit', Number(e.target.value))}
-                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className={`block text-xs font-bold ${textSecondary}`}>Max Simultaneous Positions</label>
-                      <input 
-                        type="number"
-                        value={editingConfig.riskControls.maxSimultaneousPositions}
-                        onChange={(e) => handleFieldChange('riskControls', 'maxSimultaneousPositions', Number(e.target.value))}
-                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className={`block text-xs font-bold ${textSecondary}`}>Exposure Limit ($)</label>
-                      <input 
-                        type="number"
-                        value={editingConfig.riskControls.exposureLimit}
-                        onChange={(e) => handleFieldChange('riskControls', 'exposureLimit', Number(e.target.value))}
-                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                      />
-                    </div>
-                  </div>
                 </div>
               )}
 
-              {activeStep === 'rules' && (
+              {activeStep === 'analytics' && (
                 <div className="space-y-6 max-w-2xl">
-                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Recommendation rules</h4>
+                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Configuration Analytics & Notes</h4>
 
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <label className={`text-xs font-bold ${textSecondary}`}>Minimum Confidence Score (%)</label>
-                      <span className="text-xs font-mono font-bold text-[#00D09C]">{editingConfig.recommendationRules.minConfidence}%</span>
+                  <div className="grid grid-cols-3 gap-4 mb-6">
+                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                      <p className={`text-[10px] font-black uppercase tracking-wider ${textSecondary}`}>Win Rate</p>
+                      <p className="text-lg font-black text-[#00D09C] mt-1">{editingConfig.analyticsAndNotes?.performanceStats?.winRate || 0}%</p>
                     </div>
-                    <input 
-                      type="range" 
-                      min="50" 
-                      max="98"
-                      value={editingConfig.recommendationRules.minConfidence}
-                      onChange={(e) => handleFieldChange('recommendationRules', 'minConfidence', Number(e.target.value))}
-                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D09C]"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className={`block text-xs font-bold ${textSecondary}`}>Neural Signals</label>
-                    <div className="flex flex-wrap gap-2">
-                      {['RSI', 'MACD', 'EMA', 'Bollinger Bands', 'Volume Delta', 'Sentiment Index', 'Ichimoku', 'Fibonacci'].map(ind => {
-                        const included = editingConfig.recommendationRules.indicators.includes(ind);
-                        return (
-                          <button
-                            key={ind}
-                            type="button"
-                            onClick={() => {
-                              const next = included 
-                                ? editingConfig.recommendationRules.indicators.filter(x => x !== ind)
-                                : [...editingConfig.recommendationRules.indicators, ind];
-                              handleFieldChange('recommendationRules', 'indicators', next);
-                            }}
-                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${
-                              included 
-                                ? 'bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]'
-                                : 'bg-white/5 border-white/5 text-slate-500'
-                            }`}
-                          >
-                            {ind}
-                          </button>
-                        );
-                      })}
+                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                      <p className={`text-[10px] font-black uppercase tracking-wider ${textSecondary}`}>Total Return</p>
+                      <p className="text-lg font-black text-blue-500 mt-1">+{editingConfig.analyticsAndNotes?.performanceStats?.totalReturn || 0}%</p>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                      <p className={`text-[10px] font-black uppercase tracking-wider ${textSecondary}`}>Max Drawdown</p>
+                      <p className="text-lg font-black text-rose-500 mt-1">-{editingConfig.analyticsAndNotes?.performanceStats?.drawdown || 0}%</p>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {activeStep === 'advanced' && (
-                <div className="space-y-6 max-w-2xl">
-                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Advanced Settings</h4>
 
                   <div className="space-y-4">
-                    <ToggleField 
-                      label="Deep Sentiment Grounding" 
-                      description="Connect neural filters to active search index models on Google Search and Gemini to capture sudden high-impact macro news."
-                      active={editingConfig.advancedBehavior.useSentimentGrounding}
-                      onToggle={(val) => handleFieldChange('advancedBehavior', 'useSentimentGrounding', val)}
-                      isDark={isDark}
-                    />
-                    <ToggleField 
-                      label="Ultra-Deep Analytical Modeling" 
-                      description="Analyze full orderbook depth and volume sweeps instead of simple price action arrays."
-                      active={editingConfig.advancedBehavior.enableDeepAnalysis}
-                      onToggle={(val) => handleFieldChange('advancedBehavior', 'enableDeepAnalysis', val)}
-                      isDark={isDark}
-                    />
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <label className={`text-xs font-bold ${textSecondary}`}>Aggregated Risk Score</label>
+                        <span className={`text-xs font-black px-2 py-0.5 rounded-full ${
+                          (editingConfig.analyticsAndNotes?.riskScore || 0) < 40 ? 'bg-[#00D09C]/10 text-[#00D09C]' : 
+                          (editingConfig.analyticsAndNotes?.riskScore || 0) < 70 ? 'bg-amber-500/10 text-amber-500' : 'bg-rose-500/10 text-rose-500'
+                        }`}>
+                          {editingConfig.analyticsAndNotes?.riskScore || 0}/100
+                        </span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="100"
+                        value={editingConfig.analyticsAndNotes?.riskScore || 50}
+                        onChange={(e) => handleFieldChange('analyticsAndNotes', 'riskScore', Number(e.target.value))}
+                        className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D09C]"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Strategy Notes & Post-Session Analysis</label>
+                      <textarea 
+                        value={editingConfig.analyticsAndNotes?.strategyNotes || ''}
+                        onChange={(e) => handleFieldChange('analyticsAndNotes', 'strategyNotes', e.target.value)}
+                        className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C] h-32`}
+                        placeholder="Log strategy observations, performance insights, and required adjustments..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className={`block text-xs font-bold ${textSecondary}`}>Recent Execution History</label>
+                      <div className="space-y-2">
+                        {editingConfig.analyticsAndNotes.executionHistory && editingConfig.analyticsAndNotes.executionHistory.length > 0 ? (
+                          editingConfig.analyticsAndNotes.executionHistory.map((log, idx) => (
+                            <div key={idx} className="p-2 bg-white/5 border border-white/5 rounded-lg text-[10px] text-slate-400 font-mono">
+                              {log}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="p-4 bg-white/5 border border-white/5 rounded-xl text-center">
+                            <p className="text-[10px] text-slate-500 italic">No execution history recorded yet.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

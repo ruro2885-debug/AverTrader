@@ -19,6 +19,7 @@ import {
   SimulationEvent, 
   initSimulatedTraders, 
   runSimulationTick, 
+  runScheduledRankingsUpdate,
   getTraderEquityCurve 
 } from '../../utils/traderSimulation';
 
@@ -30,6 +31,29 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
   const [traders, setTraders] = useState<Trader[]>(() => {
     return initSimulatedTraders();
   });
+
+  // Scheduled ranking update logic
+  useEffect(() => {
+    const performUpdate = () => {
+      setTraders(currentTraders => {
+        const { updatedTraders, events: newEvents } = runScheduledRankingsUpdate(currentTraders);
+        if (updatedTraders !== currentTraders) {
+          if (newEvents.length > 0) {
+            setEvents(prev => [...newEvents, ...prev].slice(0, 30));
+          }
+          return updatedTraders;
+        }
+        return currentTraders;
+      });
+    };
+
+    // Run check on mount
+    performUpdate();
+
+    // Also check every 30 minutes in case the app is left open
+    const interval = setInterval(performUpdate, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const [events, setEvents] = useState<SimulationEvent[]>(() => {
     const savedEvts = safeStorage.getItem('aver_copytrade_events');
@@ -62,7 +86,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
 
   // Persist traders state so follow states or dynamic updates are preserved
   useEffect(() => {
-    safeStorage.setItem('aver_sim_traders_v6', JSON.stringify(traders));
+    safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(traders));
   }, [traders]);
 
   // Persist events state
@@ -94,8 +118,27 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
   useEffect(() => {
     const tradersRef = collection(db, 'traderProfiles');
     const unsub = onSnapshot(tradersRef, (snapshot) => {
-      if (snapshot.empty) return;
-      const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Trader[];
+      if (snapshot.empty || snapshot.docs.length === 0) {
+        return;
+      }
+      
+      const list = snapshot.docs.map(d => {
+        const data = d.data() as any;
+        const ret30 = data.return30D || data.return30d || 0;
+        return {
+          ...data,
+          id: d.id,
+          return30D: ret30,
+          return30d: ret30,
+          returnAllTime: data.returnAllTime || ret30 * 2.5 || 120,
+          winRate: data.winRate || 75,
+        };
+      }) as Trader[];
+
+      if (list.length < 5) {
+        return;
+      }
+
       // Sort by rank ascending
       list.sort((a, b) => (a.rank || 99) - (b.rank || 99));
 
@@ -226,24 +269,47 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
         id: newConfigId,
         ownerId: user.uid,
         name: `Cloned: ${trader.username} - ${trader.strategyName.split(' ').slice(0, 2).join(' ')}`,
-        description: `Procedurally duplicated directly from copy-trading profile of ${trader.username}. Built for ${trader.style.replace('_', ' ')} execution on ${trader.preferredMarkets.join('/')}. Original performance: +${trader.return30D}% APY.`,
-        version: 1,
+        status: 'INACTIVE', // default standby mode
         createdAt: Timestamp.now(),
         lastModified: Timestamp.now(),
-        status: 'INACTIVE', // default standby mode
-        markets: [...trader.preferredMarkets],
-        schedule: { ...trader.schedule },
-        strategy: trader.strategyName.includes('Momentum') ? 'NEURAL_MOMENTUM' : 
-                  trader.strategyName.includes('Swing') ? 'VOLATILITY_BREAKOUT' : 
-                  trader.strategyName.includes('Grid') ? 'QUANT_GRID' : 'MEAN_REVERSION',
-        riskControls: { ...trader.riskControls },
-        recommendationRules: { ...trader.recommendationRules },
+        sessionSetup: {
+          amountToAllocate: 1000,
+          fundingSource: 'WALLET',
+          sessionDuration: 24
+        },
+        profitRiskManagement: {
+          sessionTakeProfit: 10,
+          sessionStopLoss: 5,
+          maxPositionSize: trader.riskControls?.maxPositionSize || 100,
+          maxRiskPerTrade: trader.riskControls?.lossLimit || 2
+        },
+        aiTradingRules: {
+          tradingStrategy: trader.strategyName.includes('Momentum') ? 'NEURAL_MOMENTUM' : 
+                          trader.strategyName.includes('Swing') ? 'VOLATILITY_BREAKOUT' : 
+                          trader.strategyName.includes('Grid') ? 'QUANT_GRID' : 'MEAN_REVERSION',
+          assetSelection: [...trader.preferredMarkets],
+          minConfidence: trader.recommendationRules?.minConfidence || 85,
+          maxSimultaneousPositions: trader.riskControls?.maxSimultaneousPositions || 3
+        },
+        configurationDetails: {
+          description: `Procedurally duplicated directly from copy-trading profile of ${trader.username}. Built for ${trader.style.replace('_', ' ')} execution. Original performance: +${trader.return30D}% ROI.`,
+          category: 'Copy Trading',
+          version: '1.0.0'
+        },
+        analyticsAndNotes: {
+          riskScore: trader.riskManagementScore || 50,
+          strategyNotes: `Follows ${trader.username}'s ${trader.strategyName} strategy. Original Win Rate: ${trader.winRate}%.`,
+          performanceStats: {
+            winRate: trader.winRate || 0,
+            totalReturn: trader.return30D || 0,
+            drawdown: trader.currentDrawdown || 0
+          }
+        },
         notificationPreferences: {
           newRecommendations: true,
           tradeExecutions: true,
           marketAlerts: false
-        },
-        advancedBehavior: { ...trader.advancedBehavior }
+        }
       };
 
       // Save using AI trading service directly into User's subcollection

@@ -37,7 +37,7 @@ export default function ReferralCentre({ theme, onBack }: { theme: 'light' | 'da
       }
     };
     fetchReferrals();
-  }, [user]);
+  }, [user?.uid]);
 
   const referralLink = `https://avernox.com/signup?ref=${user?.referralCode || ''}`;
   const totalEarned = referrals.reduce((sum, ref) => sum + (ref.rewardAmount || 0), 0);
