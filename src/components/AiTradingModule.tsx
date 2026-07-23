@@ -69,7 +69,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     loading: engineLoading,
     startSession, 
     endSession, 
-    pauseSession,
     saveConfiguration, 
     deleteConfiguration, 
     duplicateConfiguration, 
@@ -174,30 +173,24 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   
   const displayTradingCapital = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      // session.tradingCapital already includes closed trade PnL.
-      // We only need to add floating PnL.
-      const currentCapital = session.tradingCapital || 0;
-      return currentCapital + totalFloatingPnl;
+      return session.tradingCapital || 0;
     }
-    // Return configured allocation or wallet balance as fallback
-    return config?.sessionSetup?.amountToAllocate || user?.portfolioBalance || 0;
-  }, [session, totalFloatingPnl, user, config]);
+    return 0;
+  }, [session]);
 
   const displayPnlAmount = useMemo(() => {
     if (session?.status === 'ACTIVE') {
       return session.totalProfit - session.totalLoss + totalFloatingPnl;
     }
-    // Return persisted daily PnL or overall return when idle
-    return user?.portfolio?.todayPnL || 0;
-  }, [session, totalFloatingPnl, user]);
+    return 0; // Don't show P/L when no session is active
+  }, [session, totalFloatingPnl]);
 
   const displayPnlPercent = useMemo(() => {
     if (session?.status === 'ACTIVE' && session.initialCapital > 0) {
       return (displayPnlAmount / session.initialCapital) * 100;
     }
-    // Return persisted daily PnL percentage or overall return percentage when idle
-    return user?.portfolio?.todayPnL || 0;
-  }, [session, displayPnlAmount, user]);
+    return 0;
+  }, [session, displayPnlAmount]);
 
   const displayCpuUsage = !isSessionActive ? 0 : cpuUsage;
   const displayMemoryUsage = !isSessionActive ? 0 : memoryUsage;

@@ -321,9 +321,6 @@ export const aiTradingService = {
           data = await response.json();
         } else {
           const errorText = await response.text();
-          if (response.status === 429) {
-            throw new Error("RATE_LIMIT");
-          }
           throw new Error(`API request failed with status ${response.status}: ${errorText}`);
         }
       } catch (e: any) {

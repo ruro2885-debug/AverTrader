@@ -165,8 +165,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const addFundsRef = useRef(addFundsToActiveBalance);
 
   const isInitialSyncGracePeriod = useRef(true);
-  const apiCooldownRef = useRef<number>(0);
-
   useEffect(() => {
     const timer = setTimeout(() => {
       isInitialSyncGracePeriod.current = false;
@@ -679,19 +677,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       }
     }
   }, [user, configs, config, addNotification, logActivity, setLocalStorageItem]);
-
-  const pauseSession = useCallback(async () => {
-    if (!session || !user) return;
-    
-    await portfolioPersistenceService.updateSessionDetails(user.uid, {
-      status: 'PAUSED',
-      engineState: 'PAUSED'
-    });
-    
-    setSession(prev => prev ? { ...prev, status: 'PAUSED', engineState: 'PAUSED' } : null);
-    
-    await logActivity('SESSION_PAUSED', 'AI Trading Session paused.');
-  }, [session, user, logActivity]);
 
   const endSession = useCallback(async () => {
     if (!session || !user) return;
@@ -1418,17 +1403,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       try {
         let rec: AiRecommendation;
         try {
-          if (apiCooldownRef.current > Date.now()) {
-             throw new Error("RATE_LIMIT");
-          }
           rec = await aiTradingService.generateRecommendation(sessionRefVal.current.id, userRef.current.uid, mockMarketData, activeConfig);
-        } catch (e: any) {
-          if (e.message === "RATE_LIMIT") {
-            apiCooldownRef.current = Date.now() + 60000;
-            console.warn("[TradingEngineContext] API rate limited, entering cooldown, using fallback.");
-          } else {
-            console.warn("[TradingEngineContext] Firestore recommendation fail, using local simulation model:", e);
-          }
+        } catch (e) {
+          console.warn("[TradingEngineContext] Firestore recommendation fail, using local simulation model:", e);
           const currentPrice = mockMarketData.price || 100;
           const suggestedAction = Math.random() > 0.4 ? 'BUY' : 'SELL';
           const entry = parseFloat(currentPrice.toFixed(2));
@@ -1497,8 +1474,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           try {
             // Position Size ($ value) based on user config
             const maxPosSize = activeConfig.profitRiskManagement?.maxPositionSize || 250;
-            const targetPosSize = Math.min(maxPosSize, sessionRefVal.current.tradingCapital);
-            let quantity = targetPosSize / rec.entry;
+            let quantity = maxPosSize / rec.entry;
 
             quantity = parseFloat(quantity.toFixed(6));
             
@@ -1597,7 +1573,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       }
       
       // Loop with randomness between 8-15 seconds
-      orderTimeout = setTimeout(runOrderLoop, 30000 + Math.random() * 15000);
+      orderTimeout = setTimeout(runOrderLoop, 8000 + Math.random() * 7000);
     };
 
     runOrderLoop();
@@ -1655,7 +1631,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     logActivity,
     startSession,
     endSession,
-    pauseSession,
     loading,
     liveTradePrices,
     saveConfiguration,
@@ -1676,7 +1651,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     logActivity,
     startSession,
     endSession,
-    pauseSession,
     loading,
     liveTradePrices,
     saveConfiguration,
