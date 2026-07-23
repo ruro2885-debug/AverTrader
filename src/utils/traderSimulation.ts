@@ -53,6 +53,7 @@ export interface SimulatedTrader {
   historicalYearsTrading?: number;
   activeCopiers?: number;
   currentWinningStreak?: number;
+  allocatedAmount: number;
   
   // Extended live-calculation fields
   trades: SimulatedTrade[];
@@ -137,6 +138,7 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
 
   const specs: Partial<SimulatedTrader>[] = [];
   const usedUsernames = new Set<string>();
+  const usedAllocations = new Set<number>();
 
   // Determine seed-based choices for repeatability
   const rand = seededRandom("copytrade_procedural_seed_41");
@@ -190,16 +192,18 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
     // Verified boolean (rare, ~15%)
     const verified = (i % 7 === 0);
 
-    // Preferred Markets selection
-    const allMarkets = ['BTC', 'ETH', 'SOL', 'AVR', 'FET', 'XRP', 'ADA', 'LINK', 'DOT', 'NEAR', 'RNDR', 'INJ'];
+    // Preferred Markets selection - ensure every single trader has a unique, distinct asset combination
+    const allMarketsList = ['BTC', 'ETH', 'SOL', 'AVR', 'FET', 'XRP', 'ADA', 'LINK', 'DOT', 'NEAR', 'RNDR', 'INJ'];
+    const marketCount = 2 + (i % 4); // 2, 3, 4, or 5 markets
+    const marketOffset = (i * 3) % allMarketsList.length;
     let preferredMarkets: string[] = [];
-    if (style === 'SCALPING') {
-      preferredMarkets = ['BTC', 'ETH', 'SOL', 'FET'].slice(0, 2 + (i % 3));
-    } else if (style === 'SWING_TRADING') {
-      preferredMarkets = ['BTC', 'SOL', 'AVR', 'NEAR', 'LINK', 'INJ'].slice(0, 2 + (i % 3));
-    } else { // DAY_TRADING
-      preferredMarkets = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'RNDR'].slice(0, 2 + (i % 3));
+    for (let m = 0; m < marketCount; m++) {
+      const idx = (marketOffset + m * 2 + (i % 5)) % allMarketsList.length;
+      if (!preferredMarkets.includes(allMarketsList[idx])) {
+        preferredMarkets.push(allMarketsList[idx]);
+      }
     }
+    if (preferredMarkets.length === 0) preferredMarkets = ['BTC', 'ETH'];
 
     // Bios templates based on style and risk
     const biosMap: Record<string, string[]> = {
@@ -254,21 +258,21 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
     const bioTemplates = biosMap[bioKey] || biosMap['DAY_TRADING_MEDIUM'];
     const bio = bioTemplates[i % bioTemplates.length];
 
-    // Strategy Name Generation
+    // Unique Strategy Name Generation
     const STRATEGY_PREFIXES = ['Quantum', 'Alpha', 'Neural', 'Vortex', 'Chronos', 'Vector', 'Matrix', 'Apex', 'Titan', 'Stellar', 'Eclipse', 'Oracle', 'Shadow', 'Prism', 'Aether', 'Omni', 'Sovereign', 'Synergy', 'Genesis', 'Spectre'];
-    const STRATEGY_NOUNS_SCALPING = ['Scalp', 'Grid', 'Delta', 'Flow', 'Squeeze', 'Velocity'];
-    const STRATEGY_NOUNS_DAY_TRADING = ['Momentum', 'Reversal', 'Corridor', 'Matrix', 'Fusion', 'Catalyst'];
-    const STRATEGY_NOUNS_SWING_TRADING = ['Swing', 'Trend', 'Breakout', 'Infinity', 'Optima', 'Block'];
-    const STRATEGY_SUFFIXES = ['v4', 'Pro', 'AI', 'V2', 'Edge', 'v1', 'System', 'Engine', 'Alpha', 'Gold', 'Elite', 'Plus', 'Core'];
+    const STRATEGY_NOUNS_SCALPING = ['Scalp', 'Grid', 'Delta Flow', 'Squeeze', 'Velocity', 'Micro Sizing'];
+    const STRATEGY_NOUNS_DAY_TRADING = ['Momentum', 'Reversal', 'Corridor', 'VWAP Matrix', 'Fusion', 'Catalyst'];
+    const STRATEGY_NOUNS_SWING_TRADING = ['Swing', 'Macro Trend', 'Breakout', 'Infinity', 'Optima Block', 'Liquidity Sweep'];
+    const STRATEGY_SUFFIXES = ['v4', 'Pro', 'AI Core', 'V2', 'Edge', 'System', 'Engine', 'Alpha', 'Gold', 'Elite', 'Plus'];
 
-    const prefix = STRATEGY_PREFIXES[(i * 3) % STRATEGY_PREFIXES.length];
+    const prefix = STRATEGY_PREFIXES[(i * 3 + (i % 7)) % STRATEGY_PREFIXES.length];
     const nounList = style === 'SCALPING' ? STRATEGY_NOUNS_SCALPING : style === 'SWING_TRADING' ? STRATEGY_NOUNS_SWING_TRADING : STRATEGY_NOUNS_DAY_TRADING;
-    const noun = nounList[(i * 7) % nounList.length];
-    const suffix = STRATEGY_SUFFIXES[(i * 11) % STRATEGY_SUFFIXES.length];
+    const noun = nounList[(i * 5 + 1) % nounList.length];
+    const suffix = STRATEGY_SUFFIXES[(i * 7 + 2) % STRATEGY_SUFFIXES.length];
     const strategyName = `${prefix} ${noun} ${suffix}`;
 
     // Average trade duration
-    const avgDuration = style === 'SCALPING' ? `${4 + (i % 15)} minutes` : style === 'DAY_TRADING' ? `${1 + (i % 4)} hours` : `${2 + (i % 8)} days`;
+    const avgDuration = style === 'SCALPING' ? `${3 + (i % 12)} minutes` : style === 'DAY_TRADING' ? `${1 + (i % 5)} hours` : `${2 + (i % 7)} days`;
 
     // Strict realistic stats generation based on ranking (i is index, 0 is #1)
     let followers, historicalTradesBase, historicalWinsBase, historicalLossesBase;
@@ -325,7 +329,7 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       'SWING_TRADING': `Monitors multi-day macro structures and weekly support blocks. Accumulates spots and low-leverage futures positions in strong trend corridors, letting profits run over major structural expansions.`
     };
 
-    // Real Photos (assign to some specific indices so it persists and they move around on the leaderboard naturally)
+    // Real Photos
     const MALE_PHOTOS = [
       'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80',
       'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80'
@@ -335,9 +339,8 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80'
     ];
     let avatarUrl: string | undefined = undefined;
-    // Map avatar URL indices based on the isMale flag determined earlier for consistency
     if (i === 3 && isMale) avatarUrl = MALE_PHOTOS[0];
-    else if (i === 3) avatarUrl = FEMALE_PHOTOS[0]; // fallback if not male
+    else if (i === 3) avatarUrl = FEMALE_PHOTOS[0];
     
     if (i === 12 && !isMale) avatarUrl = FEMALE_PHOTOS[0];
     else if (i === 12) avatarUrl = MALE_PHOTOS[0];
@@ -347,6 +350,52 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
 
     if (i === 31 && !isMale) avatarUrl = FEMALE_PHOTOS[1];
     else if (i === 31) avatarUrl = MALE_PHOTOS[1];
+
+    // Unique Schedules
+    const SESSIONS_LIST = [
+      [{ start: '00:00', end: '08:00' }],
+      [{ start: '08:00', end: '16:00' }],
+      [{ start: '13:00', end: '21:00' }],
+      [{ start: '02:00', end: '10:00' }],
+      [{ start: '00:00', end: '24:00' }],
+      [{ start: '07:00', end: '15:00' }],
+      [{ start: '10:00', end: '18:00' }],
+      [{ start: '04:00', end: '12:00' }, { start: '16:00', end: '20:00' }]
+    ];
+    const TIMEZONES = ['UTC', 'UTC+1', 'UTC+2', 'UTC+3', 'UTC+8', 'UTC+9', 'UTC-5', 'UTC-8'];
+
+    // Unique Technical Indicators
+    const ALL_INDICATORS = [
+      'RSI', 'MACD', 'EMA_CROSS', 'VWAP', 'ORDER_FLOW_IMBALANCE', 
+      'BOLLINGER_BANDS', 'STOCHASTIC', 'FIBONACCI', 'VOLUME_PROFILE', 
+      'ON_CHAIN_DELTA', 'LIQUIDITY_MAP', 'ICHIMOKU_CLOUD'
+    ];
+    const indOffset = (i * 4) % ALL_INDICATORS.length;
+    const indCount = 2 + (i % 3);
+    const traderIndicators: string[] = [];
+    for (let ind = 0; ind < indCount; ind++) {
+      const indIndex = (indOffset + ind * 3 + (i % 2)) % ALL_INDICATORS.length;
+      if (!traderIndicators.includes(ALL_INDICATORS[indIndex])) {
+        traderIndicators.push(ALL_INDICATORS[indIndex]);
+      }
+    }
+
+    // Unique Risk Settings per trader
+    const maxPositionSize = parseFloat((3.0 + ((i * 1.8) % 22)).toFixed(1));
+    const maxSimultaneousPositions = 2 + ((i * 3 + 1) % 8);
+    const exposureLimit = Math.min(95, Math.max(15, 20 + ((i * 7 + 5) % 75)));
+    const lossLimit = parseFloat((0.8 + ((i * 0.35 + 0.1) % 4.5)).toFixed(1));
+    const sessionTakeProfit = parseFloat((2.5 + ((i * 0.85 + 0.5) % 12.0)).toFixed(1));
+    const minConfidence = 65 + ((i * 3 + 1) % 28);
+
+    // Guaranteed unique allocated capital amount per trader
+    const baseAlloc = tier === 'Platinum' ? 5000 : tier === 'Gold' ? 2500 : 750;
+    let alloc = Math.round((baseAlloc + ((i * 1370 + (i % 7) * 450 + 250) % 14500)) / 50) * 50;
+    while (usedAllocations.has(alloc)) {
+      alloc += 50;
+    }
+    usedAllocations.add(alloc);
+    const allocatedAmount = alloc;
 
     specs.push({
       id: `trader_proc_${i}`,
@@ -371,25 +420,27 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       historicalPnlBase,
       historicalYearsTrading,
       currentWinningStreak,
+      allocatedAmount,
       schedule: {
-        sessions: [{ start: '00:00', end: '24:00' }],
+        sessions: SESSIONS_LIST[i % SESSIONS_LIST.length],
         weekdays: true,
-        weekends: style === 'SCALPING',
-        timezone: `UTC${i % 2 === 0 ? '' : i % 3 === 0 ? '+8' : '-5'}`,
-        breakPeriods: [],
-        excludeHolidays: false
+        weekends: i % 2 === 0 || style === 'SCALPING',
+        timezone: TIMEZONES[i % TIMEZONES.length],
+        breakPeriods: i % 3 === 0 ? [{ start: '12:00', end: '13:00' }] : [],
+        excludeHolidays: i % 2 === 1
       },
       riskControls: {
-        maxPositionSize: risk === 'LOW' ? 5 : risk === 'MEDIUM' ? 12 : 22,
-        maxSimultaneousPositions: style === 'SCALPING' ? 8 : 4,
-        exposureLimit: risk === 'LOW' ? 20 : risk === 'MEDIUM' ? 50 : 80,
+        maxPositionSize,
+        maxSimultaneousPositions,
+        exposureLimit,
         positionSizingPreference: 'PERCENTAGE',
-        lossLimit: risk === 'LOW' ? 1.2 : risk === 'MEDIUM' ? 2.5 : 4.5
+        lossLimit,
+        sessionTakeProfit
       },
       recommendationRules: {
-        minConfidence: risk === 'LOW' ? 88 : risk === 'MEDIUM' ? 78 : 68,
+        minConfidence,
         allowedAssetClasses: ['CRYPTO'],
-        indicators: style === 'SCALPING' ? ['RSI', 'VWAP', 'ORDER_FLOW_IMBALANCE'] : ['MACD', 'EMA_CROSS', 'VOLUME_PROFILE']
+        indicators: traderIndicators
       },
       advancedBehavior: {
         enableDeepAnalysis,
@@ -839,7 +890,7 @@ export function runScheduledRankingsUpdate(traders: SimulatedTrader[]): {
   });
 
   safeStorage.setItem('aver_last_ranking_update', now.toString());
-  safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(currentOrderedList));
+  safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(currentOrderedList));
   
   return { updatedTraders: currentOrderedList, events };
 }
@@ -869,14 +920,18 @@ function healTradeTimestamps(trader: SimulatedTrader): SimulatedTrader {
 }
 
 export function initSimulatedTraders(): SimulatedTrader[] {
-  const saved = safeStorage.getItem('aver_sim_traders_v7');
+  const saved = safeStorage.getItem('aver_sim_traders_v9');
   if (saved) {
     try {
       const parsed = JSON.parse(saved) as SimulatedTrader[];
       // verify we have all traders; if specs changed or we need to heal, fall back
       if (parsed.length >= 40) {
         // Heal and recalculate
-        const healed = parsed.map(t => {
+        const healed = parsed.map((t, idx) => {
+          if (!t.allocatedAmount) {
+            const baseAlloc = t.tier === 'Platinum' ? 5000 : t.tier === 'Gold' ? 2500 : 750;
+            t.allocatedAmount = Math.round((baseAlloc + ((idx * 1370 + (idx % 7) * 450 + 250) % 14500)) / 50) * 50;
+          }
           const healedTrader = healTradeTimestamps(t);
           return calculateTraderMetrics(healedTrader);
         });
@@ -889,7 +944,7 @@ export function initSimulatedTraders(): SimulatedTrader[] {
           t.rank = index + 1;
         });
         
-        safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(healed));
+        safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(healed));
         return healed;
       }
     } catch (e) {

@@ -9,6 +9,8 @@ import { walletService, WalletData } from '../services/walletService';
 
 export interface UnifiedFinancials {
   totalNetBalance: number;
+  portfolioTotalNetBalance: number;
+  homeNetBalance: number;
   activeTradingBalance: number;
   vaultBalance: number;
   totalHoldingsValue: number;
@@ -20,11 +22,30 @@ export interface UnifiedFinancials {
 
 export const useFinancials = () => {
   const { user } = useAuth();
-  const [walletData, setWalletData] = useState<WalletData | null>(null);
+  const [walletData, setWalletData] = useState<WalletData | null>(() => {
+    if (typeof window !== 'undefined' && user?.uid) {
+      try {
+        const cached = localStorage.getItem(`aver_wallet_${user.uid}`);
+        if (cached) {
+          return JSON.parse(cached);
+        }
+      } catch (e) {
+        console.warn("Failed to parse cached wallet:", e);
+      }
+    }
+    return null;
+  });
   const [activeSessionCapital, setActiveSessionCapital] = useState(0);
 
   useEffect(() => {
     if (user?.uid) {
+      try {
+        const cached = localStorage.getItem(`aver_wallet_${user.uid}`);
+        if (cached) {
+          setWalletData(JSON.parse(cached));
+        }
+      } catch (e) {}
+
       const unsub = walletService.subscribeWallet(user.uid, (data) => {
         if (data) {
           setWalletData(prev => {
@@ -34,7 +55,8 @@ export const useFinancials = () => {
               prev.availableBalance === data.availableBalance &&
               prev.vaultBalance === data.vaultBalance &&
               prev.aiTradingCapital === data.aiTradingCapital &&
-              prev.portfolioValue === data.portfolioValue
+              prev.portfolioValue === data.portfolioValue &&
+              prev.tokenBalance === data.tokenBalance
             ) {
               return prev;
             }
@@ -43,29 +65,69 @@ export const useFinancials = () => {
         }
       });
       return () => unsub();
+    } else {
+      setWalletData(null);
     }
   }, [user?.uid]);
 
   // Listen to active AI session to get isolated capital
   useEffect(() => {
     if (user?.uid) {
-      const q = query(
-        collection(db, 'aiSessions'),
-        where('userId', '==', user.uid),
-        where('status', '==', 'ACTIVE'),
-        limit(1)
-      );
-
-      const unsub = onSnapshot(q, (snap) => {
-        if (!snap.empty) {
-          const sessionData = snap.docs[0].data();
-          setActiveSessionCapital(sessionData.tradingCapital || 0);
+      const handleSessionUpdate = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        const s = customEvent?.detail;
+        if (s && s.status === 'ACTIVE') {
+          setActiveSessionCapital(s.tradingCapital || 0);
         } else {
           setActiveSessionCapital(0);
         }
-      });
+      };
 
-      return () => unsub();
+      window.addEventListener('aver_session_updated', handleSessionUpdate);
+
+      // Initialize from local storage first for instant feedback
+      const localKey = `aver_session_${user.uid}`;
+      try {
+        const raw = localStorage.getItem(localKey);
+        if (raw) {
+          const sessionData = JSON.parse(raw);
+          if (sessionData && sessionData.status === 'ACTIVE') {
+            setActiveSessionCapital(sessionData.tradingCapital || 0);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to parse cached session on mount:", e);
+      }
+
+      const isLocal = user.uid.startsWith('local-') || user.uid === 'guest_user';
+      if (isLocal) {
+        return () => {
+          window.removeEventListener('aver_session_updated', handleSessionUpdate);
+        };
+      } else {
+        const q = query(
+          collection(db, 'aiSessions'),
+          where('userId', '==', user.uid),
+          where('status', '==', 'ACTIVE'),
+          limit(1)
+        );
+
+        const unsub = onSnapshot(q, (snap) => {
+          if (!snap.empty) {
+            const sessionData = snap.docs[0].data();
+            setActiveSessionCapital(sessionData.tradingCapital || 0);
+          } else {
+            setActiveSessionCapital(0);
+          }
+        }, (err) => {
+          console.warn("Firestore sessions listener failed, using local/event state:", err);
+        });
+
+        return () => {
+          window.removeEventListener('aver_session_updated', handleSessionUpdate);
+          unsub();
+        };
+      }
     }
   }, [user?.uid]);
 
@@ -75,24 +137,51 @@ export const useFinancials = () => {
       return sum + ((h.quantity || 0) * (h.currentPrice || 0));
     }, 0);
 
-    // 2. Base Cash Balance (Wallet Balance)
+    // 2. Active trading capital (This is the isolated funds being managed by AI)
+    // Prioritize active session dynamic capital when active, falling back to wallet value or 0
+    const aiTradingCapital = activeSessionCapital > 0 ? activeSessionCapital : (walletData?.aiTradingCapital || 0);
+
+    // 3. Base Cash Balance (Wallet Balance)
     // tokenBalance represents the funds available in the wallet (not locked in a session)
-    const tokenBalance = walletData?.tokenBalance ?? user?.tokenBalance ?? user?.portfolioBalance ?? 0;
-    
-    // 3. Active trading capital (This is the isolated funds being managed by AI)
-    const aiTradingCapital = activeSessionCapital;
+    // We strictly subtract aiTradingCapital if the source values are undeducted to prevent double-counting.
+    let tokenBalance = 0;
+    if (walletData) {
+      if (walletData.tokenBalance !== undefined) {
+        tokenBalance = walletData.tokenBalance;
+      } else if (walletData.portfolioBalance !== undefined) {
+        tokenBalance = walletData.portfolioBalance - aiTradingCapital;
+      }
+    } else if (user) {
+      if (user.tokenBalance !== undefined) {
+        tokenBalance = user.tokenBalance;
+      } else if (user.portfolioBalance !== undefined) {
+        tokenBalance = user.portfolioBalance - aiTradingCapital;
+      } else if (user.portfolio?.totalValue !== undefined) {
+        tokenBalance = user.portfolio.totalValue - aiTradingCapital;
+      }
+    }
+    tokenBalance = Math.max(0, tokenBalance);
 
     // 4. Vault Balance
-    const vaultBalance = walletData?.vaultBalance ?? user?.vaultBalance ?? 0;
+    const wVault = walletData?.vaultBalance || 0;
+    const uVault = user?.vaultBalance || 0;
+    const vaultBalance = wVault > 0 ? wVault : uVault;
 
-    // 5. Total Net Balance is Wallet + Active Session + Vault + Holdings
-    const totalNetBalance = tokenBalance + aiTradingCapital + vaultBalance + totalHoldingsValue;
+    // 5. Separate Calculations for Home (Available Funds) and Portfolio (Total Funds)
+    // Home Net Balance represents liquid available funds (Cash in Wallet + Vault Savings)
+    const homeNetBalance = tokenBalance + vaultBalance;
 
-    // 6. Portfolio Value (Same as net balance but often used for ROI calcs)
-    const portfolioValue = totalNetBalance;
+    // Portfolio Total Net Balance is Wallet + Vault + Holdings + AI Trading Capital
+    // Active session allocated capital is transferred out but is still part of user's total net balance!
+    const portfolioTotalNetBalance = tokenBalance + vaultBalance + totalHoldingsValue + aiTradingCapital;
+
+    // 6. Portfolio Value (Same as portfolio total net balance but often used for ROI calcs)
+    const portfolioValue = portfolioTotalNetBalance;
 
     return {
-      totalNetBalance,
+      totalNetBalance: portfolioTotalNetBalance, // Preserve backward compatibility
+      portfolioTotalNetBalance,
+      homeNetBalance,
       activeTradingBalance: tokenBalance, // Wallet acts as the base trading balance when idle
       vaultBalance,
       totalHoldingsValue,
@@ -101,7 +190,7 @@ export const useFinancials = () => {
       cashBalance: tokenBalance,
       tokenBalance
     };
-  }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.vaultBalance, walletData, activeSessionCapital]);
+  }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.vaultBalance, user?.holdings, walletData, activeSessionCapital]);
 
   const updateVaultBalance = useCallback(async (newBalance: number) => {
     const uid = user?.uid || auth.currentUser?.uid || 'local-user';

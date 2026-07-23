@@ -8,6 +8,7 @@ import {
 import { generateAvatarSvg } from '../../utils/avatarGenerator';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePreferences } from '../../contexts/PreferencesContext';
+import { useTradingEngine } from '../../contexts/TradingEngineContext';
 import { aiTradingService } from '../../services/aiTradingService';
 import { collection, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -26,6 +27,7 @@ import {
 export default function CopyTradeDashboard({ theme, onBack, initialSelectedTraderId }: { theme: 'light' | 'dark', onBack: () => void, initialSelectedTraderId?: string | null }) {
   const { user, addNotification } = useAuth();
   const { preferences, formatCurrency } = usePreferences();
+  const { saveConfiguration } = useTradingEngine();
   const isDark = theme === 'dark';
 
   const [traders, setTraders] = useState<Trader[]>(() => {
@@ -86,7 +88,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
 
   // Persist traders state so follow states or dynamic updates are preserved
   useEffect(() => {
-    safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(traders));
+    safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(traders));
   }, [traders]);
 
   // Persist events state
@@ -273,14 +275,14 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
         createdAt: Timestamp.now(),
         lastModified: Timestamp.now(),
         sessionSetup: {
-          amountToAllocate: 1000,
+          amountToAllocate: trader.allocatedAmount || 1000,
           fundingSource: 'WALLET',
           sessionDuration: 24
         },
         profitRiskManagement: {
-          sessionTakeProfit: 10,
-          sessionStopLoss: 5,
-          maxPositionSize: trader.riskControls?.maxPositionSize || 100,
+          sessionTakeProfit: trader.riskControls?.sessionTakeProfit || 10,
+          sessionStopLoss: trader.riskControls?.lossLimit || 5,
+          maxPositionSize: trader.riskControls?.maxPositionSize || 15,
           maxRiskPerTrade: trader.riskControls?.lossLimit || 2
         },
         aiTradingRules: {
@@ -291,14 +293,15 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
           minConfidence: trader.recommendationRules?.minConfidence || 85,
           maxSimultaneousPositions: trader.riskControls?.maxSimultaneousPositions || 3
         },
+        schedule: trader.schedule ? { ...trader.schedule } : undefined,
         configurationDetails: {
-          description: `Procedurally duplicated directly from copy-trading profile of ${trader.username}. Built for ${trader.style.replace('_', ' ')} execution. Original performance: +${trader.return30D}% ROI.`,
+          description: `Procedurally duplicated directly from copy-trading profile of ${trader.username} (${trader.strategyName}). Built for ${trader.style.replace('_', ' ')} execution. Original performance: +${trader.return30D}% ROI.`,
           category: 'Copy Trading',
           version: '1.0.0'
         },
         analyticsAndNotes: {
           riskScore: trader.riskManagementScore || 50,
-          strategyNotes: `Follows ${trader.username}'s ${trader.strategyName} strategy. Original Win Rate: ${trader.winRate}%.`,
+          strategyNotes: `Follows ${trader.username}'s ${trader.strategyName} strategy. Original Win Rate: ${trader.winRate}%. Preferred markets: ${trader.preferredMarkets.join(', ')}.`,
           performanceStats: {
             winRate: trader.winRate || 0,
             totalReturn: trader.return30D || 0,
@@ -312,8 +315,12 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
         }
       };
 
-      // Save using AI trading service directly into User's subcollection
-      await aiTradingService.saveConfiguration(user.uid, clonedConfig);
+      // Save using TradingEngineContext saveConfiguration so state and storage stay strictly synced
+      if (user?.uid) {
+        await saveConfiguration(clonedConfig);
+      } else {
+        await aiTradingService.saveConfiguration('guest_user', clonedConfig);
+      }
 
       // Trigger beautiful UI feedback
       setCopySuccess(newConfigId);
@@ -592,6 +599,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <div className="mt-4 text-center">
                       <span className="text-lg font-black text-emerald-400 font-mono tracking-tight">+{secondPlace.return30D.toFixed(2)}%</span>
                       <p className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-0.5">30D RETURN</p>
+                      <p className="text-[10px] font-mono font-bold text-gray-400 mt-1">${(secondPlace.allocatedAmount || 1000).toLocaleString()} Capital</p>
                     </div>
                   </motion.div>
                 )}
@@ -635,6 +643,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <div className="mt-4 text-center">
                       <span className="text-2xl font-black text-emerald-400 font-mono tracking-tight">+{firstPlace.return30D.toFixed(2)}%</span>
                       <p className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-0.5">30D RETURN</p>
+                      <p className="text-[10px] font-mono font-bold text-emerald-400/90 mt-1">${(firstPlace.allocatedAmount || 1000).toLocaleString()} Capital</p>
                     </div>
                   </motion.div>
                 )}
@@ -669,6 +678,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <div className="mt-4 text-center">
                       <span className="text-lg font-black text-emerald-400 font-mono tracking-tight">+{thirdPlace.return30D.toFixed(2)}%</span>
                       <p className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-0.5">30D RETURN</p>
+                      <p className="text-[10px] font-mono font-bold text-gray-400 mt-1">${(thirdPlace.allocatedAmount || 1000).toLocaleString()} Capital</p>
                     </div>
                   </motion.div>
                 )}
@@ -1030,6 +1040,10 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <span><strong className="text-white">{selectedTrader.followers.toLocaleString()}</strong> followers</span>
                   </div>
                   <div className="flex items-center gap-1.5">
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                    <span>Allocated Capital: <strong className="text-emerald-400 font-mono">${(selectedTrader.allocatedAmount || 1000).toLocaleString()}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-emerald-400" />
                     <span>Risk Rating: <strong className="text-white">{selectedTrader.riskLevel}</strong></span>
                   </div>
@@ -1296,6 +1310,10 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     <h4 className="text-xs font-black text-gray-400 tracking-wider uppercase border-b border-white/5 pb-2">Central Risk & Sizing Controls</h4>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest block">Allocated Copy Capital</span>
+                        <p className="text-sm font-black text-emerald-400 font-mono">${(selectedTrader.allocatedAmount || 1000).toLocaleString()}</p>
+                      </div>
                       <div className="space-y-1">
                         <span className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest block">Position Sizing Preference</span>
                         <p className="text-sm font-black text-white">{selectedTrader.riskControls.positionSizingPreference}</p>

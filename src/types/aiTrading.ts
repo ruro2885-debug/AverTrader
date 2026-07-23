@@ -20,6 +20,7 @@ export interface RiskControls {
   exposureLimit: number;
   positionSizingPreference: 'FIXED' | 'PERCENTAGE';
   lossLimit: number;
+  sessionTakeProfit?: number;
 }
 
 export interface RecommendationRules {
@@ -83,6 +84,8 @@ export interface AiConfiguration {
     assetSelection: string[];
     tradingStrategy: 'NEURAL_MOMENTUM' | 'VOLATILITY_BREAKOUT' | 'MEAN_REVERSION' | 'QUANT_GRID';
   };
+
+  schedule?: TradingSchedule;
 
   // Section 4: Configuration Details
   configurationDetails: {

@@ -38,6 +38,7 @@ export interface WalletState {
   totalProfit: number;
   totalLoss: number;
   tokenBalance: number;
+  aiTradingCapital?: number;
 }
 
 export interface SessionDetailsState {
@@ -214,6 +215,9 @@ export const portfolioPersistenceService = {
     // Save to local storage cache immediately
     this.setLocalStorageState(userId, updated);
 
+    // Dispatch event for real-time local subscription updates!
+    window.dispatchEvent(new Event('aver_user_updated'));
+
     // Save to Firestore write-through if authenticated user
     if (!userId.startsWith('local-')) {
       try {
@@ -250,7 +254,7 @@ export const portfolioPersistenceService = {
           portfolioBalance: updated.walletState.portfolioBalance,
           availableBalance: updated.walletState.availableBalance,
           vaultBalance: updated.walletState.vaultBalance,
-          aiTradingCapital: updated.walletState.portfolioBalance,
+          aiTradingCapital: updated.walletState.aiTradingCapital ?? 0,
           portfolioValue: updated.portfolioMetrics.totalValue,
           totalDeposits: updated.walletState.totalDeposits,
           totalWithdrawals: updated.walletState.totalWithdrawals,
@@ -285,7 +289,17 @@ export const portfolioPersistenceService = {
     if (userId.startsWith('local-')) {
       const state = this.getLocalStorageState(userId) || DEFAULT_PORTFOLIO_CURRENT;
       callback(state);
-      return () => {};
+      
+      const handleUpdate = () => {
+        const fresh = this.getLocalStorageState(userId) || DEFAULT_PORTFOLIO_CURRENT;
+        callback(fresh);
+      };
+      window.addEventListener('aver_user_updated', handleUpdate);
+      window.addEventListener('storage', handleUpdate);
+      return () => {
+        window.removeEventListener('aver_user_updated', handleUpdate);
+        window.removeEventListener('storage', handleUpdate);
+      };
     }
 
     const docRef = doc(db, 'users', userId, 'portfolio', 'current');

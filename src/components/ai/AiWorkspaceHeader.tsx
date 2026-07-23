@@ -48,7 +48,7 @@ export default function AiWorkspaceHeader({ session, onStart, onEnd, isDark, has
             className="flex items-center gap-2 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-black transition-all active:scale-95 shadow-lg shadow-rose-500/20"
           >
             <Square className="w-4 h-4 fill-current" />
-            <span>Terminate Analysis Session</span>
+            <span>Terminate Session</span>
           </button>
         ) : (
           <button

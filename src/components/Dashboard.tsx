@@ -217,8 +217,17 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const [txLoading, setTxLoading] = useState(false);
 
   // Fallback defaults if user profile isn't fully loaded or is null
-  const { totalNetBalance, activeTradingBalance } = useFinancials();
+  const { totalNetBalance, activeTradingBalance, aiTradingCapital, homeNetBalance } = useFinancials();
   
+  // Active AI Session Profit/Loss
+  const activeSessionPnL = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      const closedSessionPnL = (session.tradingCapital || 0) - (session.initialCapital || 0);
+      return closedSessionPnL + totalFloatingPnl;
+    }
+    return 0;
+  }, [session, totalFloatingPnl]);
+
   const closedTradesPnL = useMemo(() => {
     // Prioritize synchronized Firestore data for absolute persistence across sessions
     if (user?.portfolio?.todayPnL !== undefined) {
@@ -235,35 +244,51 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return 0;
   }, [trades, user]);
 
-  const totalPlAmount = closedTradesPnL + totalFloatingPnl;
-  const baseCapital = useMemo(() => {
-    // Priority: Session start capital (for accurate ROI from session start), then current balance
-    if (session?.initialCapital && session.initialCapital > 0) return session.initialCapital;
-    
-    const base = user?.portfolioBalance || user?.portfolio?.totalValue || 0;
-    return base > 0 ? base : 100;
-  }, [user, session]);
-  
-  const totalPlPercent = (totalPlAmount / (baseCapital || 1)) * 100;
-  const totalValue = totalNetBalance + totalFloatingPnl;
+  // Net value displayed on Home Net Balance card (represents available money, decreases immediately on session start by active trading capital)
+  const totalValue = useMemo(() => {
+    return homeNetBalance;
+  }, [homeNetBalance]);
 
+  // Account baseline before session allocation deduction
+  const baselineAccountBalance = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      return totalValue + session.initialCapital;
+    }
+    // Inactive session: baseline is the current totalValue minus the trading profit
+    const computedBase = totalValue - (closedTradesPnL + totalFloatingPnl);
+    return computedBase > 0 ? computedBase : 1000;
+  }, [session, totalValue, closedTradesPnL, totalFloatingPnl]);
+
+  // Total PnL dollar change for performance indicator beneath Net Balance
+  // Immediately reflects the negative deduction on launch (-session.initialCapital) and continues updating dynamically with session PnL
+  const totalPlAmount = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      return -session.initialCapital;
+    }
+    return closedTradesPnL + totalFloatingPnl;
+  }, [session, closedTradesPnL, totalFloatingPnl]);
+
+  // Performance indicator percentage beneath Net Balance
+  const totalPlPercent = useMemo(() => {
+    return (totalPlAmount / (baselineAccountBalance || 1)) * 100;
+  }, [totalPlAmount, baselineAccountBalance]);
+
+  // Overall Return Amount & Overall Return %
   const overallReturnAmount = useMemo(() => {
-    // Prioritize synchronized Firestore data for absolute persistence across sessions
+    if (session?.status === 'ACTIVE') {
+      return -session.initialCapital;
+    }
     if (user?.portfolio?.overallReturn !== undefined) {
       return user.portfolio.overallReturn;
     }
-    
     const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
     if (fromTrades !== 0) return fromTrades;
     return (user?.totalProfit || 0) - (user?.totalLoss || 0);
-  }, [trades, user]);
+  }, [session, user, trades]);
 
   const overallReturnPercent = useMemo(() => {
-    if (overallReturnAmount === 0 && user?.portfolio?.todayPnLPercent) {
-      return user.portfolio.todayPnLPercent;
-    }
-    return (overallReturnAmount / (baseCapital || 100000)) * 100;
-  }, [overallReturnAmount, baseCapital, user]);
+    return (overallReturnAmount / (baselineAccountBalance || 100000)) * 100;
+  }, [overallReturnAmount, baselineAccountBalance]);
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (totalPlAmount >= 0 ? '+' : '') + formatCurrency(totalPlAmount);
@@ -701,6 +726,15 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   </div>
                 </div>
 
+                {session?.status === 'ACTIVE' && (
+                  <div className="mb-6 -mt-3 flex items-start space-x-2 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
+                    <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-[11px] leading-snug font-medium text-amber-500/90">
+                      <strong>AI Session Active:</strong> ${session.initialCapital.toLocaleString()} has been temporarily allocated to active Trading Capital, reducing your available balance. Your total net asset value is fully preserved in your Portfolio.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex justify-center gap-4">
                   <button 
                     onClick={() => {
@@ -914,7 +948,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
           {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => setActiveTab('support')} />}
-          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => setShowDepositModal(true)} />}
+          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { setActiveTab('home'); setShowDepositModal(true); }} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
           
           {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={() => setActiveTab('discover')} />}

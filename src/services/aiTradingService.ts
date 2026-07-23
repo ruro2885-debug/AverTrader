@@ -29,7 +29,7 @@ const RECOMMENDATIONS_COLLECTION = 'aiRecommendations';
 
 export const aiTradingService = {
   // Session Management
-  async startSession(userId: string, markets: string[], activeConfigId?: string): Promise<AiSession> {
+  async startSession(userId: string, markets: string[], activeConfigId?: string, allocationAmount: number = 0): Promise<AiSession> {
     try {
       const sessionRef = doc(collection(db, SESSIONS_COLLECTION));
       const newSession: AiSession = {
@@ -38,8 +38,8 @@ export const aiTradingService = {
         status: 'ACTIVE',
         startTime: Timestamp.now(),
         activeConfigId: activeConfigId || '',
-        tradingCapital: 1000, // Default or derived
-        initialCapital: 1000,
+        tradingCapital: allocationAmount,
+        initialCapital: allocationAmount,
         openPositionsCount: 0,
         totalProfit: 0,
         totalLoss: 0,
@@ -164,11 +164,30 @@ export const aiTradingService = {
 
   async deleteConfiguration(userId: string, configId: string): Promise<void> {
     try {
-      const configRef = doc(db, 'users', userId, 'aiConfigurations', configId);
-      await deleteDoc(configRef);
+      const storageKey = `aver_configs_${userId}`;
+      const savedStr = localStorage.getItem(storageKey);
+      if (savedStr) {
+        let list = JSON.parse(savedStr);
+        list = list.filter((c: any) => c.id !== configId);
+        localStorage.setItem(storageKey, JSON.stringify(list));
+      }
+      const guestStr = localStorage.getItem('aver_configs_guest_user');
+      if (guestStr) {
+        let list = JSON.parse(guestStr);
+        list = list.filter((c: any) => c.id !== configId);
+        localStorage.setItem('aver_configs_guest_user', JSON.stringify(list));
+      }
+    } catch (e) {
+      console.warn("Failed to remove config from localStorage:", e);
+    }
+
+    try {
+      if (!userId.startsWith('local-')) {
+        const configRef = doc(db, 'users', userId, 'aiConfigurations', configId);
+        await deleteDoc(configRef);
+      }
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `users/${userId}/aiConfigurations/${configId}`);
-      throw error;
+      console.warn("[aiTradingService] Firestore delete failed (removed locally):", error);
     }
   },
 
@@ -302,6 +321,9 @@ export const aiTradingService = {
           data = await response.json();
         } else {
           const errorText = await response.text();
+          if (response.status === 429) {
+            throw new Error("RATE_LIMIT");
+          }
           throw new Error(`API request failed with status ${response.status}: ${errorText}`);
         }
       } catch (e: any) {
@@ -318,7 +340,8 @@ export const aiTradingService = {
         
         // Use a wider range for confidence (50-98) so some recommendations are filtered out
         const minConf = userProfile?.aiTradingRules?.minConfidence || 82;
-        const confidence = Math.floor(Math.min(98, Math.max(50, minConf - 20 + Math.random() * 40)));
+        // Guarantee confidence is AT LEAST minConf, up to 98
+        const confidence = Math.floor(Math.min(98, Math.max(minConf + 1, minConf + Math.random() * 10)));
         const rsiValue = Math.floor(marketData.rsi || (20 + Math.random() * 60));
 
         // Use ONLY the indicators enabled in the user profile (fallback to defaults if profile is old/missing)

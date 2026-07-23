@@ -314,7 +314,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               prev.vaultBalance === wData.vaultBalance &&
               prev.totalDeposits === wData.totalDeposits &&
               prev.totalWithdrawals === wData.totalWithdrawals &&
-              prev.portfolio?.totalValue === portVal
+              prev.portfolio?.totalValue === portVal &&
+              prev.tokenBalance === wData.tokenBalance
             ) {
               return prev;
             }
@@ -325,6 +326,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               vaultBalance: wData.vaultBalance ?? prev.vaultBalance,
               totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
               totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
+              tokenBalance: wData.tokenBalance ?? prev.tokenBalance,
               portfolio: {
                 ...prev.portfolio,
                 totalValue: portVal
@@ -347,7 +349,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               (pState.walletState.totalDeposits === undefined || prev.totalDeposits === pState.walletState.totalDeposits) &&
               (pState.walletState.totalWithdrawals === undefined || prev.totalWithdrawals === pState.walletState.totalWithdrawals) &&
               (pState.walletState.totalProfit === undefined || prev.totalProfit === pState.walletState.totalProfit) &&
-              (pState.walletState.totalLoss === undefined || prev.totalLoss === pState.walletState.totalLoss)
+              (pState.walletState.totalLoss === undefined || prev.totalLoss === pState.walletState.totalLoss) &&
+              (pState.walletState.tokenBalance === undefined || prev.tokenBalance === pState.walletState.tokenBalance)
             ) {
               return prev;
             }
@@ -360,6 +363,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               totalWithdrawals: pState.walletState.totalWithdrawals ?? prev.totalWithdrawals,
               totalProfit: pState.walletState.totalProfit ?? prev.totalProfit,
               totalLoss: pState.walletState.totalLoss ?? prev.totalLoss,
+              tokenBalance: pState.walletState.tokenBalance ?? prev.tokenBalance,
               portfolio: {
                 ...prev.portfolio,
                 ...(pState.portfolioMetrics || {})
@@ -463,6 +467,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   prev.vaultBalance === updatedUser.vaultBalance &&
                   prev.totalDeposits === updatedUser.totalDeposits &&
                   prev.totalWithdrawals === updatedUser.totalWithdrawals &&
+                  prev.tokenBalance === updatedUser.tokenBalance &&
                   prev.portfolio?.totalValue === updatedUser.portfolio?.totalValue
                 ) {
                   return prev;
@@ -681,8 +686,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
+    const handleLocalUserUpdate = () => {
+      if (!auth.currentUser) {
+        const activeLocalUserStr = safeStorage.getItem('aver_active_user');
+        if (activeLocalUserStr) {
+          try {
+            const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
+            setUser(activeLocalUser);
+            setNotifications(activeLocalUser.notificationsList || []);
+          } catch (e) {
+            console.error("Error loading active local user on update event:", e);
+          }
+        }
+      }
+    };
+    window.addEventListener('aver_user_updated', handleLocalUserUpdate);
+    window.addEventListener('storage', handleLocalUserUpdate);
+
     return () => {
       unsubscribe();
+      window.removeEventListener('aver_user_updated', handleLocalUserUpdate);
+      window.removeEventListener('storage', handleLocalUserUpdate);
       if (unsubUserDoc) unsubUserDoc();
       if (unsubNotifications) unsubNotifications();
       if (unsubHoldings) unsubHoldings();
@@ -1576,7 +1600,7 @@ function dataURLtoBlob(dataurl: string): Blob {
     }
   }, [addNotification]);
 
-  const addDeposit = useCallback(async (amount: number) => {
+   const addDeposit = useCallback(async (amount: number) => {
     if (userRef.current) {
       const txHash = '0x' + Math.random().toString(16).substr(2, 8) + Math.random().toString(16).substr(2, 8);
       const dateStr = new Date().toISOString();
@@ -1598,19 +1622,36 @@ function dataURLtoBlob(dataurl: string): Blob {
         status: 'Completed',
       };
 
+      let activeSessionCapital = 0;
+      try {
+        const sessionStr = safeStorage.getItem(`aver_session_${userRef.current.uid}`);
+        if (sessionStr) {
+          const s = JSON.parse(sessionStr);
+          if (s && s.status === 'ACTIVE') {
+            activeSessionCapital = s.tradingCapital || 0;
+          }
+        }
+      } catch (e) {}
+
       if (!auth.currentUser) {
         setUser(prev => {
           if (!prev) return null;
           const nextPort = (prev.portfolioBalance || 0) + amount;
-          const nextAvail = (prev.availableBalance || 0) + amount;
+          const nextAvail = (prev.availableBalance || 0) + amount; // Already has activeSessionCapital subtracted in state
           const nextDep = (prev.totalDeposits || 0) + amount;
+          const nextTokenBal = nextPort - activeSessionCapital;
           const updated = {
             ...prev,
             portfolioBalance: nextPort,
             availableBalance: nextAvail,
+            tokenBalance: nextTokenBal,
             totalDeposits: nextDep,
             deposits: [newDeposit, ...(prev.deposits || [])],
             history: [newHistoryItem, ...(prev.history || [])],
+            portfolio: {
+              ...prev.portfolio,
+              totalValue: nextPort + (prev.vaultBalance || 0)
+            },
             lastUpdated: new Date().toISOString()
           } as User;
           safeStorage.setItem('aver_active_user', JSON.stringify(updated));
@@ -1628,7 +1669,9 @@ function dataURLtoBlob(dataurl: string): Blob {
               totalDeposits: nextDep,
               totalWithdrawals: prev.totalWithdrawals || 0,
               totalProfit: prev.totalProfit || 0,
-              totalLoss: prev.totalLoss || 0
+              totalLoss: prev.totalLoss || 0,
+              tokenBalance: nextTokenBal,
+              aiTradingCapital: activeSessionCapital
             },
             portfolioMetrics: {
               ...prev.portfolio,
@@ -1642,7 +1685,8 @@ function dataURLtoBlob(dataurl: string): Blob {
             totalDeposits: nextDep,
             portfolioValue: nextPort + (prev.vaultBalance || 0),
             cashBalance: nextPort,
-            tokenBalance: nextPort
+            tokenBalance: nextTokenBal,
+            aiTradingCapital: activeSessionCapital
           });
 
           return updated;
@@ -1666,8 +1710,30 @@ function dataURLtoBlob(dataurl: string): Blob {
       });
 
       const updatedPort = (userRef.current.portfolioBalance || 0) + amount;
-      const updatedAvail = (userRef.current.availableBalance || 0) + amount;
+      const updatedAvail = (userRef.current.availableBalance || 0) + amount; // Already has activeSessionCapital subtracted in state
       const updatedTotalDep = (userRef.current.totalDeposits || 0) + amount;
+      const updatedTokenBal = updatedPort - activeSessionCapital;
+
+      setUser(prev => {
+        if (!prev) return null;
+        const updated = {
+          ...prev,
+          portfolioBalance: updatedPort,
+          availableBalance: updatedAvail,
+          tokenBalance: updatedTokenBal,
+          totalDeposits: updatedTotalDep,
+          deposits: [newDeposit, ...(prev.deposits || [])],
+          history: [newHistoryItem, ...(prev.history || [])],
+          portfolio: {
+            ...prev.portfolio,
+            totalValue: updatedPort + (prev.vaultBalance || 0)
+          },
+          lastUpdated: new Date().toISOString()
+        } as User;
+        safeStorage.setItem(`user_profile_${prev.uid}`, JSON.stringify(updated));
+        safeStorage.setItem('aver_active_user', JSON.stringify(updated));
+        return updated;
+      });
 
       await portfolioPersistenceService.savePortfolioCurrent(userRef.current.uid, {
         walletState: {
@@ -1678,7 +1744,9 @@ function dataURLtoBlob(dataurl: string): Blob {
           totalDeposits: updatedTotalDep,
           totalWithdrawals: userRef.current.totalWithdrawals || 0,
           totalProfit: userRef.current.totalProfit || 0,
-          totalLoss: userRef.current.totalLoss || 0
+          totalLoss: userRef.current.totalLoss || 0,
+          tokenBalance: updatedTokenBal,
+          aiTradingCapital: activeSessionCapital
         },
         portfolioMetrics: {
           ...(userRef.current.portfolio || {}),
@@ -1692,7 +1760,8 @@ function dataURLtoBlob(dataurl: string): Blob {
         totalDeposits: updatedTotalDep,
         portfolioValue: updatedPort + (userRef.current.vaultBalance || 0),
         cashBalance: updatedPort,
-        tokenBalance: updatedPort
+        tokenBalance: updatedTokenBal,
+        aiTradingCapital: activeSessionCapital
       });
 
       await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} has been submitted for processing.`);
@@ -1726,19 +1795,36 @@ function dataURLtoBlob(dataurl: string): Blob {
         status: 'Completed',
       };
 
+      let activeSessionCapital = 0;
+      try {
+        const sessionStr = safeStorage.getItem(`aver_session_${userRef.current.uid}`);
+        if (sessionStr) {
+          const s = JSON.parse(sessionStr);
+          if (s && s.status === 'ACTIVE') {
+            activeSessionCapital = s.tradingCapital || 0;
+          }
+        }
+      } catch (e) {}
+
       if (!auth.currentUser) {
         setUser(prev => {
           if (!prev) return null;
           const nextPort = (prev.portfolioBalance || 0) - amount;
-          const nextAvail = (prev.availableBalance || 0) - amount;
+          const nextAvail = (prev.availableBalance || 0) - amount; // Already has activeSessionCapital subtracted in state
           const nextWth = (prev.totalWithdrawals || 0) + amount;
+          const nextTokenBal = nextPort - activeSessionCapital;
           const updated = {
             ...prev,
             portfolioBalance: nextPort,
             availableBalance: nextAvail,
+            tokenBalance: nextTokenBal,
             totalWithdrawals: nextWth,
             withdrawals: [newWithdrawal, ...(prev.withdrawals || [])],
             history: [newHistoryItem, ...(prev.history || [])],
+            portfolio: {
+              ...prev.portfolio,
+              totalValue: nextPort + (prev.vaultBalance || 0)
+            },
             lastUpdated: new Date().toISOString()
           } as User;
           safeStorage.setItem('aver_active_user', JSON.stringify(updated));
@@ -1756,7 +1842,9 @@ function dataURLtoBlob(dataurl: string): Blob {
               totalDeposits: prev.totalDeposits || 0,
               totalWithdrawals: nextWth,
               totalProfit: prev.totalProfit || 0,
-              totalLoss: prev.totalLoss || 0
+              totalLoss: prev.totalLoss || 0,
+              tokenBalance: nextTokenBal,
+              aiTradingCapital: activeSessionCapital
             },
             portfolioMetrics: {
               ...prev.portfolio,
@@ -1768,7 +1856,9 @@ function dataURLtoBlob(dataurl: string): Blob {
             portfolioBalance: nextPort,
             availableBalance: nextAvail,
             totalWithdrawals: nextWth,
-            portfolioValue: nextPort + (prev.vaultBalance || 0)
+            portfolioValue: nextPort + (prev.vaultBalance || 0),
+            tokenBalance: nextTokenBal,
+            aiTradingCapital: activeSessionCapital
           });
 
           return updated;
@@ -1792,8 +1882,30 @@ function dataURLtoBlob(dataurl: string): Blob {
       });
 
       const updatedPort = (userRef.current.portfolioBalance || 0) - amount;
-      const updatedAvail = (userRef.current.availableBalance || 0) - amount;
+      const updatedAvail = (userRef.current.availableBalance || 0) - amount; // Already has activeSessionCapital subtracted in state
       const updatedTotalWth = (userRef.current.totalWithdrawals || 0) + amount;
+      const updatedTokenBal = updatedPort - activeSessionCapital;
+
+      setUser(prev => {
+        if (!prev) return null;
+        const updated = {
+          ...prev,
+          portfolioBalance: updatedPort,
+          availableBalance: updatedAvail,
+          tokenBalance: updatedTokenBal,
+          totalWithdrawals: updatedTotalWth,
+          withdrawals: [newWithdrawal, ...(prev.withdrawals || [])],
+          history: [newHistoryItem, ...(prev.history || [])],
+          portfolio: {
+            ...prev.portfolio,
+            totalValue: updatedPort + (prev.vaultBalance || 0)
+          },
+          lastUpdated: new Date().toISOString()
+        } as User;
+        safeStorage.setItem(`user_profile_${prev.uid}`, JSON.stringify(updated));
+        safeStorage.setItem('aver_active_user', JSON.stringify(updated));
+        return updated;
+      });
 
       await portfolioPersistenceService.savePortfolioCurrent(userRef.current.uid, {
         walletState: {
@@ -1804,7 +1916,9 @@ function dataURLtoBlob(dataurl: string): Blob {
           totalDeposits: userRef.current.totalDeposits || 0,
           totalWithdrawals: updatedTotalWth,
           totalProfit: userRef.current.totalProfit || 0,
-          totalLoss: userRef.current.totalLoss || 0
+          totalLoss: userRef.current.totalLoss || 0,
+          tokenBalance: updatedTokenBal,
+          aiTradingCapital: activeSessionCapital
         },
         portfolioMetrics: {
           ...(userRef.current.portfolio || {}),
@@ -1816,7 +1930,9 @@ function dataURLtoBlob(dataurl: string): Blob {
         portfolioBalance: updatedPort,
         availableBalance: updatedAvail,
         totalWithdrawals: updatedTotalWth,
-        portfolioValue: updatedPort + (userRef.current.vaultBalance || 0)
+        portfolioValue: updatedPort + (userRef.current.vaultBalance || 0),
+        tokenBalance: updatedTokenBal,
+        aiTradingCapital: activeSessionCapital
       });
 
       await addNotification('withdrawal', 'medium', 'Withdrawal Requested', `Your withdrawal request of $${amount.toLocaleString()} has been received.`);

@@ -12,6 +12,7 @@ export interface UserProfile {
   portfolioBalance: number;
   availableBalance: number;
   vaultBalance: number;
+  tokenBalance?: number;
   activeOffset: number;
   totalProfit: number;
   totalLoss: number;

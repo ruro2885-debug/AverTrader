@@ -20,6 +20,83 @@ const getAiClient = () => {
   return aiClient;
 };
 
+let isQuotaExhausted = false;
+let quotaExhaustionTime = 0;
+const QUOTA_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+
+async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    const errorMessage = error.message || '';
+    const isQuotaError = errorMessage.includes('quota') || 
+                         errorMessage.includes('Quota exceeded') || 
+                         errorMessage.includes('exceeded your current quota') ||
+                         errorMessage.includes('RESOURCE_EXHAUSTED');
+    
+    if (isQuotaError) {
+      console.warn(`Gemini API hard quota limit reached: "${errorMessage}". Enabling safety lockout fallback.`);
+      isQuotaExhausted = true;
+      quotaExhaustionTime = Date.now();
+      throw error; // Immediately fail fast so that fallback is triggered without wasteful retries
+    }
+
+    const isTransient = errorMessage.includes('503') || 
+                        errorMessage.includes('UNAVAILABLE') || 
+                        errorMessage.includes('429') || 
+                        error.status === 503 ||
+                        error.status === 429;
+    
+    if (retries > 0 && isTransient) {
+      console.warn(`Gemini API call failed with transient error: "${errorMessage}". Retrying in ${delay}ms... (${retries} attempts left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return retryWithBackoff(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
+async function generateContentWithFallback(prompt: string, config?: any, defaultModel: string = "gemini-3.6-flash") {
+  const now = Date.now();
+  if (isQuotaExhausted && (now - quotaExhaustionTime < QUOTA_LOCKOUT_DURATION)) {
+    console.warn("Gemini API safety lockout is active due to quota limits. Bypassing API calls to use local rules engine.");
+    throw new Error("Gemini API quota currently exhausted (lockout active)");
+  }
+
+  const models = [defaultModel, "gemini-3.1-flash-lite", "gemini-flash-latest"];
+  let lastError: any = null;
+
+  for (const model of models) {
+    try {
+      return await retryWithBackoff(async () => {
+        const ai = getAiClient();
+        const res = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config
+        });
+        // Reset lockout upon a successful call
+        isQuotaExhausted = false;
+        return res;
+      }, 2, 800);
+    } catch (error: any) {
+      lastError = error;
+      const errorMessage = error.message || '';
+      const isQuotaError = errorMessage.includes('quota') || 
+                           errorMessage.includes('Quota exceeded') || 
+                           errorMessage.includes('exceeded your current quota') ||
+                           errorMessage.includes('RESOURCE_EXHAUSTED');
+      if (isQuotaError) {
+        console.warn(`Quota limit reached for model ${model}. Aborting fallback model loop to trigger fast fallback.`);
+        break;
+      }
+      console.warn(`Gemini API call failed for model ${model}. Error: ${error.message}. Trying next fallback model...`);
+    }
+  }
+
+  throw lastError || new Error("All fallback models failed");
+}
+
 export async function generateAiRecommendation(marketData: any, userProfile: any) {
   try {
     const ai = getAiClient();
@@ -55,10 +132,7 @@ export async function generateAiRecommendation(marketData: any, userProfile: any
       Only return valid JSON. Do not include markdown formatting.
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
-    });
+    const response = await generateContentWithFallback(prompt);
 
     const text = response.text;
     if (!text) throw new Error("No response from AI");
@@ -112,10 +186,7 @@ export async function analyzeTradeAction(trade: any, marketCondition: any) {
       Only return valid JSON. Do not include markdown formatting.
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
-    });
+    const response = await generateContentWithFallback(prompt);
 
     const text = response.text;
     if (!text) throw new Error("No response from AI");
@@ -156,10 +227,7 @@ export async function generateCatherineCommentary(portfolioMetrics: any) {
       Only return valid JSON. Do not include markdown formatting or backticks. Keep the tone dignified, professional, and slightly academic.
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
-    });
+    const response = await generateContentWithFallback(prompt);
 
     const text = response.text;
     if (!text) throw new Error("No response from AI");
@@ -234,11 +302,7 @@ export async function generateMarketIntelligence(currentPrices: any) {
       config.tools = [{ googleSearch: {} }];
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
-      config
-    });
+    const response = await generateContentWithFallback(prompt, config);
 
     const text = response.text;
     if (!text) throw new Error("No response from AI");
@@ -333,12 +397,8 @@ export async function generateAssetAnalysis(symbol: string, currentPrice: number
       Only return valid JSON. Do not include markdown formatting or backticks.
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json"
-      }
+    const response = await generateContentWithFallback(prompt, {
+      responseMimeType: "application/json"
     });
 
     const text = response.text;

@@ -19,6 +19,7 @@ import {
   Radio,
   Clock,
   Shield,
+  AlertCircle,
   HelpCircle,
   Play,
   Square,
@@ -46,12 +47,11 @@ import AiRecommendationList from './ai/AiRecommendationList';
 import AiTradeCenter from './ai/AiTradeCenter';
 import AiPerformanceHub from './ai/AiPerformanceHub';
 import AiConfigurationsView from './ai/AiConfigurationsView';
-import AiSessionsView from './ai/AiSessionsView';
 import AiMarketScannerView from './ai/AiMarketScannerView';
 import AiActivityLog, { ActivityEvent } from './ai/AiActivityLog';
 import AiSettingsView from './ai/AiSettingsView';
 
-type AiView = 'HOME' | 'CONFIGS' | 'SESSIONS' | 'SCANNER' | 'RECOMMENDATIONS' | 'TRADES' | 'HISTORY' | 'PERFORMANCE' | 'NOTIFICATIONS' | 'SETTINGS';
+type AiView = 'HOME' | 'CONFIGS' | 'SCANNER' | 'RECOMMENDATIONS' | 'TRADES' | 'HISTORY' | 'PERFORMANCE' | 'NOTIFICATIONS' | 'SETTINGS';
 type EngineState = 'IDLE' | 'PREPARING' | 'LOADING_CONFIG' | 'SYNC_USER' | 'SYNC_MARKET' | 'SCANNING' | 'ANALYZING' | 'GENERATING' | 'WAITING_DECISION' | 'MONITORING' | 'PAUSED' | 'STOPPED' | 'ERROR';
 
 export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'light' | 'dark', onOpenDeposit: () => void }) {
@@ -69,6 +69,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     loading: engineLoading,
     startSession, 
     endSession, 
+    pauseSession,
     saveConfiguration, 
     deleteConfiguration, 
     duplicateConfiguration, 
@@ -162,33 +163,41 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const isSessionActive = session?.status === 'ACTIVE';
 
   const displayAllocatedRatio = useMemo(() => {
-    if (!config || !tokenBalance) return 0;
-    // If session is active, we show the actual allocation ratio from when it started
-    const allocated = session?.initialCapital || config.sessionSetup.amountToAllocate;
-    return (allocated / tokenBalance) * 100;
-  }, [config, tokenBalance, session]);
+    if (session?.status === 'ACTIVE' && session.tradingCapital !== undefined) {
+      const activeValue = enrichedActiveTrades.reduce((sum, t) => sum + ((t.quantity || 0) * (t.entry || 0)), 0);
+      const totalCapital = session.tradingCapital + activeValue;
+      if (totalCapital <= 0) return 0;
+      return (activeValue / totalCapital) * 100;
+    }
+    return 0;
+  }, [session, enrichedActiveTrades]);
   
   const displayTradingCapital = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      return session.tradingCapital;
+      // session.tradingCapital already includes closed trade PnL.
+      // We only need to add floating PnL.
+      const currentCapital = session.tradingCapital || 0;
+      return currentCapital + totalFloatingPnl;
     }
-    // When idle, show the configured target allocation from the active/selected config
-    return config?.sessionSetup?.amountToAllocate || 0;
-  }, [session, config]);
+    // Return configured allocation or wallet balance as fallback
+    return config?.sessionSetup?.amountToAllocate || user?.portfolioBalance || 0;
+  }, [session, totalFloatingPnl, user, config]);
 
   const displayPnlAmount = useMemo(() => {
     if (session?.status === 'ACTIVE') {
       return session.totalProfit - session.totalLoss + totalFloatingPnl;
     }
-    return 0; // Don't show P/L when no session is active
-  }, [session, totalFloatingPnl]);
+    // Return persisted daily PnL or overall return when idle
+    return user?.portfolio?.todayPnL || 0;
+  }, [session, totalFloatingPnl, user]);
 
   const displayPnlPercent = useMemo(() => {
     if (session?.status === 'ACTIVE' && session.initialCapital > 0) {
       return (displayPnlAmount / session.initialCapital) * 100;
     }
-    return 0;
-  }, [session, displayPnlAmount]);
+    // Return persisted daily PnL percentage or overall return percentage when idle
+    return user?.portfolio?.todayPnL || 0;
+  }, [session, displayPnlAmount, user]);
 
   const displayCpuUsage = !isSessionActive ? 0 : cpuUsage;
   const displayMemoryUsage = !isSessionActive ? 0 : memoryUsage;
@@ -296,12 +305,23 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   }, [session]);
 
   // Session Management
-  const handleStartSession = async () => {
-    if (!user) return;
+  const handleStartSession = async (overrideConfigId?: string, overrideMarkets?: string[]) => {
+    const targetConfigId = overrideConfigId || activeConfigId;
+    const targetConfig = configs.find(c => c.id === targetConfigId) || configs[0];
+    if (!targetConfig) {
+      addNotification('trading', 'high', 'Error', 'No configuration selected.');
+      return;
+    }
 
-    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : activeTradingBalance;
-    if (currentTokenBalance <= 0) {
-      addNotification('trading', 'high', 'Insufficient Funds', 'Insufficient funds. Deposit funds before starting an AI trading session.');
+    if (overrideConfigId) {
+      await activateConfiguration(overrideConfigId);
+    }
+
+    const allocationAmount = targetConfig.sessionSetup?.amountToAllocate || 0;
+    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 25000);
+
+    // Compare allocated amount with available wallet balance
+    if (allocationAmount > currentTokenBalance) {
       setShowInsufficientFundsModal(true);
       return;
     }
@@ -311,41 +331,43 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     addActivityEvent('INFO', 'Neural core initializing. Checking system integrity...');
     
     try {
-      const activeConfig = configs.find(c => c.id === activeConfigId) || configs[0];
-      if (!activeConfig) throw new Error("No configuration available.");
-
       // 2. Loading Config State
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 300));
       setEngineState('LOADING_CONFIG');
-      addActivityEvent('INFO', `Loading parameters from "${activeConfig.name}" profile...`);
+      addActivityEvent('INFO', `Loading parameters from "${targetConfig.name}" profile...`);
       
       // 3. Sync User State
-      await new Promise(resolve => setTimeout(resolve, 600));
+      await new Promise(resolve => setTimeout(resolve, 300));
       setEngineState('SYNC_USER');
       addActivityEvent('INFO', 'Synchronizing user risk profile and equity balance...');
 
       // 4. Sync Market State (Scanning only configured markets)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const marketsToScan = (overrideMarkets && overrideMarkets.length > 0) ? overrideMarkets : (targetConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH']);
+      await new Promise(resolve => setTimeout(resolve, 300));
       setEngineState('SYNC_MARKET');
-      addActivityEvent('INFO', `Establishing live feed for ${activeConfig.aiTradingRules.assetSelection.length} configured markets...`);
+      addActivityEvent('INFO', `Establishing live feed for ${marketsToScan.length} configured markets...`);
 
       // 5. Actually start the session in the backend context
-      await startSession(activeConfig.id, activeConfig.aiTradingRules.assetSelection);
+      await startSession(targetConfig.id, marketsToScan);
       
       // 6. Transition to Active Scanning
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 300));
       setEngineState('SCANNING');
       
-      addActivityEvent('SUCCESS', `AI Session online. Executing "${activeConfig.strategy.replace('_', ' ')}" strategy.`);
+      addActivityEvent('SUCCESS', `AI Session online. Executing "${targetConfig.strategy?.replace('_', ' ') || 'QUANT'}" strategy.`);
       addNotification('trading', 'medium', 'AI Session Started', 'Neural analysis engine is now scanning selected markets.');
       
-      // Navigate to Recommendations if they exist or stay home
-      if (activeView === 'CONFIGS') setActiveView('HOME');
+      setActiveView('HOME');
 
     } catch (error: any) {
+      console.error("Error launching session:", error);
       setEngineState('ERROR');
-      addActivityEvent('WARNING', `Critical initialization failure: ${error.message || 'Unknown error'}`);
-      addNotification('trading', 'high', 'Session Failed', 'Could not initialize AI session.');
+      if (error?.code === 'INSUFFICIENT_FUNDS' || error?.message === 'INSUFFICIENT_FUNDS') {
+        setShowInsufficientFundsModal(true);
+      } else {
+        addActivityEvent('WARNING', `Critical initialization failure: ${error.message || 'Unknown error'}`);
+        addNotification('trading', 'high', 'Session Failed', 'Could not initialize AI session.');
+      }
     }
   };
 
@@ -367,7 +389,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
   // Configurations Management Callbacks
   const handleSaveConfig = async (updatedConfig: AiConfiguration) => {
-    if (!user) return;
     try {
       setLoading(true);
       await saveConfiguration(updatedConfig);
@@ -383,7 +404,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   };
 
   const handleDeleteConfig = async (configId: string) => {
-    if (!user) return;
     try {
       setLoading(true);
       await deleteConfiguration(configId);
@@ -396,7 +416,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   };
 
   const handleDuplicateConfig = async (configId: string) => {
-    if (!user) return;
     try {
       setLoading(true);
       await duplicateConfiguration(configId);
@@ -409,7 +428,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   };
 
   const handleActivateConfig = async (configId: string) => {
-    if (!user) return;
     try {
       setLoading(true);
       await activateConfiguration(configId);
@@ -546,13 +564,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
             isDark={isDark}
           />
           <SidebarButton 
-            active={activeView === 'SESSIONS'} 
-            onClick={() => setActiveView('SESSIONS')} 
-            icon={<Calendar className="w-4 h-4" />} 
-            label="Sessions Schedule" 
-            isDark={isDark}
-          />
-          <SidebarButton 
             active={activeView === 'SCANNER'} 
             onClick={() => setActiveView('SCANNER')} 
             icon={<Search className="w-4 h-4" />} 
@@ -612,7 +623,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     onEnd={handleEndSession} 
                     isDark={isDark}
                     hasPrefs={configs.length > 0}
-                    disabled={hasInsufficientFunds}
+                    disabled={false}
                   />
 
                   {/* CPU / MEM Telemetry metrics */}
@@ -788,21 +799,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
               />
             )}
 
-            {activeView === 'SESSIONS' && (
-              <AiSessionsView 
-                schedule={configs.find(c => c.id === activeConfigId)?.schedule || configs[0]?.schedule || {
-                  sessions: [{ start: '08:00', end: '16:00' }],
-                  weekdays: true,
-                  weekends: false,
-                  timezone: 'UTC',
-                  breakPeriods: [],
-                  excludeHolidays: true
-                }}
-                onSaveSchedule={handleSaveSchedule}
-                isDark={isDark}
-              />
-            )}
-
             {activeView === 'SCANNER' && (
               <AiMarketScannerView 
                 monitoredMarkets={configs.find(c => c.id === activeConfigId)?.aiTradingRules.assetSelection || []}
@@ -918,7 +914,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
         </AnimatePresence>
       </div>
 
-      {/* Insufficient Funds Modal */}
+      {/* Insufficient Funds / Unable to Start Trading Session Modal */}
       <AnimatePresence>
         {showInsufficientFundsModal && (
           <motion.div 
@@ -931,19 +927,21 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
               initial={{ scale: 0.95 }} 
               animate={{ scale: 1 }} 
               exit={{ scale: 0.95 }}
-              className={`max-w-sm w-full rounded-3xl p-8 border ${isDark ? 'bg-[#0B0E14] border-white/10' : 'bg-white border-slate-200'}`}
+              className={`max-w-md w-full rounded-3xl p-8 border ${isDark ? 'bg-[#0B0E14] border-white/10' : 'bg-white border-slate-200'} shadow-2xl`}
             >
               <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-6">
-                <Shield className="w-6 h-6 text-amber-500" />
+                <AlertCircle className="w-6 h-6 text-amber-500" />
               </div>
-              <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'} mb-2`}>Insufficient Funds</h3>
-              <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'} mb-8`}>
-                Insufficient funds. Deposit funds before starting an AI trading session.
+              <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'} mb-3 tracking-tight`}>
+                Unable to Start Trading Session
+              </h3>
+              <p className={`text-sm leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'} mb-8`}>
+                The allocated trading capital exceeds your available wallet balance. Please reduce the allocated amount or deposit more funds to continue. The trading session cannot begin until sufficient funds are available.
               </p>
-              <div className="flex gap-4">
+              <div className="flex gap-3">
                 <button 
                   onClick={() => setShowInsufficientFundsModal(false)}
-                  className={`flex-1 px-4 py-3 rounded-xl text-sm font-bold transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'}`}
+                  className={`flex-1 px-4 py-3.5 rounded-xl text-xs font-bold transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'}`}
                 >
                   Cancel
                 </button>
@@ -952,9 +950,9 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     setShowInsufficientFundsModal(false);
                     onOpenDeposit();
                   }}
-                  className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-[#00D09C] hover:bg-[#00b387] text-black transition-all"
+                  className="flex-1 px-4 py-3.5 rounded-xl text-xs font-black bg-[#00D09C] hover:bg-[#00b387] text-black transition-all shadow-lg shadow-[#00D09C]/20"
                 >
-                  Deposit
+                  Deposit Funds
                 </button>
               </div>
             </motion.div>

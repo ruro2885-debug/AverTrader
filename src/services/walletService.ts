@@ -72,7 +72,7 @@ export const walletService = {
             }
           }
           if (!pBalance || pBalance === 0) {
-            pBalance = 55; // Default starting balance
+            pBalance = 25000; // Default starting balance
           }
 
           const walletData: WalletData = {
@@ -80,7 +80,7 @@ export const walletService = {
             portfolioBalance: pBalance,
             availableBalance: data.availableBalance ?? pBalance,
             vaultBalance: data.vaultBalance ?? 0,
-            aiTradingCapital: (data.aiTradingCapital && data.aiTradingCapital > 0) ? data.aiTradingCapital : pBalance,
+            aiTradingCapital: data.aiTradingCapital ?? 0,
             portfolioValue: data.portfolioValue ?? pBalance,
             totalDeposits: data.totalDeposits ?? pBalance,
             totalWithdrawals: data.totalWithdrawals ?? 0,
@@ -103,7 +103,7 @@ export const walletService = {
             } catch {}
           }
           if (!cachedBalance || cachedBalance === 0) {
-            cachedBalance = 55;
+            cachedBalance = 25000;
           }
 
           const newWallet: WalletData = {
@@ -111,7 +111,7 @@ export const walletService = {
             portfolioBalance: cachedBalance,
             availableBalance: cachedBalance,
             vaultBalance: cachedVault,
-            aiTradingCapital: cachedBalance,
+            aiTradingCapital: 0,
             portfolioValue: cachedBalance,
             totalDeposits: cachedBalance,
             totalWithdrawals: 0,
@@ -169,13 +169,25 @@ export const walletService = {
       }
     }
 
+    // Dispatch event for real-time local subscription updates!
+    window.dispatchEvent(new Event('aver_user_updated'));
+
     return updated;
   },
 
   subscribeWallet(userId: string, callback: (wallet: WalletData) => void): () => void {
     if (!userId || userId.startsWith('local-')) {
       this.getOrCreateWallet(userId).then(callback);
-      return () => {};
+      
+      const handleUpdate = () => {
+        this.getOrCreateWallet(userId).then(callback);
+      };
+      window.addEventListener('aver_user_updated', handleUpdate);
+      window.addEventListener('storage', handleUpdate);
+      return () => {
+        window.removeEventListener('aver_user_updated', handleUpdate);
+        window.removeEventListener('storage', handleUpdate);
+      };
     }
 
     let isCreating = false;
@@ -190,7 +202,7 @@ export const walletService = {
           portfolioBalance: pBal,
           availableBalance: data.availableBalance ?? pBal,
           vaultBalance: data.vaultBalance ?? DEFAULT_WALLET_VALUES.vaultBalance,
-          aiTradingCapital: (data.aiTradingCapital && data.aiTradingCapital > 0) ? data.aiTradingCapital : pBal,
+          aiTradingCapital: data.aiTradingCapital ?? 0,
           portfolioValue: data.portfolioValue ?? pBal,
           totalDeposits: data.totalDeposits ?? pBal,
           totalWithdrawals: data.totalWithdrawals ?? DEFAULT_WALLET_VALUES.totalWithdrawals,
