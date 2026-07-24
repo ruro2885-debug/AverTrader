@@ -316,9 +316,28 @@
         }
       },
       "required": ["id", "userId", "title", "category", "description", "status", "priority", "createdAt", "updatedAt"]
+    },
+    "EventHub": {
+      "title": "EventHub",
+      "description": "Dynamic backend promotion and event item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string" },
+        "totalRewardPool": { "type": "number" },
+        "rewardToken": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "participantCount": { "type": "number" }
+      },
+      "required": ["id", "title", "category", "status", "totalRewardPool"]
     }
   },
   "firestore": {
+    "/events_hub/{eventId}": { "schema": "EventHub", "description": "Global promotional events and competitions" },
     "/users/{uid}": { "schema": "User", "description": "User profiles" },
     "/wallets/{uid}": { "schema": "Wallet", "description": "User wallet document" },
     "/users/{uid}/account/master": { "schema": "Account", "description": "User master financial account" },

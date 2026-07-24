@@ -110,5 +110,11 @@ service cloud.firestore {
     match /aiRecommendations/{recId} {
       allow read, write: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid);
     }
+
+    // 10. Global Events Hub
+    match /events_hub/{eventId} {
+      allow read, list: if true;
+      allow write, create, update, delete: if true;
+    }
   }
 }

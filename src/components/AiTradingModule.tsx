@@ -162,32 +162,32 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const isSessionActive = session?.status === 'ACTIVE';
 
   const displayAllocatedRatio = useMemo(() => {
-    if (session?.status === 'ACTIVE' && session.tradingCapital !== undefined) {
+    if (session?.status === 'ACTIVE' && session.tradingCapital !== undefined && session.tradingCapital > 0) {
       const activeValue = enrichedActiveTrades.reduce((sum, t) => sum + ((t.quantity || 0) * (t.entry || 0)), 0);
-      const totalCapital = session.tradingCapital + activeValue;
-      if (totalCapital <= 0) return 0;
-      return (activeValue / totalCapital) * 100;
+      return Math.min(100, (activeValue / session.tradingCapital) * 100);
     }
     return 0;
   }, [session, enrichedActiveTrades]);
   
   const displayTradingCapital = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      return session.tradingCapital || 0;
+      return (session.tradingCapital || 0) + totalFloatingPnl;
     }
     return 0;
-  }, [session]);
+  }, [session, totalFloatingPnl]);
 
   const displayPnlAmount = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      return session.totalProfit - session.totalLoss + totalFloatingPnl;
+      const baseCap = session.initialCapital || 1000;
+      return displayTradingCapital - baseCap;
     }
     return 0; // Don't show P/L when no session is active
-  }, [session, totalFloatingPnl]);
+  }, [session, displayTradingCapital]);
 
   const displayPnlPercent = useMemo(() => {
-    if (session?.status === 'ACTIVE' && session.initialCapital > 0) {
-      return (displayPnlAmount / session.initialCapital) * 100;
+    if (session?.status === 'ACTIVE') {
+      const baseCap = session.initialCapital || 1000;
+      return baseCap > 0 ? (displayPnlAmount / baseCap) * 100 : 0;
     }
     return 0;
   }, [session, displayPnlAmount]);
@@ -502,22 +502,36 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
     setEngineState('SCANNING');
 
-    // 1. STAGGERED ASSET STATE & THINKING ROTATOR (Every 4 seconds)
-    const rotationInterval = setInterval(() => {
-      // Rotate active asset states randomly
-      setLiveAssetStates(prev => {
-        const next = { ...prev };
-        const markets = activeConfig.aiTradingRules.assetSelection || ['BTC', 'ETH', 'SOL'];
-        markets.forEach(asset => {
-          const currentState = prev[asset] || 'Ready';
-          const currentIndex = ASSET_STATE_CYCLES.indexOf(currentState);
-          if (Math.random() > 0.6) {
-            const nextIndex = (currentIndex + 1) % ASSET_STATE_CYCLES.length;
-            next[asset] = ASSET_STATE_CYCLES[nextIndex];
+    // Update live asset states based on actual session & trade statuses
+    const updateAssetStates = () => {
+      const markets = activeConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL'];
+      const nextStates: Record<string, string> = {};
+
+      markets.forEach(asset => {
+        const openTrade = activeTrades.find(t => t.asset === asset);
+        if (openTrade) {
+          nextStates[asset] = 'MANAGING';
+        } else {
+          const recentClosed = closedTrades.filter(t => t.asset === asset).sort((a,b) => (b.closedAt as any) - (a.closedAt as any))[0];
+          const isRecent = recentClosed && recentClosed.closedAt && (Date.now() - (new Date(recentClosed.closedAt as any).getTime())) < 12000;
+          if (isRecent) {
+            const pnl = recentClosed.pnl || 0;
+            nextStates[asset] = pnl >= 0 ? `PROFIT (${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)})` : `LOSS ($${pnl.toFixed(2)})`;
+          } else {
+            const scanSubstates = ['SCANNING', 'ANALYZING', 'CALIBRATING'];
+            const randIdx = Math.floor(Math.random() * scanSubstates.length);
+            nextStates[asset] = scanSubstates[randIdx];
           }
-        });
-        return next;
+        }
       });
+      setLiveAssetStates(nextStates);
+    };
+
+    updateAssetStates();
+
+    // 1. STAGGERED ASSET STATE & THINKING ROTATOR (Every 1 second)
+    const rotationInterval = setInterval(() => {
+      updateAssetStates();
 
       // Rotate thinking thoughts
       setLiveThinkingIdea(prev => {
@@ -527,12 +541,12 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
       // Update engine state based on active positions
       setEngineState(activeTrades.length > 0 ? 'MONITORING' : 'SCANNING');
-    }, 4000);
+    }, 1000);
 
     return () => {
       clearInterval(rotationInterval);
     };
-  }, [session?.status, session?.id, activeConfigId, user?.uid, activeTrades.length, configs.length]);
+  }, [session?.status, session?.id, activeConfigId, user?.uid, activeTrades.length, closedTrades.length, configs.length]);
 
   const pendingRecommendations = recommendations.filter(r => r.status === 'PENDING');
 

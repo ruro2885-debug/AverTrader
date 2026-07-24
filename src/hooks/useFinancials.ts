@@ -70,14 +70,15 @@ export const useFinancials = () => {
     }
   }, [user?.uid]);
 
-  // Listen to active AI session to get isolated capital
+  // Listen to active AI session to get isolated capital & session equity
   useEffect(() => {
     if (user?.uid) {
       const handleSessionUpdate = (e: Event) => {
         const customEvent = e as CustomEvent;
         const s = customEvent?.detail;
         if (s && s.status === 'ACTIVE') {
-          setActiveSessionCapital(s.tradingCapital || 0);
+          const cap = s.equity !== undefined ? s.equity : (s.tradingCapital || 0);
+          setActiveSessionCapital(cap);
         } else {
           setActiveSessionCapital(0);
         }
@@ -92,7 +93,8 @@ export const useFinancials = () => {
         if (raw) {
           const sessionData = JSON.parse(raw);
           if (sessionData && sessionData.status === 'ACTIVE') {
-            setActiveSessionCapital(sessionData.tradingCapital || 0);
+            const cap = sessionData.equity !== undefined ? sessionData.equity : (sessionData.tradingCapital || 0);
+            setActiveSessionCapital(cap);
           }
         }
       } catch (e) {
@@ -115,7 +117,8 @@ export const useFinancials = () => {
         const unsub = onSnapshot(q, (snap) => {
           if (!snap.empty) {
             const sessionData = snap.docs[0].data();
-            setActiveSessionCapital(sessionData.tradingCapital || 0);
+            const cap = sessionData.equity !== undefined ? sessionData.equity : (sessionData.tradingCapital || 0);
+            setActiveSessionCapital(cap);
           } else {
             setActiveSessionCapital(0);
           }

@@ -111,7 +111,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const fetchMarketData = async () => {
     try {
       setMarketLoading(true);
-      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22ADAUSDT%22,%22XRPUSDT%22,%22SOLUSDT%22,%22DOGEUSDT%22,%22AVAXUSDT%22,%22LINKUSDT%22%5D');
+      const res = await fetch('/api/market/ticker');
       if (!res.ok) throw new Error('Failed to fetch market data');
       const data = await res.json();
       const mapped = data.map((d: any) => {
@@ -229,18 +229,21 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   }, [session, totalFloatingPnl]);
 
   const closedTradesPnL = useMemo(() => {
-    // Prioritize synchronized Firestore data for absolute persistence across sessions
-    if (user?.portfolio?.todayPnL !== undefined) {
-      return user.portfolio.todayPnL;
-    }
-    
-    // Fallback to trades array if available
+    // 1. First check actual closed trades in state
     const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
     if (fromTrades !== 0) return fromTrades;
     
+    // 2. Check total profit minus total loss
     if (user?.totalProfit !== undefined || user?.totalLoss !== undefined) {
-      return (user?.totalProfit || 0) - (user?.totalLoss || 0);
+      const diff = (user?.totalProfit || 0) - (user?.totalLoss || 0);
+      if (diff !== 0) return diff;
     }
+
+    // 3. Check portfolio todayPnL
+    if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) {
+      return user.portfolio.todayPnL;
+    }
+    
     return 0;
   }, [trades, user]);
 
@@ -249,24 +252,38 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return homeNetBalance;
   }, [homeNetBalance]);
 
-  // Account baseline before session allocation deduction
+  // Account baseline before session allocation deduction or net deposit capital
   const baselineAccountBalance = useMemo(() => {
     if (session?.status === 'ACTIVE') {
       return totalValue + session.initialCapital;
     }
-    // Inactive session: baseline is the current totalValue minus the trading profit
+    // Inactive session: baseline is net deposits if available, otherwise totalValue minus net profit
+    const netDeposits = user?.totalDeposits && user.totalDeposits > 0 ? user.totalDeposits : 0;
+    if (netDeposits > 0) return netDeposits;
+
     const computedBase = totalValue - (closedTradesPnL + totalFloatingPnl);
     return computedBase > 0 ? computedBase : 1000;
-  }, [session, totalValue, closedTradesPnL, totalFloatingPnl]);
+  }, [session, totalValue, closedTradesPnL, totalFloatingPnl, user?.totalDeposits]);
 
   // Total PnL dollar change for performance indicator beneath Net Balance
-  // Immediately reflects the negative deduction on launch (-session.initialCapital) and continues updating dynamically with session PnL
+  // Immediately reflects the negative deduction on launch (-session.initialCapital + activeSessionPnL)
+  // And when session is inactive, calculates actual gain/loss relative to net baseline or cumulative trades/profits
   const totalPlAmount = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      return -session.initialCapital;
+      return -session.initialCapital + totalFloatingPnl + ((session.tradingCapital || session.initialCapital) - session.initialCapital);
     }
-    return closedTradesPnL + totalFloatingPnl;
-  }, [session, closedTradesPnL, totalFloatingPnl]);
+    const netDeposits = user?.totalDeposits && user.totalDeposits > 0 ? user.totalDeposits : 0;
+    if (netDeposits > 0) {
+      return totalValue - netDeposits;
+    }
+    if (closedTradesPnL !== 0) {
+      return closedTradesPnL + totalFloatingPnl;
+    }
+    if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
+      return user.portfolio.overallReturn;
+    }
+    return 0;
+  }, [session, closedTradesPnL, totalFloatingPnl, totalValue, user?.totalDeposits, user?.portfolio?.overallReturn]);
 
   // Performance indicator percentage beneath Net Balance
   const totalPlPercent = useMemo(() => {
@@ -275,19 +292,11 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   // Overall Return Amount & Overall Return %
   const overallReturnAmount = useMemo(() => {
-    if (session?.status === 'ACTIVE') {
-      return -session.initialCapital;
-    }
-    if (user?.portfolio?.overallReturn !== undefined) {
-      return user.portfolio.overallReturn;
-    }
-    const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
-    if (fromTrades !== 0) return fromTrades;
-    return (user?.totalProfit || 0) - (user?.totalLoss || 0);
-  }, [session, user, trades]);
+    return totalPlAmount;
+  }, [totalPlAmount]);
 
   const overallReturnPercent = useMemo(() => {
-    return (overallReturnAmount / (baselineAccountBalance || 100000)) * 100;
+    return (overallReturnAmount / (baselineAccountBalance || 1000)) * 100;
   }, [overallReturnAmount, baselineAccountBalance]);
 
   const totalValueFormatted = formatCurrency(totalValue);
@@ -951,7 +960,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { setActiveTab('home'); setShowDepositModal(true); }} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
           
-          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={() => setActiveTab('discover')} />}
+          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={() => setActiveTab('discover')} onNavigateToTrading={() => setActiveTab('home')} />}
           {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={() => setActiveTab('discover')} />}
           
           {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
