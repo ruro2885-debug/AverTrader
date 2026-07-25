@@ -1,5 +1,9 @@
 import express from "express";
 import path from "path";
+import crypto from "crypto";
+import { initializeApp, getApps } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { createServer as createViteServer } from "vite";
 import { generateAiRecommendation, analyzeTradeAction, generateCatherineCommentary, generateMarketIntelligence, generateAssetAnalysis } from "./src/server/gemini";
 
@@ -8,9 +12,71 @@ async function startServer() {
   app.use(express.json());
   const PORT = 3000;
 
+  // Initialize Firebase Admin
+  if (!getApps().length) {
+    initializeApp();
+  }
+  const adminDb = getFirestore();
+
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+
+  // Admin Password Verification
+  app.post("/api/admin/verify-password", async (req, res) => {
+    try {
+      const { password, idToken } = req.body;
+      if (!password) return res.status(400).json({ error: "Password is required" });
+      if (!idToken) return res.status(401).json({ error: "Identity verification required" });
+
+      // 1. Verify Identity securely through Backend
+      let decodedToken;
+      try {
+        decodedToken = await getAuth().verifyIdToken(idToken);
+      } catch (e) {
+        return res.status(401).json({ success: false, message: "Invalid identity token." });
+      }
+
+      const { uid, email } = decodedToken;
+      
+      // 2. Validate Role securely through Firestore Backend check
+      const userDoc = await adminDb.collection('users').doc(uid).get();
+      const userData = userDoc.data();
+      
+      const SUPER_ADMIN_EMAIL = 'ruro2885@gmail.com';
+      const isAuthorizedEmail = email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+      const isSuperAdmin = userData?.role === 'super_admin' || isAuthorizedEmail;
+
+      if (!isSuperAdmin) {
+        return res.status(403).json({ success: false, message: "Access Denied. Insufficient administrative privileges." });
+      }
+
+      // 3. Verify Admin Access Password
+      const adminSecret = process.env.ADMIN_ACCESS_PASSWORD || "Ruro2008$";
+      
+      // Use crypto for secure constant-time comparison if possible, or simple check
+      if (password === adminSecret) {
+        // Log successful access
+        await adminDb.collection('admin_audit_logs').add({
+          adminId: uid,
+          adminEmail: email,
+          action: "ADMIN_LOGIN_SUCCESS",
+          resource: "Admin Panel",
+          details: "Successful administrative terminal access granted.",
+          timestamp: FieldValue.serverTimestamp(),
+          ip: req.ip
+        });
+
+        res.json({ success: true });
+      } else {
+        res.status(401).json({ success: false, message: "Unauthorized. Invalid administrative access credentials." });
+      }
+    } catch (error: any) {
+      console.error("Admin verification error:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.post("/api/ai/analyze", async (req, res) => {
@@ -20,8 +86,8 @@ async function startServer() {
       const cacheKey = `analyze_${userId}`;
       const cached = cache.get(cacheKey);
       
-      // Cache for 5 minutes for recommendations
-      if (cached && (Date.now() - cached.timestamp < 5 * 60 * 1000)) {
+      // Cache for 30 minutes for recommendations
+      if (cached && (Date.now() - cached.timestamp < 30 * 60 * 1000)) {
         return res.json(cached.data);
       }
 
@@ -40,8 +106,8 @@ async function startServer() {
       const cacheKey = `monitor_${tradeId}`;
       const cached = cache.get(cacheKey);
 
-      // Cache for 2 minutes for trade monitoring
-      if (cached && (Date.now() - cached.timestamp < 2 * 60 * 1000)) {
+      // Cache for 10 minutes for trade monitoring
+      if (cached && (Date.now() - cached.timestamp < 10 * 60 * 1000)) {
         return res.json(cached.data);
       }
 
@@ -126,7 +192,7 @@ async function startServer() {
 
   // Server-side caching for AI responses
   const cache = new Map<string, { data: any, timestamp: number }>();
-  const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+  const CACHE_TTL = 60 * 60 * 1000; // Increased to 60 minutes to preserve quota
 
   app.post("/api/market/intelligence", async (req, res) => {
     try {

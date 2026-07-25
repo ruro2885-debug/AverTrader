@@ -21,11 +21,21 @@ import {
   AiPreferenceProfile, 
   AiRecommendation, 
   AiTrade, 
-  AiConfiguration
+  AiConfiguration,
+  EquityTrigger,
+  TradingSchedule,
+  MarketCategory
 } from '../types/aiTrading';
+import { equityService } from './equityService';
+import { portfolioPersistenceService } from './portfolioPersistenceService';
 
 const SESSIONS_COLLECTION = 'aiSessions';
 const RECOMMENDATIONS_COLLECTION = 'aiRecommendations';
+
+export interface EngineStatus {
+  state: 'INACTIVE' | 'SESSION_SCANNING' | 'COOLING_BREAK' | 'SLEEPING' | 'ERROR';
+  reason: string;
+}
 
 export const aiTradingService = {
   // Session Management
@@ -46,6 +56,17 @@ export const aiTradingService = {
         lastUpdate: Timestamp.now()
       };
       await setDoc(sessionRef, newSession);
+      
+      // Record historical balance
+      const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+      await equityService.recordEquity({
+        userId,
+        timestamp: Timestamp.now(),
+        totalNetBalance: portfolio.portfolioMetrics.totalValue,
+        sessionId: sessionRef.id,
+        trigger: 'SESSION_START'
+      });
+
       return newSession;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, SESSIONS_COLLECTION);
@@ -56,10 +77,26 @@ export const aiTradingService = {
   async endSession(sessionId: string): Promise<void> {
     try {
       const sessionRef = doc(db, SESSIONS_COLLECTION, sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+      const sessionData = sessionSnap.exists() ? sessionSnap.data() as AiSession : null;
+      const userId = sessionData?.userId || '';
+
       await updateDoc(sessionRef, {
         status: 'INACTIVE',
         endTime: Timestamp.now()
       });
+
+      // Record historical balance
+      if (userId) {
+        const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+        await equityService.recordEquity({
+          userId,
+          timestamp: Timestamp.now(),
+          totalNetBalance: portfolio.portfolioMetrics.totalValue,
+          sessionId: sessionId,
+          trigger: 'SESSION_END'
+        });
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `${SESSIONS_COLLECTION}/${sessionId}`);
       throw error;
@@ -308,7 +345,12 @@ export const aiTradingService = {
   },
 
   // Recommendations
-  async generateRecommendation(sessionId: string, userId: string, marketData: any, userProfile: any): Promise<AiRecommendation> {
+  async generateRecommendation(sessionId: string, userId: string, marketData: any, userProfile: any, schedule?: any): Promise<AiRecommendation> {
+    // STRICT SCHEDULE GATE
+    if (schedule && !this.isWithinOperatingWindow(schedule)) {
+      throw new Error("AI analysis suspended: Outside configured operating window.");
+    }
+
     try {
       let data: any = null;
       try {
@@ -415,12 +457,18 @@ export const aiTradingService = {
   },
 
   // Trades
-  async executeTrade(userId: string, recommendation: AiRecommendation, quantity: number): Promise<AiTrade> {
+  async executeTrade(userId: string, recommendation: AiRecommendation, quantity: number, schedule?: any): Promise<AiTrade> {
+    // STRICT SCHEDULE GATE
+    if (schedule && !this.isWithinOperatingWindow(schedule)) {
+      throw new Error("AI execution suspended: Outside configured operating window.");
+    }
+
     try {
       const tradeRef = doc(collection(db, 'users', userId, 'trades'));
       const trade: AiTrade = {
         id: tradeRef.id,
         recommendationId: recommendation.id,
+        sessionId: recommendation.sessionId,
         userId,
         asset: recommendation.asset,
         entry: recommendation.entry,
@@ -435,6 +483,17 @@ export const aiTradingService = {
       
       await setDoc(tradeRef, trade);
       await this.updateRecommendationStatus(recommendation.id, 'EXECUTED');
+
+      // Record historical balance
+      const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+      await equityService.recordEquity({
+        userId,
+        timestamp: Timestamp.now(),
+        totalNetBalance: portfolio.portfolioMetrics.totalValue,
+        sessionId: recommendation.sessionId,
+        trigger: 'TRADE_OPEN'
+      });
+
       return trade;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${userId}/trades`);
@@ -459,6 +518,17 @@ export const aiTradingService = {
         pnl,
         pnlPercent,
         reasonClosed: reason
+      });
+
+      // Record historical balance
+      const trigger: EquityTrigger = reason === 'TARGET_HIT' ? 'TP_HIT' : (reason === 'STOP_LOSS_HIT' ? 'SL_HIT' : 'TRADE_CLOSE');
+      const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+      await equityService.recordEquity({
+        userId,
+        timestamp: Timestamp.now(),
+        totalNetBalance: portfolio.portfolioMetrics.totalValue,
+        sessionId: trade.sessionId || trade.recommendationId, 
+        trigger: trigger
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${userId}/trades/${tradeId}`);
@@ -498,5 +568,215 @@ export const aiTradingService = {
       console.error('AI Monitor fetch error:', error.message);
       throw error;
     }
+  },
+
+  /**
+   * Enforces the Neural Schedule as the single source of truth for AI activity.
+   * Completely rebuilt for Rule-Based Scheduling with Market Calendar awareness.
+   */
+  getEngineOperationStatus(schedule?: TradingSchedule, isSessionActive?: boolean): EngineStatus {
+    if (!isSessionActive) {
+      return { state: 'INACTIVE', reason: 'AI core is powered down. No active session.' };
+    }
+    
+    // 1. Check if Scheduler is Enabled (24/7 Mode)
+    if (!schedule || schedule.enabled === false) {
+      return { state: 'SESSION_SCANNING', reason: 'Scheduler Disabled • AI operates continuously (24/7)' };
+    }
+    
+    try {
+      const now = new Date();
+
+      // Helper to get time details in a specific timezone
+      const getTimeInTz = (tz: string) => {
+        let ianaTz = tz;
+        if (tz === 'EST' || tz === 'EDT') ianaTz = 'America/New_York';
+        else if (tz === 'PST' || tz === 'PDT') ianaTz = 'America/Los_Angeles';
+        else if (tz === 'GMT') ianaTz = 'Europe/London';
+        else if (tz === 'UTC') ianaTz = 'UTC';
+
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: ianaTz,
+          hour12: false,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          weekday: 'short'
+        });
+        
+        const parts = formatter.formatToParts(now);
+        const partMap: Record<string, string> = {};
+        parts.forEach(p => { partMap[p.type] = p.value; });
+        
+        return {
+          weekday: partMap['weekday'],
+          month: partMap['month'],
+          day: partMap['day'],
+          hours: partMap['hour'] || '00',
+          minutes: partMap['minute'] || '00',
+          timeStr: `${partMap['hour'] || '00'}:${partMap['minute'] || '00'}`
+        };
+      };
+
+      // 2. Check Cooling Breaks (Global priority)
+      if (schedule.coolingBreaks && schedule.coolingBreaks.length > 0) {
+        for (const brk of schedule.coolingBreaks) {
+          if (!brk.enabled) continue;
+          
+          // Use UTC for breaks by default or current system time
+          const timeData = getTimeInTz('UTC');
+          const isDayMatch = brk.days === 'Every Day' || brk.days.includes(timeData.weekday);
+          
+          if (isDayMatch && timeData.timeStr >= brk.startTime && timeData.timeStr <= brk.endTime) {
+            return { state: 'COOLING_BREAK', reason: `AI Cooling: Scheduled neural break active until ${brk.endTime}.` };
+          }
+        }
+      }
+      
+      // 3. Check Operating Windows
+      if (!schedule.operatingWindows || schedule.operatingWindows.length === 0) {
+        return { state: 'SESSION_SCANNING', reason: 'Scheduler Disabled • AI operates continuously (24/7)' };
+      }
+
+      let activeWindowFound = false;
+      let sleepReason = 'AI Sleeping: Outside configured operating windows.';
+
+      for (const window of schedule.operatingWindows) {
+        if (!window.enabled) continue;
+
+        const timeData = getTimeInTz(window.timezone);
+        const isDayMatch = window.days === 'Every Day' || (Array.isArray(window.days) && window.days.includes(timeData.weekday));
+        const isTimeMatch = timeData.timeStr >= window.startTime && timeData.timeStr <= window.endTime;
+
+        if (isDayMatch && isTimeMatch) {
+          // Check for Holiday exclusion for this window's markets
+          const mmdd = `${timeData.month}-${timeData.day}`;
+          const HOLIDAYS = ['01-01', '07-04', '12-25', '12-31', '05-27', '09-02', '11-28'];
+          const isHolidayToday = HOLIDAYS.includes(mmdd);
+
+          if (isHolidayToday) {
+            let allMarketsExempt = true;
+            const marketList = window.markets === 'All Markets' 
+              ? ['Stocks', 'Crypto', 'Forex', 'Indices', 'Commodities'] as MarketCategory[]
+              : window.markets;
+
+            for (const m of marketList) {
+              if (schedule.marketCalendar[m]?.excludeHolidays) {
+                allMarketsExempt = false;
+                break;
+              }
+            }
+
+            if (!allMarketsExempt) {
+              sleepReason = 'AI Sleeping: Market holiday detected for active operating window.';
+              continue; 
+            }
+          }
+
+          activeWindowFound = true;
+          break;
+        }
+      }
+
+      if (activeWindowFound) {
+        return { state: 'SESSION_SCANNING', reason: 'AI Active: Neural core operational. Scanning for opportunities.' };
+      }
+
+      return { state: 'SLEEPING', reason: sleepReason };
+    } catch (error) {
+      console.warn("Scheduler logic error:", error);
+      return { state: 'SESSION_SCANNING', reason: 'AI Active: Safety fallback enabled (24/7 mode).' };
+    }
+  },
+
+  isAssetTradable(asset: string, schedule?: TradingSchedule): boolean {
+    if (!schedule || schedule.enabled === false) return true;
+    
+    const engineStatus = this.getEngineOperationStatus(schedule, true);
+    
+    // If cooling break, nothing is tradable
+    if (engineStatus.state === 'COOLING_BREAK') return false;
+
+    const category = this.getMarketCategory(asset);
+
+    // 1. Check Holiday Closure for this specific market category
+    const mmdd = new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit' }).format(new Date());
+    const HOLIDAYS = ['01-01', '07-04', '12-25', '12-31', '05-27', '09-02', '11-28'];
+    if (HOLIDAYS.includes(mmdd) && schedule.marketCalendar[category]?.excludeHolidays) {
+      return false;
+    }
+
+    // 2. Check if we are within an operating window that covers this asset
+    const now = new Date();
+    const getTimeInTz = (tz: string) => {
+      let ianaTz = tz;
+      if (tz === 'EST' || tz === 'EDT') ianaTz = 'America/New_York';
+      else if (tz === 'PST' || tz === 'PDT') ianaTz = 'America/Los_Angeles';
+      else if (tz === 'GMT') ianaTz = 'Europe/London';
+      else if (tz === 'UTC') ianaTz = 'UTC';
+
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: ianaTz,
+        hour12: false,
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      const parts = formatter.formatToParts(now);
+      const partMap: Record<string, string> = {};
+      parts.forEach(p => { partMap[p.type] = p.value; });
+      return {
+        weekday: partMap['weekday'],
+        timeStr: `${partMap['hour'] || '00'}:${partMap['minute'] || '00'}`
+      };
+    };
+
+    if (!schedule.operatingWindows || schedule.operatingWindows.length === 0) return true;
+
+    let inWindow = false;
+    for (const win of schedule.operatingWindows) {
+      if (!win.enabled) continue;
+      
+      const isMarketMatch = win.markets === 'All Markets' || (Array.isArray(win.markets) && win.markets.includes(category));
+      if (!isMarketMatch) continue;
+
+      const timeData = getTimeInTz(win.timezone);
+      const isDayMatch = win.days === 'Every Day' || (Array.isArray(win.days) && win.days.includes(timeData.weekday));
+      const isTimeMatch = timeData.timeStr >= win.startTime && timeData.timeStr <= win.endTime;
+
+      if (isDayMatch && isTimeMatch) {
+        inWindow = true;
+        break;
+      }
+    }
+
+    // 3. Post-Window monitoring check
+    if (!inWindow && schedule.monitorOutsideWindow) {
+      return true;
+    }
+
+    return inWindow;
+  },
+
+  getMarketCategory(asset: string): MarketCategory {
+    const stocks = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META'];
+    const forex = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD'];
+    const crypto = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'LINK', 'UNI', 'LTC'];
+    const indices = ['SPX', 'NDX', 'DJI', 'VIX'];
+    const commodities = ['GOLD', 'SILVER', 'OIL', 'NATGAS'];
+
+    if (stocks.includes(asset)) return 'Stocks';
+    if (forex.includes(asset)) return 'Forex';
+    if (crypto.includes(asset)) return 'Crypto';
+    if (indices.includes(asset)) return 'Indices';
+    if (commodities.includes(asset)) return 'Commodities';
+    
+    return 'Crypto';
+  },
+
+  isWithinOperatingWindow(schedule?: TradingSchedule): boolean {
+    return this.getEngineOperationStatus(schedule, true).state === 'SESSION_SCANNING';
   }
 };

@@ -422,12 +422,27 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       currentWinningStreak,
       allocatedAmount,
       schedule: {
-        sessions: SESSIONS_LIST[i % SESSIONS_LIST.length],
-        weekdays: true,
-        weekends: i % 2 === 0 || style === 'SCALPING',
-        timezone: TIMEZONES[i % TIMEZONES.length],
-        breakPeriods: i % 3 === 0 ? [{ start: '12:00', end: '13:00' }] : [],
-        excludeHolidays: i % 2 === 1
+        enabled: true,
+        operatingWindows: [
+          {
+            id: `win_${Date.now()}_${i}`,
+            startTime: '09:00',
+            endTime: '17:00',
+            days: 'Every Day',
+            markets: 'All Markets',
+            timezone: TIMEZONES[i % TIMEZONES.length],
+            enabled: true
+          }
+        ],
+        coolingBreaks: i % 3 === 0 ? [{ id: `brk_${Date.now()}_${i}`, startTime: '12:00', endTime: '13:00', days: 'Every Day', enabled: true }] : [],
+        marketCalendar: {
+          'Stocks': { excludeHolidays: true },
+          'Crypto': { excludeHolidays: false },
+          'Forex': { excludeHolidays: true },
+          'Indices': { excludeHolidays: true },
+          'Commodities': { excludeHolidays: true }
+        },
+        monitorOutsideWindow: true
       },
       riskControls: {
         maxPositionSize,
@@ -507,26 +522,26 @@ export function generateHistoricalTradesForTrader(traderSpec: Partial<SimulatedT
     // Rank 1: 240%, Rank 10: 60%
     const target30D = 240 - ((intendedRank! - 1) * 20); // 1: 240, 2: 220, ..., 10: 60
     
-    // Boost win chance and magnitude to hit this target
-    winChance = 0.92 + (rand() * 0.06); // 92-98% win rate
+    if (risk === 'HIGH') {
+      winChance = 0.55 + (rand() * 0.15); // 55-70% win rate
+    } else if (risk === 'MEDIUM') {
+      winChance = 0.75 + (rand() * 0.10); // 75-85% win rate
+    } else {
+      winChance = 0.88 + (rand() * 0.10); // 88-98% win rate
+    }
     
-    // Estimate trades in 30 days (about 30-60 trades)
-    // pnlSum = (wins * avgWin) - (losses * avgLoss)
-    // We want pnlSum to be around target30D.
     const estTrades30D = 45;
     const estWins = Math.floor(estTrades30D * winChance);
     const estLosses = estTrades30D - estWins;
     
-    // (estWins * pnl) - (estLosses * pnl) = target30D
-    // pnl * (estWins - estLosses) = target30D
-    const netWins = estWins - estLosses;
-    basePnlRange = (target30D / netWins) * 1.5; // Multiply by 1.5 because rand() * pnlRange averages to 0.5 * pnlRange
+    const netWins = Math.max(1, estWins - (estLosses * 0.8)); // Adjust for slight loss ratio
+    basePnlRange = (target30D / netWins) * 2.2; 
   } else if (risk === 'HIGH') {
-    basePnlRange *= 1.8;
-    winChance -= 0.04; 
+    basePnlRange *= 5.0;
+    winChance -= 0.15; 
   } else if (risk === 'LOW') {
-    basePnlRange *= 0.6;
-    winChance += 0.04; 
+    basePnlRange *= 0.5;
+    winChance += 0.08; 
   }
 
   const tradesCount = isElite ? 1800 + Math.floor(rand() * 400) : // Elite traders have deep history
@@ -678,14 +693,6 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   trader.return90D = parseFloat(trades90D.reduce((sum, t) => sum + (t.pnlPercent || 0), 0).toFixed(2));
   trader.return30D = parseFloat(trades30D.reduce((sum, t) => sum + (t.pnlPercent || 0), 0).toFixed(2));
   trader.return7D = parseFloat(trades7D.reduce((sum, t) => sum + (t.pnlPercent || 0), 0).toFixed(2));
-
-  // Enforce requested Rank 1-10 performance floors
-  if (trader.rank && trader.rank <= 10) {
-    const floor = 240 - ((trader.rank - 1) * 20);
-    if (trader.return30D < floor) {
-      trader.return30D = parseFloat((floor + Math.random() * 5).toFixed(2));
-    }
-  }
 
   // Ensure no 0.00% placeholders - if a calculation ends up at 0, give it a tiny jitter
   if (trader.return30D === 0) {
@@ -1048,15 +1055,16 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
       const isElite = t.rank <= 10;
       const eliteMultiplier = isElite ? (8.0 - (t.rank * 0.55)) : 1.0;
       
-      let magnitude = t.riskLevel === 'HIGH' ? 8.5 : t.riskLevel === 'MEDIUM' ? 4.2 : 1.8;
+      let magnitude = t.riskLevel === 'HIGH' ? 38.5 : t.riskLevel === 'MEDIUM' ? 12.2 : 4.8;
       magnitude *= (0.5 + rand() * 1.5); // 50% to 200% noise
-      magnitude *= eliteMultiplier;
+      // Less elite multiplier so it doesn't just grow unbounded, but gives high chance of large swings
+      magnitude *= isElite ? 1.5 : 1.0; 
       
       let pnlPercent = 0;
       if (isWin) {
-        pnlPercent = parseFloat((rand() * magnitude + 0.1).toFixed(2));
+        pnlPercent = parseFloat((rand() * magnitude + 0.5).toFixed(2));
       } else {
-        pnlPercent = parseFloat((-(rand() * magnitude * 1.2 + 0.1)).toFixed(2));
+        pnlPercent = parseFloat((-(rand() * magnitude * 1.5 + 0.5)).toFixed(2));
       }
 
       // Check for open trades to close

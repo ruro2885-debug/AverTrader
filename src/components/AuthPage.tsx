@@ -11,6 +11,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { ClipboardPaste, UserPlus } from 'lucide-react';
 
+
 interface AuthPageProps {
   theme: 'light' | 'dark';
   onBack: () => void;
@@ -298,7 +299,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   }, [notifications.length]);
 
   if (view === 'choice') {
-    return <AuthChoice theme={theme} onBack={() => {}} onSelect={(v) => setView(v)} />;
+    return <AuthChoice theme={theme} onBack={onBack} onSelect={(v) => setView(v)} />;
   }
 
   if (activePolicyId) {
@@ -901,6 +902,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       </div>
                     </motion.div>
                   </div>
+
 
                   {errorMsg && (
                     <div className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-sans font-medium text-center">

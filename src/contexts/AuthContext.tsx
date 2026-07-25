@@ -403,6 +403,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               const userData = docSnap.data() as User;
               console.log("[AuthContext] User data updated from Firestore for uid:", firebaseUser.uid);
 
+              // Check for Super Admin promotion if email matches and role is missing
+              const ADMIN_EMAIL = 'ruro2885@gmail.com';
+              if (userData.email?.toLowerCase() === ADMIN_EMAIL && userData.role !== 'super_admin') {
+                console.log("[AuthContext] Promoting matching email to super_admin role...");
+                updateDoc(userDocRef, { role: 'super_admin' }).catch(err => {
+                  console.error("[AuthContext] Failed to promote user to admin:", err);
+                });
+              }
+
               // Only initialize if there is no seed AND no custom photo/avatar URL at all
               const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
 
@@ -496,6 +505,57 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               setNotifications(notifs);
             } else {
               console.warn("[AuthContext] User profile document not found in Firestore for uid:", firebaseUser.uid);
+              
+              // Handle first-time login for Super Admin (e.g. via Google Auth)
+              const ADMIN_EMAIL = 'ruro2885@gmail.com';
+              if (firebaseUser.email?.toLowerCase() === ADMIN_EMAIL) {
+                console.log("[AuthContext] First-time Super Admin detected. Initializing secure administrative profile...");
+                
+                const seed = firebaseUser.email.toLowerCase();
+                const dataUrl = getAvatarDataUrl(seed);
+                
+                const adminProfile = {
+                  uid: firebaseUser.uid,
+                  email: firebaseUser.email,
+                  username: firebaseUser.displayName || 'Super Admin',
+                  role: 'super_admin',
+                  profilePhotoURL: dataUrl,
+                  avatarUrl: dataUrl,
+                  avatarSeed: seed,
+                  hasCustomPhoto: false,
+                  accountType: 'Institutional',
+                  accountStatus: 'Active',
+                  portfolioBalance: 0,
+                  availableBalance: 0,
+                  vaultBalance: 0,
+                  tokenBalance: 0,
+                  createdAt: serverTimestamp(),
+                  lastLogin: serverTimestamp(),
+                  lastUpdated: serverTimestamp(),
+                  onboardingCompleted: true,
+                  notificationsList: [],
+                  portfolio: {
+                    totalValue: 0,
+                    todayPnL: 0,
+                    todayPnLPercent: 0,
+                    overallReturn: 0,
+                    realizedPnL: 0,
+                    unrealizedPnL: 0,
+                    healthScore: 100,
+                    diversificationScore: 100,
+                    volatility: 0,
+                    sharpeRatio: 0,
+                    winRate: 0,
+                    maxDrawdown: 0,
+                    recoveryFactor: 0,
+                    riskAdjustedReturn: 0
+                  }
+                };
+
+                setDoc(userDocRef, adminProfile).catch(err => {
+                  console.error("[AuthContext] Failed to initialize Super Admin profile:", err);
+                });
+              }
             }
           } catch (err) {
             console.error("[AuthContext] Error processing user document snapshot:", err);
@@ -759,6 +819,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         avatarUrl: dataUrl,
         profilePhotoURL: dataUrl,
         hasCustomPhoto: true,
+        role: data.email.toLowerCase() === 'ruro2885@gmail.com' ? 'super_admin' : 'user',
         country: data.country,
         phoneNumber: data.phoneNumber || '',
         accountType: 'Standard',

@@ -6,111 +6,14 @@ import { useFinancials } from '../hooks/useFinancials';
 import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule } from '../types/aiTrading';
 import { Position, ActivityEvent } from '../types/trading';
 import { seedTraders, startTraderSimulator } from '../services/traderSimulator';
-import { aiTradingService } from '../services/aiTradingService';
+import { aiTradingService, EngineStatus } from '../services/aiTradingService';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService } from '../services/walletService';
 import { safeStorage } from '../utils/storage';
 
-export type EngineOperationState = 'INACTIVE' | 'SESSION_SCANNING' | 'COOLING_BREAK' | 'EVALUATION_MODE';
-
-export function getEngineOperationState(schedule?: TradingSchedule, isSessionActive?: boolean): EngineOperationState {
-  if (!isSessionActive) return 'INACTIVE';
-  if (!schedule) return 'SESSION_SCANNING';
-  
-  let tz = 'UTC';
-  if (schedule.timezone === 'EST') tz = 'America/New_York';
-  else if (schedule.timezone === 'PST') tz = 'America/Los_Angeles';
-  else if (schedule.timezone === 'GMT') tz = 'Europe/London';
-  
-  try {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hour12: false,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      weekday: 'short'
-    });
-    
-    const parts = formatter.formatToParts(now);
-    const partMap: Record<string, string> = {};
-    parts.forEach(p => {
-      partMap[p.type] = p.value;
-    });
-    
-    const weekday = partMap['weekday'];
-    const month = partMap['month'];
-    const dayVal = partMap['day'];
-    const hours = partMap['hour'] || '00';
-    const minutes = partMap['minute'] || '00';
-    const currentTimeStr = `${hours}:${minutes}`;
-    
-    const isWeekend = weekday === 'Sat' || weekday === 'Sun';
-    const isWeekday = !isWeekend;
-    
-    if (isWeekend && !schedule.weekends) return 'INACTIVE';
-    if (isWeekday && !schedule.weekdays) return 'INACTIVE';
-
-    if (schedule.excludeHolidays) {
-      const mmdd = `${month}-${dayVal}`;
-      const holidays = ['01-01', '07-04', '12-25', '12-31', '05-27', '09-02', '11-28'];
-      if (holidays.includes(mmdd)) {
-        return 'INACTIVE';
-      }
-    }
-    
-    if (schedule.breakPeriods && schedule.breakPeriods.length > 0) {
-      const inBreak = schedule.breakPeriods.some(b => {
-        return currentTimeStr >= b.start && currentTimeStr <= b.end;
-      });
-      if (inBreak) return 'COOLING_BREAK';
-    }
-    
-    if (schedule.sessions && schedule.sessions.length > 0) {
-      const inWindow = schedule.sessions.some(s => {
-        return currentTimeStr >= s.start && currentTimeStr <= s.end;
-      });
-      if (!inWindow) return 'EVALUATION_MODE';
-      return 'SESSION_SCANNING';
-    }
-  } catch (e) {
-    console.error("Error calculating schedule with timezone, falling back to local time", e);
-    const now = new Date();
-    const day = now.getDay();
-    const isWeekend = day === 0 || day === 6;
-    const isWeekday = !isWeekend;
-    
-    if (isWeekend && !schedule.weekends) return 'INACTIVE';
-    if (isWeekday && !schedule.weekdays) return 'INACTIVE';
-    
-    const hours = now.getHours().toString().padStart(2, '0');
-    const minutes = now.getMinutes().toString().padStart(2, '0');
-    const currentTimeStr = `${hours}:${minutes}`;
-    
-    if (schedule.sessions && schedule.sessions.length > 0) {
-      const inWindow = schedule.sessions.some(s => {
-        return currentTimeStr >= s.start && currentTimeStr <= s.end;
-      });
-      if (!inWindow) return 'EVALUATION_MODE';
-    }
-    
-    if (schedule.breakPeriods && schedule.breakPeriods.length > 0) {
-      const inBreak = schedule.breakPeriods.some(b => {
-        return currentTimeStr >= b.start && currentTimeStr <= b.end;
-      });
-      if (inBreak) return 'COOLING_BREAK';
-    }
-  }
-  
-  return 'SESSION_SCANNING';
-}
-
-function isWithinSchedule(schedule?: TradingSchedule, isSessionActive?: boolean): boolean {
-  return getEngineOperationState(schedule, isSessionActive) === 'SESSION_SCANNING';
-}
+const isWithinSchedule = (schedule?: TradingSchedule, isSessionActive?: boolean): boolean => {
+  return aiTradingService.getEngineOperationStatus(schedule, isSessionActive).state === 'SESSION_SCANNING';
+};
 
 interface TradingEngineContextType {
   configs: AiConfiguration[];
@@ -126,6 +29,7 @@ interface TradingEngineContextType {
   startSession: (configId: string, markets: string[]) => Promise<void>;
   endSession: () => Promise<void>;
   loading: boolean;
+  engineStatus: EngineStatus;
   liveTradePrices: Record<string, number>;
   saveConfiguration: (updatedConfig: AiConfiguration) => Promise<void>;
   deleteConfiguration: (configId: string) => Promise<void>;
@@ -148,6 +52,7 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
   startSession: async () => {},
   endSession: async () => {},
   loading: true,
+  engineStatus: { state: 'INACTIVE', reason: 'Initializing...' },
   liveTradePrices: {},
   saveConfiguration: async () => {},
   deleteConfiguration: async () => {},
@@ -183,6 +88,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   const [recommendations, setRecommendations] = useState<AiRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [engineStatus, setEngineStatus] = useState<EngineStatus>({ state: 'INACTIVE', reason: 'Core offline' });
   const [liveTradePrices, setLiveTradePrices] = useState<Record<string, number>>({});
 
   // Helper to load/save state from/to localStorage if Firestore is unavailable/offline
@@ -625,6 +531,10 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     setSession(newSession);
     sessionRefVal.current = newSession;
     setLocalStorageItem(`aver_session_${effectiveUid}`, newSession);
+
+    // Immediate status update
+    const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
+    setEngineStatus(nextStatus);
     
     const startAct: ActivityEvent = {
       id: `act_${Date.now()}`,
@@ -1225,6 +1135,13 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         return;
       }
 
+      // STRICT SCHEDULE GATE
+      const status = aiTradingService.getEngineOperationStatus(configRefVal.current?.schedule, true);
+      setEngineStatus(status);
+      if (status.state === 'SLEEPING' || status.state === 'COOLING_BREAK') {
+        return;
+      }
+
       try {
         const res = await fetch('/api/market/ticker');
         if (res.ok) {
@@ -1301,6 +1218,15 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current;
       if (!activeConfig) return;
 
+      // STRICT SCHEDULE GATE
+      const status = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
+      if (status.state === 'SLEEPING' || status.state === 'COOLING_BREAK') {
+        // Only skip if monitoring outside window is not explicitly enabled
+        if (!activeConfig.schedule?.monitorOutsideWindow) {
+          return;
+        }
+      }
+
       // Check Session Duration
       const startTime = currentSession.startTime ? (currentSession.startTime.toDate ? currentSession.startTime.toDate().getTime() : new Date(currentSession.startTime as any).getTime()) : Date.now();
       const elapsedHours = (Date.now() - startTime) / (1000 * 60 * 60);
@@ -1347,8 +1273,25 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         
         // Fast trade cycle: position active for 4-7 seconds to show fast live trading
         if (ageSec >= 4) {
-          const isWin = Math.random() < 0.85; // 85% win rate so session capital grows reliably
-          const returnPct = isWin ? (0.8 + Math.random() * 3.2) : (-0.2 - Math.random() * 0.7);
+          // Use config risk score to determine realism
+          const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
+          
+          // Win rate drops as risk goes up (e.g. risk 20 -> ~80%, risk 90 -> ~40%)
+          const winRate = Math.max(0.35, 0.90 - (riskScore / 180));
+          const isWin = Math.random() < winRate;
+          
+          // Volatility scales with risk (e.g. risk 90 -> multiplier ~3, risk 20 -> ~0.6)
+          const volMultiplier = Math.max(0.5, riskScore / 30);
+          
+          let returnPct;
+          if (isWin) {
+            // Profit returns scale with risk
+            returnPct = (0.5 + Math.random() * 4.5) * volMultiplier;
+          } else {
+            // Loss returns scale heavily with risk for realism (e.g. up to -35%)
+            returnPct = -(0.5 + Math.random() * 8.0) * volMultiplier;
+          }
+
           const exitPrice = parseFloat((trade.entry * (1 + returnPct / 100)).toFixed(2));
           const reason = isWin ? 'TARGET_HIT' : 'STOP_LOSS_HIT';
           
@@ -1380,29 +1323,17 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         return;
       }
       
-      const currentSessionBalance = currentSession.tradingCapital;
-      if (currentSessionBalance <= 0) {
+      const sessionConfigId = currentSession.activeConfigId;
+      const activeConfig = (configs.find(c => c.id === sessionConfigId) || configRefVal.current || configs[0]) as AiConfiguration;
+
+      // STRICT SCHEDULE GATE
+      const status = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
+      if (status.state === 'SLEEPING' || status.state === 'COOLING_BREAK') {
         orderTimeout = setTimeout(runOrderLoop, 5000);
         return;
       }
 
-      const sessionConfigId = currentSession.activeConfigId;
-      const activeConfig = (configs.find(c => c.id === sessionConfigId) || configRefVal.current || configs[0] || {
-        id: 'cfg_default',
-        name: 'Default AI Config',
-        aiTradingRules: {
-          assetSelection: ['BTC', 'ETH', 'SOL'],
-          tradingStrategy: 'NEURAL_MOMENTUM',
-          minConfidence: 85,
-          maxSimultaneousPositions: 3
-        },
-        profitRiskManagement: {
-          maxPositionSize: 500,
-          maxRiskPerTrade: 1,
-          sessionTakeProfit: 5,
-          sessionStopLoss: 2
-        }
-      }) as AiConfiguration;
+      const currentSessionBalance = currentSession.tradingCapital;
 
       const selectedAssets = activeConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL'];
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
@@ -1413,12 +1344,22 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       if (unTradedAssets.length > 0) {
         const assetCount = Math.max(1, selectedAssets.length);
         const sessionStartingCap = currentSession.tradingCapital || currentSession.initialCapital || 1000;
-        const equalAllocPerAsset = sessionStartingCap / assetCount;
+        let equalAllocPerAsset = sessionStartingCap / assetCount;
+        
+        // Respect configuration's max position size limit
+        if (activeConfig.profitRiskManagement?.maxPositionSize) {
+          equalAllocPerAsset = Math.min(equalAllocPerAsset, activeConfig.profitRiskManagement.maxPositionSize);
+        }
 
         const newTradesToAppend: AiTrade[] = [];
         const newRecsToAppend: AiRecommendation[] = [];
 
         for (const assetToTrade of unTradedAssets) {
+          // ENSURE ASSET IS TRADABLE ACCORDING TO MARKET CALENDAR AND WINDOWS
+          if (!aiTradingService.isAssetTradable(assetToTrade, activeConfig.schedule)) {
+            continue;
+          }
+
           const liveP = livePricesRef.current[assetToTrade];
           const entryPrice = liveP || (assetToTrade === 'BTC' ? 64200 : assetToTrade === 'ETH' ? 3450 : assetToTrade === 'SOL' ? 145 : 100);
           const suggestedAction = Math.random() > 0.35 ? 'BUY' : 'SELL';
@@ -1509,10 +1450,34 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     }, 5000);
     */
 
+    // Status Monitoring & Log Transition States
+    const statusInterval = setInterval(() => {
+      const activeConfig = configRefVal.current;
+      if (sessionRefVal.current?.status === 'ACTIVE') {
+        const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig?.schedule, true);
+        
+        setEngineStatus(prev => {
+          if (prev.state !== nextStatus.state) {
+            logActivity('ENGINE_STATE_CHANGE', `AI Engine transitioning: ${prev.state} -> ${nextStatus.state}. Reason: ${nextStatus.reason}`);
+            
+            if (addNotification && nextStatus.state === 'SLEEPING') {
+              addNotification('trading', 'medium', 'AI Engine Sleeping', nextStatus.reason);
+            } else if (addNotification && nextStatus.state === 'SESSION_SCANNING' && prev.state !== 'SESSION_SCANNING') {
+              addNotification('trading', 'medium', 'AI Engine Awake', 'Trading session resumed according to schedule.');
+            }
+          }
+          return nextStatus;
+        });
+      } else {
+        setEngineStatus({ state: 'INACTIVE', reason: 'AI core is powered down.' });
+      }
+    }, 10000);
+
     return () => {
       clearInterval(tickInterval);
       clearInterval(positionInterval);
       clearInterval(loggingInterval);
+      clearInterval(statusInterval);
       // clearInterval(driftInterval);
       clearTimeout(orderTimeout);
     };
@@ -1551,6 +1516,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     startSession,
     endSession,
     loading,
+    engineStatus,
     liveTradePrices,
     saveConfiguration,
     deleteConfiguration,
@@ -1571,6 +1537,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     startSession,
     endSession,
     loading,
+    engineStatus,
     liveTradePrices,
     saveConfiguration,
     deleteConfiguration,

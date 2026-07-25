@@ -14,6 +14,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePreferences } from '../../contexts/PreferencesContext';
 import { useFinancials } from '../../hooks/useFinancials';
 import { TradingEngineContext } from '../../contexts/TradingEngineContext';
+import { equityService } from '../../services/equityService';
+import { EquityHistoryRecord } from '../../types/aiTrading';
 import { safeStorage } from '../../utils/storage';
 import { 
 
@@ -36,10 +38,10 @@ interface PortfolioViewV2Props {
 }
 
 interface HoverData {
-  open: number;
-  high: number;
-  low: number;
-  close: number;
+  time: number;
+  value: number;
+  change: number;
+  changePercent: number;
 }
 
 // --- DYNAMIC AI COMMENTARY GENERATION ENGINE ---
@@ -109,75 +111,106 @@ function AverPortfolioChart({
   onHover,
   executionEvents
 }: { 
-  data: { time: any; open: number; high: number; low: number; close: number; }[], 
+  data: { time: any; value: number; }[], 
   isDark: boolean,
   onHover: (hoverData: HoverData | null) => void,
   executionEvents: any[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const markersPluginRef = useRef<any>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     const width = containerRef.current.clientWidth || 320;
-    const height = 260; // Mobile optimized compact height
+    const height = 260; 
 
     const chart = createChart(containerRef.current, {
       width,
       height,
       layout: {
         background: { color: 'transparent' },
-        textColor: '#64748b',
+        textColor: isDark ? '#94a3b8' : '#64748b',
         fontFamily: 'Inter, system-ui, sans-serif',
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.01)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.01)' },
+        vertLines: { visible: false },
+        horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)' },
       },
       crosshair: {
         vertLine: {
           width: 1,
-          color: 'rgba(255, 255, 255, 0.12)',
-          style: 2, // Dotted
+          color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+          style: 2, 
+          labelVisible: false,
         },
         horzLine: {
           width: 1,
-          color: 'rgba(255, 255, 255, 0.12)',
-          style: 2, // Dotted
+          color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+          style: 2,
+          labelVisible: false,
         },
       },
       rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.04)',
+        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+        visible: false,
       },
       timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.04)',
+        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
       },
     });
 
-    const candleSeries = chart.addSeries(AreaSeries, {
+    const areaSeries = chart.addSeries(AreaSeries, {
       lineColor: '#00D09C',
-      topColor: 'rgba(0, 208, 156, 0.4)',
+      topColor: 'rgba(0, 208, 156, 0.25)',
       bottomColor: 'rgba(0, 208, 156, 0.0)',
       lineWidth: 2,
+      priceLineVisible: false,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: '#fff',
+      crosshairMarkerBackgroundColor: '#00D09C',
     });
 
-    seriesRef.current = candleSeries;
+    seriesRef.current = areaSeries;
     chartRef.current = chart;
 
-    // Crosshair subscription updates OHLC state
     chart.subscribeCrosshairMove((param) => {
-      if (param.time && param.seriesData.size > 0) {
-        const seriesData = param.seriesData.get(candleSeries);
+      if (param.time && param.seriesData.size > 0 && data.length > 0) {
+        const seriesData = param.seriesData.get(areaSeries) as any;
         if (seriesData) {
+          const currentIndex = data.findIndex(d => d.time === param.time);
+          const currentVal = seriesData.value;
+          let prevVal = currentVal;
+          
+          if (currentIndex > 0) {
+            prevVal = data[currentIndex - 1].value;
+          } else if (data.length > 0) {
+            prevVal = data[0].value;
+          }
+
+          const change = currentVal - prevVal;
+          const changePercent = prevVal !== 0 ? (change / prevVal) * 100 : 0;
+
           onHover({
-            open: (seriesData as any).value,
-            high: (seriesData as any).value,
-            low: (seriesData as any).value,
-            close: (seriesData as any).value,
+            time: param.time as number,
+            value: currentVal,
+            change: change,
+            changePercent: changePercent,
           });
           return;
         }
@@ -196,16 +229,15 @@ function AverPortfolioChart({
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, []); // Remove dependency on data to prevent full re-initialization
+  }, []); 
 
-  // Update data incrementally
   useEffect(() => {
     if (seriesRef.current && data.length > 0) {
       seriesRef.current.setData(data);
+      chartRef.current?.timeScale().fitContent();
     }
   }, [data]);
 
-  // Update markers incrementally
   useEffect(() => {
     if (seriesRef.current && executionEvents && executionEvents.length > 0) {
       const markers = executionEvents
@@ -223,12 +255,9 @@ function AverPortfolioChart({
           if (a.time > b.time) return 1;
           return 0;
         });
+      
       if (markers.length > 0) {
-        if (!markersPluginRef.current) {
-          markersPluginRef.current = createSeriesMarkers(seriesRef.current, markers as any);
-        } else {
-          markersPluginRef.current.setMarkers(markers as any);
-        }
+        seriesRef.current.setMarkers(markers as any);
       }
     }
   }, [executionEvents]);
@@ -679,25 +708,25 @@ export default function PortfolioViewV2({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('ticker');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [equityHistory, setEquityHistory] = useState<EquityHistoryRecord[]>([]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      const unsub = equityService.subscribeHistory(user.uid, timeframe as any, (records) => {
+        setEquityHistory(records);
+      });
+      return () => unsub();
+    }
+  }, [user?.uid, timeframe]);
 
   const tvChartData = useMemo(() => {
-    if (!user?.snapshots || user.snapshots.length === 0) return [];
-    
-    // Sort snapshots ascending
-    const sorted = [...user.snapshots].sort((a, b) => {
-      const aTime = (a.timestamp as any)?.seconds || (a.timestamp as any)?._seconds || (new Date(a.timestamp).getTime() / 1000);
-      const bTime = (b.timestamp as any)?.seconds || (b.timestamp as any)?._seconds || (new Date(b.timestamp).getTime() / 1000);
-      return aTime - bTime;
-    });
-
-    return sorted.map(snap => {
-      const timeInSeconds = (snap.timestamp as any)?.seconds || (snap.timestamp as any)?._seconds || Math.floor(new Date(snap.timestamp).getTime() / 1000);
+    return equityHistory.map(record => {
       return {
-        time: timeInSeconds,
-        value: snap.totalValue
+        time: record.timestamp.seconds,
+        value: record.totalNetBalance
       };
     });
-  }, [user?.snapshots, timeframe]);
+  }, [equityHistory]);
 
   const mergedChartData = tvChartData;
 
@@ -1176,30 +1205,30 @@ export default function PortfolioViewV2({
             </div>
           </div>
 
-          {/* Dynamic OHLC Output Grid */}
+          {/* Dynamic Equity Output Grid */}
           <div className="grid grid-cols-4 gap-2 bg-[#080B11]/60 p-3 border border-white/[0.04] rounded-2xl font-sans text-[10px] text-center">
             <div>
-              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">Open</div>
+              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">Equity</div>
               <strong className="text-slate-200 font-semibold block font-mono">
-                {hoveredOHLC ? `$${Math.round(hoveredOHLC.open).toLocaleString()}` : '--'}
+                {hoveredOHLC ? `$${Math.round(hoveredOHLC.value).toLocaleString()}` : '--'}
               </strong>
             </div>
             <div>
-              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">High</div>
-              <strong className="text-[#00D09C] font-semibold block font-mono">
-                {hoveredOHLC ? `$${Math.round(hoveredOHLC.high).toLocaleString()}` : '--'}
+              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">Change</div>
+              <strong className={`font-semibold block font-mono ${hoveredOHLC ? (hoveredOHLC.change >= 0 ? 'text-[#00D09C]' : 'text-[#FF6B6B]') : 'text-slate-200'}`}>
+                {hoveredOHLC ? `${hoveredOHLC.change >= 0 ? '+' : ''}$${Math.round(hoveredOHLC.change).toLocaleString()}` : '--'}
               </strong>
             </div>
             <div>
-              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">Low</div>
-              <strong className="text-[#FF6B6B] font-semibold block font-mono">
-                {hoveredOHLC ? `$${Math.round(hoveredOHLC.low).toLocaleString()}` : '--'}
+              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">% Gain</div>
+              <strong className={`font-semibold block font-mono ${hoveredOHLC ? (hoveredOHLC.changePercent >= 0 ? 'text-[#00D09C]' : 'text-[#FF6B6B]') : 'text-slate-200'}`}>
+                {hoveredOHLC ? `${hoveredOHLC.changePercent >= 0 ? '+' : ''}${hoveredOHLC.changePercent.toFixed(2)}%` : '--'}
               </strong>
             </div>
             <div>
-              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">Close</div>
-              <strong className={`font-semibold block font-mono ${hoveredOHLC ? (hoveredOHLC.close >= hoveredOHLC.open ? 'text-[#00D09C]' : 'text-[#FF6B6B]') : 'text-slate-200'}`}>
-                {hoveredOHLC ? `$${Math.round(hoveredOHLC.close).toLocaleString()}` : '--'}
+              <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5 tracking-wider">Time</div>
+              <strong className="text-slate-200 font-semibold block font-mono">
+                {hoveredOHLC ? new Date(hoveredOHLC.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
               </strong>
             </div>
           </div>

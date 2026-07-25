@@ -73,7 +73,8 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     deleteConfiguration, 
     duplicateConfiguration, 
     activateConfiguration,
-    liveTradePrices 
+    liveTradePrices,
+    engineStatus
   } = useContext(TradingEngineContext);
   const isDark = theme === 'dark';
 
@@ -195,10 +196,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const displayCpuUsage = !isSessionActive ? 0 : cpuUsage;
   const displayMemoryUsage = !isSessionActive ? 0 : memoryUsage;
   const displayNeuralCycles = !isSessionActive ? 0 : neuralCycles;
-  const displayEngineState = !isSessionActive ? 'IDLE' : engineState;
+  const displayEngineState = engineStatus.state;
   const displayThinkingIdea = !isSessionActive 
     ? (hasInsufficientFunds ? 'Insufficient funds. Deposit funds to start AI trading.' : 'Neural core offline. Standby for market sync...') 
-    : liveThinkingIdea;
+    : (engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? engineStatus.reason : liveThinkingIdea);
 
   // Layout helpers
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
@@ -578,6 +579,14 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
             isDark={isDark}
           />
           <SidebarButton 
+            active={activeView === 'RECOMMENDATIONS'} 
+            onClick={() => setActiveView('RECOMMENDATIONS')} 
+            icon={<Zap className="w-4 h-4" />} 
+            label="AI Recommendations" 
+            badge={pendingRecommendations.length > 0 ? String(pendingRecommendations.length) : undefined}
+            isDark={isDark}
+          />
+          <SidebarButton 
             active={activeView === 'TRADES'} 
             onClick={() => setActiveView('TRADES')} 
             icon={<Briefcase className="w-4 h-4" />} 
@@ -626,6 +635,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <AiWorkspaceHeader 
                     session={session} 
+                    engineStatus={engineStatus}
                     onStart={handleStartSession} 
                     onEnd={handleEndSession} 
                     isDark={isDark}
@@ -638,9 +648,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     <div>
                       <span className={textSecondary}>ENGINE STATUS</span>
                       <p className={`font-black uppercase mt-1 ${
-                        displayEngineState === 'SCANNING' || displayEngineState === 'MONITORING' ? 'text-[#00D09C]' :
+                        displayEngineState === 'SESSION_SCANNING' || displayEngineState === 'MONITORING' ? 'text-[#00D09C]' :
                         displayEngineState === 'ANALYZING' || displayEngineState === 'GENERATING' ? 'text-amber-500' :
-                        displayEngineState === 'WAITING_DECISION' ? 'text-blue-500' : 'text-slate-500'
+                        displayEngineState === 'WAITING_DECISION' ? 'text-blue-500' : 
+                        displayEngineState === 'SLEEPING' || displayEngineState === 'COOLING_BREAK' ? 'text-amber-500 animate-pulse' : 'text-slate-500'
                       }`}>{displayEngineState.replace('_', ' ')}</p>
                     </div>
                     <div className="w-px bg-white/5 self-stretch" />
@@ -729,11 +740,15 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 <div className={`p-4 rounded-2xl border ${cardClasses} flex items-center justify-between gap-4 overflow-hidden bg-gradient-to-r from-teal-500/5 to-transparent`}>
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-[#00D09C]/10 text-[#00D09C] shrink-0 animate-pulse">
-                      <Cpu className="w-5 h-5" />
+                      {engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? (
+                        <Clock className="w-5 h-5 text-amber-500" />
+                      ) : (
+                        <Cpu className="w-5 h-5" />
+                      )}
                     </div>
                     <div>
                       <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider block`}>
-                        Neural Decision Engine (Think-Tank)
+                        {engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? 'Scheduler: Operating Window Gate' : 'Neural Decision Engine (Think-Tank)'}
                       </span>
                       <AnimatePresence mode="wait">
                         <motion.span
@@ -751,10 +766,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                   </div>
                   <div className="flex items-center gap-2 font-mono text-[9px] text-slate-500 whitespace-nowrap">
                     <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00D09C] opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00D09C]"></span>
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${engineStatus.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'} opacity-75`}></span>
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${engineStatus.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'}`}></span>
                     </span>
-                    CORE AGENT LIVE
+                    {engineStatus.state === 'SESSION_SCANNING' ? 'CORE AGENT LIVE' : engineStatus.state === 'SLEEPING' ? 'CORE AGENT SLEEPING' : 'CORE AGENT COOLING'}
                   </div>
                 </div>
 
@@ -811,6 +826,15 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 monitoredMarkets={configs.find(c => c.id === activeConfigId)?.aiTradingRules.assetSelection || []}
                 onToggleMarket={handleToggleMarket}
                 isDark={isDark}
+              />
+            )}
+
+            {activeView === 'RECOMMENDATIONS' && (
+              <AiRecommendationList 
+                recommendations={recommendations} 
+                isDark={isDark} 
+                session={session}
+                schedule={configs.find(c => c.id === activeConfigId)?.schedule || config?.schedule}
               />
             )}
 

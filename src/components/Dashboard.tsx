@@ -989,7 +989,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     </div>
       
       {/* Persistent Bottom Navigation - Conditional Rendering */}
-      {!isFullScreen && activeTab !== 'coin-details' && !(activeTab === 'portfolio' && (portfolioViewMode === 'vault' || portfolioViewMode === 'asset-stats')) && (
+      {!isFullScreen && activeTab !== 'coin-details' && activeTab !== 'events' && activeTab !== 'events-promos' && activeTab !== 'support' && !(activeTab === 'portfolio' && (portfolioViewMode === 'vault' || portfolioViewMode === 'asset-stats')) && (
         <>
           <div className="h-32 flex-shrink-0 lg:hidden" aria-hidden="true" />
           <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />

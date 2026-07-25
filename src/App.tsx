@@ -10,7 +10,6 @@ import Features from './components/Features';
 import Stats from './components/Stats';
 import QuickHub from './components/QuickHub';
 import Footer from './components/Footer';
-import BackToTop from './components/BackToTop';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
@@ -20,6 +19,7 @@ import BonusCenter from './components/BonusCenter';
 import MarketHighlightsPage from './components/MarketHighlightsPage';
 import EventsPromosPage from './components/EventsPromosPage';
 import AdminLayout from './components/admin/AdminLayout';
+import AdminAuthGate from './components/admin/AdminAuthGate';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
@@ -157,10 +157,12 @@ function AppContent() {
   const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
   if (isAdminRoute) {
     return (
-      <AdminLayout 
-        theme={theme} 
-        onToggleTheme={() => handlePreferenceChange('theme', theme === 'dark' ? 'light' : 'dark')} 
-      />
+      <AdminAuthGate theme={theme} onBackToApp={() => window.location.href = '/'}>
+        <AdminLayout 
+          theme={theme} 
+          onToggleTheme={() => handlePreferenceChange('theme', theme === 'dark' ? 'light' : 'dark')} 
+        />
+      </AdminAuthGate>
     );
   }
 
@@ -313,7 +315,6 @@ function AppContent() {
 
             {/* Detailed Footer */}
             <Footer theme={theme} onNavigate={handleNavigate} />
-            <BackToTop />
             
             {/* Floating Preferences & FAQ Quick Hub Console */}
             <QuickHub

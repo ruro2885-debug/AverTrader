@@ -12,7 +12,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AiRecommendation, AiSession } from '../../types/aiTrading';
+import { AiRecommendation, AiSession, TradingSchedule } from '../../types/aiTrading';
 import { usePreferences } from '../../contexts/PreferencesContext';
 import { aiTradingService } from '../../services/aiTradingService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -21,9 +21,10 @@ interface AiRecommendationListProps {
   recommendations: AiRecommendation[];
   isDark: boolean;
   session: AiSession | null;
+  schedule?: TradingSchedule;
 }
 
-export default function AiRecommendationList({ recommendations, isDark, session }: AiRecommendationListProps) {
+export default function AiRecommendationList({ recommendations, isDark, session, schedule }: AiRecommendationListProps) {
   const [selectedRec, setSelectedRec] = useState<AiRecommendation | null>(null);
   
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';
@@ -68,7 +69,8 @@ export default function AiRecommendationList({ recommendations, isDark, session 
           <RecommendationDetailModal 
             rec={selectedRec} 
             onClose={() => setSelectedRec(null)} 
-            isDark={isDark} 
+            isDark={isDark}
+            schedule={schedule}
           />
         )}
       </AnimatePresence>
@@ -135,7 +137,7 @@ function RecommendationItem({ rec, isDark, onClick }: { rec: AiRecommendation, i
   );
 }
 
-function RecommendationDetailModal({ rec, onClose, isDark }: { rec: AiRecommendation, onClose: () => void, isDark: boolean }) {
+function RecommendationDetailModal({ rec, onClose, isDark, schedule }: { rec: AiRecommendation, onClose: () => void, isDark: boolean, schedule?: TradingSchedule }) {
   const { user, addNotification } = useAuth();
   const { formatCurrency } = usePreferences();
   const [executing, setExecuting] = useState(false);
@@ -149,11 +151,11 @@ function RecommendationDetailModal({ rec, onClose, isDark }: { rec: AiRecommenda
     if (!user) return;
     setExecuting(true);
     try {
-      await aiTradingService.executeTrade(user.uid, rec, quantity);
+      await aiTradingService.executeTrade(user.uid, rec, quantity, schedule);
       addNotification('trading', 'medium', 'Trade Executed', `${rec.suggestedAction} ${quantity} ${rec.asset} order successfully placed.`);
       onClose();
-    } catch (error) {
-      addNotification('trading', 'high', 'Execution Failed', 'Could not process trade order.');
+    } catch (error: any) {
+      addNotification('trading', 'high', 'Execution Failed', error.message || 'Could not process trade order.');
     } finally {
       setExecuting(false);
     }

@@ -1,80 +1,173 @@
-import React from 'react';
-import { ShieldCheck, UserCheck, AlertTriangle, FileText, CheckCircle2, XCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { 
+  UserCheck, 
+  Search, 
+  CheckCircle2, 
+  XCircle, 
+  FileText, 
+  ExternalLink, 
+  User, 
+  ShieldCheck, 
+  Clock,
+  Filter,
+  MoreVertical,
+  ChevronLeft,
+  ChevronRight
+} from 'lucide-react';
+import { adminService, AdminKycSubmission } from '../../services/adminService';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface AdminKycProps {
-  theme: string;
+  theme: 'light' | 'dark';
 }
 
 export default function AdminKyc({ theme }: AdminKycProps) {
-  const cardBg = theme === 'dark' ? 'bg-[#12161c] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900';
-  const textSecondary = theme === 'dark' ? 'text-slate-400' : 'text-slate-600';
+  const { user: admin } = useAuth();
+  const [kycList, setKycList] = useState<AdminKycSubmission[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    const unsub = adminService.subscribeKyc(setKycList);
+    return unsub;
+  }, []);
+
+  const handleUpdateStatus = async (id: string, status: AdminKycSubmission['status']) => {
+    if (!admin) return;
+    if (confirm(`Set KYC ${id} status to ${status}?`)) {
+      await adminService.updateKycStatus(id, status, admin.uid, admin.email!);
+    }
+  };
+
+  const filtered = kycList.filter(k => 
+    (k.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (k.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="space-y-6">
-      <div className={`p-6 rounded-2xl border ${cardBg} shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4`}>
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-xs font-mono font-bold text-amber-500 uppercase tracking-widest px-2.5 py-1 rounded-md bg-amber-500/10 inline-block mb-2">
-            Compliance & Verification
-          </span>
-          <h1 className="text-2xl font-black tracking-tight">KYC Review & Approvals</h1>
-          <p className={`text-sm ${textSecondary} mt-1`}>
-            Verify client identity documents, AML screening flags, and account accreditation tiers.
-          </p>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-500 text-xs font-bold font-mono">
-            38 Pending Verifications
-          </span>
+          <h2 className="text-2xl font-bold tracking-tight">KYC Verification Hub</h2>
+          <p className="text-sm text-slate-500">Conduct identity reviews and tier promotion authorizations.</p>
         </div>
       </div>
 
-      <div className={`p-6 rounded-2xl border ${cardBg} shadow-sm`}>
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold">Pending KYC Submissions</h3>
-          <span className="text-xs font-mono text-amber-500">Tier 2 & Institutional</span>
+      <div className="flex flex-col md:flex-row gap-4">
+        <div className="relative flex-1 group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-emerald-500 transition-colors" />
+          <input 
+            type="text" 
+            placeholder="Search by name or email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-[#0D1117] border border-white/[0.05] rounded-xl pl-12 pr-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+          />
         </div>
+        <button className="bg-[#0D1117] border border-white/[0.05] rounded-xl px-4 py-3 text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-2 font-bold uppercase tracking-widest text-[10px]">
+          Tier: All
+        </button>
+      </div>
 
-        <div className="space-y-4">
-          {[
-            { name: 'Sarah FinTech', email: 'sarah.fin@example.com', tier: 'Tier 2 (Enhanced)', submitted: '8 mins ago', docs: ['Passport', 'Proof of Address'] },
-            { name: 'Marcus Vance', email: 'marcus.v@example.com', tier: 'Tier 3 (Institutional)', submitted: '42 mins ago', docs: ['Corporate Articles', 'Beneficial Ownership'] },
-            { name: 'Elena Rostova', email: 'elena.rostova@example.com', tier: 'Tier 2 (Enhanced)', submitted: '2 hours ago', docs: ['Driver License', 'Bank Statement'] },
-          ].map((item, idx) => (
-            <div key={idx} className={`p-5 rounded-2xl border ${theme === 'dark' ? 'border-slate-800/80 bg-slate-900/40' : 'border-slate-100 bg-slate-50/50'} flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4`}>
-              <div className="flex items-start space-x-4">
-                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold text-base shrink-0">
-                  {item.name.charAt(0)}
-                </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h4 className="font-bold text-base">{item.name}</h4>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-500">{item.tier}</span>
-                  </div>
-                  <p className={`text-xs ${textSecondary} mt-0.5`}>{item.email} • Submitted {item.submitted}</p>
-                  <div className="flex items-center space-x-2 mt-3">
-                    {item.docs.map((doc, dIdx) => (
-                      <span key={dIdx} className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium ${theme === 'dark' ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-700'}`}>
-                        <FileText className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>{doc}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3 w-full lg:w-auto justify-end">
-                <button className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-xs font-bold transition-colors">
-                  <XCircle className="w-4 h-4" />
-                  <span>Reject</span>
-                </button>
-                <button className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 text-xs font-bold transition-colors shadow-md">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Approve KYC</span>
-                </button>
-              </div>
-            </div>
-          ))}
+      <div className="bg-[#0D1117] border border-white/[0.05] rounded-[32px] overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-white/[0.03] bg-white/[0.01]">
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Submission Profile</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Verification Tier</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Documents</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Review Status</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Decision</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.02]">
+              {filtered.length > 0 ? filtered.map((k) => (
+                <tr key={k.id} className="hover:bg-white/[0.01] transition-colors group">
+                  <td className="px-6 py-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center text-white border border-white/5 font-bold">
+                        {k.name?.[0]?.toUpperCase() || 'U'}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white">{k.name}</p>
+                        <p className="text-[10px] text-slate-500 font-medium">{k.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <span className="px-2.5 py-1 bg-white/5 text-slate-400 rounded-lg text-[10px] font-bold tracking-widest uppercase border border-white/5">
+                      {k.tier}
+                    </span>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="flex gap-1">
+                      {k.documents?.map((doc, i) => (
+                        <div key={i} className="p-1.5 bg-indigo-500/10 rounded-lg text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer" title={doc}>
+                          <FileText className="w-4 h-4" />
+                        </div>
+                      ))}
+                      {!k.documents?.length && <span className="text-xs text-slate-600">No files</span>}
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className={`flex items-center gap-2 px-2.5 py-1 rounded-lg w-fit text-[10px] font-bold tracking-widest uppercase ${
+                      k.status === 'Approved' ? 'bg-emerald-500/10 text-emerald-500' : 
+                      k.status === 'Rejected' ? 'bg-red-500/10 text-red-500' : 
+                      'bg-amber-500/10 text-amber-500'
+                    }`}>
+                      {k.status}
+                    </div>
+                  </td>
+                  <td className="px-6 py-5 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {k.status === 'Pending' && (
+                        <>
+                          <button 
+                            onClick={() => handleUpdateStatus(k.id, 'Approved')}
+                            className="p-2 hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-500 rounded-lg transition-all"
+                            title="Approve KYC"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleUpdateStatus(k.id, 'Rejected')}
+                            className="p-2 hover:bg-red-500/10 text-slate-400 hover:text-red-500 rounded-lg transition-all"
+                            title="Reject KYC"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                      <button className="p-2 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-all">
+                        <ExternalLink className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan={5} className="px-6 py-24 text-center">
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="w-20 h-20 bg-slate-900/50 rounded-[28px] flex items-center justify-center border border-white/[0.03]">
+                        <UserCheck className="w-10 h-10 text-slate-800" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white mb-1">No KYC Reviews Pending</h3>
+                        <p className="text-sm text-slate-500 max-w-xs mx-auto">
+                          New user verification submissions will appear here for analyst review and tier authorization.
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
+
     </div>
   );
 }

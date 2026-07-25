@@ -19,8 +19,8 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     category: 'Trading Competition',
     status: 'LIVE',
     featured: true,
-    bannerUrl: 'https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1200&auto=format&fit=crop',
-    heroGradient: 'from-amber-500/30 via-purple-600/20 to-[#07090E]',
+    bannerUrl: 'https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1600&auto=format&fit=crop',
+    heroGradient: 'from-amber-500/30 via-purple-600/20 to-[#03060D]',
     accentColor: '#F59E0B',
     totalRewardPool: 500000,
     rewardToken: 'USDT',
@@ -79,8 +79,8 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     category: 'Airdrop Sprint',
     status: 'LIVE',
     featured: true,
-    bannerUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1200&auto=format&fit=crop',
-    heroGradient: 'from-purple-600/30 via-indigo-600/20 to-[#07090E]',
+    bannerUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1600&auto=format&fit=crop',
+    heroGradient: 'from-purple-600/30 via-indigo-600/20 to-[#03060D]',
     accentColor: '#8B5CF6',
     totalRewardPool: 250000,
     rewardToken: 'AVR',
@@ -131,10 +131,10 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     title: 'Solana Ecosystem Yield Carnival',
     subtitle: 'Trade SOL pairs with 0% maker fees, earn up to 38.5% APY on SOL vault deposits, and win SOL rewards.',
     category: 'Staking & Yield',
-    status: 'LIVE',
-    featured: false,
-    bannerUrl: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=1200&auto=format&fit=crop',
-    heroGradient: 'from-emerald-500/30 via-teal-600/20 to-[#07090E]',
+    status: 'ENDING_SOON',
+    featured: true,
+    bannerUrl: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=1600&auto=format&fit=crop',
+    heroGradient: 'from-emerald-500/30 via-teal-600/20 to-[#03060D]',
     accentColor: '#00D09C',
     totalRewardPool: 150000,
     rewardToken: 'SOL',
@@ -144,7 +144,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
       { title: 'Boosted Vault APY', amount: '38.5% APY', subtext: '7-day flexible SOL vault', iconName: 'trophy' }
     ],
     startTime: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    endTime: new Date(Date.now() + 18 * 60 * 60 * 1000).toISOString(), // < 24h => Ending Soon
+    endTime: new Date(Date.now() + 5 * 60 * 60 * 1000 + 42 * 60 * 1000).toISOString(), // ~5 hours left
     participantCount: 18920,
     maxParticipants: 25000,
     overview: `Celebrate Solana high-throughput liquidity on Aver. Stake SOL in high-yield neural vaults, enjoy zero gas/maker fees across all SOL spot and futures pairs, and win a portion of 1,000 SOL in prize pools.`,
@@ -173,7 +173,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     faqs: [
       { question: 'Is my SOL vault deposit locked?', answer: 'No! The Solana Yield Vault is 100% flexible. You can withdraw your SOL and accrued yield anytime.' }
     ],
-    tags: ['Solana', '38% APY', 'Zero Fee', 'SOL']
+    tags: ['Ending Soon', '38.5% APY', 'Zero Fee', 'SOL']
   },
   {
     id: 'vip_pioneer_referral_quest',
@@ -182,8 +182,8 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     category: 'VIP Quest',
     status: 'LIVE',
     featured: false,
-    bannerUrl: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?q=80&w=1200&auto=format&fit=crop',
-    heroGradient: 'from-blue-600/30 via-indigo-700/20 to-[#07090E]',
+    bannerUrl: 'https://images.unsplash.com/photo-1639762681057-408e52192e55?q=80&w=1600&auto=format&fit=crop',
+    heroGradient: 'from-blue-600/30 via-indigo-700/20 to-[#03060D]',
     accentColor: '#3B82F6',
     totalRewardPool: 100000,
     rewardToken: 'USDT',
@@ -230,8 +230,8 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     category: 'New Listing',
     status: 'UPCOMING',
     featured: true,
-    bannerUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop',
-    heroGradient: 'from-orange-500/30 via-amber-600/20 to-[#07090E]',
+    bannerUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1600&auto=format&fit=crop',
+    heroGradient: 'from-orange-500/30 via-amber-600/20 to-[#03060D]',
     accentColor: '#F97316',
     totalRewardPool: 300000,
     rewardToken: 'BTC',
@@ -263,6 +263,81 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     terms: ['Pre-registered users receive 1.5x ticket multipliers.'],
     faqs: [{ question: 'When does BTC Gala start?', answer: 'Event starts in 48 hours. Pre-register now!' }],
     tags: ['Bitcoin', 'BTC', 'Gala', 'Upcoming']
+  },
+  {
+    id: 'ethereum_layer2_staking_odyssey',
+    title: 'Ethereum Layer-2 Staking Odyssey',
+    subtitle: 'Lock stETH and ETH L2 liquid staking derivatives for 28% boosted APR and zero unstaking queue delays.',
+    category: 'Staking & Yield',
+    status: 'UPCOMING',
+    featured: false,
+    bannerUrl: 'https://images.unsplash.com/photo-1622979135225-d2ba269bc1bd?q=80&w=1600&auto=format&fit=crop',
+    heroGradient: 'from-cyan-500/30 via-blue-600/20 to-[#03060D]',
+    accentColor: '#06B6D4',
+    totalRewardPool: 180000,
+    rewardToken: 'ETH',
+    rewardCards: [
+      { title: 'Boosted Staking Pool', amount: '50 ETH Pool', subtext: 'Distributed across L2 stakers', iconName: 'coins' },
+      { title: 'Instant Liquidity', amount: '0 Unstaking Lock', subtext: 'Instant swap back to native ETH', iconName: 'zap' }
+    ],
+    startTime: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
+    endTime: new Date(Date.now() + 18 * 24 * 60 * 60 * 1000).toISOString(),
+    participantCount: 12840,
+    maxParticipants: 30000,
+    overview: `Experience instant Ethereum liquid staking on Arbitrum, Optimism, and Base. Earn 28% boosted APR without locking capital.`,
+    eligibilityRequirements: [
+      { id: 'pre_reg_eth', title: 'Pre-register for ETH Odyssey', completed: false, requiredAction: 'Pre-Register', actionType: 'quiz' }
+    ],
+    stepGuide: [
+      { stepNumber: 1, title: 'Pre-Register', description: 'Lock in your 28% yield boost slot before cap is reached.' },
+      { stepNumber: 2, title: 'Deposit ETH', description: 'Deposit ETH or stETH into liquid vault.' }
+    ],
+    prizeBreakdown: [
+      { rankRange: 'Top Stakers', reward: '20 ETH', percentage: '40%', badge: 'gold' },
+      { rankRange: 'All Qualifiers', reward: '30 ETH', percentage: '60%', badge: 'silver' }
+    ],
+    timeline: [
+      { title: 'Pre-Registration', dateRange: 'Jul 24 - Jul 27, 2026', status: 'ACTIVE', description: 'Whitelist open.' },
+      { title: 'Staking Vault Launch', dateRange: 'Jul 28, 2026', status: 'UPCOMING', description: 'Vault opens.' }
+    ],
+    terms: ['Liquid staking rewards compound automatically every 8 hours.'],
+    faqs: [{ question: 'Can I withdraw my ETH anytime?', answer: 'Yes, liquid vault shares are fully tradable with zero lockup.' }],
+    tags: ['Ethereum', 'Layer 2', '28% APR', 'Staking']
+  },
+  {
+    id: 'alpha_quant_algo_sprint_2026',
+    title: 'Alpha Quant HFT Trading Sprint',
+    subtitle: 'Historical high-frequency algorithmic tournament. $200,000 USDT settled directly to winning quant vaults.',
+    category: 'Trading Competition',
+    status: 'COMPLETED',
+    featured: false,
+    bannerUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1600&auto=format&fit=crop',
+    heroGradient: 'from-emerald-600/20 via-slate-800/20 to-[#03060D]',
+    accentColor: '#10B981',
+    totalRewardPool: 200000,
+    rewardToken: 'USDT',
+    rewardCards: [
+      { title: 'Settled Prize Pool', amount: '$200,000 USDT', subtext: 'Fully distributed on Jul 14, 2026', iconName: 'trophy' },
+      { title: 'Winner PnL Record', amount: '+1,420% PnL', subtext: 'Achieved by Algo Vault #09', iconName: 'award' }
+    ],
+    startTime: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+    endTime: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    participantCount: 45200,
+    maxParticipants: 50000,
+    overview: `The Alpha Quant HFT Sprint was successfully completed. Over $200,000 in rewards were settled directly to 1,200 top quant traders and AI copilot users.`,
+    eligibilityRequirements: [],
+    stepGuide: [],
+    prizeBreakdown: [
+      { rankRange: '1st Place Winner', reward: '$60,000 USDT', percentage: '30%', badge: 'gold' },
+      { rankRange: 'Top 10 Qualifiers', reward: '$80,000 USDT', percentage: '40%', badge: 'silver' },
+      { rankRange: 'Community Pool', reward: '$60,000 USDT', percentage: '30%', badge: 'bronze' }
+    ],
+    timeline: [
+      { title: 'Tournament Concluded', dateRange: 'Jul 14, 2026', status: 'COMPLETED', description: 'Final payouts verified on-chain.' }
+    ],
+    terms: ['Event completed. All prizes paid.'],
+    faqs: [{ question: 'Where can I see the final leaderboard?', answer: 'Leaderboard records are permanently stored in Aver Vault History.' }],
+    tags: ['Completed', 'Verified', '$200K Settled']
   }
 ];
 

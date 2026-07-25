@@ -5,13 +5,40 @@ export type RecommendationStatus = 'PENDING' | 'EXECUTED' | 'DISMISSED' | 'EXPIR
 export type TradeStatus = 'OPEN' | 'CLOSED';
 export type RiskRating = 'LOW' | 'MEDIUM' | 'HIGH';
 
-export interface TradingSchedule {
-  sessions: { start: string; end: string }[];
-  weekdays: boolean;
-  weekends: boolean;
+export type MarketCategory = 'Crypto' | 'Stocks' | 'Forex' | 'Indices' | 'Commodities';
+
+export interface OperatingWindow {
+  id: string;
+  startTime: string; // HH:mm
+  endTime: string; // HH:mm
+  days: string[] | 'Every Day';
+  markets: MarketCategory[] | 'All Markets';
   timezone: string;
-  breakPeriods: { start: string; end: string }[];
-  excludeHolidays: boolean;
+  enabled: boolean;
+}
+
+export interface CoolingBreak {
+  id: string;
+  startTime: string;
+  endTime: string;
+  days: string[] | 'Every Day';
+  enabled: boolean;
+}
+
+export interface TradingSchedule {
+  enabled: boolean; // If false, AI operates continuously (24/7)
+  operatingWindows: OperatingWindow[];
+  coolingBreaks: CoolingBreak[];
+  marketCalendar: Record<string, { excludeHolidays: boolean }>;
+  monitorOutsideWindow?: boolean;
+  
+  // Legacy fields preserved for backward compatibility during migration
+  sessions?: { start: string; end: string }[];
+  weekdays?: boolean;
+  weekends?: boolean;
+  timezone?: string;
+  breakPeriods?: { start: string; end: string }[];
+  excludeHolidays?: boolean;
 }
 
 export interface RiskControls {
@@ -152,6 +179,7 @@ export interface AiRecommendation {
 export interface AiTrade {
   id: string;
   recommendationId: string;
+  sessionId?: string;
   userId: string;
   asset: string;
   entry: number;
@@ -170,8 +198,31 @@ export interface AiTrade {
   reasonClosed?: 'TARGET_HIT' | 'STOP_LOSS_HIT' | 'MANUAL' | 'AI_SUGGESTION';
 }
 
-export interface MarketScanStatus {
+export type MarketScanStatus = {
   asset: string;
   status: 'SCANNING' | 'COMPLETED' | 'WAITING' | 'NO_OPPORTUNITY' | 'RECOMMENDATION_ACTIVE';
   lastAnalyzed: Timestamp;
+}
+
+export type EquityTrigger = 
+  | 'SESSION_START' 
+  | 'SESSION_END' 
+  | 'SESSION_PAUSE' 
+  | 'SESSION_RESUME' 
+  | 'TRADE_OPEN' 
+  | 'TRADE_CLOSE' 
+  | 'TP_HIT' 
+  | 'SL_HIT' 
+  | 'DEPOSIT' 
+  | 'WITHDRAW' 
+  | 'MANUAL_ADJUSTMENT' 
+  | 'PERIODIC_UPDATE';
+
+export interface EquityHistoryRecord {
+  id?: string;
+  userId: string;
+  timestamp: Timestamp;
+  totalNetBalance: number;
+  sessionId?: string;
+  trigger: EquityTrigger;
 }

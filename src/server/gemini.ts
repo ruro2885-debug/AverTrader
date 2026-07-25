@@ -87,8 +87,8 @@ async function generateContentWithFallback(prompt: string, config?: any, default
                            errorMessage.includes('exceeded your current quota') ||
                            errorMessage.includes('RESOURCE_EXHAUSTED');
       if (isQuotaError) {
-        console.warn(`Quota limit reached for model ${model}. Aborting fallback model loop to trigger fast fallback.`);
-        break;
+        console.warn(`Quota limit reached for model ${model}. Trying next fallback model...`);
+        continue; // Don't break, try next model which might have quota
       }
       console.warn(`Gemini API call failed for model ${model}. Error: ${error.message}. Trying next fallback model...`);
     }
@@ -249,7 +249,7 @@ let intelligenceCache: {
   timestamp: number;
 } | null = null;
 
-const CACHE_DURATION = 15 * 60 * 1000; // Increased to 15 minutes
+const CACHE_DURATION = 60 * 60 * 1000; // Increased to 60 minutes to preserve quota
 
 export async function generateMarketIntelligence(currentPrices: any) {
   const now = Date.now();

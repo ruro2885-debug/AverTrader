@@ -16,54 +16,55 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email.lower() == 'ruro2885@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin'
+      );
+    }
+
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     // 3. User Profiles & Subcollections
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && (
+        !request.resource.data.keys().hasAny(['role']) || 
+        request.resource.data.role == 'user' || 
+        isAdmin()
+      );
+      allow update: if (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])) || isAdmin();
+      allow delete: if isAdmin();
 
-      match /holdings/{holdingId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /trades/{tradeId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /snapshots/{snapshotId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /aiPreferences/{prefId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /tradingConfig/{configId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /positions/{positionId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /activity/{activityId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /aiConfigurations/{configId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /portfolio/{docId} {
-        allow read, write: if isOwner(userId);
-      }
-      match /notifications/{notifId} {
-        allow read, write: if isOwner(userId);
-      }
-
-      // Recursive wildcard for all subcollections (holdings, trades, snapshots, etc.)
       match /{document=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
     }
 
-    // 4. User Bonus States
+    // 4. Admin Specific Collections
+    match /admin_audit_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+    match /admin_deposits/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /admin_withdrawals/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /admin_kyc/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /linked_wallets/{walletId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(request.resource.data.userId) || isAdmin();
+      allow update, delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // 5. User Bonus States
     match /wallets/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
     }
 
     match /userBonuses/{userId} {
@@ -114,7 +115,7 @@ service cloud.firestore {
     // 10. Global Events Hub
     match /events_hub/{eventId} {
       allow read, list: if true;
-      allow write, create, update, delete: if true;
+      allow write, create, update, delete: if isAdmin();
     }
   }
 }

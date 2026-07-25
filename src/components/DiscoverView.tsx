@@ -9,7 +9,7 @@ import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
 import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
-// Institutional-grade AI Strategies Dataset
+// Institutional-grade AI Strategies Dataset with Advisor Insights
 const AI_STRATEGIES = [
   {
     id: 'quantum-momentum',
@@ -17,9 +17,50 @@ const AI_STRATEGIES = [
     badge: "HFT Quantitative",
     tagline: "Micro-Arbitrage & Trend Acceleration Engine",
     description: "Executes micro-arbitrage and high-frequency trend-following using neural sentiment analysis across Tier-1 CEX order books and DEX liquidity pools.",
+    recommendationSummary: "Strongly recommended for your portfolio due to high current momentum in Tier-1 order books and optimal volatility compression.",
+    personalizedRecommendation: "Based on your $5,000 deposit target and moderate risk appetite, this strategy captures short-term upward acceleration without excessive leverage.",
+    marketSuitability: {
+      status: "Excellent",
+      reason: "High orderbook depth and upward volume skew make this ideal for trend continuation capture."
+    },
+    whenToUse: [
+      "Bullish trend breakouts with sustained volume",
+      "Low volatility compression before sharp expansion",
+      "Active institutional accumulation sessions"
+    ],
+    whenToAvoid: [
+      "Choppy sideways ranging markets",
+      "Low volume weekend trading hours",
+      "High-impact macroeconomic news release windows"
+    ],
+    compatibilityCheck: {
+      status: "Optimal",
+      advice: "Your current risk tolerance matches this strategy's medium volatility profile. No configuration adjustments needed."
+    },
+    configImpact: {
+      frequency: "High (~140 trades/day)",
+      riskExposure: "Moderate (5/10)",
+      positionSizing: "15% per trade allocation",
+      stopLoss: "Dynamic trailing stop @ 1.5%",
+      capitalAllocation: "80% active trading / 20% cash buffer"
+    },
+    activityEstimate: {
+      tradesPerDay: "120 - 150 trades",
+      avgDuration: "4.2 hours",
+      preferredAssets: ["BTC", "ETH", "SOL"]
+    },
+    comparisonWithActive: {
+      advantages: "Captures rapid breakout gains significantly faster than macro swing models.",
+      disadvantages: "Higher trade frequency incurs slightly higher gas and exchange routing fees."
+    },
+    simulations: {
+      normal: "+42.8% APY (+$2,140 / yr)",
+      bullish: "+68.4% APY (+$3,420 / yr)",
+      bearish: "+12.2% APY (+$610 / yr)"
+    },
     apy: "+42.8%",
     risk: "Medium",
-    riskScore: 5, // out of 10
+    riskScore: 5,
     users: "12,450",
     tvl: "$18.4M",
     successRate: "94.2%",
@@ -42,6 +83,46 @@ const AI_STRATEGIES = [
     badge: "Delta Neutral",
     tagline: "Cross-Venue Delta-Neutral Spread Harvester",
     description: "Captures instant price discrepancies between global exchanges while maintaining dynamic delta-neutral derivative hedges to neutralize market directional risk.",
+    recommendationSummary: "Recommended if you prefer steady, low-risk yield generation with zero directional market exposure.",
+    personalizedRecommendation: "Tailored for conservative risk profiles seeking consistent returns regardless of overall market direction.",
+    marketSuitability: {
+      status: "Good",
+      reason: "Persistent price spreads across decentralized and centralized venues provide reliable arbitrage opportunities."
+    },
+    whenToUse: [
+      "High volatility periods with venue price discrepancies",
+      "Sideways or uncertain macroeconomic sentiment",
+      "Capital preservation phases"
+    ],
+    whenToAvoid: [
+      "Extreme low volatility with tight uniform spreads",
+      "Periods of severe cross-exchange network congestion"
+    ],
+    compatibilityCheck: {
+      status: "Compatible",
+      advice: "Recommended to increase cash buffer to 30% to maximize delta-neutral margin efficiency."
+    },
+    configImpact: {
+      frequency: "Very High (~320 trades/day)",
+      riskExposure: "Low (2/10)",
+      positionSizing: "10% per spread execution",
+      stopLoss: "Instant convergence stop",
+      capitalAllocation: "90% active / 10% reserve"
+    },
+    activityEstimate: {
+      tradesPerDay: "300 - 350 trades",
+      avgDuration: "18 minutes",
+      preferredAssets: ["BTC", "ETH", "SOL", "AVAX"]
+    },
+    comparisonWithActive: {
+      advantages: "Virtually eliminates directional risk and drawdowns.",
+      disadvantages: "Lower absolute yield ceiling during explosive bull runs."
+    },
+    simulations: {
+      normal: "+35.2% APY (+$1,760 / yr)",
+      bullish: "+38.5% APY (+$1,925 / yr)",
+      bearish: "+34.1% APY (+$1,705 / yr)"
+    },
     apy: "+35.2%",
     risk: "Low",
     riskScore: 2,
@@ -67,6 +148,45 @@ const AI_STRATEGIES = [
     badge: "DeFi Yield",
     tagline: "Autonomous Concentrated Liquidity Router",
     description: "Dynamically rebalances automated liquidity provision across high-yield DeFi protocols with predictive impermanent loss hedging.",
+    recommendationSummary: "Recommended for yield maximization if you are comfortable with higher protocol and impermanent loss exposure.",
+    personalizedRecommendation: "Suited for investors looking to compound DeFi farming yields using automated predictive tick rebalancing.",
+    marketSuitability: {
+      status: "Neutral",
+      reason: "Current DEX trading fee volume is stable, offering moderate fee APRs with manageable impermanent loss risk."
+    },
+    whenToUse: [
+      "High volume trading ranges with strong fee generation",
+      "Expanding DeFi lending and staking yields"
+    ],
+    whenToAvoid: [
+      "One-sided directional token breakouts causing severe impermanent loss",
+      "Low fee-tier liquidity pools"
+    ],
+    compatibilityCheck: {
+      status: "Review Required",
+      advice: "Ensure your selected assets include stablepair or correlated pairs to minimize impermanent loss."
+    },
+    configImpact: {
+      frequency: "Automated Rebalance (~12/day)",
+      riskExposure: "High (8/10)",
+      positionSizing: "25% per pool range",
+      stopLoss: "Automated out-of-range exit",
+      capitalAllocation: "75% liquidity / 25% safety"
+    },
+    activityEstimate: {
+      tradesPerDay: "10 - 15 rebalances",
+      avgDuration: "2.5 days",
+      preferredAssets: ["ETH", "SOL", "USDC"]
+    },
+    comparisonWithActive: {
+      advantages: "Higher peak yields via automated fee compounding.",
+      disadvantages: "Higher exposure to impermanent loss during sudden market trends."
+    },
+    simulations: {
+      normal: "+51.5% APY (+$2,575 / yr)",
+      bullish: "+82.0% APY (+$4,100 / yr)",
+      bearish: "+18.4% APY (+$920 / yr)"
+    },
     apy: "+51.5%",
     risk: "High",
     riskScore: 8,
@@ -92,6 +212,44 @@ const AI_STRATEGIES = [
     badge: "Volatility Arbitrage",
     tagline: "Adaptive Skew & Options Volatility Engine",
     description: "Monitors derivatives skew, macro sentiment, and on-chain whale liquidations to capture explosive directional momentum on major crypto assets.",
+    recommendationSummary: "Recommended ahead of major economic data releases and high volatility breakout windows.",
+    personalizedRecommendation: "Ideal for growth-oriented portfolios looking to capitalize on derivatives mispricing and liquidations.",
+    marketSuitability: {
+      status: "Good",
+      reason: "Derivatives funding rates and put/call skews indicate impending volatility expansion."
+    },
+    whenToUse: [
+      "Upcoming macroeconomic releases (CPI, FOMC)",
+      "Derivative open interest expansion near resistance levels"
+    ],
+    whenToAvoid: [
+      "Dead summer quiet periods with low derivatives volume"
+    ],
+    compatibilityCheck: {
+      status: "Optimal",
+      advice: "Your portfolio balance is well-suited for options skew and liquidation hunting."
+    },
+    configImpact: {
+      frequency: "Moderate (~25 trades/day)",
+      riskExposure: "Medium-High (7/10)",
+      positionSizing: "20% per volatility burst",
+      stopLoss: "Trailing volatility stop @ 2.5%",
+      capitalAllocation: "70% active / 30% reserve"
+    },
+    activityEstimate: {
+      tradesPerDay: "20 - 30 trades",
+      avgDuration: "12.0 hours",
+      preferredAssets: ["BTC", "ETH"]
+    },
+    comparisonWithActive: {
+      advantages: "Excellent capture of explosive macro trend movements.",
+      disadvantages: "Occasional whipsaws during false breakout triggers."
+    },
+    simulations: {
+      normal: "+48.2% APY (+$2,410 / yr)",
+      bullish: "+94.5% APY (+$4,725 / yr)",
+      bearish: "+5.1% APY (+$255 / yr)"
+    },
     apy: "+48.2%",
     risk: "Medium-High",
     riskScore: 7,
@@ -139,6 +297,7 @@ export default function DiscoverView({
   const [activeStrategyIndex, setActiveStrategyIndex] = useState(0);
   const [selectedStrategy, setSelectedStrategy] = useState<typeof AI_STRATEGIES[0] | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isExplorerOpen, setIsExplorerOpen] = useState(false);
   const [simulatedAllocation, setSimulatedAllocation] = useState(2500);
 
   const activeStrategy = AI_STRATEGIES[activeStrategyIndex];
@@ -314,7 +473,7 @@ export default function DiscoverView({
           </div>
         </div>
 
-        {/* Right Col: Institutional-Grade Featured AI Strategies (7 Cols on lg) */}
+        {/* Institutional AI Strategies Summary Card */}
         <div className="lg:col-span-7">
           <div className="flex items-center justify-between mb-3">
             <h3 className={`text-lg font-bold ${textPrimary} flex items-center`}>
@@ -323,198 +482,63 @@ export default function DiscoverView({
             </h3>
             <span className="flex items-center text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5"></span>
-              Live Neural Models
+              Professional Suite
             </span>
           </div>
 
-          {/* Institutional Strategy Container Card */}
-          <div className={`rounded-[24px] p-5 sm:p-6 relative overflow-hidden transition-all duration-300 ${cardClasses} ${colors.borderHover} flex flex-col justify-between min-h-[440px]`}>
-            
-            {/* Ambient Background Gradient Glow */}
-            <div className={`absolute -top-24 -right-24 w-64 h-64 bg-gradient-to-br ${colors.glow} blur-[60px] rounded-full pointer-events-none`} />
+          <div className={`rounded-[20px] p-4 sm:p-5 relative overflow-hidden transition-all duration-300 ${cardClasses} border border-emerald-500/20`}>
+            {/* Ambient Background Glow */}
+            <div className="absolute -top-16 -right-16 w-48 h-48 bg-emerald-500/10 blur-[50px] rounded-full pointer-events-none" />
 
-            {/* Subtle Abstract Neural Wave Background SVG */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20 overflow-hidden" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="aiGraphGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
-                  <stop offset="50%" stopColor="#06b6d4" stopOpacity="0.2" />
-                  <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
-                </linearGradient>
-                <linearGradient id="waveLine" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#10b981" />
-                  <stop offset="50%" stopColor="#06b6d4" />
-                  <stop offset="100%" stopColor="#8b5cf6" />
-                </linearGradient>
-                <pattern id="gridPattern" width="24" height="24" patternUnits="userSpaceOnUse">
-                  <path d="M 24 0 L 0 0 0 24" fill="none" stroke="currentColor" strokeWidth="0.5" className={isDark ? "text-slate-700/30" : "text-slate-300/40"} />
-                </pattern>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#gridPattern)" />
-              <path 
-                d="M 0 160 Q 100 60, 200 120 T 400 80 T 600 140 L 600 300 L 0 300 Z" 
-                fill="url(#aiGraphGrad)" 
-              />
-              <path 
-                d="M 0 160 Q 100 60, 200 120 T 400 80 T 600 140" 
-                fill="none" 
-                stroke="url(#waveLine)" 
-                strokeWidth="2.5" 
-                strokeDasharray="4 2" 
-              />
-              <circle cx="200" cy="120" r="4" fill="#10b981" />
-              <circle cx="400" cy="80" r="4" fill="#06b6d4" />
-            </svg>
-
-            {/* Card Content Stack */}
-            <div className="relative z-10 space-y-5">
+            <div className="relative z-10 flex flex-col gap-3">
               
-              {/* Strategy Switcher Tabs */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar border-b border-white/5 pb-3">
-                {AI_STRATEGIES.map((strat, idx) => {
-                  const isActive = idx === activeStrategyIndex;
-                  return (
-                    <button
-                      key={strat.id}
-                      onClick={() => setActiveStrategyIndex(idx)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                        isActive
-                          ? (isDark ? 'bg-white/10 text-white border border-white/15 shadow-md' : 'bg-slate-900 text-white')
-                          : (isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-white/5' : 'text-slate-600 hover:bg-slate-100')
-                      }`}
-                    >
-                      <strat.icon className={`w-3.5 h-3.5 ${isActive ? colors.accentText : 'text-slate-400'}`} />
-                      <span>{strat.name.split(' ')[0]} {strat.name.split(' ')[1] || ''}</span>
-                    </button>
-                  );
-                })}
+              {/* Header: Icon, Title & Button */}
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/25 to-teal-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/20">
+                    <Bot className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className={`font-black text-base ${textPrimary} tracking-tight`}>Algorithmic Trading Command</h4>
+                    <p className={`text-[10px] font-semibold text-emerald-400`}>Multi-Venue Quantitative & Sentiment Engines</p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setIsExplorerOpen(true)}
+                  className="w-full sm:w-auto py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-1.5 flex-shrink-0"
+                >
+                  <Sparkles className="w-3 h-3 text-slate-950" />
+                  <span>Explore Strategies</span>
+                  <ArrowUpRight className="w-3 h-3 text-slate-950" />
+                </button>
               </div>
 
-              {/* Active Strategy Header & Icon */}
-              <AnimatePresence mode="wait">
-                <motion.div 
-                  key={activeStrategy.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2 }}
-                  className="space-y-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center space-x-3.5">
-                      {/* Logo Icon with Halo */}
-                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${colors.iconBg} backdrop-blur-md flex-shrink-0`}>
-                        <StrategyIcon className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <h4 className={`font-black text-lg ${textPrimary} tracking-tight`}>{activeStrategy.name}</h4>
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${colors.badgeBg} uppercase tracking-wider`}>
-                            {activeStrategy.badge}
-                          </span>
-                        </div>
-                        <p className={`text-xs font-semibold ${colors.accentText}`}>{activeStrategy.tagline}</p>
-                      </div>
-                    </div>
+              {/* Description */}
+              <p className={`text-xs ${textSecondary} leading-relaxed max-w-2xl`}>
+                Professional AI models for quantitative execution and risk optimization, tailored to your portfolio.
+              </p>
 
-                    {/* APY Hero Pill */}
-                    <div className="text-right flex-shrink-0 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-2xl backdrop-blur-md">
-                      <p className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-widest">Est. APY</p>
-                      <p className="text-lg font-black text-emerald-400 tracking-tight">{activeStrategy.apy}</p>
-                    </div>
-                  </div>
-
-                  {/* Concise Professional Explanation */}
-                  <p className={`text-xs ${textSecondary} leading-relaxed`}>
-                    {activeStrategy.description}
-                  </p>
-
-                  {/* Key Metrics Stat Chips Matrix */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
-                    {/* Stat 1: Win Rate */}
-                    <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-white/5' : 'bg-slate-50 border-slate-200/60'}`}>
-                      <span className={`text-[10px] font-medium ${textSecondary} block`}>Success Rate</span>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className={`text-xs font-black ${textPrimary}`}>{activeStrategy.successRate}</span>
-                      </div>
-                    </div>
-
-                    {/* Stat 2: Risk Profile */}
-                    <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-white/5' : 'bg-slate-50 border-slate-200/60'}`}>
-                      <span className={`text-[10px] font-medium ${textSecondary} block`}>Risk Profile</span>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className={`text-xs font-black ${
-                          activeStrategy.risk === 'Low' ? 'text-emerald-400' :
-                          activeStrategy.risk === 'Medium' ? 'text-amber-400' : 'text-rose-400'
-                        }`}>
-                          {activeStrategy.risk}
-                        </span>
-                        {/* 5-bar risk meter */}
-                        <div className="flex items-center gap-0.5">
-                          {[2, 4, 6, 8, 10].map(val => (
-                            <span 
-                              key={val} 
-                              className={`w-1 h-2 rounded-full ${
-                                val <= activeStrategy.riskScore 
-                                  ? (activeStrategy.riskScore <= 3 ? 'bg-emerald-400' : activeStrategy.riskScore <= 6 ? 'bg-amber-400' : 'bg-rose-400')
-                                  : 'bg-slate-700/40'
-                              }`} 
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Stat 3: Avg Hold Time */}
-                    <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-white/5' : 'bg-slate-50 border-slate-200/60'}`}>
-                      <span className={`text-[10px] font-medium ${textSecondary} block`}>Avg Duration</span>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <Clock className="w-3.5 h-3.5 text-blue-400" />
-                        <span className={`text-xs font-black ${textPrimary}`}>{activeStrategy.avgHoldTime}</span>
-                      </div>
-                    </div>
-
-                    {/* Stat 4: TVL / Active Users */}
-                    <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-slate-900/60 border-white/5' : 'bg-slate-50 border-slate-200/60'}`}>
-                      <span className={`text-[10px] font-medium ${textSecondary} block`}>Vault TVL</span>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-                        <span className={`text-xs font-black ${textPrimary}`}>{activeStrategy.tvl}</span>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              </AnimatePresence>
+              {/* Mini Tags */}
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/5">
+                <div className={`px-2.5 py-1 rounded-lg border text-[10px] font-medium flex items-center gap-1.5 ${isDark ? 'bg-white/5 border-white/5 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                  <span className="w-1 h-1 rounded-full bg-blue-400"></span>
+                  Trend Detection & Skew
+                </div>
+                <div className={`px-2.5 py-1 rounded-lg border text-[10px] font-medium flex items-center gap-1.5 ${isDark ? 'bg-white/5 border-white/5 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                  <span className="w-1 h-1 rounded-full bg-purple-400"></span>
+                  Conservative to High-Growth
+                </div>
+                <div className={`px-2.5 py-1 rounded-lg border text-[10px] font-medium flex items-center gap-1.5 ${isDark ? 'bg-white/5 border-white/5 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                  <span className="w-1 h-1 rounded-full bg-cyan-400"></span>
+                  BTC, ETH, SOL & DeFi
+                </div>
+                <div className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 bg-emerald-500/10 border-emerald-500/20 text-emerald-400`}>
+                  <Bot className="w-3 h-3" />
+                  4 Professional Models
+                </div>
+              </div>
             </div>
-
-            {/* Premium CTA Controls */}
-            <div className="relative z-10 pt-4 mt-4 border-t border-white/5 flex flex-col sm:flex-row items-center gap-2.5">
-              <button 
-                onClick={() => {
-                  setSelectedStrategy(activeStrategy);
-                  setIsModalVisible(true);
-                }}
-                className={`w-full sm:flex-1 py-3 px-4 rounded-xl text-xs font-extrabold text-white transition-all transform active:scale-[0.98] shadow-md flex items-center justify-center gap-2 ${colors.btnBg}`}
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Analyze Strategy Deep-Dive</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setSelectedStrategy(activeStrategy);
-                  setIsModalVisible(true);
-                }}
-                className={`w-full sm:w-auto py-3 px-4 rounded-xl text-xs font-bold transition-colors border ${
-                  isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-200' : 'border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-800'
-                } flex items-center justify-center gap-1.5`}
-              >
-                <span>Full Spec</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
           </div>
         </div>
 
@@ -583,7 +607,7 @@ export default function DiscoverView({
         ))}
       </motion.div>
       
-      {/* INSTITUTIONAL STRATEGY ANALYSIS MODAL */}
+      {/* INSTITUTIONAL STRATEGY ANALYSIS & ADVISOR MODAL */}
       <AnimatePresence>
         {isModalVisible && selectedStrategy && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -591,8 +615,8 @@ export default function DiscoverView({
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className={`w-full max-w-lg rounded-3xl p-6 sm:p-7 relative overflow-hidden shadow-2xl border ${
-                isDark ? 'bg-slate-900/95 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 sm:p-8 relative shadow-2xl border ${
+                isDark ? 'bg-slate-900/98 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
               {/* Top Accent Line */}
@@ -607,14 +631,14 @@ export default function DiscoverView({
               </button>
 
               {/* Header */}
-              <div className="flex items-center space-x-3.5 mb-5 pr-8">
+              <div className="flex items-center space-x-3.5 mb-6 pr-8">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
                   <selectedStrategy.icon className="w-6 h-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-black tracking-tight">{selectedStrategy.name}</h3>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <h3 className="text-xl font-black tracking-tight">{selectedStrategy.name}</h3>
+                    <span className="px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                       {selectedStrategy.badge}
                     </span>
                   </div>
@@ -622,64 +646,179 @@ export default function DiscoverView({
                 </div>
               </div>
 
-              {/* Key Metrics Grid */}
-              <div className="grid grid-cols-4 gap-2 p-3 rounded-2xl bg-white/5 border border-white/5 mb-5 text-center">
+              {/* 1. AI Recommendation Summary Card */}
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 mb-6 flex items-start gap-3">
+                <Sparkles className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className={`text-[10px] ${textSecondary}`}>Est. APY</p>
-                  <p className="text-sm font-black text-emerald-400 mt-0.5">{selectedStrategy.apy}</p>
-                </div>
-                <div>
-                  <p className={`text-[10px] ${textSecondary}`}>Sharpe</p>
-                  <p className="text-sm font-black text-cyan-400 mt-0.5">{selectedStrategy.sharpeRatio}</p>
-                </div>
-                <div>
-                  <p className={`text-[10px] ${textSecondary}`}>Win Rate</p>
-                  <p className="text-sm font-black text-purple-400 mt-0.5">{selectedStrategy.successRate}</p>
-                </div>
-                <div>
-                  <p className={`text-[10px] ${textSecondary}`}>Max DD</p>
-                  <p className="text-sm font-black text-rose-400 mt-0.5">{selectedStrategy.maxDrawdown}</p>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400 mb-1">AI Recommendation Insight</h4>
+                  <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                    {selectedStrategy.recommendationSummary}
+                  </p>
                 </div>
               </div>
 
-              {/* Algorithm Mechanism Breakdown */}
-              <div className="space-y-3 mb-6">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-emerald-400" />
-                  Execution Logic & Rules
-                </h4>
-                <div className="space-y-2">
-                  {selectedStrategy.executionSteps.map((step, idx) => (
-                    <div key={idx} className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 flex items-start space-x-2.5 text-xs">
-                      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-extrabold text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">
-                        {idx + 1}
-                      </span>
-                      <p className={`${textSecondary} leading-relaxed`}>{step}</p>
+              {/* 2. Why this strategy is recommended for you */}
+              <div className="space-y-4 mb-6">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                    <Bot className="w-4 h-4" />
+                    Why This Strategy Is Recommended For You
+                  </h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {selectedStrategy.personalizedRecommendation}
+                  </p>
+                </div>
+
+                {/* 3. Live Market Suitability */}
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Live Market Suitability</span>
+                    <p className="text-xs text-slate-200">{selectedStrategy.marketSuitability.reason}</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider ${
+                    selectedStrategy.marketSuitability.status === 'Excellent' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                    selectedStrategy.marketSuitability.status === 'Good' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' :
+                    'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  }`}>
+                    {selectedStrategy.marketSuitability.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* 4. When should I use / avoid it */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 space-y-2">
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> When Should I Use It?
+                  </h5>
+                  <ul className="space-y-1.5 text-xs text-slate-300">
+                    {selectedStrategy.whenToUse.map((item, idx) => (
+                      <li key={idx} className="flex items-start gap-1.5">
+                        <span className="text-emerald-400 font-bold">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20 space-y-2">
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5" /> When Should I Avoid It?
+                  </h5>
+                  <ul className="space-y-1.5 text-xs text-slate-300">
+                    {selectedStrategy.whenToAvoid.map((item, idx) => (
+                      <li key={idx} className="flex items-start gap-1.5">
+                        <span className="text-rose-400 font-bold">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {/* 5. AI Compatibility Check & Configuration Impact */}
+              <div className="space-y-4 mb-6">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+                      <Sliders className="w-4 h-4" /> AI Compatibility Check
+                    </h4>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300">
+                      {selectedStrategy.compatibilityCheck.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300">{selectedStrategy.compatibilityCheck.advice}</p>
+                </div>
+
+                {/* Configuration Impact Preview */}
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Impact on Your AI Configuration</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Trade Frequency</span>
+                      <strong className="text-white">{selectedStrategy.configImpact.frequency}</strong>
                     </div>
-                  ))}
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Risk Exposure</span>
+                      <strong className="text-white">{selectedStrategy.configImpact.riskExposure}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Position Sizing</span>
+                      <strong className="text-white">{selectedStrategy.configImpact.positionSizing}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Stop-Loss Behavior</span>
+                      <strong className="text-white">{selectedStrategy.configImpact.stopLoss}</strong>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-slate-500 block text-[10px]">Capital Allocation</span>
+                      <strong className="text-white">{selectedStrategy.configImpact.capitalAllocation}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expected Trading Activity */}
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 grid grid-cols-3 gap-2 text-xs text-center">
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Est. Trades</span>
+                    <strong className="text-white">{selectedStrategy.activityEstimate.tradesPerDay}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Holding Duration</span>
+                    <strong className="text-white">{selectedStrategy.activityEstimate.avgDuration}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Preferred Assets</span>
+                    <strong className="text-emerald-400">{selectedStrategy.activityEstimate.preferredAssets.join(', ')}</strong>
+                  </div>
                 </div>
               </div>
 
-              {/* Yield Calculator Preview */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border border-emerald-500/20 mb-6">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-slate-300">Simulated Allocation</span>
-                  <span className="text-sm font-black text-emerald-400">${simulatedAllocation.toLocaleString()}</span>
+              {/* 6. Strategy Comparison */}
+              <div className="p-4 rounded-2xl bg-blue-500/5 border border-blue-500/20 mb-6 space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4" /> Comparison with Your Active Strategy
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-emerald-400 font-bold block mb-0.5">Advantages:</span>
+                    <p className="text-slate-300">{selectedStrategy.comparisonWithActive.advantages}</p>
+                  </div>
+                  <div>
+                    <span className="text-rose-400 font-bold block mb-0.5">Disadvantages:</span>
+                    <p className="text-slate-300">{selectedStrategy.comparisonWithActive.disadvantages}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 7. Interactive Strategy Simulator */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-teal-500/5 border border-emerald-500/30 mb-6 space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-200">Interactive Capital Simulation</span>
+                  <span className="text-base font-black text-emerald-400">${simulatedAllocation.toLocaleString()}</span>
                 </div>
                 <input 
                   type="range" 
                   min="500" 
-                  max="10000" 
-                  step="250"
+                  max="25000" 
+                  step="500"
                   value={simulatedAllocation}
                   onChange={(e) => setSimulatedAllocation(Number(e.target.value))}
                   className="w-full accent-emerald-500 h-1.5 bg-slate-700/50 rounded-lg appearance-none cursor-pointer"
                 />
-                <div className="flex justify-between items-center mt-3 pt-3 border-t border-emerald-500/20 text-xs">
-                  <span className="text-slate-400">Projected 1-Year Net Gain:</span>
-                  <span className="font-black text-emerald-400 text-sm">
-                    +${Math.round(simulatedAllocation * (parseFloat(selectedStrategy.apy) / 100)).toLocaleString()}
-                  </span>
+                <div className="grid grid-cols-3 gap-3 pt-3 border-t border-emerald-500/20 text-xs text-center font-mono">
+                  <div className="p-2 rounded-xl bg-black/20">
+                    <span className="text-slate-400 block text-[10px]">NORMAL</span>
+                    <strong className="text-emerald-400">{selectedStrategy.simulations.normal}</strong>
+                  </div>
+                  <div className="p-2 rounded-xl bg-black/20">
+                    <span className="text-slate-400 block text-[10px]">BULLISH</span>
+                    <strong className="text-emerald-400">{selectedStrategy.simulations.bullish}</strong>
+                  </div>
+                  <div className="p-2 rounded-xl bg-black/20">
+                    <span className="text-slate-400 block text-[10px]">BEARISH</span>
+                    <strong className="text-amber-400">{selectedStrategy.simulations.bearish}</strong>
+                  </div>
                 </div>
               </div>
 
@@ -687,10 +826,104 @@ export default function DiscoverView({
               <div className="flex items-center gap-3">
                 <button 
                   onClick={() => setIsModalVisible(false)}
-                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-1.5"
+                  className="flex-1 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
                 >
-                  <span>Deploy Strategy to AI Session</span>
-                  <ArrowUpRight className="w-4 h-4" />
+                  <Sparkles className="w-4 h-4" />
+                  <span>Deploy Strategy & Activate AI Advisor</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* STRATEGY EXPLORER MODAL */}
+      <AnimatePresence>
+        {isExplorerOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 sm:p-8 relative shadow-2xl border ${
+                isDark ? 'bg-slate-900/98 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              {/* Top Accent Line */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-cyan-500 to-purple-500" />
+
+              {/* Close Button */}
+              <button 
+                onClick={() => setIsExplorerOpen(false)}
+                className="absolute top-5 right-5 p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center space-x-3.5 mb-6 pr-8">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
+                  <Bot className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black tracking-tight">Institutional AI Strategy Explorer</h3>
+                  <p className={`text-xs ${textSecondary} mt-0.5`}>Browse professional quantitative models, review advisor insights, and simulate portfolio allocations.</p>
+                </div>
+              </div>
+
+              {/* Strategies List */}
+              <div className="space-y-4 mb-6">
+                {AI_STRATEGIES.map((strat) => {
+                  const StratIcon = strat.icon;
+                  return (
+                    <div 
+                      key={strat.id}
+                      className={`p-5 rounded-2xl border transition-all ${
+                        isDark ? 'bg-white/[0.03] border-white/5 hover:border-emerald-500/30' : 'bg-slate-50 border-slate-200 hover:border-emerald-500/30'
+                      } flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4`}
+                    >
+                      <div className="flex items-center space-x-4">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                          <StratIcon className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className={`font-black text-base ${textPrimary}`}>{strat.name}</h4>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              {strat.badge}
+                            </span>
+                          </div>
+                          <p className={`text-xs ${textSecondary} line-clamp-1`}>{strat.tagline}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-white/5">
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-400 uppercase block">Est. APY</span>
+                          <strong className="text-emerald-400 text-sm font-black">{strat.apy}</strong>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedStrategy(strat);
+                            setIsExplorerOpen(false);
+                            setIsModalVisible(true);
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+                        >
+                          <span>Advisor Deep-Dive</span>
+                          <ArrowUpRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setIsExplorerOpen(false)}
+                  className="px-6 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition-colors"
+                >
+                  Close Explorer
                 </button>
               </div>
             </motion.div>

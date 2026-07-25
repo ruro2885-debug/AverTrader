@@ -29,6 +29,7 @@ export interface UserProfile {
   avatarSeed?: string;
   biometricEnabled: boolean;
   aiTradingEnabled: boolean;
+  linkedWallets?: LinkedWallet[];
   aiSettings?: {
     copilotMode: 'copilot' | 'autonomous';
     maxActiveTrades: number;
@@ -46,6 +47,7 @@ export interface UserProfile {
   onboardingCompleted?: boolean;
   bonuses?: any[];
   kycStatus?: 'unverified' | 'pending' | 'verified';
+  role?: 'user' | 'super_admin';
   watchlist?: string[];
 }
 
@@ -151,4 +153,18 @@ export interface PortfolioSnapshot {
   exposure: number;
   holdings: Record<string, number>;
   cash: number;
+}
+
+export interface LinkedWallet {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  address: string;
+  network: string;
+  provider: string;
+  status: 'Connected' | 'Disconnected';
+  linkedAt: string;
+  updatedAt: string;
+  lastLogin?: string;
 }

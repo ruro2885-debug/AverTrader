@@ -25,7 +25,7 @@ import {
   Moon,
   Coffee
 } from 'lucide-react';
-import { AiConfiguration, RiskRating, TradingSchedule } from '../../types/aiTrading';
+import { AiConfiguration, RiskRating, TradingSchedule, MarketCategory } from '../../types/aiTrading';
 import { Timestamp } from 'firebase/firestore';
 import { aiTradingService } from '../../services/aiTradingService';
 
@@ -86,12 +86,17 @@ const defaultNewConfig = (userId: string): AiConfiguration => ({
     marketAlerts: false
   },
   schedule: {
-    sessions: [{ start: '08:00', end: '17:00' }],
-    weekdays: true,
-    weekends: false,
-    timezone: 'UTC',
-    breakPeriods: [{ start: '12:00', end: '13:00' }],
-    excludeHolidays: true
+    enabled: false, // Default to 24/7 Mode (Scheduler Disabled)
+    operatingWindows: [],
+    coolingBreaks: [],
+    marketCalendar: {
+      'Stocks': { excludeHolidays: true },
+      'Forex': { excludeHolidays: true },
+      'Crypto': { excludeHolidays: false },
+      'Indices': { excludeHolidays: true },
+      'Commodities': { excludeHolidays: true }
+    },
+    monitorOutsideWindow: true
   }
 });
 
@@ -120,12 +125,17 @@ export default function AiConfigurationsView({
   const updateEditingSchedule = (updater: (sched: TradingSchedule) => TradingSchedule) => {
     if (!editingConfig) return;
     const currentSchedule = editingConfig.schedule || {
-      sessions: [{ start: '08:00', end: '17:00' }],
-      weekdays: true,
-      weekends: false,
-      timezone: 'UTC',
-      breakPeriods: [],
-      excludeHolidays: true
+      enabled: false,
+      operatingWindows: [],
+      coolingBreaks: [],
+      marketCalendar: {
+        'Stocks': { excludeHolidays: true },
+        'Forex': { excludeHolidays: true },
+        'Crypto': { excludeHolidays: false },
+        'Indices': { excludeHolidays: true },
+        'Commodities': { excludeHolidays: true }
+      },
+      monitorOutsideWindow: true
     };
     const nextSched = updater(currentSchedule);
     setEditingConfig({
@@ -867,203 +877,389 @@ export default function AiConfigurationsView({
               )}
 
               {activeStep === 'schedule' && (
-                <div className="space-y-6 max-w-2xl">
-                  <h4 className={`text-sm font-black uppercase tracking-widest ${textSecondary}`}>Neural Schedule & Operating Windows</h4>
-                  <p className={`text-xs ${textSecondary}`}>
-                    Define custom operating hours, regional timezone, cooling breaks, and holiday exclusions for this configuration.
-                  </p>
-
-                  {/* Timezone & Regional */}
-                  <div className={`rounded-2xl border p-6 space-y-4 ${cardClasses}`}>
-                    <h5 className={`text-xs font-black uppercase tracking-wider ${textSecondary} flex items-center gap-2`}>
-                      <Globe className="w-4 h-4 text-[#00D09C]" /> Regional Parameters & Timezone
-                    </h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className={`block text-xs font-bold ${textSecondary} mb-1`}>Timezone Reference</label>
-                        <select 
-                          value={editingConfig.schedule?.timezone || 'UTC'}
-                          onChange={(e) => updateEditingSchedule(s => ({ ...s, timezone: e.target.value }))}
-                          className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                        >
-                          <option value="UTC">UTC (Coordinated Universal Time)</option>
-                          <option value="EST">EST (Eastern Standard Time)</option>
-                          <option value="PST">PST (Pacific Standard Time)</option>
-                          <option value="GMT">GMT (Greenwich Mean Time)</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col justify-end space-y-2">
-                        <label className="flex items-center gap-2 cursor-pointer pt-2">
-                          <input 
-                            type="checkbox"
-                            checked={editingConfig.schedule?.excludeHolidays ?? true}
-                            onChange={(e) => updateEditingSchedule(s => ({ ...s, excludeHolidays: e.target.checked }))}
-                            className="rounded bg-black/20 border-white/10 text-[#00D09C] focus:ring-0 w-4 h-4"
-                          />
-                          <span className={`text-xs font-bold ${textPrimary}`}>Exclude Major Market Holidays</span>
-                        </label>
-                      </div>
+                <div className="space-y-6 max-w-4xl">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className={`text-sm font-black uppercase tracking-widest ${textPrimary}`}>AI Scheduler & Neural Operating Windows</h4>
+                      <p className={`text-xs ${textSecondary} mt-1`}>
+                        Authoritative controller of the AI engine. Every subsystem obeys these rules.
+                      </p>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-4 pt-2">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={editingConfig.schedule?.weekdays ?? true}
-                          onChange={(e) => updateEditingSchedule(s => ({ ...s, weekdays: e.target.checked }))}
-                          className="rounded bg-black/20 border-white/10 text-[#00D09C] focus:ring-0 w-4 h-4"
-                        />
-                        <span className={`text-xs font-bold ${textPrimary}`}>Active on Weekdays (Mon-Fri)</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={editingConfig.schedule?.weekends ?? false}
-                          onChange={(e) => updateEditingSchedule(s => ({ ...s, weekends: e.target.checked }))}
-                          className="rounded bg-black/20 border-white/10 text-[#00D09C] focus:ring-0 w-4 h-4"
-                        />
-                        <span className={`text-xs font-bold ${textPrimary}`}>Active on Weekends (Sat-Sun)</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Active Search Sessions */}
-                  <div className={`rounded-2xl border p-6 space-y-4 ${cardClasses}`}>
-                    <div className="flex justify-between items-center">
-                      <h5 className={`text-xs font-black uppercase tracking-wider ${textSecondary} flex items-center gap-2`}>
-                        <Clock className="w-4 h-4 text-[#00D09C]" /> Active Search Sessions
-                      </h5>
-                      <button 
-                        onClick={() => updateEditingSchedule(s => ({ ...s, sessions: [...s.sessions, { start: '09:00', end: '17:00' }] }))}
-                        className="text-[10px] font-black text-[#00D09C] flex items-center gap-1 hover:underline"
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className={`text-[10px] font-black uppercase tracking-wider ${editingConfig.schedule?.enabled ? 'text-[#00D09C]' : 'text-slate-500'}`}>
+                          {editingConfig.schedule?.enabled ? 'Scheduler Active' : 'Scheduler Disabled'}
+                        </p>
+                        <p className="text-[9px] text-slate-500 font-mono">
+                          {editingConfig.schedule?.enabled ? 'Rule-based execution' : 'AI operates continuously (24/7)'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => updateEditingSchedule(s => ({ ...s, enabled: !s.enabled }))}
+                        className={`w-12 h-6 rounded-full p-1 transition-all ${editingConfig.schedule?.enabled ? 'bg-[#00D09C]' : 'bg-white/10'}`}
                       >
-                        <Plus className="w-3.5 h-3.5" /> Add Window
+                        <div className={`w-4 h-4 rounded-full bg-white transition-all transform ${editingConfig.schedule?.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
                       </button>
                     </div>
-
-                    <div className="space-y-3">
-                      {(editingConfig.schedule?.sessions || []).map((sess, idx) => (
-                        <div key={idx} className="flex items-center gap-3 bg-black/10 dark:bg-white/5 p-3 rounded-xl border border-white/5">
-                          <Sun className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                          <div className="grid grid-cols-2 gap-3 flex-1">
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-500 block mb-1">Start Time</span>
-                              <input 
-                                type="time" 
-                                value={sess.start} 
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  updateEditingSchedule(s => {
-                                    const next = [...s.sessions];
-                                    next[idx] = { ...next[idx], start: val };
-                                    return { ...s, sessions: next };
-                                  });
-                                }}
-                                className={`w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                              />
-                            </div>
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-500 block mb-1">End Time</span>
-                              <input 
-                                type="time" 
-                                value={sess.end} 
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  updateEditingSchedule(s => {
-                                    const next = [...s.sessions];
-                                    next[idx] = { ...next[idx], end: val };
-                                    return { ...s, sessions: next };
-                                  });
-                                }}
-                                className={`w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                              />
-                            </div>
-                          </div>
-                          {(editingConfig.schedule?.sessions || []).length > 1 && (
-                            <button 
-                              onClick={() => {
-                                updateEditingSchedule(s => ({ ...s, sessions: s.sessions.filter((_, i) => i !== idx) }));
-                              }}
-                              className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors self-end"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
                   </div>
 
-                  {/* Neural Cooling Breaks */}
-                  <div className={`rounded-2xl border p-6 space-y-4 ${cardClasses}`}>
-                    <div className="flex justify-between items-center">
-                      <h5 className={`text-xs font-black uppercase tracking-wider ${textSecondary} flex items-center gap-2`}>
-                        <Coffee className="w-4 h-4 text-blue-500" /> Neural Cooling Breaks
-                      </h5>
+                  {!editingConfig.schedule?.enabled ? (
+                    <div className="p-8 rounded-2xl border border-[#00D09C]/30 bg-[#00D09C]/5 text-center space-y-3">
+                      <div className="w-12 h-12 bg-[#00D09C]/10 rounded-full flex items-center justify-center mx-auto">
+                        <Clock className="w-6 h-6 text-[#00D09C]" />
+                      </div>
+                      <h5 className="text-[#00D09C] font-black text-sm">Scheduler Disabled • AI operates continuously (24/7)</h5>
+                      <p className={`text-xs ${textSecondary} max-w-md mx-auto`}>
+                        The AI engine is currently in unrestricted mode. Markets will be scanned and trades executed 24 hours a day, 7 days a week.
+                      </p>
                       <button 
-                        onClick={() => updateEditingSchedule(s => ({ ...s, breakPeriods: [...(s.breakPeriods || []), { start: '12:00', end: '13:00' }] }))}
-                        className="text-[10px] font-black text-[#00D09C] flex items-center gap-1 hover:underline"
+                        onClick={() => updateEditingSchedule(s => ({ ...s, enabled: true }))}
+                        className="text-xs font-black text-[#00D09C] hover:underline"
                       >
-                        <Plus className="w-3.5 h-3.5" /> Add Break
+                        Enable Rule-Based Scheduling
                       </button>
                     </div>
-
-                    <div className="space-y-3">
-                      {(!editingConfig.schedule?.breakPeriods || editingConfig.schedule.breakPeriods.length === 0) ? (
-                        <div className="p-4 text-center border border-dashed border-white/10 rounded-xl">
-                          <p className={`text-xs ${textSecondary} opacity-40`}>No regular break periods configured.</p>
+                  ) : (
+                    <div className="space-y-8 animate-fadeIn">
+                      {/* Operating Windows */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h5 className={`text-xs font-black uppercase tracking-wider ${textSecondary} flex items-center gap-2`}>
+                            <Layers className="w-4 h-4 text-[#00D09C]" /> Operating Windows
+                          </h5>
+                          <button 
+                            onClick={() => updateEditingSchedule(s => ({
+                              ...s,
+                              operatingWindows: [
+                                ...s.operatingWindows,
+                                {
+                                  id: `win_${Date.now()}`,
+                                  startTime: '09:00',
+                                  endTime: '17:00',
+                                  days: 'Every Day',
+                                  markets: 'All Markets',
+                                  timezone: 'UTC',
+                                  enabled: true
+                                }
+                              ]
+                            }))}
+                            className="flex items-center gap-1 text-[10px] font-black text-[#00D09C] hover:bg-[#00D09C]/10 px-2 py-1 rounded-lg transition-all"
+                          >
+                            <Plus className="w-3 h-3" /> Add Window
+                          </button>
                         </div>
-                      ) : (
-                        editingConfig.schedule.breakPeriods.map((brk, idx) => (
-                          <div key={idx} className="flex items-center gap-3 bg-black/10 dark:bg-white/5 p-3 rounded-xl border border-white/5">
-                            <Moon className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                            <div className="grid grid-cols-2 gap-3 flex-1">
-                              <div>
-                                <span className="text-[10px] font-bold text-slate-500 block mb-1">Start Break</span>
-                                <input 
-                                  type="time" 
-                                  value={brk.start} 
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    updateEditingSchedule(s => {
-                                      const next = [...(s.breakPeriods || [])];
-                                      next[idx] = { ...next[idx], start: val };
-                                      return { ...s, breakPeriods: next };
-                                    });
-                                  }}
-                                  className={`w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                                />
-                              </div>
-                              <div>
-                                <span className="text-[10px] font-bold text-slate-500 block mb-1">End Break</span>
-                                <input 
-                                  type="time" 
-                                  value={brk.end} 
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    updateEditingSchedule(s => {
-                                      const next = [...(s.breakPeriods || [])];
-                                      next[idx] = { ...next[idx], end: val };
-                                      return { ...s, breakPeriods: next };
-                                    });
-                                  }}
-                                  className={`w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
-                                />
-                              </div>
-                            </div>
-                            <button 
-                              onClick={() => {
-                                updateEditingSchedule(s => ({ ...s, breakPeriods: (s.breakPeriods || []).filter((_, i) => i !== idx) }));
-                              }}
-                              className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors self-end"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+
+                        {editingConfig.schedule.operatingWindows.length === 0 ? (
+                          <div className="p-6 border border-dashed border-white/10 rounded-2xl text-center">
+                            <p className="text-xs text-slate-500 italic">No operating windows defined. AI will enter standby until a window is added.</p>
                           </div>
-                        ))
-                      )}
+                        ) : (
+                          <div className="grid grid-cols-1 gap-4">
+                            {editingConfig.schedule.operatingWindows.map((win) => (
+                              <div key={win.id} className={`p-5 rounded-2xl border ${cardClasses} relative group`}>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase text-slate-500">Operating Time</label>
+                                    <div className="flex items-center gap-2">
+                                      <input 
+                                        type="time" 
+                                        value={win.startTime}
+                                        onChange={(e) => updateEditingSchedule(s => ({
+                                          ...s,
+                                          operatingWindows: s.operatingWindows.map(w => w.id === win.id ? { ...w, startTime: e.target.value } : w)
+                                        }))}
+                                        className={`bg-black/20 border border-white/5 rounded-lg px-2 py-1.5 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                                      />
+                                      <span className="text-slate-500 text-xs">to</span>
+                                      <input 
+                                        type="time" 
+                                        value={win.endTime}
+                                        onChange={(e) => updateEditingSchedule(s => ({
+                                          ...s,
+                                          operatingWindows: s.operatingWindows.map(w => w.id === win.id ? { ...w, endTime: e.target.value } : w)
+                                        }))}
+                                        className={`bg-black/20 border border-white/5 rounded-lg px-2 py-1.5 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase text-slate-500">Active Days</label>
+                                    <select 
+                                      value={win.days === 'Every Day' ? 'Every Day' : Array.isArray(win.days) ? win.days.join(',') : win.days}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        updateEditingSchedule(s => ({
+                                          ...s,
+                                          operatingWindows: s.operatingWindows.map(w => w.id === win.id ? { ...w, days: val === 'Every Day' ? 'Every Day' : val.split(',') } : w)
+                                        }))
+                                      }}
+                                      className={`w-full bg-black/20 border border-white/5 rounded-lg px-2 py-1.5 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                                    >
+                                      <option value="Every Day">Every Day</option>
+                                      <option value="Mon,Tue,Wed,Thu,Fri">Weekdays (Mon-Fri)</option>
+                                      <option value="Sat,Sun">Weekends (Sat-Sun)</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase text-slate-500">Markets</label>
+                                    <select 
+                                      value={win.markets === 'All Markets' ? 'All Markets' : Array.isArray(win.markets) ? win.markets.join(',') : win.markets}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        updateEditingSchedule(s => ({
+                                          ...s,
+                                          operatingWindows: s.operatingWindows.map(w => w.id === win.id ? { ...w, markets: val === 'All Markets' ? 'All Markets' : val.split(',') as any } : w)
+                                        }))
+                                      }}
+                                      className={`w-full bg-black/20 border border-white/5 rounded-lg px-2 py-1.5 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
+                                    >
+                                      <option value="All Markets">All Markets</option>
+                                      <option value="Crypto">Crypto Only</option>
+                                      <option value="Stocks,Forex,Indices">Equities & Forex</option>
+                                      <option value="Commodities">Commodities Only</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button 
+                                      onClick={() => updateEditingSchedule(s => ({
+                                        ...s,
+                                        operatingWindows: s.operatingWindows.map(w => w.id === win.id ? { ...w, enabled: !w.enabled } : w)
+                                      }))}
+                                      className={`p-2 rounded-lg border transition-colors ${win.enabled ? 'border-[#00D09C] text-[#00D09C]' : 'border-white/5 text-slate-600'}`}
+                                      title={win.enabled ? 'Disable Window' : 'Enable Window'}
+                                    >
+                                      <Play className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button 
+                                      onClick={() => updateEditingSchedule(s => {
+                                        const newWin = { ...win, id: `win_dup_${Date.now()}` };
+                                        return { ...s, operatingWindows: [...s.operatingWindows, newWin] };
+                                      })}
+                                      className={`p-2 rounded-lg border border-white/5 text-slate-400 hover:text-white transition-colors`}
+                                      title="Duplicate"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button 
+                                      onClick={() => updateEditingSchedule(s => ({
+                                        ...s,
+                                        operatingWindows: s.operatingWindows.filter(w => w.id !== win.id)
+                                      }))}
+                                      className={`p-2 rounded-lg border border-white/5 text-slate-400 hover:text-rose-500 transition-colors`}
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button 
+                                      onClick={() => updateEditingSchedule(s => ({
+                                        ...s,
+                                        operatingWindows: [...s.operatingWindows, { ...win, id: `win_${Date.now()}` }]
+                                      }))}
+                                      className={`p-2 rounded-lg border border-white/5 text-slate-400 hover:text-white transition-colors`}
+                                      title="Duplicate"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex items-center justify-between">
+                                  <div className="flex items-center gap-4">
+                                     <div className="flex items-center gap-1.5">
+                                      <Globe className="w-3 h-3 text-slate-500" />
+                                      <select 
+                                        value={win.timezone}
+                                        onChange={(e) => updateEditingSchedule(s => ({
+                                          ...s,
+                                          operatingWindows: s.operatingWindows.map(w => w.id === win.id ? { ...w, timezone: e.target.value } : w)
+                                        }))}
+                                        className="bg-transparent border-none text-[10px] font-bold text-slate-400 outline-none p-0 cursor-pointer hover:text-slate-300"
+                                      >
+                                        <option value="UTC">UTC (Coordinated Universal Time)</option>
+                                        <option value="EST">EST (Eastern Time)</option>
+                                        <option value="PST">PST (Pacific Time)</option>
+                                        <option value="GMT">GMT (London Time)</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Neural Cooling Breaks */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h5 className={`text-xs font-black uppercase tracking-wider ${textSecondary} flex items-center gap-2`}>
+                            <Coffee className="w-4 h-4 text-amber-500" /> Neural Cooling Breaks
+                          </h5>
+                          <button 
+                            onClick={() => updateEditingSchedule(s => ({
+                              ...s,
+                              coolingBreaks: [
+                                ...(s.coolingBreaks || []),
+                                {
+                                  id: `brk_${Date.now()}`,
+                                  startTime: '12:00',
+                                  endTime: '13:00',
+                                  days: 'Every Day',
+                                  enabled: true
+                                }
+                              ]
+                            }))}
+                            className="flex items-center gap-1 text-[10px] font-black text-amber-500 hover:bg-amber-500/10 px-2 py-1 rounded-lg transition-all"
+                          >
+                            <Plus className="w-3 h-3" /> Add Break
+                          </button>
+                        </div>
+
+                        {(editingConfig.schedule.coolingBreaks || []).length === 0 ? (
+                          <div className="p-6 border border-dashed border-white/10 rounded-2xl text-center">
+                            <p className="text-xs text-slate-500 italic">No cooling breaks defined. AI will operate without scheduled pauses.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-3">
+                            {editingConfig.schedule.coolingBreaks.map((brk) => (
+                              <div key={brk.id} className={`p-4 rounded-xl border border-white/5 bg-black/20 flex items-center justify-between`}>
+                                <div className="flex items-center gap-6">
+                                  <div className="flex items-center gap-2">
+                                    <input 
+                                      type="time" 
+                                      value={brk.startTime}
+                                      onChange={(e) => updateEditingSchedule(s => ({
+                                        ...s,
+                                        coolingBreaks: s.coolingBreaks.map(b => b.id === brk.id ? { ...b, startTime: e.target.value } : b)
+                                      }))}
+                                      className="bg-transparent border-none text-xs font-black text-slate-300 outline-none p-0"
+                                    />
+                                    <span className="text-slate-600 text-xs">-</span>
+                                    <input 
+                                      type="time" 
+                                      value={brk.endTime}
+                                      onChange={(e) => updateEditingSchedule(s => ({
+                                        ...s,
+                                        coolingBreaks: s.coolingBreaks.map(b => b.id === brk.id ? { ...b, endTime: e.target.value } : b)
+                                      }))}
+                                      className="bg-transparent border-none text-xs font-black text-slate-300 outline-none p-0"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Calendar className="w-3 h-3 text-slate-600" />
+                                    <select 
+                                      value={brk.days === 'Every Day' ? 'Every Day' : Array.isArray(brk.days) ? brk.days.join(',') : brk.days}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        updateEditingSchedule(s => ({
+                                          ...s,
+                                          coolingBreaks: s.coolingBreaks.map(b => b.id === brk.id ? { ...b, days: val === 'Every Day' ? 'Every Day' : val.split(',') } : b)
+                                        }))
+                                      }}
+                                      className="bg-transparent border-none text-[10px] font-black text-slate-500 outline-none p-0 cursor-pointer"
+                                    >
+                                      <option value="Every Day">Every Day</option>
+                                      <option value="Mon,Tue,Wed,Thu,Fri">Weekdays</option>
+                                      <option value="Sat,Sun">Weekends</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button 
+                                    onClick={() => updateEditingSchedule(s => ({
+                                      ...s,
+                                      coolingBreaks: s.coolingBreaks.map(b => b.id === brk.id ? { ...b, enabled: !b.enabled } : b)
+                                    }))}
+                                    className={`w-8 h-4 rounded-full p-0.5 transition-all ${brk.enabled ? 'bg-amber-500' : 'bg-white/10'}`}
+                                  >
+                                    <div className={`w-3 h-3 rounded-full bg-white transition-all transform ${brk.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                                  </button>
+                                  <button 
+                                    onClick={() => updateEditingSchedule(s => ({
+                                      ...s,
+                                      coolingBreaks: [...s.coolingBreaks, { ...brk, id: `brk_${Date.now()}` }]
+                                    }))}
+                                    className="p-1.5 text-slate-600 hover:text-white transition-colors"
+                                    title="Duplicate"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => updateEditingSchedule(s => ({
+                                      ...s,
+                                      coolingBreaks: s.coolingBreaks.filter(b => b.id !== brk.id)
+                                    }))}
+                                    className="p-1.5 text-slate-600 hover:text-rose-500 transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Market Calendar & Holiday Rules */}
+                      <div className="space-y-4">
+                         <h5 className={`text-xs font-black uppercase tracking-wider ${textSecondary} flex items-center gap-2`}>
+                            <Calendar className="w-4 h-4 text-blue-500" /> Market Calendar & Holiday Rules
+                          </h5>
+                          <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3`}>
+                            {(['Crypto', 'Stocks', 'Forex', 'Indices', 'Commodities'] as MarketCategory[]).map(market => {
+                              const rules = editingConfig.schedule?.marketCalendar[market] || { excludeHolidays: false };
+                              return (
+                                <div key={market} className={`p-4 rounded-xl border border-white/5 bg-black/10 flex items-center justify-between`}>
+                                  <div>
+                                    <p className={`text-[10px] font-black ${textPrimary}`}>{market}</p>
+                                    <p className="text-[9px] text-slate-500 mt-0.5">
+                                      {rules.excludeHolidays ? 'Excludes Holidays' : 'Ignores Holidays'}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => updateEditingSchedule(s => ({
+                                      ...s,
+                                      marketCalendar: {
+                                        ...s.marketCalendar,
+                                        [market]: { excludeHolidays: !rules.excludeHolidays }
+                                      }
+                                    }))}
+                                    className={`px-2 py-1 rounded-lg text-[9px] font-black border transition-all ${
+                                      rules.excludeHolidays ? 'bg-blue-500/10 border-blue-500 text-blue-500' : 'bg-white/5 border-white/10 text-slate-500'
+                                    }`}
+                                  >
+                                    {rules.excludeHolidays ? 'STRICT' : 'CONTINUOUS'}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                      </div>
+
+                      {/* Post-Window Behavior */}
+                      <div className={`p-5 rounded-2xl border border-white/5 bg-blue-500/5 space-y-3`}>
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <ShieldAlert className="w-4 h-4 text-blue-400" />
+                            <h5 className="text-[10px] font-black uppercase tracking-wider text-blue-400">Post-Window Position Management</h5>
+                          </div>
+                          <button
+                            onClick={() => updateEditingSchedule(s => ({ ...s, monitorOutsideWindow: !s.monitorOutsideWindow }))}
+                            className={`w-10 h-5 rounded-full p-1 transition-all ${editingConfig.schedule?.monitorOutsideWindow ? 'bg-blue-500' : 'bg-white/10'}`}
+                          >
+                            <div className={`w-3 h-3 rounded-full bg-white transition-all transform ${editingConfig.schedule?.monitorOutsideWindow ? 'translate-x-5' : 'translate-x-0'}`} />
+                          </button>
+                        </div>
+                        <p className={`text-[11px] ${textSecondary} leading-relaxed`}>
+                          {editingConfig.schedule?.monitorOutsideWindow 
+                            ? 'ON: Open trades will continue to be monitored for SL/TP and risk protection after windows close. No new entries allowed.' 
+                            : 'OFF: All AI execution and monitoring stops immediately when window closes. Trades will be left unmanaged until next window.'}
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>

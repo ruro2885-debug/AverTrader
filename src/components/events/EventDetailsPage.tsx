@@ -20,12 +20,16 @@ import {
   FileText, 
   HelpCircle, 
   Flame, 
-  AlertCircle 
+  AlertCircle,
+  Bookmark,
+  Check,
+  TrendingUp,
+  Layers,
+  Activity
 } from 'lucide-react';
 import { EventItem } from '../../types/events';
 import { joinEventService, claimEventRewardService, subscribeToEvents } from '../../services/eventsService';
 import { useAuth } from '../../contexts/AuthContext';
-import EventCard from './EventCard';
 
 interface EventDetailsPageProps {
   eventId: string;
@@ -53,7 +57,6 @@ export default function EventDetailsPage({
   onNavigateToTrading,
   theme = 'dark'
 }: EventDetailsPageProps) {
-  const isDark = theme === 'dark';
   const { user } = useAuth();
 
   const [event, setEvent] = useState<EventItem | null>(null);
@@ -65,8 +68,12 @@ export default function EventDetailsPage({
   const [isClaiming, setIsClaiming] = useState(false);
   const [expandedFaqIndex, setExpandedFaqIndex] = useState<number | null>(0);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [isBookmarked, setIsBookmarked] = useState(false);
 
-  // Timer state
+  // Requirement task toggles
+  const [completedTasks, setCompletedTasks] = useState<Record<string, boolean>>({});
+
+  // Countdown clock state
   const [countdown, setCountdown] = useState(formatCountdownDetail(event?.endTime));
 
   // Subscribe to real-time event updates
@@ -79,6 +86,13 @@ export default function EventDetailsPage({
         if (found) {
           setEvent(found);
           setError(null);
+
+          // Populate completed tasks from event requirements
+          const initialTasks: Record<string, boolean> = {};
+          found.eligibilityRequirements?.forEach(req => {
+            initialTasks[req.id] = req.completed;
+          });
+          setCompletedTasks(prev => ({ ...initialTasks, ...prev }));
         } else {
           setError("Event not found or has been removed.");
         }
@@ -94,7 +108,7 @@ export default function EventDetailsPage({
     return () => unsub();
   }, [eventId]);
 
-  // Update countdown timer
+  // Real-time countdown timer tick
   useEffect(() => {
     if (!event) return;
     const target = event.status === 'UPCOMING' ? event.startTime : event.endTime;
@@ -126,7 +140,7 @@ export default function EventDetailsPage({
     setIsClaiming(true);
     try {
       await claimEventRewardService(user?.uid, event);
-      setToastMsg(`Claimed reward successfully! Credited to wallet.`);
+      setToastMsg(`Claimed reward successfully! Credited to your wallet balance.`);
       setTimeout(() => setToastMsg(null), 3000);
     } catch (e) {
       console.error("Failed to claim reward", e);
@@ -149,516 +163,612 @@ export default function EventDetailsPage({
     }
   };
 
-  const relatedEvents = allEvents.filter(e => e.id !== eventId).slice(0, 3);
+  const toggleTask = (taskId: string) => {
+    setCompletedTasks(prev => ({
+      ...prev,
+      [taskId]: !prev[taskId]
+    }));
+  };
 
   if (loading) {
     return (
-      <div className={`min-h-screen p-6 ${isDark ? 'bg-[#07090E] text-white' : 'bg-gray-50 text-gray-900'} space-y-6 animate-pulse`}>
-        <div className="h-10 w-24 bg-gray-800 rounded-xl" />
-        <div className="h-64 w-full bg-gray-800 rounded-3xl" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="h-24 bg-gray-800 rounded-2xl" />
-          <div className="h-24 bg-gray-800 rounded-2xl" />
-          <div className="h-24 bg-gray-800 rounded-2xl" />
-          <div className="h-24 bg-gray-800 rounded-2xl" />
+      <div className="fixed inset-0 z-[110] bg-[#03060D] text-white flex flex-col items-center justify-center space-y-4 p-6">
+        <div className="relative w-16 h-16">
+          <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20 animate-ping" />
+          <div className="w-16 h-16 rounded-full border-2 border-t-emerald-400 border-r-cyan-400 border-b-purple-400 border-l-transparent animate-spin" />
         </div>
+        <p className="text-sm font-extrabold tracking-widest text-emerald-400 uppercase">Synchronizing Campaign Telemetry...</p>
       </div>
     );
   }
 
   if (error || !event) {
     return (
-      <div className={`min-h-screen flex flex-col items-center justify-center p-6 ${isDark ? 'bg-[#07090E] text-white' : 'bg-gray-50 text-gray-900'}`}>
-        <AlertCircle className="w-16 h-16 text-amber-500 mb-4 animate-bounce" />
-        <h2 className="text-xl font-black mb-2">{error || "Campaign Unavailable"}</h2>
-        <p className="text-xs text-gray-400 mb-6 text-center max-w-sm">This event might have expired or been moved by the administrator.</p>
-        <button
-          onClick={onBack}
-          className="px-6 py-3 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black transition-colors"
-        >
-          Return to Events Hub
-        </button>
+      <div className="fixed inset-0 z-[110] bg-[#03060D] text-white flex flex-col items-center justify-center space-y-6 p-6">
+        <div className="w-20 h-20 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
+          <AlertCircle className="w-10 h-10" />
+        </div>
+        <div className="text-center max-w-md">
+          <h3 className="text-xl font-black mb-2">{error || "Campaign Not Found"}</h3>
+          <p className="text-xs text-slate-400 leading-relaxed mb-6">The requested campaign does not exist or may have been archived by the administrator.</p>
+          <button 
+            onClick={onBack}
+            className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs transition-all border border-white/10"
+          >
+            ← Return to Campaign Hub
+          </button>
+        </div>
       </div>
     );
   }
 
-  const isJoined = event.userProgress?.joined;
+  const isJoined = event.userProgress?.joined || event.userProgress?.status === 'REGISTERED' || event.userProgress?.status === 'IN_PROGRESS';
   const isClaimed = event.userProgress?.status === 'CLAIMED';
+  const userStatus = event.userProgress?.status || 'NOT_JOINED';
+
+  // Calculate requirement completion stats
+  const totalTasks = event.eligibilityRequirements?.length || 0;
+  const completedCount = Object.values(completedTasks).filter(Boolean).length;
+  const completionPercentage = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 100;
 
   return (
-    <div className={`min-h-screen relative pb-32 ${isDark ? 'bg-[#07090E] text-white' : 'bg-gray-50 text-gray-900'}`}>
-      {/* Toast Notification */}
+    <div className="fixed inset-0 z-[110] bg-[#03060D] text-slate-100 overflow-y-auto selection:bg-emerald-500/30 selection:text-emerald-200">
+      
+      {/* Toast Alert */}
       <AnimatePresence>
         {toastMsg && (
           <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-6 left-1/2 -translate-x-1/2 z-[120] px-5 py-3 rounded-2xl bg-emerald-500 text-black font-black text-xs shadow-2xl flex items-center gap-2"
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[150] px-5 py-3 rounded-2xl bg-emerald-500/90 text-white font-black text-xs shadow-2xl backdrop-blur-md border border-emerald-400/40 flex items-center gap-2.5"
           >
-            <CheckCircle2 className="w-4 h-4" />
-            {toastMsg}
+            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+            <span>{toastMsg}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Hero Header Banner */}
-      <div className="relative w-full h-[380px] overflow-hidden">
-        <img 
-          src={event.bannerUrl} 
-          alt={event.title} 
-          className="w-full h-full object-cover"
-        />
-        <div className={`absolute inset-0 bg-gradient-to-t ${event.heroGradient || 'from-[#07090E] via-[#07090E]/60 to-black/40'}`} />
+      {/* FIXED TOP NAVIGATION BAR */}
+      <header className="sticky top-0 z-40 bg-[#03060D]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-8 py-4 flex items-center justify-between">
+        <button
+          onClick={onBack}
+          className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 hover:text-white transition-all group"
+          title="Back"
+        >
+          <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+        </button>
 
-        {/* Top Floating Nav Bar */}
-        <div className="absolute top-6 left-6 right-6 flex items-center justify-between z-20">
-          <button
-            onClick={onBack}
-            className="p-3 rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 hover:bg-black/80 text-white transition-all flex items-center gap-2 text-xs font-bold shadow-xl"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Events Hub
-          </button>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleShare}
-              className="p-3 rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 hover:bg-black/80 text-white transition-all shadow-xl"
-              title="Share Campaign"
-            >
-              <Share2 className="w-4 h-4" />
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-extrabold uppercase tracking-widest">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Live Telemetry
+          </span>
+          <span className="text-xs font-black text-slate-300 truncate max-w-[160px] sm:max-w-xs">{event.title}</span>
         </div>
 
-        {/* Hero Info Overlay */}
-        <div className="absolute bottom-6 left-6 right-6 z-20 space-y-3 max-w-4xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/30 border border-purple-500/40 text-purple-300 backdrop-blur-md">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsBookmarked(!isBookmarked)}
+            className={`p-2.5 rounded-xl border transition-colors ${
+              isBookmarked ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-white/5 text-slate-400 hover:text-white border-white/10'
+            }`}
+          >
+            <Bookmark className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleShare}
+            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-colors"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* HERO BANNER STAGE */}
+      <div className="relative w-full min-h-[400px] sm:min-h-[480px] flex items-end overflow-hidden border-b border-white/10">
+        
+        {/* Background Image with Dark Gradient Vignette */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 scale-105"
+          style={{ backgroundImage: `url('${event.bannerUrl}')` }}
+        />
+        <div className={`absolute inset-0 bg-gradient-to-t ${event.heroGradient || 'from-[#03060D] via-[#03060D]/80 to-transparent'}`} />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-transparent via-[#03060D]/60 to-[#03060D]" />
+
+        {/* Hero Content Overlay Container */}
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-8 py-8 sm:py-12 space-y-6">
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="px-3 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
               {event.category}
             </span>
-            <span className={`px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider backdrop-blur-md flex items-center gap-1.5 ${
-              event.status === 'LIVE' ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/40' :
-              event.status === 'ENDING_SOON' ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40 animate-pulse' :
-              'bg-blue-500/30 text-blue-300 border border-blue-500/40'
+            <span className={`px-3 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-widest border ${
+              event.status === 'LIVE' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+              event.status === 'ENDING_SOON' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+              event.status === 'UPCOMING' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-slate-700/40 text-slate-400 border-slate-600/40'
             }`}>
-              {event.status === 'LIVE' && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
-              {event.status.replace('_', ' ')}
+              {event.status === 'LIVE' ? '🔴 Live Competition' : event.status === 'ENDING_SOON' ? '⚡ Ending Soon' : event.status}
             </span>
+            {event.featured && (
+              <span className="px-3 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-300" /> Featured Flagship
+              </span>
+            )}
           </div>
 
-          <h1 className="text-2xl md:text-4xl font-black tracking-tight text-white drop-shadow-md">
-            {event.title}
-          </h1>
-          <p className="text-xs md:text-sm font-medium text-gray-300 max-w-2xl leading-relaxed drop-shadow-sm">
-            {event.subtitle}
-          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
+            
+            {/* Title & Narrative (8 Cols) */}
+            <div className="lg:col-span-8 space-y-3">
+              <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
+                {event.title}
+              </h1>
+              <p className="text-sm sm:text-base text-slate-300 max-w-2xl font-medium leading-relaxed">
+                {event.subtitle}
+              </p>
+
+              {/* Tags */}
+              <div className="flex flex-wrap gap-2 pt-2">
+                {event.tags?.map((tag, idx) => (
+                  <span key={idx} className="px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-[11px] font-bold text-slate-400">
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Total Reward Hero Card (4 Cols) */}
+            <div className="lg:col-span-4 bg-slate-900/80 backdrop-blur-2xl border border-white/15 rounded-3xl p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Reward Pool</span>
+                <Trophy className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 tracking-tight">
+                  ${event.totalRewardPool.toLocaleString()} <span className="text-lg text-amber-200">{event.rewardToken}</span>
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">Guaranteed distribution directly to participant wallets</p>
+              </div>
+
+              {/* Countdown Meter */}
+              <div className="pt-3 border-t border-white/10">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center justify-between">
+                  <span>{event.status === 'UPCOMING' ? 'Event Starts In' : 'Event Closes In'}</span>
+                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                </p>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="bg-white/5 border border-white/10 p-2 rounded-xl">
+                    <span className="text-base font-black text-white block">{String(countdown.days).padStart(2, '0')}</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase">Days</span>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 p-2 rounded-xl">
+                    <span className="text-base font-black text-white block">{String(countdown.hours).padStart(2, '0')}</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase">Hours</span>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 p-2 rounded-xl">
+                    <span className="text-base font-black text-white block">{String(countdown.mins).padStart(2, '0')}</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase">Mins</span>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 p-2 rounded-xl">
+                    <span className="text-base font-black text-emerald-400 block">{String(countdown.secs).padStart(2, '0')}</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase">Secs</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
         </div>
       </div>
 
-      {/* Main Container */}
-      <div className="max-w-6xl mx-auto px-6 mt-6 space-y-8">
-        {/* Quick Metrics Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {/* Metric 1: Prize Pool */}
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-1`}>
-            <span className="text-[10px] uppercase font-bold text-gray-400 flex items-center gap-1">
-              <Trophy className="w-3.5 h-3.5 text-amber-400" />
-              Total Prize Pool
-            </span>
-            <div className="text-xl font-black text-white">
-              ${event.totalRewardPool.toLocaleString()} <span className="text-xs text-amber-400 font-extrabold">{event.rewardToken}</span>
+      {/* USER PARTICIPATION BAR */}
+      <div className="bg-slate-900/90 border-b border-white/10 px-4 sm:px-8 py-4">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          
+          <div className="flex items-center space-x-4">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${
+              isClaimed ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
+              isJoined ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+            }`}>
+              {isClaimed ? <CheckCircle2 className="w-6 h-6" /> : isJoined ? <ShieldCheck className="w-6 h-6" /> : <Flame className="w-6 h-6" />}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-bold text-slate-400">Participation Status</p>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
+                  isClaimed ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                  isJoined ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {isClaimed ? 'Reward Claimed' : isJoined ? 'Registered' : 'Not Registered'}
+                </span>
+              </div>
+              <p className="text-sm font-black text-white mt-0.5">
+                {isClaimed ? `Received ${event.userProgress?.claimedAmount || 250} ${event.rewardToken}` :
+                 isJoined ? 'Task verification active. Complete requirements below.' :
+                 'Join this campaign to reserve your prize pool allocation.'}
+              </p>
             </div>
           </div>
 
-          {/* Metric 2: Live Countdown */}
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-1`}>
-            <span className="text-[10px] uppercase font-bold text-gray-400 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-purple-400" />
-              {event.status === 'UPCOMING' ? 'Starts In' : 'Time Remaining'}
-            </span>
-            <div className="text-sm font-mono font-bold text-emerald-400">
-              {countdown.days}d {countdown.hours}h {countdown.mins}m {countdown.secs}s
-            </div>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            {isClaimed ? (
+              <button disabled className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-500/20 text-emerald-400 font-extrabold text-xs border border-emerald-500/30 flex items-center justify-center gap-2">
+                <Check className="w-4 h-4" /> Claimed
+              </button>
+            ) : isJoined ? (
+              <button 
+                onClick={handleClaim}
+                disabled={isClaiming || completionPercentage < 100}
+                className={`w-full sm:w-auto px-6 py-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shadow-lg ${
+                  completionPercentage >= 100
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white shadow-emerald-500/20'
+                    : 'bg-white/10 text-slate-400 cursor-not-allowed border border-white/10'
+                }`}
+              >
+                {isClaiming ? <RotateCw className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+                <span>{completionPercentage >= 100 ? 'Claim Reward Share' : `Tasks ${completedCount}/${totalTasks} Complete`}</span>
+              </button>
+            ) : (
+              <button 
+                onClick={handleJoin}
+                disabled={isJoining}
+                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2"
+              >
+                {isJoining ? <RotateCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                <span>{event.status === 'UPCOMING' ? 'Pre-Register for Event' : 'Register for Campaign'}</span>
+              </button>
+            )}
           </div>
 
-          {/* Metric 3: Participants */}
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-1`}>
-            <span className="text-[10px] uppercase font-bold text-gray-400 flex items-center gap-1">
-              <Users className="w-3.5 h-3.5 text-blue-400" />
-              Global Participants
-            </span>
-            <div className="text-xl font-black text-white">
-              {event.participantCount.toLocaleString()}
-            </div>
-          </div>
-
-          {/* Metric 4: My Status */}
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-1`}>
-            <span className="text-[10px] uppercase font-bold text-gray-400 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              My Account Status
-            </span>
-            <div className="text-sm font-black text-emerald-400 flex items-center gap-1.5">
-              {isClaimed ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  Reward Claimed
-                </>
-              ) : isJoined ? (
-                <>
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  Enrolled / Active
-                </>
-              ) : (
-                <span className="text-gray-400">Not Registered</span>
-              )}
-            </div>
-          </div>
         </div>
+      </div>
 
-        {/* Dynamic Section Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-gray-800/60 no-scrollbar">
+      {/* MAIN BODY CONTENT */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-8 space-y-8 pb-28">
+        
+        {/* INTERACTIVE NAVIGATION TABS */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar border-b border-white/10">
           {[
-            { id: 'OVERVIEW', label: 'Overview & Rewards', icon: Sparkles },
-            { id: 'ELIGIBILITY', label: 'Eligibility & Tasks', icon: ShieldCheck },
-            { id: 'GUIDE', label: 'Step Guide', icon: FileText },
-            { id: 'PRIZES', label: 'Prize Breakdown', icon: Trophy },
-            { id: 'TIMELINE', label: 'Timeline', icon: Clock },
-            { id: 'FAQS', label: 'FAQs & Terms', icon: HelpCircle }
-          ].map((tab) => {
-            const Icon = tab.icon;
+            { id: 'OVERVIEW', label: 'Overview & Rewards', icon: Trophy },
+            { id: 'ELIGIBILITY', label: `Eligibility & Tasks (${completedCount}/${totalTasks})`, icon: CheckCircle2 },
+            { id: 'GUIDE', label: 'Step Guide', icon: Layers },
+            { id: 'PRIZES', label: 'Prize Breakdown', icon: Award },
+            { id: 'TIMELINE', label: 'Campaign Timeline', icon: Clock },
+            { id: 'FAQS', label: 'FAQs & Rules', icon: HelpCircle }
+          ].map(tab => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`px-5 py-3 rounded-2xl text-xs font-black whitespace-nowrap transition-all flex items-center gap-2 ${
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
                   isActive
-                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/20'
-                    : 'bg-gray-900/60 text-gray-400 hover:text-white hover:bg-gray-800/80 border border-gray-800/60'
+                    ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border border-emerald-500/40 shadow-lg'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                {tab.label}
+                <tab.icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : 'text-slate-500'}`} />
+                <span>{tab.label}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Tab Content Panels */}
-        <div className="space-y-6">
-          {/* TAB 1: OVERVIEW & REWARDS */}
+        {/* TAB CONTENTS */}
+        <AnimatePresence mode="wait">
           {activeTab === 'OVERVIEW' && (
-            <div className="space-y-6">
-              {/* Campaign Explanation */}
-              <div className={`p-6 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-3`}>
+            <motion.div
+              key="overview"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              {/* Reward Highlights Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {event.rewardCards?.map((card, idx) => (
+                  <div key={idx} className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 backdrop-blur-md space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center">
+                      <Trophy className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-400">{card.title}</p>
+                    <p className="text-xl font-black text-white">{card.amount}</p>
+                    <p className="text-[11px] text-slate-400">{card.subtext}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Campaign Narrative */}
+              <div className="p-6 rounded-3xl bg-slate-900/40 border border-white/10 space-y-4">
                 <h3 className="text-lg font-black text-white flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-amber-400" />
-                  Campaign Overview
+                  <Activity className="w-5 h-5 text-emerald-400" />
+                  Campaign Overview & Rules
                 </h3>
-                <p className="text-xs md:text-sm text-gray-300 leading-relaxed font-medium">
+                <p className="text-sm text-slate-300 leading-relaxed font-normal whitespace-pre-line">
                   {event.overview}
                 </p>
               </div>
 
-              {/* Reward Cards Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {event.rewardCards.map((rc, idx) => (
-                  <div
-                    key={idx}
-                    className={`p-5 rounded-3xl border ${isDark ? 'bg-gradient-to-br from-purple-900/20 via-[#0E121B] to-gray-900 border-purple-500/30' : 'bg-gray-50 border-gray-200'} space-y-2 relative overflow-hidden`}
-                  >
-                    <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-2">
-                      <Trophy className="w-5 h-5" />
-                    </div>
-                    <span className="text-xs font-extrabold uppercase tracking-wider text-gray-400">
-                      {rc.title}
-                    </span>
-                    <div className="text-xl font-black text-white">
-                      {rc.amount}
-                    </div>
-                    <p className="text-xs text-gray-400 font-medium">
-                      {rc.subtext}
-                    </p>
-                  </div>
-                ))}
+              {/* Participant Statistics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-6 rounded-3xl bg-slate-900/40 border border-white/10">
+                <div>
+                  <p className="text-xs font-bold text-slate-400">Total Participants</p>
+                  <p className="text-xl font-black text-white mt-1">{event.participantCount.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-400">Capacity Limit</p>
+                  <p className="text-xl font-black text-white mt-1">{event.maxParticipants ? event.maxParticipants.toLocaleString() : 'Unlimited'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-400">Reward Currency</p>
+                  <p className="text-xl font-black text-emerald-400 mt-1">{event.rewardToken}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-400">Verification Protocol</p>
+                  <p className="text-xl font-black text-cyan-400 mt-1">Automated AI</p>
+                </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
-          {/* TAB 2: ELIGIBILITY & TASKS */}
           {activeTab === 'ELIGIBILITY' && (
-            <div className={`p-6 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-4`}>
-              <h3 className="text-lg font-black text-white flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                Eligibility Checklist & Tasks
-              </h3>
-              <p className="text-xs text-gray-400">
-                Complete all requirements below to qualify for guaranteed prize distribution upon campaign closing.
-              </p>
-
-              <div className="space-y-3 pt-2">
-                {event.eligibilityRequirements.map((req) => (
-                  <div
-                    key={req.id}
-                    className="p-4 rounded-2xl border border-gray-800/80 bg-gray-900/40 flex items-center justify-between gap-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                        req.completed ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-800 text-gray-500'
-                      }`}>
-                        <CheckCircle2 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-white block">{req.title}</span>
-                        <span className="text-[10px] text-gray-400">
-                          {req.completed ? 'Requirement verified' : 'Action required'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {!req.completed && onNavigateToTrading && (
-                      <button
-                        onClick={onNavigateToTrading}
-                        className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors"
-                      >
-                        {req.requiredAction || 'Complete'}
-                      </button>
-                    )}
+            <motion.div
+              key="eligibility"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              <div className="p-6 rounded-3xl bg-slate-900/60 border border-white/10 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-black text-white">Requirement Verification Checklist</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Complete all requirements to qualify for direct reward settlement.</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <span className="text-sm font-black text-emerald-400">{completionPercentage}% Completed</span>
+                </div>
 
-          {/* TAB 3: STEP GUIDE */}
-          {activeTab === 'GUIDE' && (
-            <div className={`p-6 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-6`}>
-              <h3 className="text-lg font-black text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-400" />
-                How to Participate
-              </h3>
+                {/* Progress bar */}
+                <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-500" style={{ width: `${completionPercentage}%` }} />
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {event.stepGuide.map((sg) => (
-                  <div
-                    key={sg.stepNumber}
-                    className="p-5 rounded-2xl border border-gray-800/80 bg-gray-900/40 flex items-start gap-4"
-                  >
-                    <div className="w-10 h-10 rounded-2xl bg-purple-500/20 border border-purple-500/30 text-purple-300 font-black text-sm flex items-center justify-center flex-shrink-0">
-                      0{sg.stepNumber}
-                    </div>
-                    <div className="space-y-1">
-                      <h4 className="text-xs font-black text-white">{sg.title}</h4>
-                      <p className="text-xs text-gray-400 leading-relaxed">{sg.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: PRIZE BREAKDOWN */}
-          {activeTab === 'PRIZES' && (
-            <div className={`p-6 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-4`}>
-              <h3 className="text-lg font-black text-white flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-amber-400" />
-                Prize Distribution Tiers
-              </h3>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-gray-800 text-gray-400 uppercase text-[10px] font-black">
-                      <th className="py-3 px-4">Rank / Tier</th>
-                      <th className="py-3 px-4">Reward Value</th>
-                      <th className="py-3 px-4">Share %</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-800/60 font-semibold text-gray-200">
-                    {event.prizeBreakdown.map((pb, idx) => (
-                      <tr key={idx} className="hover:bg-gray-900/40 transition-colors">
-                        <td className="py-3.5 px-4 font-black text-white flex items-center gap-2">
-                          {pb.badge === 'gold' && <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_#F59E0B]" />}
-                          {pb.badge === 'silver' && <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />}
-                          {pb.badge === 'bronze' && <span className="w-2.5 h-2.5 rounded-full bg-amber-700" />}
-                          {pb.rankRange}
-                        </td>
-                        <td className="py-3.5 px-4 text-emerald-400 font-bold">{pb.reward}</td>
-                        <td className="py-3.5 px-4 text-gray-400">{pb.percentage}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: TIMELINE */}
-          {activeTab === 'TIMELINE' && (
-            <div className={`p-6 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-6`}>
-              <h3 className="text-lg font-black text-white flex items-center gap-2">
-                <Clock className="w-5 h-5 text-purple-400" />
-                Campaign Roadmap & Milestones
-              </h3>
-
-              <div className="relative border-l-2 border-purple-500/30 ml-4 pl-6 space-y-6">
-                {event.timeline.map((stage, idx) => (
-                  <div key={idx} className="relative">
-                    <span className={`absolute -left-[31px] top-1 w-4 h-4 rounded-full border-2 ${
-                      stage.status === 'COMPLETED' ? 'bg-emerald-500 border-emerald-400' :
-                      stage.status === 'ACTIVE' ? 'bg-purple-500 border-purple-300 animate-ping' :
-                      'bg-gray-800 border-gray-700'
-                    }`} />
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black text-white">{stage.title}</span>
-                        <span className="text-[10px] font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md">
-                          {stage.dateRange}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-400">{stage.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 6: FAQS & TERMS */}
-          {activeTab === 'FAQS' && (
-            <div className="space-y-6">
-              {/* FAQs Accordion */}
-              <div className={`p-6 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-4`}>
-                <h3 className="text-lg font-black text-white flex items-center gap-2">
-                  <HelpCircle className="w-5 h-5 text-indigo-400" />
-                  Frequently Asked Questions
-                </h3>
-
-                <div className="space-y-3">
-                  {event.faqs.map((faq, idx) => {
-                    const isExpanded = expandedFaqIndex === idx;
+                {/* Requirements list */}
+                <div className="space-y-3 pt-2">
+                  {event.eligibilityRequirements?.map((req) => {
+                    const isDone = completedTasks[req.id];
                     return (
-                      <div
-                        key={idx}
-                        className="rounded-2xl border border-gray-800 bg-gray-900/40 overflow-hidden"
+                      <div 
+                        key={req.id}
+                        onClick={() => toggleTask(req.id)}
+                        className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                          isDone 
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-white' 
+                            : 'bg-white/5 border-white/10 text-slate-300 hover:border-white/20'
+                        }`}
                       >
-                        <button
-                          onClick={() => setExpandedFaqIndex(isExpanded ? null : idx)}
-                          className="w-full p-4 text-left font-bold text-xs text-white flex items-center justify-between gap-3"
-                        >
-                          <span>{faq.question}</span>
-                          {isExpanded ? <ChevronUp className="w-4 h-4 text-purple-400" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
-                        </button>
-                        {isExpanded && (
-                          <div className="px-4 pb-4 text-xs text-gray-400 border-t border-gray-800/60 pt-3 leading-relaxed">
-                            {faq.answer}
+                        <div className="flex items-center space-x-3.5">
+                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center border ${
+                            isDone ? 'bg-emerald-500 text-slate-950 border-emerald-400' : 'border-slate-500'
+                          }`}>
+                            {isDone && <Check className="w-4 h-4 font-black" />}
                           </div>
+                          <span className="text-xs font-bold">{req.title}</span>
+                        </div>
+
+                        {req.requiredAction && onNavigateToTrading && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigateToTrading();
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[11px] font-extrabold border border-emerald-500/30 flex items-center gap-1"
+                          >
+                            <span>{req.requiredAction}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
                         )}
                       </div>
                     );
                   })}
                 </div>
               </div>
+            </motion.div>
+          )}
 
-              {/* Terms & Conditions */}
-              <div className={`p-6 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-3`}>
-                <h3 className="text-sm font-black text-gray-300 uppercase tracking-wider">
-                  Terms & Conditions
-                </h3>
-                <ul className="list-disc list-inside text-xs text-gray-400 space-y-2 leading-relaxed">
-                  {event.terms.map((term, idx) => (
+          {activeTab === 'GUIDE' && (
+            <motion.div
+              key="guide"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-4"
+            >
+              {event.stepGuide?.map((step) => (
+                <div key={step.stepNumber} className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 flex items-start space-x-4">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-sm flex items-center justify-center flex-shrink-0 mt-0.5">
+                    {step.stepNumber}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white">{step.title}</h4>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">{step.description}</p>
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+          )}
+
+          {activeTab === 'PRIZES' && (
+            <motion.div
+              key="prizes"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-4"
+            >
+              <div className="rounded-3xl overflow-hidden border border-white/10 bg-slate-900/60">
+                <div className="grid grid-cols-12 bg-white/5 p-4 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10">
+                  <div className="col-span-4">Rank Tier</div>
+                  <div className="col-span-5">Reward Allocation</div>
+                  <div className="col-span-3 text-right">Pool Share</div>
+                </div>
+                <div className="divide-y divide-white/5">
+                  {event.prizeBreakdown?.map((tier, idx) => (
+                    <div key={idx} className="grid grid-cols-12 p-4 text-xs font-bold items-center hover:bg-white/[0.02]">
+                      <div className="col-span-4 flex items-center space-x-2">
+                        <span className={`w-2 h-2 rounded-full ${
+                          tier.badge === 'gold' ? 'bg-amber-400' :
+                          tier.badge === 'silver' ? 'bg-slate-300' :
+                          tier.badge === 'bronze' ? 'bg-amber-700' : 'bg-cyan-400'
+                        }`} />
+                        <span className="text-white">{tier.rankRange}</span>
+                      </div>
+                      <div className="col-span-5 text-emerald-400 font-extrabold">{tier.reward}</div>
+                      <div className="col-span-3 text-right text-slate-400">{tier.percentage}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'TIMELINE' && (
+            <motion.div
+              key="timeline"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-4"
+            >
+              {event.timeline?.map((stage, idx) => (
+                <div key={idx} className="p-5 rounded-2xl bg-slate-900/60 border border-white/10 flex items-start space-x-4">
+                  <span className={`w-3 h-3 rounded-full mt-1.5 flex-shrink-0 ${
+                    stage.status === 'COMPLETED' ? 'bg-emerald-400' :
+                    stage.status === 'ACTIVE' ? 'bg-amber-400 animate-ping' : 'bg-slate-600'
+                  }`} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-black text-white">{stage.title}</h4>
+                      <span className="text-[10px] font-extrabold text-slate-400">{stage.dateRange}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">{stage.description}</p>
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+          )}
+
+          {activeTab === 'FAQS' && (
+            <motion.div
+              key="faqs"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              <div className="space-y-3">
+                <h3 className="text-sm font-black uppercase text-slate-400 tracking-wider">Frequently Asked Questions</h3>
+                {event.faqs?.map((faq, idx) => {
+                  const isOpen = expandedFaqIndex === idx;
+                  return (
+                    <div key={idx} className="rounded-2xl bg-slate-900/60 border border-white/10 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedFaqIndex(isOpen ? null : idx)}
+                        className="w-full p-4 text-left font-bold text-xs text-white flex justify-between items-center"
+                      >
+                        <span>{faq.question}</span>
+                        {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                      </button>
+                      {isOpen && (
+                        <div className="px-4 pb-4 text-xs text-slate-300 leading-relaxed border-t border-white/5 pt-3">
+                          {faq.answer}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Terms */}
+              <div className="p-6 rounded-3xl bg-slate-900/40 border border-white/10 space-y-3">
+                <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider">Terms & Conditions</h3>
+                <ul className="space-y-2 list-disc list-inside text-xs text-slate-400 leading-relaxed">
+                  {event.terms?.map((term, idx) => (
                     <li key={idx}>{term}</li>
                   ))}
                 </ul>
               </div>
-            </div>
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
 
-        {/* Related Events Section */}
-        {relatedEvents.length > 0 && (
-          <div className="pt-8 border-t border-gray-800/80 space-y-4">
-            <h3 className="text-lg font-black text-white flex items-center gap-2">
-              <Flame className="w-5 h-5 text-amber-400" />
-              Discover Other Active Campaigns
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {relatedEvents.map(rel => (
-                <EventCard 
-                  key={rel.id} 
-                  event={rel} 
-                  onSelect={(ev) => setEvent(ev)} 
-                  theme={theme}
-                />
+        {/* RELATED CAMPAIGNS ROW */}
+        {allEvents.filter(e => e.id !== event.id).length > 0 && (
+          <div className="pt-8 border-t border-white/10 space-y-4">
+            <h3 className="text-lg font-black text-white">Explore Other Active Campaigns</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {allEvents.filter(e => e.id !== event.id).slice(0, 3).map((rel) => (
+                <div 
+                  key={rel.id}
+                  onClick={() => {
+                    setEvent(rel);
+                    setActiveTab('OVERVIEW');
+                  }}
+                  className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-emerald-500/40 transition-all cursor-pointer group"
+                >
+                  <p className="text-[10px] font-extrabold text-emerald-400 uppercase">{rel.category}</p>
+                  <h4 className="text-sm font-black text-white group-hover:text-emerald-400 transition-colors mt-0.5 truncate">{rel.title}</h4>
+                  <p className="text-xs font-bold text-amber-400 mt-2">${rel.totalRewardPool.toLocaleString()} {rel.rewardToken}</p>
+                </div>
               ))}
             </div>
           </div>
         )}
-      </div>
 
-      {/* Sticky Bottom Action Bar */}
-      <div className={`fixed bottom-0 left-0 right-0 z-[100] border-t p-4 backdrop-blur-2xl ${
-        isDark ? 'bg-[#07090E]/95 border-gray-800/80 shadow-[0_-10px_30px_rgba(0,0,0,0.8)]' : 'bg-white/95 border-gray-200 shadow-2xl'
-      }`}>
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-          <div className="hidden sm:flex items-center gap-4">
-            <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase block">Grand Prize Pool</span>
-              <span className="text-base font-black text-white">
-                ${event.totalRewardPool.toLocaleString()} <span className="text-xs text-amber-400">{event.rewardToken}</span>
-              </span>
-            </div>
-            <div className="h-8 w-px bg-gray-800" />
-            <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase block">Time Remaining</span>
-              <span className="text-xs font-mono font-bold text-emerald-400">
-                {countdown.days}d {countdown.hours}h {countdown.mins}m {countdown.secs}s
-              </span>
-            </div>
+      </main>
+
+      {/* STICKY BOTTOM ACTION BAR */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#03060D]/95 backdrop-blur-2xl border-t border-white/10 p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+          <div className="hidden sm:block">
+            <p className="text-xs font-bold text-slate-400">Total Reward Pool Allocation</p>
+            <p className="text-lg font-black text-emerald-400">${event.totalRewardPool.toLocaleString()} {event.rewardToken}</p>
           </div>
 
-          <div className="w-full sm:w-auto flex items-center gap-3">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
             {isClaimed ? (
-              <button
-                disabled
-                className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black text-sm flex items-center justify-center gap-2 cursor-default"
-              >
-                <CheckCircle2 className="w-5 h-5" />
-                Reward Claimed
+              <button disabled className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-emerald-500/20 text-emerald-400 font-black text-xs border border-emerald-500/30 flex items-center justify-center gap-2">
+                <Check className="w-4 h-4" /> Reward Claimed & Settled
               </button>
             ) : isJoined ? (
-              <button
+              <button 
                 onClick={handleClaim}
-                disabled={isClaiming}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-sm shadow-xl shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
+                disabled={isClaiming || completionPercentage < 100}
+                className={`w-full sm:w-auto px-8 py-3.5 rounded-xl font-black text-xs transition-all shadow-xl flex items-center justify-center gap-2 ${
+                  completionPercentage >= 100
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-emerald-500/20'
+                    : 'bg-white/10 text-slate-400 border border-white/10 cursor-not-allowed'
+                }`}
               >
-                {isClaiming ? (
-                  <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                ) : (
-                  <Gift className="w-5 h-5" />
-                )}
-                Claim Campaign Reward
+                {isClaiming ? <RotateCw className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+                <span>{completionPercentage >= 100 ? 'Claim Reward' : `Complete Tasks (${completedCount}/${totalTasks})`}</span>
               </button>
             ) : (
-              <button
+              <button 
                 onClick={handleJoin}
                 disabled={isJoining}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-black text-sm shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-10 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2"
               >
-                {isJoining ? (
-                  <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Sparkles className="w-5 h-5" />
-                )}
-                {event.status === 'UPCOMING' ? 'Pre-Register for Event' : 'Join Campaign Now'}
+                {isJoining ? <RotateCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                <span>Register for Campaign</span>
               </button>
             )}
           </div>
         </div>
       </div>
+
     </div>
   );
 }

@@ -40,9 +40,90 @@
       "properties": {
         "uid": { "type": "string" },
         "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["user", "super_admin"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "createdAt"]
+    },
+    "LinkedWallet": {
+      "title": "LinkedWallet",
+      "description": "User cryptocurrency wallet link",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "address": { "type": "string" },
+        "network": { "type": "string" },
+        "walletType": { "type": "string" },
+        "status": { "type": "string" },
+        "linkedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "address", "network", "status", "linkedAt"]
+    },
+    "DepositRequest": {
+      "title": "DepositRequest",
+      "description": "User deposit request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "asset": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "email", "asset", "amount", "status", "timestamp"]
+    },
+    "WithdrawalRequest": {
+      "title": "WithdrawalRequest",
+      "description": "User withdrawal request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "asset": { "type": "string" },
+        "amount": { "type": "number" },
+        "destination": { "type": "string" },
+        "riskScore": { "type": "number" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "email", "asset", "amount", "status", "timestamp"]
+    },
+    "KycSubmission": {
+      "title": "KycSubmission",
+      "description": "User KYC verification submission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "tier": { "type": "string" },
+        "documents": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "email", "status", "submittedAt"]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Immutable administrative audit log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminId": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "resource": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "ip": { "type": "string" },
+        "device": { "type": "string" }
+      },
+      "required": ["id", "adminId", "action", "timestamp"]
     },
     "Bonus": {
       "title": "Bonus",
@@ -153,6 +234,20 @@
         "exposure": { "type": "number" }
       },
       "required": ["id", "timestamp", "totalValue"]
+    },
+    "EquityHistory": {
+      "title": "EquityHistory",
+      "description": "Immutable historical record of user's total net balance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "totalNetBalance": { "type": "number" },
+        "sessionId": { "type": "string" },
+        "trigger": { "type": "string" }
+      },
+      "required": ["id", "userId", "timestamp", "totalNetBalance", "trigger"]
     },
     "AiSession": {
       "title": "AiSession",
@@ -338,12 +433,18 @@
   },
   "firestore": {
     "/events_hub/{eventId}": { "schema": "EventHub", "description": "Global promotional events and competitions" },
+    "/linked_wallets/{walletId}": { "schema": "LinkedWallet", "description": "Global linked wallets" },
+    "/admin_deposits/{depositId}": { "schema": "DepositRequest", "description": "Global deposit requests" },
+    "/admin_withdrawals/{withdrawalId}": { "schema": "WithdrawalRequest", "description": "Global withdrawal requests" },
+    "/admin_kyc/{kycId}": { "schema": "KycSubmission", "description": "Global KYC submissions" },
+    "/admin_audit_logs/{logId}": { "schema": "AdminAuditLog", "description": "Global admin audit logs" },
     "/users/{uid}": { "schema": "User", "description": "User profiles" },
     "/wallets/{uid}": { "schema": "Wallet", "description": "User wallet document" },
     "/users/{uid}/account/master": { "schema": "Account", "description": "User master financial account" },
     "/users/{uid}/holdings/{holdingId}": { "schema": "Holding", "description": "User portfolio holdings" },
     "/users/{uid}/trades/{tradeId}": { "schema": "Trade", "description": "User trade records" },
     "/users/{uid}/snapshots/{snapshotId}": { "schema": "Snapshot", "description": "User portfolio history snapshots" },
+    "/users/{uid}/equityHistory/{recordId}": { "schema": "EquityHistory", "description": "Historical balance track records" },
     "/users/{uid}/aiPreferences/default": { "schema": "AiPreference", "description": "User AI preferences" },
     "/aiPreferences/{userId}": { "schema": "AiPreference", "description": "User AI preferences and risk settings" },
     "/users/{uid}/tradingConfig/default": { "schema": "TradingEngineConfig", "description": "User AI engine config" },

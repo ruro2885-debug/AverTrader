@@ -295,7 +295,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
         },
         schedule: trader.schedule ? { ...trader.schedule } : undefined,
         configurationDetails: {
-          description: `Procedurally duplicated directly from copy-trading profile of ${trader.username} (${trader.strategyName}). Built for ${trader.style.replace('_', ' ')} execution. Original performance: +${trader.return30D}% ROI.`,
+          description: `Procedurally duplicated directly from copy-trading profile of ${trader.username} (${trader.strategyName}). Built for ${trader.style.replace('_', ' ')} execution. Original performance: ${trader.return30D >= 0 ? '+' : ''}${trader.return30D}% ROI.`,
           category: 'Copy Trading',
           version: '1.0.0'
         },
@@ -415,72 +415,81 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
           </span>
         </div>
 
-        <svg className="w-full h-44 overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-          <defs>
-            <linearGradient id={`chartGradient_${trader.id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#10B981" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
-            </linearGradient>
-            <filter id={`glow_${trader.id}`} x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#10B981" floodOpacity="0.3" />
-            </filter>
-          </defs>
+        {(() => {
+          const isProfitable = timelineReturn >= 0;
+          const colorHex = isProfitable ? "#10B981" : "#F43F5E";
+          const dotClass = isProfitable ? "fill-emerald-500" : "fill-rose-500";
+          const hoverClass = isProfitable ? "fill-emerald-400" : "fill-rose-400";
 
-          {/* Grid Lines */}
-          <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"} strokeDasharray="3,3" />
-          <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"} strokeDasharray="3,3" />
-          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"} strokeDasharray="3,3" />
+          return (
+            <svg className="w-full h-44 overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+              <defs>
+                <linearGradient id={`chartGradient_${trader.id}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={colorHex} stopOpacity="0.4" />
+                  <stop offset="100%" stopColor={colorHex} stopOpacity="0.0" />
+                </linearGradient>
+                <filter id={`glow_${trader.id}`} x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor={colorHex} floodOpacity="0.3" />
+                </filter>
+              </defs>
 
-          {/* Area under curve */}
-          {areaD && (
-            <path
-              d={areaD}
-              fill={`url(#chartGradient_${trader.id})`}
-            />
-          )}
+              {/* Grid Lines */}
+              <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"} strokeDasharray="3,3" />
+              <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke={isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"} strokeDasharray="3,3" />
+              <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"} strokeDasharray="3,3" />
 
-          {/* Line Path */}
-          {pathD && (
-            <path
-              d={pathD}
-              fill="none"
-              stroke="#10B981"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              filter={`url(#glow_${trader.id})`}
-            />
-          )}
+              {/* Area under curve */}
+              {areaD && (
+                <path
+                  d={areaD}
+                  fill={`url(#chartGradient_${trader.id})`}
+                />
+              )}
 
-          {/* Interactive Dots */}
-          {points.map((p, i) => {
-            // Only draw dots for first, middle, last, or every few if small timeline
-            const showDot = i === 0 || i === points.length - 1 || points.length < 15 || i % Math.floor(points.length / 5) === 0;
-            if (!showDot) return null;
-            return (
-              <g key={i}>
-                <circle cx={p.x} cy={p.y} r="3" className="fill-emerald-500 stroke-black stroke-2" />
-                <circle cx={p.x} cy={p.y} r="8" className="fill-emerald-400 opacity-0 hover:opacity-25 transition-opacity cursor-pointer" />
-              </g>
-            );
-          })}
+              {/* Line Path */}
+              {pathD && (
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke={colorHex}
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  filter={`url(#glow_${trader.id})`}
+                />
+              )}
 
-          {/* Labels */}
-          {points.map((p, i) => {
-            const showLabel = i === 0 || i === points.length - 1 || (points.length >= 6 && i === Math.floor(points.length / 2));
-            if (!showLabel) return null;
-            return (
-              <text
-                key={`lbl_${i}`}
-                x={p.x}
-                y={height - 6}
-                textAnchor="middle"
-                className={`font-mono text-[9px] font-bold ${isDark ? "fill-slate-500" : "fill-slate-400"}`}
-              >
-                {labels[i]}
-              </text>
-            );
-          })}
-        </svg>
+              {/* Interactive Dots */}
+              {points.map((p, i) => {
+                // Only draw dots for first, middle, last, or every few if small timeline
+                const showDot = i === 0 || i === points.length - 1 || points.length < 15 || i % Math.floor(points.length / 5) === 0;
+                if (!showDot) return null;
+                return (
+                  <g key={i}>
+                    <circle cx={p.x} cy={p.y} r="3" className={`${dotClass} stroke-black stroke-2`} />
+                    <circle cx={p.x} cy={p.y} r="8" className={`${hoverClass} opacity-0 hover:opacity-25 transition-opacity cursor-pointer`} />
+                  </g>
+                );
+              })}
+
+              {/* Labels */}
+              {points.map((p, i) => {
+                const showLabel = i === 0 || i === points.length - 1 || (points.length >= 6 && i === Math.floor(points.length / 2));
+                if (!showLabel) return null;
+                return (
+                  <text
+                    key={`lbl_${i}`}
+                    x={p.x}
+                    y={height - 6}
+                    textAnchor="middle"
+                    className={`font-mono text-[9px] font-bold ${isDark ? "fill-slate-500" : "fill-slate-400"}`}
+                  >
+                    {labels[i]}
+                  </text>
+                );
+              })}
+            </svg>
+          );
+        })()}
       </div>
     );
   };
@@ -597,7 +606,9 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     </div>
 
                     <div className="mt-4 text-center">
-                      <span className="text-lg font-black text-emerald-400 font-mono tracking-tight">+{secondPlace.return30D.toFixed(2)}%</span>
+                      <span className={`text-lg font-black font-mono tracking-tight ${secondPlace.return30D >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {secondPlace.return30D >= 0 ? '+' : ''}{secondPlace.return30D.toFixed(2)}%
+                      </span>
                       <p className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-0.5">30D RETURN</p>
                       <p className="text-[10px] font-mono font-bold text-gray-400 mt-1">${(secondPlace.allocatedAmount || 1000).toLocaleString()} Capital</p>
                     </div>
@@ -641,7 +652,9 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     </div>
 
                     <div className="mt-4 text-center">
-                      <span className="text-2xl font-black text-emerald-400 font-mono tracking-tight">+{firstPlace.return30D.toFixed(2)}%</span>
+                      <span className={`text-2xl font-black font-mono tracking-tight ${firstPlace.return30D >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {firstPlace.return30D >= 0 ? '+' : ''}{firstPlace.return30D.toFixed(2)}%
+                      </span>
                       <p className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-0.5">30D RETURN</p>
                       <p className="text-[10px] font-mono font-bold text-emerald-400/90 mt-1">${(firstPlace.allocatedAmount || 1000).toLocaleString()} Capital</p>
                     </div>
@@ -676,7 +689,9 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     </div>
 
                     <div className="mt-4 text-center">
-                      <span className="text-lg font-black text-emerald-400 font-mono tracking-tight">+{thirdPlace.return30D.toFixed(2)}%</span>
+                      <span className={`text-lg font-black font-mono tracking-tight ${thirdPlace.return30D >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {thirdPlace.return30D >= 0 ? '+' : ''}{thirdPlace.return30D.toFixed(2)}%
+                      </span>
                       <p className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-0.5">30D RETURN</p>
                       <p className="text-[10px] font-mono font-bold text-gray-400 mt-1">${(thirdPlace.allocatedAmount || 1000).toLocaleString()} Capital</p>
                     </div>
@@ -903,24 +918,24 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
 
                         {/* 30D Return & Sparkline */}
                         <div className="col-span-4 sm:col-span-3 flex flex-col items-end justify-center">
-                          <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-lg">
-                            +{trader.return30D.toFixed(2)}%
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded-lg ${trader.return30D >= 0 ? 'text-emerald-500 bg-emerald-500/10' : 'text-rose-500 bg-rose-500/10'}`}>
+                            {trader.return30D >= 0 ? '+' : ''}{trader.return30D.toFixed(2)}%
                           </span>
                           
                           {/* Mini Sparkline graph */}
                           <div className="w-16 h-5 mt-1 opacity-80 hidden xs:block">
                             <svg className="w-full h-full" viewBox="0 0 50 15">
-                              <path 
-                                d={trader.pnlHistory30D.reduce((acc, val, i) => {
-                                  const x = (i / (trader.pnlHistory30D.length - 1)) * 50;
-                                  const y = 13 - ((val / 250) * 11); // scale to fit height 15
-                                  return i === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
-                                }, '')}
-                                fill="none"
-                                stroke="#10b981"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                              />
+                                <path 
+                                  d={trader.pnlHistory30D.reduce((acc, val, i) => {
+                                    const x = (i / (trader.pnlHistory30D.length - 1)) * 50;
+                                    const y = 13 - ((val / 250) * 11); // scale to fit height 15
+                                    return i === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
+                                  }, '')}
+                                  fill="none"
+                                  stroke={trader.return30D >= 0 ? "#10b981" : "#f43f5e"}
+                                  strokeWidth="1.5"
+                                  strokeLinecap="round"
+                                />
                             </svg>
                           </div>
                         </div>
@@ -1095,7 +1110,9 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">30D Performance</p>
-                      <h4 className="text-xl font-black text-emerald-500 mt-1 font-mono">+{Math.max(0, selectedTrader.return30D + jitter).toFixed(2)}%</h4>
+                      <h4 className={`text-xl font-black mt-1 font-mono ${(selectedTrader.return30D + jitter) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {(selectedTrader.return30D + jitter) >= 0 ? '+' : ''}{(selectedTrader.return30D + jitter).toFixed(2)}%
+                      </h4>
                     </div>
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">Win Rate Percentage</p>
@@ -1115,7 +1132,9 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">All-Time ROI</p>
-                      <h4 className="text-xl font-black text-emerald-500 mt-1 font-mono">+{Math.max(0, selectedTrader.returnAllTime + jitter * 5).toFixed(2)}%</h4>
+                      <h4 className={`text-xl font-black mt-1 font-mono ${(selectedTrader.returnAllTime + jitter * 5) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {(selectedTrader.returnAllTime + jitter * 5) >= 0 ? '+' : ''}{(selectedTrader.returnAllTime + jitter * 5).toFixed(2)}%
+                      </h4>
                     </div>
                     <div className={`p-4 rounded-2xl ${cardClasses} border border-white/5 text-center`}>
                       <p className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest font-sans">Winning Streak</p>
@@ -1155,23 +1174,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   </div>
 
                   {/* PREFERRED MARKETS & RISK INFO BOX */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Markets */}
-                    <div className={`p-5 rounded-2xl ${cardClasses} border border-white/5 space-y-3`}>
-                      <h4 className="text-xs font-black text-gray-400 tracking-wider uppercase">Preferred Markets & Allocation</h4>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {(selectedTrader.preferredMarkets || []).map((mkt) => (
-                          <div key={mkt} className="flex items-center gap-2 bg-white/5 border border-white/5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold text-white">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                            {mkt}/USDT
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-xs text-gray-500 leading-relaxed pt-1">
-                        AI routing allocates high priority depth index to {(selectedTrader.preferredMarkets || []).join(', ')} due to lower spread variance and optimized volatility vectors.
-                      </p>
-                    </div>
-
+                  <div className="grid grid-cols-1 gap-6">
                     {/* Wins Losses */}
                     <div className={`p-5 rounded-2xl ${cardClasses} border border-white/5 flex flex-col justify-between`}>
                       <div className="space-y-1">
@@ -1193,95 +1196,6 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                         Compounding an accurate {selectedTrader.winRate}% win rate index across {selectedTrader.wins + selectedTrader.losses} total autonomous cycles. Average drawdowns remain strictly bounded.
                       </p>
                     </div>
-                  </div>
-
-                  {/* ADVANCED PERFORMANCE BENTO GRID */}
-                  <div className={`p-6 rounded-[28px] ${cardClasses} border border-white/5 space-y-4 overflow-hidden`}>
-                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                      <div>
-                        <h4 className="text-sm font-black text-white">Advanced Live Performance Metrics</h4>
-                        <p className="text-xs text-gray-500 mt-0.5">Recalculated on every production block cycle and trade execution.</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button 
-                          onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all group"
-                        >
-                          <span className="text-[10px] font-mono font-black text-gray-300 group-hover:text-white uppercase tracking-wider">
-                            {showAdvancedMetrics ? 'Hide Advanced Metrics' : 'Show Advanced Metrics'}
-                          </span>
-                          <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-300 ${showAdvancedMetrics ? 'rotate-180' : ''}`} />
-                        </button>
-                        <span className="hidden sm:inline-block text-[10px] font-mono font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">
-                          PERFORMANCE SCORE: {selectedTrader.performanceScore}
-                        </span>
-                      </div>
-                    </div>
-
-                    <AnimatePresence initial={false}>
-                      {showAdvancedMetrics && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-                          className="overflow-hidden"
-                        >
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 pt-4 border-t border-white/5">
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Overall Return</span>
-                              <p className="text-base font-mono font-black text-emerald-400 mt-1">+{selectedTrader.returnAllTime?.toFixed(2)}%</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">7-Day Return</span>
-                              <p className={`text-base font-mono font-black mt-1 ${selectedTrader.return7D >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {selectedTrader.return7D >= 0 ? '+' : ''}{selectedTrader.return7D?.toFixed(2)}%
-                              </p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">90-Day Return</span>
-                              <p className="text-base font-mono font-black text-emerald-400 mt-1">+{selectedTrader.return90D?.toFixed(2)}%</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Current Drawdown</span>
-                              <p className="text-base font-mono font-black text-rose-400 mt-1">-{selectedTrader.currentDrawdown?.toFixed(2)}%</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Consecutive Wins</span>
-                              <p className="text-base font-mono font-black text-emerald-400 mt-1">{selectedTrader.consecutiveWins} Trades</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Consecutive Losses</span>
-                              <p className="text-base font-mono font-black text-rose-400 mt-1">{selectedTrader.consecutiveLosses} Trades</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Profit Factor</span>
-                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.profitFactor}</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Risk Control Index</span>
-                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.riskManagementScore}/100</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Consistency Score</span>
-                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.consistencyScore}/100</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Position Accuracy</span>
-                              <p className="text-base font-mono font-black text-white mt-1">{selectedTrader.positionAccuracy}%</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">Weekly Frequency</span>
-                              <p className="text-base font-mono font-black text-white mt-1">~{selectedTrader.tradeFrequency} Cycles</p>
-                            </div>
-                            <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center sm:text-left">
-                              <span className="text-[10px] text-gray-500 uppercase font-mono font-black tracking-wider">AI Config Efficiency</span>
-                              <p className="text-base font-mono font-black text-emerald-400 mt-1">{selectedTrader.aiEfficiency}%</p>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
                   </div>
                 </motion.div>
               )}
@@ -1384,8 +1298,8 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                         <div className="text-right">
                           <p className="font-bold text-white font-mono">Entry: ${t.entryPrice.toLocaleString()}</p>
                           {t.status === 'CLOSED' ? (
-                            <span className="text-emerald-500 font-bold font-mono">
-                              Closed +{t.pnlPercent}%
+                            <span className={`font-bold font-mono ${t.pnlPercent && t.pnlPercent >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                              Closed {t.pnlPercent && t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent}%
                             </span>
                           ) : (
                             <span className="text-sky-400 font-bold font-mono flex items-center justify-end gap-1">

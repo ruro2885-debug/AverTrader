@@ -5,11 +5,14 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { safeStorage } from '../utils/storage';
 import UserAvatar from './UserAvatar';
 import { getAvatarDataUrl } from '../utils/avatarGenerator';
+import { linkedWalletService } from '../services/linkedWalletService';
+import { LinkedWallet } from '../types';
 import { 
   User, Mail, Edit3, Key, ShieldCheck, 
   Bell, Share2, Wallet, Settings, HelpCircle, 
   FileText, LogOut, ChevronRight, Camera, X, Check, Copy, AlertTriangle, Medal,
-  Volume2, Shield, TrendingUp, ArrowDownCircle, ArrowUpCircle, Gift, Cpu, Megaphone, Zap
+  Volume2, Shield, TrendingUp, ArrowDownCircle, ArrowUpCircle, Gift, Cpu, Megaphone, Zap,
+  RefreshCw
 } from 'lucide-react';
 
 const ToggleSwitch = ({ checked, onChange, disabled }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) => {
@@ -298,6 +301,30 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
 
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
+  const [linkedWallets, setLinkedWallets] = useState<LinkedWallet[]>([]);
+  const [isLoadingWallets, setIsLoadingWallets] = useState(true);
+
+  const fetchWallets = async () => {
+    if (!user?.uid || user.uid.startsWith('local-')) {
+      setLinkedWallets(user?.linkedWallets || []);
+      setIsLoadingWallets(false);
+      return;
+    }
+    try {
+      const data = await linkedWalletService.getLinkedWallets(user.uid);
+      setLinkedWallets(data);
+    } catch (err) {
+      console.error('Failed to fetch linked wallets:', err);
+    } finally {
+      setIsLoadingWallets(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.uid) {
+      fetchWallets();
+    }
+  }, [user?.uid]);
 
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
@@ -574,24 +601,106 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
-    if (!walletAddress.startsWith('0x') && walletAddress.length < 30) {
-      setErrorMsg('Please enter a valid Ethereum or Solana wallet address.');
+    
+    const ethRegex = /^0x[a-fA-F0-9]{40}$/;
+    const solRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+    
+    const trimmedAddress = walletAddress.trim();
+    const isEth = ethRegex.test(trimmedAddress);
+    const isSol = solRegex.test(trimmedAddress);
+
+    if (!isEth && !isSol) {
+      setErrorMsg('Please enter a valid Ethereum (0x...) or Solana wallet address.');
       return;
     }
+    
+    if (user?.linkedWallets?.some(w => w.address.toLowerCase() === trimmedAddress.toLowerCase())) {
+      setErrorMsg('This wallet is already linked to your account.');
+      return;
+    }
+
+    setIsUpdatingProfile(true);
     try {
-      setSuccessMsg('Wallet connected successfully!');
+      const isLocal = !user?.uid || user.uid.startsWith('local-');
+      
+      const newWalletData = {
+          userId: user?.uid || 'guest',
+          userName: user?.displayName || user?.username || 'Trader',
+          userEmail: user?.email || '',
+          address: trimmedAddress,
+          network: isEth ? 'Ethereum' : 'Solana',
+          provider: 'Manual Connection'
+      };
+
+      if (isLocal) {
+        const newWallet = {
+          ...newWalletData,
+          id: Math.random().toString(36).substring(2, 11),
+          status: 'Connected' as const,
+          linkedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString()
+        };
+        const updatedWallets = [...(user?.linkedWallets || []), newWallet];
+        await updateProfile({ linkedWallets: updatedWallets });
+        setLinkedWallets(updatedWallets);
+      } else {
+        await linkedWalletService.linkWallet(newWalletData);
+        await fetchWallets();
+      }
+
+      setSuccessMsg('Wallet linked and saved permanently to your profile.');
       if (addNotification) {
         await addNotification(
           'security',
           'high',
           'Cryptocurrency Wallet Linked',
-          `Your wallet address (${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}) has been securely linked to your portfolio.`
+          `Your ${isEth ? 'Ethereum' : 'Solana'} wallet (${trimmedAddress.substring(0, 6)}...${trimmedAddress.substring(trimmedAddress.length - 4)}) has been securely linked.`
         );
       }
       setWalletAddress('');
-      setTimeout(() => setActiveModal(null), 1200);
-    } catch (err) {
-      setErrorMsg('Failed to link wallet.');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to link wallet. Please try again.');
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  const [isUnlinking, setIsUnlinking] = useState<string | null>(null);
+
+  const handleUnlinkWallet = async (walletId: string) => {
+    setIsUnlinking(walletId);
+    setErrorMsg('');
+    try {
+        const isLocal = !user?.uid || user.uid.startsWith('local-');
+        if (isLocal) {
+          const updatedWallets = (user?.linkedWallets || []).filter(w => w.id !== walletId);
+          await updateProfile({ linkedWallets: updatedWallets });
+          setLinkedWallets(updatedWallets);
+        } else {
+          await linkedWalletService.unlinkWallet(walletId);
+          await fetchWallets();
+        }
+        
+        if (addNotification) {
+          await addNotification(
+            'security',
+            'medium',
+            'Wallet Unlinked',
+            'The selected cryptocurrency wallet has been successfully removed from your profile.'
+          );
+        }
+        
+        setSuccessMsg('Wallet unlinked successfully.');
+        setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err: any) {
+        console.error('Failed to unlink wallet:', err);
+        setErrorMsg(`Failed to unlink wallet: ${err.message || 'Unknown error'}`);
+        if (addNotification) {
+          await addNotification('security', 'high', 'Unlink Failed', 'Could not remove the wallet at this time.');
+        }
+    } finally {
+        setIsUnlinking(null);
     }
   };
 
@@ -1403,26 +1512,97 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
                     </p>
                   </div>
 
-                  <form onSubmit={handleConnectWallet} className="space-y-4 pt-2">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">Wallet Public Key Address</label>
-                      <input 
-                        type="text" 
-                        placeholder="0x... or Solana Key Address"
-                        value={walletAddress} 
-                        onChange={(e) => setWalletAddress(e.target.value)}
-                        className={`w-full px-4 py-3 rounded-xl border font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
-                          isDark ? 'bg-slate-950 border-white/10 text-white' : 'bg-slate-50 border-slate-200'
-                        }`}
-                      />
+                  {isLoadingWallets ? (
+                    <div className="py-12 text-center">
+                      <RefreshCw className="w-8 h-8 animate-spin mx-auto text-emerald-500 mb-3" />
+                      <p className="text-xs text-slate-500">Retrieving linked wallets from the network...</p>
                     </div>
-                    <button 
-                      type="submit"
-                      className="w-full py-3 bg-emerald-500 text-black font-bold rounded-xl mt-4 hover:scale-[1.02] transition-transform active:scale-95 cursor-pointer"
-                    >
-                      Establish Secure Connection
-                    </button>
-                  </form>
+                  ) : linkedWallets.length > 0 ? (
+                    <div className="space-y-3 mt-4">
+                      {linkedWallets.map(wallet => (
+                        <div key={wallet.id} className={`p-4 rounded-xl border flex items-center justify-between ${isDark ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-200'}`}>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-mono font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {wallet.address.substring(0, 6)}...{wallet.address.substring(wallet.address.length - 4)}
+                              </span>
+                              <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500 font-bold">
+                                {wallet.status}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-gray-500 mt-1">
+                              {wallet.network} • {wallet.provider}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={isUnlinking === wallet.id}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (window.confirm('Are you sure you want to unlink this wallet?')) {
+                                handleUnlinkWallet(wallet.id);
+                              }
+                            }}
+                            className={`p-2 rounded-lg text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-center min-w-[70px] ${
+                              isDark 
+                                ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20' 
+                                : 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+                            } ${isUnlinking === wallet.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            {isUnlinking === wallet.id ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              'Unlink'
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                      <div className="pt-4 mt-4 border-t border-slate-200 dark:border-white/10">
+                        <p className={`text-xs font-bold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Link Another Wallet</p>
+                        <form onSubmit={(e) => handleConnectWallet(e)} className="space-y-4">
+                          <div>
+                            <input 
+                              type="text" 
+                              placeholder="0x... or Solana Key Address"
+                              value={walletAddress} 
+                              onChange={(e) => setWalletAddress(e.target.value)}
+                              className={`w-full px-4 py-3 rounded-xl border font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
+                                isDark ? 'bg-slate-950 border-white/10 text-white' : 'bg-slate-50 border-slate-200'
+                              }`}
+                            />
+                          </div>
+                          <button 
+                            type="submit"
+                            className="w-full py-3 bg-emerald-500 text-black font-bold rounded-xl hover:scale-[1.02] transition-transform active:scale-95 cursor-pointer"
+                          >
+                            Establish Secure Connection
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  ) : (
+                    <form onSubmit={(e) => handleConnectWallet(e)} className="space-y-4 pt-2">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">Wallet Public Key Address</label>
+                        <input 
+                          type="text" 
+                          placeholder="0x... or Solana Key Address"
+                          value={walletAddress} 
+                          onChange={(e) => setWalletAddress(e.target.value)}
+                          className={`w-full px-4 py-3 rounded-xl border font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
+                            isDark ? 'bg-slate-950 border-white/10 text-white' : 'bg-slate-50 border-slate-200'
+                          }`}
+                        />
+                      </div>
+                      <button 
+                        type="submit"
+                        className="w-full py-3 bg-emerald-500 text-black font-bold rounded-xl mt-4 hover:scale-[1.02] transition-transform active:scale-95 cursor-pointer"
+                      >
+                        Establish Secure Connection
+                      </button>
+                    </form>
+                  )}
                 </div>
               )}
 

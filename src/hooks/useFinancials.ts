@@ -1,11 +1,12 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
-import { doc, updateDoc, increment, serverTimestamp, collection, query, where, limit, onSnapshot } from 'firebase/firestore';
+import { doc, updateDoc, increment, serverTimestamp, collection, query, where, limit, onSnapshot, Timestamp } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService, WalletData } from '../services/walletService';
+import { equityService } from '../services/equityService';
 
 export interface UnifiedFinancials {
   totalNetBalance: number;
@@ -225,6 +226,15 @@ export const useFinancials = () => {
     await portfolioPersistenceService.updateWalletState(uid, {
       vaultBalance: newBalance
     });
+
+    // Record historical balance
+    const portfolio = await portfolioPersistenceService.getPortfolioCurrent(uid);
+    await equityService.recordEquity({
+      userId: uid,
+      timestamp: Timestamp.now(),
+      totalNetBalance: portfolio.portfolioMetrics.totalValue,
+      trigger: 'MANUAL_ADJUSTMENT' // Or more specific if we knew if it was vault move
+    });
   }, [auth.currentUser, user?.uid]);
 
   const updateActiveBalanceOffset = useCallback(async (newOffset: number | ((prev: number) => number)) => {
@@ -288,6 +298,15 @@ export const useFinancials = () => {
     await portfolioPersistenceService.updateWalletState(uid, {
       portfolioBalance: currentPort + amount,
       availableBalance: currentAvail + amount
+    });
+
+    // Record historical balance
+    const portfolio = await portfolioPersistenceService.getPortfolioCurrent(uid);
+    await equityService.recordEquity({
+      userId: uid,
+      timestamp: Timestamp.now(),
+      totalNetBalance: portfolio.portfolioMetrics.totalValue,
+      trigger: amount >= 0 ? 'DEPOSIT' : 'WITHDRAW'
     });
   }, [auth.currentUser, user?.uid, user?.portfolioBalance, user?.availableBalance]);
 

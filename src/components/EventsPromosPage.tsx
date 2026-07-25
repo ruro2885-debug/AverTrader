@@ -14,13 +14,24 @@ import {
   ChevronRight, 
   ArrowRight, 
   Clock, 
-  Gift 
+  Gift,
+  Award,
+  Zap,
+  CheckCircle2,
+  TrendingUp,
+  Activity,
+  Layers,
+  ArrowUpRight,
+  ShieldCheck,
+  Calendar,
+  Filter,
+  Sliders,
+  Check,
+  X
 } from 'lucide-react';
 import { EventItem, EventCategory, EventStatus } from '../types/events';
 import { subscribeToEvents, joinEventService, claimEventRewardService } from '../services/eventsService';
 import { useAuth } from '../contexts/AuthContext';
-import EventCard from './events/EventCard';
-import EventAdminModal from './events/EventAdminModal';
 import EventDetailsPage from './events/EventDetailsPage';
 
 interface EventsPromosPageProps {
@@ -38,35 +49,45 @@ const CATEGORIES: { id: EventCategory | 'ALL'; label: string }[] = [
   { id: 'New Listing', label: 'New Listings' }
 ];
 
-const STATUS_FILTERS: { id: EventStatus | 'ALL'; label: string }[] = [
-  { id: 'ALL', label: 'All Statuses' },
-  { id: 'LIVE', label: 'Live Now' },
-  { id: 'ENDING_SOON', label: 'Ending Soon' },
-  { id: 'UPCOMING', label: 'Upcoming' },
-  { id: 'COMPLETED', label: 'Completed' }
-];
+function formatTimeLeft(targetTimeStr?: string): { days: number; hours: number; mins: number; secs: number } {
+  if (!targetTimeStr) return { days: 0, hours: 0, mins: 0, secs: 0 };
+  const target = new Date(targetTimeStr).getTime();
+  const diff = Math.max(0, target - Date.now());
+
+  return {
+    days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+    hours: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+    mins: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+    secs: Math.floor((diff % (1000 * 60)) / 1000)
+  };
+}
 
 export default function EventsPromosPage({
   onBack,
   onNavigateToTrading,
   theme = 'dark'
 }: EventsPromosPageProps) {
-  const isDark = theme === 'dark';
   const { user } = useAuth();
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeCategory, setActiveCategory] = useState<EventCategory | 'ALL'>('ALL');
-  const [activeStatus, setActiveStatus] = useState<EventStatus | 'ALL'>('ALL');
+  const [showSearchInput, setShowSearchInput] = useState<boolean>(false);
 
   // Hero Carousel Index
   const [heroIndex, setHeroIndex] = useState<number>(0);
+
+  // Real-time ticking timer trigger
+  const [tick, setTick] = useState<number>(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Subscribe to Firestore events stream
   useEffect(() => {
@@ -75,101 +96,70 @@ export default function EventsPromosPage({
       (data) => {
         setEvents(data);
         setLoading(false);
-        setRefreshing(false);
       },
       (err) => {
         console.error("Failed fetching events:", err);
         setLoading(false);
-        setRefreshing(false);
       }
     );
 
     return () => unsub();
   }, []);
 
+  // Featured Events for Hero Stage
   const featuredEvents = useMemo(() => {
-    return events.filter(e => e.featured || e.status === 'LIVE').slice(0, 4);
+    const feats = events.filter(e => e.featured || e.status === 'LIVE' || e.status === 'ENDING_SOON');
+    return feats.length > 0 ? feats.slice(0, 5) : events.slice(0, 3);
   }, [events]);
 
-  // Hero Carousel auto-rotation
+  // Auto rotate hero carousel
   useEffect(() => {
     if (featuredEvents.length <= 1) return;
     const interval = setInterval(() => {
       setHeroIndex(prev => (prev + 1) % featuredEvents.length);
-    }, 6000);
+    }, 7000);
     return () => clearInterval(interval);
-  }, [featuredEvents.length]);
+  }, [featuredEvents]);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
-  };
-
-  // Filtered Events
+  // Filtered dataset
   const filteredEvents = useMemo(() => {
-    return events.filter(e => {
-      if (e.status === 'ARCHIVED' || e.status === 'PAUSED') return false;
+    return events.filter(ev => {
+      const matchesCategory = activeCategory === 'ALL' || ev.category === activeCategory;
+      const matchesSearch = !searchQuery || 
+        ev.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ev.subtitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ev.tags?.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
 
-      // Category filter
-      if (activeCategory !== 'ALL' && e.category !== activeCategory) return false;
-
-      // Status filter
-      if (activeStatus !== 'ALL') {
-        if (activeStatus === 'ENDING_SOON') {
-          if (e.status !== 'ENDING_SOON' && e.status !== 'LIVE') return false;
-        } else if (e.status !== activeStatus) {
-          return false;
-        }
-      }
-
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchTitle = e.title.toLowerCase().includes(q);
-        const matchSub = e.subtitle.toLowerCase().includes(q);
-        const matchToken = e.rewardToken.toLowerCase().includes(q);
-        const matchCat = e.category.toLowerCase().includes(q);
-        const matchTags = e.tags?.some(t => t.toLowerCase().includes(q));
-        if (!matchTitle && !matchSub && !matchToken && !matchCat && !matchTags) return false;
-      }
-
-      return true;
+      return matchesCategory && matchesSearch;
     });
-  }, [events, activeCategory, activeStatus, searchQuery]);
+  }, [events, activeCategory, searchQuery]);
 
-  // Total Platform Metrics
-  const totalPrizePool = useMemo(() => {
-    return events.reduce((sum, e) => sum + (e.totalRewardPool || 0), 0);
-  }, [events]);
+  // Categorized Section Subsets
+  const livePromotions = useMemo(() => {
+    return filteredEvents.filter(e => e.status === 'LIVE' && !e.featured).slice(0, 6);
+  }, [filteredEvents]);
 
-  const totalParticipants = useMemo(() => {
-    return events.reduce((sum, e) => sum + (e.participantCount || 0), 0);
-  }, [events]);
+  const endingSoonEvents = useMemo(() => {
+    return filteredEvents.filter(e => {
+      if (e.status === 'ENDING_SOON') return true;
+      if (!e.endTime) return false;
+      const hoursLeft = (new Date(e.endTime).getTime() - Date.now()) / (1000 * 60 * 60);
+      return hoursLeft > 0 && hoursLeft <= 24 && e.status !== 'COMPLETED';
+    });
+  }, [filteredEvents, tick]);
 
-  const activeEventsCount = useMemo(() => {
-    return events.filter(e => e.status === 'LIVE' || e.status === 'ENDING_SOON').length;
-  }, [events]);
+  const upcomingEvents = useMemo(() => {
+    return filteredEvents.filter(e => e.status === 'UPCOMING');
+  }, [filteredEvents]);
 
-  const myJoinedCount = useMemo(() => {
-    return events.filter(e => e.userProgress?.joined).length;
-  }, [events]);
+  const completedEvents = useMemo(() => {
+    return filteredEvents.filter(e => e.status === 'COMPLETED');
+  }, [filteredEvents]);
 
-  const handleJoinQuick = async (event: EventItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-    await joinEventService(user?.uid, event.id);
-  };
-
-  const handleClaimQuick = async (event: EventItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-    await claimEventRewardService(user?.uid, event);
-  };
-
-  // If a full-screen event is selected, render EventDetailsPage
+  // If user selected an event, render the dedicated full-screen details view
   if (selectedEventId) {
     return (
-      <EventDetailsPage
+      <EventDetailsPage 
         eventId={selectedEventId}
         onBack={() => setSelectedEventId(null)}
         onNavigateToTrading={onNavigateToTrading}
@@ -178,264 +168,509 @@ export default function EventsPromosPage({
     );
   }
 
-  const currentHero = featuredEvents[heroIndex] || events[0];
+  // Calculate platform totals
+  const totalPoolUSD = events.reduce((acc, ev) => acc + (ev.totalRewardPool || 0), 0);
+  const totalTraders = events.reduce((acc, ev) => acc + (ev.participantCount || 0), 0);
+
+  const activeHero = featuredEvents[heroIndex] || events[0];
+  const heroTimeLeft = formatTimeLeft(activeHero?.endTime || activeHero?.startTime);
 
   return (
-    <div className={`min-h-screen pb-24 ${isDark ? 'bg-[#07090E] text-white' : 'bg-gray-50 text-gray-900'}`}>
-      {/* Top Bar Header */}
-      <div className={`sticky top-0 z-40 border-b backdrop-blur-2xl ${
-        isDark ? 'bg-[#07090E]/90 border-gray-800/80' : 'bg-white/90 border-gray-200'
-      }`}>
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <button
-                onClick={onBack}
-                className="p-2 rounded-xl bg-gray-800/60 hover:bg-gray-800 text-gray-300 transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-            )}
-            <div>
-              <h1 className="text-xl md:text-2xl font-black tracking-tight flex items-center gap-2">
-                Events & Promos
-                <span className="px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                  Aver Hub
-                </span>
-              </h1>
-              <p className="text-xs text-gray-400 font-medium hidden sm:block">
-                Participate in world-class trading competitions, airdrops, and yield carnivals.
-              </p>
+    <div className="fixed inset-0 z-[100] bg-[#03060D] text-slate-100 overflow-y-auto w-full h-full min-h-screen font-sans selection:bg-emerald-500/30 selection:text-emerald-200 pb-20">
+      
+      {/* TOP HUB NAVIGATION HEADER */}
+      <header className="sticky top-0 z-50 bg-[#03060D]/90 backdrop-blur-2xl border-b border-white/10 px-4 sm:px-8 py-4 flex items-center justify-between">
+        
+        {/* Left: Back Button */}
+        <button
+          onClick={onBack}
+          className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 hover:text-white transition-all group"
+          title="Back"
+        >
+          <ChevronLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+        </button>
+
+        {/* Center: Brand Pill */}
+        <div className="flex items-center space-x-3">
+          <div className="hidden sm:block">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-black text-white tracking-tight uppercase">Aver Campaign Hub</h2>
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-extrabold uppercase">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live Pool
+              </span>
             </div>
+            <p className="text-[11px] text-slate-400 font-medium">Institutional Competitions & Airdrops</p>
+          </div>
+        </div>
+
+        {/* Right Controls */}
+        <div className="flex items-center gap-2.5">
+          {/* Green Trophy Icon placed before search */}
+          <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white font-black text-sm shadow-lg shadow-emerald-500/20">
+            <Trophy className="w-5 h-5" />
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleRefresh}
-              className={`p-2.5 rounded-xl bg-gray-800/60 hover:bg-gray-800 text-gray-300 transition-all ${
-                refreshing ? 'animate-spin text-purple-400' : ''
-              }`}
-              title="Refresh Campaigns"
-            >
-              <RotateCw className="w-4 h-4" />
-            </button>
+          {/* Search Toggle */}
+          <div className="relative">
+            {showSearchInput ? (
+              <div className="flex items-center bg-slate-900 border border-white/15 rounded-xl px-3 py-1.5">
+                <Search className="w-3.5 h-3.5 text-slate-400 mr-2" />
+                <input 
+                  type="text"
+                  placeholder="Search campaigns..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none w-32 sm:w-48"
+                  autoFocus
+                />
+                <button onClick={() => { setShowSearchInput(false); setSearchQuery(''); }} className="text-slate-400 hover:text-white ml-1">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => setShowSearchInput(true)}
+                className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-colors"
+              >
+                <Search className="w-4 h-4" />
+              </button>
+            )}
+          </div>
 
-            <button
-              onClick={() => setShowAdminModal(true)}
-              className="px-3.5 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 text-xs font-black transition-all flex items-center gap-1.5 shadow-lg shadow-purple-500/10"
-            >
-              <ShieldAlert className="w-4 h-4 text-purple-400" />
-              <span className="hidden sm:inline">Admin Console</span>
-            </button>
+          {/* User Rewards Pill */}
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-emerald-500/30 text-xs">
+            <Gift className="w-4 h-4 text-emerald-400" />
+            <span className="text-slate-400 font-medium">Pool Allocations:</span>
+            <span className="font-black text-emerald-400">${totalPoolUSD.toLocaleString()}</span>
+          </div>
+
+        </div>
+
+      </header>
+
+      {/* PLATFORM TELEMETRY MARQUEE TICKER */}
+      <div className="bg-slate-950 border-b border-white/10 px-4 py-2.5 overflow-hidden flex items-center justify-between text-[11px] font-bold text-slate-400">
+        <div className="flex items-center space-x-6 overflow-x-auto no-scrollbar w-full whitespace-nowrap">
+          <div className="flex items-center gap-2 text-emerald-400">
+            <Coins className="w-3.5 h-3.5" />
+            <span>TOTAL ACTIVE POOL: <strong className="text-white">${totalPoolUSD.toLocaleString()} USDT</strong></span>
+          </div>
+          <span className="text-slate-700">•</span>
+          <div className="flex items-center gap-2 text-blue-400">
+            <Users className="w-3.5 h-3.5" />
+            <span>ACTIVE GLOBAL TRADERS: <strong className="text-white">{totalTraders.toLocaleString()}</strong></span>
+          </div>
+          <span className="text-slate-700">•</span>
+          <div className="flex items-center gap-2 text-amber-400">
+            <Award className="w-3.5 h-3.5" />
+            <span>SETTLED PAYOUTS: <strong className="text-white">$820,500 USDT</strong></span>
+          </div>
+          <span className="text-slate-700">•</span>
+          <div className="flex items-center gap-2 text-purple-400">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>VERIFICATION ENGINE: <strong className="text-white">100% ON-CHAIN GUARANTEED</strong></span>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 mt-6 space-y-8">
-        {/* Featured Hero Carousel Banner */}
-        {currentHero && (
-          <div className="relative w-full rounded-3xl overflow-hidden border border-gray-800/80 shadow-2xl bg-gray-900">
-            <div className="relative h-[260px] md:h-[320px] w-full">
-              <img 
-                src={currentHero.bannerUrl} 
-                alt={currentHero.title} 
-                className="w-full h-full object-cover transition-all duration-700"
+      {/* CATEGORY FILTER TABS */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-6 pb-2">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
+          {CATEGORIES.map(cat => {
+            const isActive = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 border border-emerald-400/30'
+                    : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5'
+                }`}
+              >
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* MAIN CONTAINER CONTENT */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-4 space-y-12">
+
+        {/* ============================================================== */}
+        {/* SECTION 1: FEATURED CAMPAIGNS (CINEMATIC HERO STAGE) */}
+        {/* ============================================================== */}
+        {activeHero && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-extrabold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                <Flame className="w-4 h-4 text-amber-500" />
+                Featured Flagship Campaigns
+              </h3>
+              
+              {/* Carousel Indicators */}
+              {featuredEvents.length > 1 && (
+                <div className="flex items-center gap-1.5">
+                  {featuredEvents.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setHeroIndex(idx)}
+                      className={`h-1.5 rounded-full transition-all ${
+                        idx === heroIndex ? 'w-6 bg-emerald-400' : 'w-2 bg-slate-700 hover:bg-slate-500'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Hero Card Stage */}
+            <div 
+              className="relative rounded-[32px] overflow-hidden border border-white/15 bg-slate-900/80 shadow-2xl min-h-[420px] sm:min-h-[460px] flex items-end group cursor-pointer"
+              onClick={() => setSelectedEventId(activeHero.id)}
+            >
+              {/* Background Trading Image with Multi-layer Vignette */}
+              <div 
+                className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 group-hover:scale-105"
+                style={{ backgroundImage: `url('${activeHero.bannerUrl}')` }}
               />
-              <div className={`absolute inset-0 bg-gradient-to-r ${currentHero.heroGradient || 'from-[#07090E] via-[#07090E]/80 to-transparent'}`} />
+              <div className={`absolute inset-0 bg-gradient-to-t ${activeHero.heroGradient || 'from-[#03060D] via-[#03060D]/80 to-transparent'}`} />
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-transparent via-[#03060D]/60 to-[#03060D]" />
 
-              {/* Hero Content Overlay */}
-              <div className="absolute inset-0 p-6 md:p-10 flex flex-col justify-between z-10">
-                <div className="flex items-center justify-between">
-                  <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-black/60 backdrop-blur-md border border-white/10 text-amber-400 flex items-center gap-1.5 shadow-lg">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Featured Campaign
-                  </span>
+              {/* Glowing Background Accent Light */}
+              <div className="absolute -top-32 -right-32 w-96 h-96 bg-emerald-500/10 blur-[90px] rounded-full pointer-events-none" />
 
-                  {featuredEvents.length > 1 && (
-                    <div className="flex items-center gap-1 bg-black/60 backdrop-blur-md p-1 rounded-full border border-white/10">
-                      {featuredEvents.map((_, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => setHeroIndex(idx)}
-                          className={`w-2 h-2 rounded-full transition-all ${
-                            heroIndex === idx ? 'w-6 bg-purple-500' : 'bg-gray-600'
-                          }`}
-                        />
-                      ))}
+              {/* Hero Inner Content Grid */}
+              <div className="relative z-10 w-full p-6 sm:p-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-end">
+                
+                {/* Left Side: Campaign Specs (8 Cols) */}
+                <div className="lg:col-span-8 space-y-4">
+                  
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      {activeHero.category}
+                    </span>
+                    <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-300" /> Live Championship
+                    </span>
+                  </div>
+
+                  <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight group-hover:text-emerald-300 transition-colors">
+                    {activeHero.title}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-300 max-w-xl font-normal leading-relaxed line-clamp-2">
+                    {activeHero.subtitle}
+                  </p>
+
+                  {/* Countdown Timer Strip */}
+                  <div className="flex flex-wrap items-center gap-4 pt-2">
+                    <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
+                      <Clock className="w-4 h-4 text-emerald-400" />
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Time Remaining:</span>
+                      <span className="text-xs font-black text-white">
+                        {String(heroTimeLeft.days).padStart(2, '0')}d : {String(heroTimeLeft.hours).padStart(2, '0')}h : {String(heroTimeLeft.mins).padStart(2, '0')}m : {String(heroTimeLeft.secs).padStart(2, '0')}s
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
+                      <Users className="w-4 h-4 text-blue-400" />
+                      <span className="text-xs font-black text-white">{activeHero.participantCount.toLocaleString()}</span>
+                      <span className="text-[10px] font-bold text-slate-400">Traders Enrolled</span>
+                    </div>
+                  </div>
+
+                  {/* Action CTA */}
+                  <div className="pt-2">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedEventId(activeHero.id);
+                      }}
+                      className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/25 flex items-center gap-2 group-hover:scale-105"
+                    >
+                      <span>Explore Campaign & Claim Share</span>
+                      <ArrowUpRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                </div>
+
+                {/* Right Side: Floating Prize Pool Callout Card (4 Cols) */}
+                <div className="lg:col-span-4 bg-slate-950/80 backdrop-blur-2xl border border-white/15 rounded-3xl p-6 shadow-2xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Grand Prize Allocation</span>
+                    <Trophy className="w-5 h-5 text-amber-400" />
+                  </div>
+
+                  <div>
+                    <p className="text-2xl sm:text-3xl font-black text-amber-400 tracking-tight">
+                      ${activeHero.totalRewardPool.toLocaleString()} <span className="text-sm text-amber-200">{activeHero.rewardToken}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">Guaranteed distribution directly to user wallet</p>
+                  </div>
+
+                  {/* Top Reward Card Sample */}
+                  {activeHero.rewardCards && activeHero.rewardCards[0] && (
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/5 flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
+                        <Award className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400">{activeHero.rewardCards[0].title}</p>
+                        <p className="text-xs font-black text-white">{activeHero.rewardCards[0].amount}</p>
+                      </div>
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-2 max-w-2xl">
-                  <h2 className="text-2xl md:text-4xl font-black text-white tracking-tight leading-tight">
-                    {currentHero.title}
-                  </h2>
-                  <p className="text-xs md:text-sm text-gray-300 font-medium line-clamp-2 leading-relaxed">
-                    {currentHero.subtitle}
-                  </p>
-
-                  <div className="pt-2 flex items-center gap-4">
-                    <button
-                      onClick={() => setSelectedEventId(currentHero.id)}
-                      className="px-6 py-3 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs shadow-xl shadow-purple-600/30 transition-all flex items-center gap-2 group"
-                    >
-                      Explore Campaign
-                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                    </button>
-
-                    <div className="hidden sm:block">
-                      <span className="text-[10px] text-gray-400 uppercase font-bold block">Reward Pool</span>
-                      <span className="text-base font-black text-white">
-                        ${currentHero.totalRewardPool.toLocaleString()} <span className="text-xs text-amber-400">{currentHero.rewardToken}</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Live Platform Stats Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} flex items-center gap-3`}>
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 border border-emerald-500/30">
-              <Flame className="w-5 h-5" />
-            </div>
+        {/* ============================================================== */}
+        {/* SECTION 2: LIVE PROMOTIONS (3-COLUMN GLASS MATRIX GRID) */}
+        {/* ============================================================== */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-gray-400 block">Active Campaigns</span>
-              <span className="text-lg font-black text-white">{activeEventsCount} Live Now</span>
+              <h3 className="text-lg font-black text-white tracking-tight flex items-center gap-2">
+                <Zap className="w-5 h-5 text-emerald-400" />
+                Live Promotions & Quests
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">Participate in active trading tournaments, yield carnivals, and airdrops.</p>
             </div>
+            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+              {livePromotions.length} Live
+            </span>
           </div>
 
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} flex items-center gap-3`}>
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0 border border-amber-500/30">
-              <Trophy className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-extrabold uppercase text-gray-400 block">Total Reward Pool</span>
-              <span className="text-lg font-black text-white">${totalPrizePool.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} flex items-center gap-3`}>
-            <div className="w-10 h-10 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0 border border-blue-500/30">
-              <Users className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-extrabold uppercase text-gray-400 block">Global Traders</span>
-              <span className="text-lg font-black text-white">{totalParticipants.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className={`p-4 rounded-3xl border ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} flex items-center gap-3`}>
-            <div className="w-10 h-10 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center flex-shrink-0 border border-purple-500/30">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-extrabold uppercase text-gray-400 block">My Enrolled</span>
-              <span className="text-lg font-black text-purple-400">{myJoinedCount} Joined</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Search & Filter Section */}
-        <div className="space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            {/* Search Input */}
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by title, token ticker (SOL, USDT), tag, or category..."
-                className={`w-full pl-11 pr-4 py-3 rounded-2xl border text-xs font-semibold focus:outline-none transition-all ${
-                  isDark 
-                    ? 'bg-[#0E121B] border-gray-800 text-white focus:border-purple-500' 
-                    : 'bg-white border-gray-200 text-gray-900 focus:border-purple-500'
-                }`}
-              />
-            </div>
-
-            {/* Status Filter Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-              {STATUS_FILTERS.map(st => (
-                <button
-                  key={st.id}
-                  onClick={() => setActiveStatus(st.id)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
-                    activeStatus === st.id
-                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-                      : 'bg-gray-900/60 text-gray-400 hover:text-white border border-gray-800'
-                  }`}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {livePromotions.map((item) => {
+              const capacityPct = item.maxParticipants ? Math.min(100, Math.round((item.participantCount / item.maxParticipants) * 100)) : 45;
+              return (
+                <div 
+                  key={item.id}
+                  onClick={() => setSelectedEventId(item.id)}
+                  className="rounded-3xl border border-white/10 bg-slate-900/60 backdrop-blur-xl overflow-hidden hover:border-emerald-500/40 transition-all duration-300 flex flex-col justify-between group cursor-pointer hover:shadow-2xl hover:shadow-emerald-500/10"
                 >
-                  {st.label}
-                </button>
+                  {/* Top Artwork Thumbnail */}
+                  <div className="relative h-44 overflow-hidden bg-slate-950">
+                    <div 
+                      className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
+                      style={{ backgroundImage: `url('${item.bannerUrl}')` }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent" />
+
+                    {/* Category & Status Overlay */}
+                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-widest bg-slate-950/80 backdrop-blur-md text-emerald-400 border border-emerald-500/30">
+                        {item.category}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Live
+                      </span>
+                    </div>
+
+                    {/* Reward Pool Highlight */}
+                    <div className="absolute bottom-3 left-3 right-3 bg-slate-950/80 backdrop-blur-md p-2.5 rounded-2xl border border-white/10 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Reward Pool</span>
+                      <span className="text-sm font-black text-amber-400">${item.totalRewardPool.toLocaleString()} {item.rewardToken}</span>
+                    </div>
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="p-5 space-y-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h4 className="font-black text-base text-white group-hover:text-emerald-400 transition-colors line-clamp-1">
+                        {item.title}
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                        {item.subtitle}
+                      </p>
+                    </div>
+
+                    {/* Participant Progress Bar */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                        <span>Participants Enrolled</span>
+                        <span className="text-white">{item.participantCount.toLocaleString()} {item.maxParticipants ? `/ ${item.maxParticipants.toLocaleString()}` : ''}</span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full" style={{ width: `${capacityPct}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Card Footer Button */}
+                    <button className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 text-white hover:text-emerald-400 font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 group-hover:bg-emerald-500 group-hover:text-slate-950 group-hover:border-emerald-400">
+                      <span>Enter Event</span>
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ============================================================== */}
+        {/* SECTION 3: ENDING SOON SPRINT (HIGH-URGENCY FLASH STRIP) */}
+        {/* ============================================================== */}
+        {endingSoonEvents.length > 0 && (
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-amber-400 tracking-tight flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-400 animate-pulse" />
+                  Ending Soon — Fast Claim Sprints
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">Final hours to complete tasks and claim allocations before vault closure.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {endingSoonEvents.map((item) => {
+                const timeLeft = formatTimeLeft(item.endTime);
+                return (
+                  <div 
+                    key={item.id}
+                    onClick={() => setSelectedEventId(item.id)}
+                    className="p-5 rounded-3xl border border-amber-500/40 bg-gradient-to-r from-amber-500/10 via-slate-900/80 to-slate-900/80 backdrop-blur-xl hover:border-amber-400 transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-between gap-4 group shadow-xl shadow-amber-500/5"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center flex-shrink-0 font-black">
+                        <Flame className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
+                          Final Hours
+                        </span>
+                        <h4 className="font-black text-sm text-white group-hover:text-amber-300 transition-colors mt-1">{item.title}</h4>
+                        <p className="text-xs font-extrabold text-amber-400 mt-0.5">${item.totalRewardPool.toLocaleString()} {item.rewardToken} Pool</p>
+                      </div>
+                    </div>
+
+                    <div className="text-right flex-shrink-0 w-full sm:w-auto">
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-amber-500/30 text-center">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Closing In</span>
+                        <span className="text-xs font-black text-amber-400">
+                          {String(timeLeft.hours).padStart(2, '0')}h : {String(timeLeft.mins).padStart(2, '0')}m : {String(timeLeft.secs).padStart(2, '0')}s
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* ============================================================== */}
+        {/* SECTION 4: UPCOMING EVENTS (PRE-REGISTRATION LAUNCHPAD CARDS) */}
+        {/* ============================================================== */}
+        {upcomingEvents.length > 0 && (
+          <section className="space-y-4">
+            <div>
+              <h3 className="text-lg font-black text-white tracking-tight flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-400" />
+                Upcoming Campaigns & Pre-Registration Launchpad
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">Pre-register now to lock in early-bird reward multipliers.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {upcomingEvents.map((item) => (
+                <div 
+                  key={item.id}
+                  onClick={() => setSelectedEventId(item.id)}
+                  className="rounded-3xl border border-white/10 bg-slate-900/60 backdrop-blur-xl p-6 hover:border-blue-500/40 transition-all cursor-pointer space-y-4 group"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center flex-shrink-0 font-black">
+                        <Calendar className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-500/20 text-blue-400 border border-blue-500/30 uppercase">
+                          Pre-Launch
+                        </span>
+                        <h4 className="font-black text-base text-white group-hover:text-blue-300 transition-colors mt-0.5">{item.title}</h4>
+                      </div>
+                    </div>
+                    <span className="text-sm font-black text-amber-400">${item.totalRewardPool.toLocaleString()} {item.rewardToken}</span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{item.subtitle}</p>
+
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs">
+                    <span className="text-slate-400 font-medium">Pre-Registered: <strong className="text-white">{item.participantCount.toLocaleString()}</strong></span>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        joinEventService(user?.uid, item.id);
+                        setSelectedEventId(item.id);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 font-bold text-xs transition-colors flex items-center gap-1.5"
+                    >
+                      <span>Pre-Register Now</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-
-          {/* Category Filter Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
-            {CATEGORIES.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
-                  activeCategory === cat.id
-                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/20'
-                    : 'bg-gray-900/50 text-gray-400 hover:text-white hover:bg-gray-800/60 border border-gray-800/80'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Promotion Cards Grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-pulse">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="h-96 rounded-3xl bg-gray-800/50" />
-            ))}
-          </div>
-        ) : filteredEvents.length === 0 ? (
-          <div className={`p-12 rounded-3xl border text-center ${isDark ? 'bg-[#0E121B] border-gray-800' : 'bg-white border-gray-200'} space-y-3`}>
-            <Sparkles className="w-12 h-12 text-gray-600 mx-auto" />
-            <h3 className="text-base font-black text-white">No promotions found</h3>
-            <p className="text-xs text-gray-400">Try adjusting your search query or switching filters.</p>
-            <button
-              onClick={() => { setSearchQuery(''); setActiveCategory('ALL'); setActiveStatus('ALL'); }}
-              className="px-4 py-2 rounded-xl bg-purple-600 text-white text-xs font-bold hover:bg-purple-500 transition-colors"
-            >
-              Reset Filters
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredEvents.map(event => (
-              <EventCard
-                key={event.id}
-                event={event}
-                onSelect={(ev) => setSelectedEventId(ev.id)}
-                onJoin={handleJoinQuick}
-                onClaim={handleClaimQuick}
-                theme={theme}
-              />
-            ))}
-          </div>
+          </section>
         )}
-      </div>
 
-      {/* Admin Management Modal */}
-      <EventAdminModal
-        isOpen={showAdminModal}
-        onClose={() => setShowAdminModal(false)}
-        events={events}
-        theme={theme}
-      />
+        {/* ============================================================== */}
+        {/* SECTION 5: COMPLETED & SETTLED CAMPAIGNS (VERIFIED VAULT ARCHIVES) */}
+        {/* ============================================================== */}
+        {completedEvents.length > 0 && (
+          <section className="space-y-4">
+            <div>
+              <h3 className="text-lg font-black text-slate-300 tracking-tight flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                Completed & Settled Vault History
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">Verified on-chain payout archives and historical tournament winners.</p>
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-slate-900/40 overflow-hidden divide-y divide-white/5">
+              {completedEvents.map((item) => (
+                <div 
+                  key={item.id}
+                  onClick={() => setSelectedEventId(item.id)}
+                  className="p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center space-x-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-white">{item.title}</h4>
+                      <p className="text-xs text-slate-400 mt-0.5">{item.participantCount.toLocaleString()} Participants • Settled & Distributed</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-4 text-right">
+                    <div>
+                      <p className="text-xs font-extrabold text-emerald-400">${item.totalRewardPool.toLocaleString()} {item.rewardToken}</p>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">Verified Payout</span>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-slate-500" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+      </main>
+
     </div>
   );
 }
