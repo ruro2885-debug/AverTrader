@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowLeft, Star, Share2 } from 'lucide-react';
+import { AdvancedRealTimeChart } from "react-ts-tradingview-widgets";
 import CoinLogo from './CoinLogo';
 
 export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, theme: 'light' | 'dark', onBack: () => void }) {
@@ -7,8 +8,16 @@ export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, 
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
 
+  const mapSymbol = (sym: string) => {
+    const crypto = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'AVAX', 'LINK', 'DOGE', 'ADA', 'DOT', 'MATIC'];
+    if (crypto.includes(sym.toUpperCase())) {
+      return `BINANCE:${sym.toUpperCase()}USDT`;
+    }
+    return sym.toUpperCase();
+  };
+
   return (
-    <div className={`min-h-screen pb-24 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'}`}>
+    <div className={`min-h-screen pb-12 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'}`}>
       <header className="p-4 flex justify-between items-center">
         <button onClick={onBack} className="p-2 rounded-full bg-slate-800/50">
           <ArrowLeft size={20} className={textPrimary} />
@@ -32,7 +41,16 @@ export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, 
       </div>
 
       <div className="px-6 py-4">
-        <div className="h-48 bg-slate-800/50 rounded-2xl flex items-center justify-center text-slate-500">Chart Placeholder</div>
+        <div className="h-96 rounded-2xl overflow-hidden relative">
+          <AdvancedRealTimeChart 
+            theme={isDark ? "dark" : "light"} 
+            symbol={mapSymbol(asset.symbol)} 
+            hide_top_toolbar={true}
+            hide_side_toolbar={true}
+            allow_symbol_change={false}
+            autosize
+          />
+        </div>
       </div>
 
       <div className="px-6 py-4">
@@ -45,10 +63,6 @@ export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, 
             </div>
           ))}
         </div>
-      </div>
-      
-      <div className="fixed bottom-6 left-6 right-6">
-        <button className="w-full py-4 bg-emerald-500 rounded-2xl text-white font-bold text-lg">Trade {asset.symbol}</button>
       </div>
     </div>
   );

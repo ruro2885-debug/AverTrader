@@ -256,8 +256,20 @@ function AverPortfolioChart({
           return 0;
         });
       
-      if (markers.length > 0) {
-        seriesRef.current.setMarkers(markers as any);
+      try {
+        if (markers.length > 0) {
+          if (markersPluginRef.current) {
+            markersPluginRef.current.setMarkers(markers as any);
+          } else if (typeof (seriesRef.current as any).setMarkers === 'function') {
+            (seriesRef.current as any).setMarkers(markers as any);
+          } else if (createSeriesMarkers && seriesRef.current) {
+            markersPluginRef.current = createSeriesMarkers(seriesRef.current, markers as any);
+          }
+        } else if (markersPluginRef.current) {
+          markersPluginRef.current.setMarkers([]);
+        }
+      } catch (err) {
+        console.warn("[Chart] Error setting markers:", err);
       }
     }
   }, [executionEvents]);
@@ -290,7 +302,7 @@ export default function PortfolioViewV2({
   onViewModeChange
 }: PortfolioViewV2Props) {
   const { user, updateProfile } = useAuth();
-  const { positions, trades, config, liveTradePrices, session } = useContext(TradingEngineContext);
+  const { positions, trades, config, liveTradePrices, session, sessionEquityPoints } = useContext(TradingEngineContext);
   const { 
     totalNetBalance, 
     tokenBalance,
@@ -720,13 +732,19 @@ export default function PortfolioViewV2({
   }, [user?.uid, timeframe]);
 
   const tvChartData = useMemo(() => {
+    if (sessionEquityPoints && sessionEquityPoints.length > 0) {
+      return sessionEquityPoints.map(point => ({
+        time: Math.floor(point.timestamp / 1000) as any,
+        value: point.equity
+      }));
+    }
     return equityHistory.map(record => {
       return {
-        time: record.timestamp.seconds,
+        time: record.timestamp.seconds as any,
         value: record.totalNetBalance
       };
     });
-  }, [equityHistory]);
+  }, [sessionEquityPoints, equityHistory]);
 
   const mergedChartData = tvChartData;
 

@@ -429,9 +429,59 @@
         "participantCount": { "type": "number" }
       },
       "required": ["id", "title", "category", "status", "totalRewardPool"]
+    },
+    "PlatformAnalytics": {
+      "title": "PlatformAnalytics",
+      "description": "Aggregated platform performance metrics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "totalUsers": { "type": "number" },
+        "activeUsers24h": { "type": "number" },
+        "totalVolume": { "type": "number" },
+        "totalDeposits": { "type": "number" },
+        "totalWithdrawals": { "type": "number" },
+        "avgUserBalance": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "totalUsers", "timestamp"]
+    },
+    "PlatformHealth": {
+      "title": "PlatformHealth",
+      "description": "Real-time system health status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "type": "string", "enum": ["operational", "degraded", "maintenance"] },
+        "uptimePct": { "type": "number" },
+        "responseTimeMs": { "type": "number" },
+        "lastChecked": { "type": "string", "format": "date-time" },
+        "activeIncidents": { "type": "number" }
+      },
+      "required": ["id", "status", "lastChecked"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Global platform configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "maintenanceMode": { "type": "boolean" },
+        "minDeposit": { "type": "number" },
+        "maxWithdrawalDaily": { "type": "number" },
+        "platformFeePct": { "type": "number" },
+        "supportedNetworks": { "type": "array", "items": { "type": "string" } },
+        "allowNewRegistrations": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "maintenanceMode", "updatedAt"]
     }
   },
   "firestore": {
+    "/platform_analytics/{id}": { "schema": "PlatformAnalytics", "description": "Platform-wide analytics snapshots" },
+    "/platform_health/current": { "schema": "PlatformHealth", "description": "Current platform health status" },
+    "/system_settings/global": { "schema": "SystemSettings", "description": "Global platform settings" },
+    "/support_tickets/{ticketId}": { "schema": "SupportTicket", "description": "Global support tickets for administrative management" },
     "/events_hub/{eventId}": { "schema": "EventHub", "description": "Global promotional events and competitions" },
     "/linked_wallets/{walletId}": { "schema": "LinkedWallet", "description": "Global linked wallets" },
     "/admin_deposits/{depositId}": { "schema": "DepositRequest", "description": "Global deposit requests" },

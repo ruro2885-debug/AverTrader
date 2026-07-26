@@ -18,8 +18,9 @@ import Preferences from './components/Preferences';
 import BonusCenter from './components/BonusCenter';
 import MarketHighlightsPage from './components/MarketHighlightsPage';
 import EventsPromosPage from './components/EventsPromosPage';
-import AdminLayout from './components/admin/AdminLayout';
-import AdminAuthGate from './components/admin/AdminAuthGate';
+import StrategiesHub from './components/StrategiesHub';
+import AdminRoot from './components/admin/AdminRoot';
+import NotFound from './components/NotFound';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
@@ -38,13 +39,23 @@ function AppContent() {
   const { user, loading: authLoading } = useAuth();
   
   // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'admin' | 'not-found'>('home');
 
   const { preferences, updatePreference } = usePreferences();
   const { theme, language, currency } = preferences;
 
   // Navigation section tracker
   const [activeSection, setActiveSection] = useState('hero');
+
+  // Route detection
+  useEffect(() => {
+    if (window.location.pathname === '/admin') {
+      setCurrentView('not-found');
+    } else if (window.location.pathname !== '/' && window.location.pathname !== '') {
+      // Basic 404 handling for manual URL entry
+      setCurrentView('not-found');
+    }
+  }, []);
 
   // Unified startup and session management
   useEffect(() => {
@@ -56,7 +67,7 @@ function AppContent() {
     } else {
       // If no user and we were on a protected view, go to login
       setCurrentView(prev => (
-        prev === 'dashboard' || prev === 'referral-centre' || prev === 'preferences' || prev === 'bonus-center' 
+        prev === 'dashboard' || prev === 'referral-centre' || prev === 'preferences' || prev === 'bonus-center' || prev === 'strategies'
           ? 'auth' 
           : prev
       ));
@@ -153,28 +164,15 @@ function AppContent() {
     return <Loader onComplete={() => {}} />;
   }
 
-  // Check if current route is /admin
-  const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
-  if (isAdminRoute) {
-    return (
-      <AdminAuthGate theme={theme} onBackToApp={() => window.location.href = '/'}>
-        <AdminLayout 
-          theme={theme} 
-          onToggleTheme={() => handlePreferenceChange('theme', theme === 'dark' ? 'light' : 'dark')} 
-        />
-      </AdminAuthGate>
-    );
-  }
-
   const containerBg = theme === 'dark' 
     ? 'bg-[#000000] text-slate-200' 
     : 'bg-slate-50 text-slate-900';
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.4">
+    <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.5">
       
       {/* Premium fixed trading background image with high-end overlay blending */}
-      {currentView !== 'dashboard' && (
+      {currentView !== 'dashboard' && currentView !== 'strategies' && (
         <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
           <img 
             src="https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2000&auto=format&fit=crop" 
@@ -230,7 +228,7 @@ function AppContent() {
       )}
 
       {/* Background visual light leak for premium depth */}
-      {currentView !== 'dashboard' && (
+      {currentView !== 'dashboard' && currentView !== 'strategies' && (
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-screen pointer-events-none overflow-hidden z-0">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-900/20 rounded-full blur-[120px] pointer-events-none" />
           <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
@@ -238,7 +236,9 @@ function AppContent() {
       )}
 
       <AnimatePresence mode="wait">
-        {currentView === 'dashboard' ? (
+        {currentView === 'admin' ? (
+          <AdminRoot theme={theme} />
+        ) : currentView === 'dashboard' ? (
           <Dashboard theme={theme} onNavigate={(view) => setCurrentView(view)} />
         ) : currentView === 'referral-centre' ? (
           <ReferralCentre theme={theme} onBack={() => setCurrentView('dashboard')} />
@@ -260,12 +260,23 @@ function AppContent() {
             theme={theme} 
             onBack={() => setCurrentView('dashboard')} 
           />
+        ) : currentView === 'strategies' ? (
+          <StrategiesHub 
+            theme={theme}
+            onBack={() => setCurrentView('dashboard')}
+          />
         ) : currentView === 'showcase' ? (
           <PlatformShowcase
             key="showcase"
             theme={theme}
             onBack={() => setCurrentView('home')}
             onGetStarted={() => setCurrentView('auth')}
+          />
+        ) : currentView === 'not-found' ? (
+          <NotFound 
+            theme={theme} 
+            onBack={() => setCurrentView('home')} 
+            onAdminAccess={() => setCurrentView('admin')}
           />
         ) : currentView === 'auth' ? (
           <AuthPage
@@ -292,6 +303,7 @@ function AppContent() {
               onNavigate={handleNavigate}
               activeSection={activeSection}
               onShowcase={() => setCurrentView('showcase')}
+              onAdminAccess={() => setCurrentView('admin')}
             />
 
             {/* Main Page Layout Flow */}

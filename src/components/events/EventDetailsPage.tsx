@@ -190,7 +190,7 @@ export default function EventDetailsPage({
         </div>
         <div className="text-center max-w-md">
           <h3 className="text-xl font-black mb-2">{error || "Campaign Not Found"}</h3>
-          <p className="text-xs text-slate-400 leading-relaxed mb-6">The requested campaign does not exist or may have been archived by the administrator.</p>
+          <p className="text-xs text-slate-400 leading-relaxed mb-6">The requested campaign does not exist or may have been archived by the system.</p>
           <button 
             onClick={onBack}
             className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs transition-all border border-white/10"

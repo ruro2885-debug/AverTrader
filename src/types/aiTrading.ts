@@ -27,10 +27,13 @@ export interface CoolingBreak {
 
 export interface TradingSchedule {
   enabled: boolean; // If false, AI operates continuously (24/7)
+  manualOverride?: boolean; // Force AI trading regardless of operating windows
   operatingWindows: OperatingWindow[];
   coolingBreaks: CoolingBreak[];
   marketCalendar: Record<string, { excludeHolidays: boolean }>;
   monitorOutsideWindow?: boolean;
+  pauseTrading?: boolean;
+  emergencyStop?: boolean;
   
   // Legacy fields preserved for backward compatibility during migration
   sessions?: { start: string; end: string }[];
@@ -225,4 +228,37 @@ export interface EquityHistoryRecord {
   totalNetBalance: number;
   sessionId?: string;
   trigger: EquityTrigger;
+}
+
+export interface SessionEquityPoint {
+  id?: string;
+  sessionId: string;
+  timestamp: number; // ms
+  timeFormatted: string;
+  equity: number;
+  initialCapital: number;
+  floatingPnl: number;
+  realizedPnl: number;
+  totalPnl: number;
+  pnlPercent: number;
+  drawdown: number; // percentage (e.g. 1.25)
+  trigger: EquityTrigger;
+  openPositionsCount: number;
+}
+
+export interface CompletedSessionData {
+  id?: string;
+  sessionId: string;
+  userId: string;
+  configName: string;
+  startTime: number;
+  endTime: number;
+  initialCapital: number;
+  finalEquity: number;
+  totalPnl: number;
+  pnlPercent: number;
+  maxDrawdown: number;
+  winRate: number;
+  totalTrades: number;
+  equityPoints: SessionEquityPoint[];
 }

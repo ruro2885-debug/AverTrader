@@ -3,16 +3,18 @@ import { doc, onSnapshot, updateDoc, setDoc, collection, addDoc, serverTimestamp
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { useFinancials } from '../hooks/useFinancials';
-import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule } from '../types/aiTrading';
+import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule, SessionEquityPoint, CompletedSessionData } from '../types/aiTrading';
 import { Position, ActivityEvent } from '../types/trading';
 import { seedTraders, startTraderSimulator } from '../services/traderSimulator';
 import { aiTradingService, EngineStatus } from '../services/aiTradingService';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService } from '../services/walletService';
+import { equityService } from '../services/equityService';
 import { safeStorage } from '../utils/storage';
 
 const isWithinSchedule = (schedule?: TradingSchedule, isSessionActive?: boolean): boolean => {
-  return aiTradingService.getEngineOperationStatus(schedule, isSessionActive).state === 'SESSION_SCANNING';
+  const state = aiTradingService.getEngineOperationStatus(schedule, isSessionActive).state;
+  return state === 'RUNNING' || state === 'SESSION_SCANNING';
 };
 
 interface TradingEngineContextType {
@@ -24,6 +26,8 @@ interface TradingEngineContextType {
   trades: AiTrade[];
   activity: ActivityEvent[];
   recommendations: AiRecommendation[];
+  sessionEquityPoints: SessionEquityPoint[];
+  completedSessions: CompletedSessionData[];
   updateConfig: (newConfig: Partial<AiConfiguration>) => Promise<void>;
   logActivity: (type: string, message: string, metadata?: Record<string, any>) => Promise<void>;
   startSession: (configId: string, markets: string[]) => Promise<void>;
@@ -36,6 +40,11 @@ interface TradingEngineContextType {
   duplicateConfiguration: (configId: string) => Promise<void>;
   activateConfiguration: (configId: string) => Promise<void>;
   closeTrade: (tradeId: string, exitPrice: number, reason: AiTrade['reasonClosed']) => Promise<void>;
+  toggleManualOverride: () => Promise<void>;
+  toggleOperatingWindow: (windowId: string) => Promise<void>;
+  toggleCoolingBreak: (breakId: string) => Promise<void>;
+  togglePauseTrading: () => Promise<void>;
+  toggleEmergencyStop: () => Promise<void>;
 }
 
 export const TradingEngineContext = createContext<TradingEngineContextType>({
@@ -47,6 +56,8 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
   trades: [],
   activity: [],
   recommendations: [],
+  sessionEquityPoints: [],
+  completedSessions: [],
   updateConfig: async () => {},
   logActivity: async () => {},
   startSession: async () => {},
@@ -59,6 +70,11 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
   duplicateConfiguration: async () => {},
   activateConfiguration: async () => {},
   closeTrade: async () => {},
+  toggleManualOverride: async () => {},
+  toggleOperatingWindow: async () => {},
+  toggleCoolingBreak: async () => {},
+  togglePauseTrading: async () => {},
+  toggleEmergencyStop: async () => {},
 });
 
 export const TradingEngineProvider = ({ children }: { children: React.ReactNode }) => {
@@ -90,6 +106,11 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const [loading, setLoading] = useState(true);
   const [engineStatus, setEngineStatus] = useState<EngineStatus>({ state: 'INACTIVE', reason: 'Core offline' });
   const [liveTradePrices, setLiveTradePrices] = useState<Record<string, number>>({});
+  const [sessionEquityPoints, setSessionEquityPoints] = useState<SessionEquityPoint[]>([]);
+  const [completedSessions, setCompletedSessions] = useState<CompletedSessionData[]>([]);
+
+  const lastStateRef = useRef<string | null>(null);
+  const peakEquityRef = useRef<number>(1000);
 
   // Helper to load/save state from/to localStorage if Firestore is unavailable/offline
   const getLocalStorageItem = useCallback((key: string, defaultValue: any) => {
@@ -527,6 +548,24 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       lastUpdate: Timestamp.now()
     };
     
+    peakEquityRef.current = allocationAmount;
+    const initialPoint: SessionEquityPoint = {
+      sessionId: newSession.id,
+      timestamp: Date.now(),
+      timeFormatted: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      equity: allocationAmount,
+      initialCapital: allocationAmount,
+      floatingPnl: 0,
+      realizedPnl: 0,
+      totalPnl: 0,
+      pnlPercent: 0,
+      drawdown: 0,
+      trigger: 'SESSION_START',
+      openPositionsCount: 0
+    };
+    setSessionEquityPoints([initialPoint]);
+    equityService.recordSessionPoint(effectiveUid, initialPoint);
+
     console.log("[TradingEngineContext] Setting session to:", newSession);
     setSession(newSession);
     sessionRefVal.current = newSession;
@@ -639,7 +678,36 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     console.log("[TradingEngineContext] Reconciling and ending session. finalCapital:", finalCapital, "fundingSource:", fundingSource);
 
-    // 3. Clear session state immediately
+    // 3. Save Completed Session Equity Data
+    const sessionPoints = sessionEquityPoints.length > 0 ? sessionEquityPoints : equityService.getSessionPointsLocally(effectiveUid, currentSession.id);
+    const initialCap = currentSession.initialCapital || 1000;
+    const totalPnl = finalCapital - initialCap;
+    const pnlPercent = (totalPnl / initialCap) * 100;
+    const maxDrawdown = sessionPoints.length > 0 ? Math.max(...sessionPoints.map(p => p.drawdown)) : 0;
+    const closedSessionTrades = tradesRefVal.current.filter(t => t.status === 'CLOSED');
+    const winningTrades = closedSessionTrades.filter(t => (t.pnl || 0) > 0);
+    const winRate = closedSessionTrades.length > 0 ? (winningTrades.length / closedSessionTrades.length) * 100 : 0;
+
+    const completedSession: CompletedSessionData = {
+      sessionId: currentSession.id,
+      userId: effectiveUid,
+      configName: activeConfig?.name || 'AI Trading Strategy',
+      startTime: currentSession.startTime ? (currentSession.startTime.toDate ? currentSession.startTime.toDate().getTime() : new Date(currentSession.startTime as any).getTime()) : Date.now(),
+      endTime: Date.now(),
+      initialCapital: initialCap,
+      finalEquity: finalCapital,
+      totalPnl: parseFloat(totalPnl.toFixed(2)),
+      pnlPercent: parseFloat(pnlPercent.toFixed(2)),
+      maxDrawdown: parseFloat(maxDrawdown.toFixed(2)),
+      winRate: parseFloat(winRate.toFixed(1)),
+      totalTrades: closedSessionTrades.length,
+      equityPoints: sessionPoints
+    };
+
+    equityService.saveCompletedSession(effectiveUid, completedSession);
+    setCompletedSessions(prev => [completedSession, ...prev.filter(s => s.sessionId !== completedSession.sessionId)]);
+
+    // 4. Clear session state immediately
     setSession(null);
     sessionRefVal.current = null;
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
@@ -969,13 +1037,43 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     try {
       const userId = user.uid;
       
+      // Calculate XP and Progression based on trade result
+      const isProfitable = pnl > 0;
+      let currentWinRun = user.winRun || 0;
+      if (isProfitable) {
+        currentWinRun += 1;
+      } else {
+        currentWinRun = 0;
+      }
+      
+      const currentAiTrades = (user.aiTradesCount || 0) + 1;
+
+      const xpGain = 50 + (isProfitable ? 20 : 0) + (isProfitable ? currentWinRun * 15 : 0);
+      let currentXp = (user.xp || 0) + xpGain;
+      let currentLevel = user.level || 1;
+      let insignias = user.insignias ? [...user.insignias] : [];
+      
+      let nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+      while (currentXp >= nextLevelXp) {
+        currentLevel += 1;
+        currentXp -= nextLevelXp;
+        insignias.push(`Level ${currentLevel} Vanguard`);
+        nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+      }
+
       // We still update historical stats and overall portfolio tracking for charts
       const userUpdate = {
         totalProfit: pnl > 0 ? increment(pnl) : increment(0),
         totalLoss: pnl < 0 ? increment(Math.abs(pnl)) : increment(0),
         'portfolio.todayPnL': increment(pnl),
         'portfolio.overallReturn': increment(pnl),
-        lastUpdated: serverTimestamp()
+        lastUpdated: serverTimestamp(),
+        // Progression logic
+        winRun: currentWinRun,
+        aiTradesCount: currentAiTrades,
+        level: currentLevel,
+        xp: currentXp,
+        insignias
       };
       await updateDoc(doc(db, 'users', userId), userUpdate);
       
@@ -1058,6 +1156,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const sessionRefVal = useRef<AiSession | null>(null);
   const livePricesRef = useRef<Record<string, number>>({});
   const configRefVal = useRef<AiConfiguration | null>(null);
+  const lastEngineStatusRef = useRef<EngineStatus | null>(null);
   
   // Refs for loop management
   const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1218,13 +1317,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current;
       if (!activeConfig) return;
 
-      // STRICT SCHEDULE GATE
-      const status = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
-      if (status.state === 'SLEEPING' || status.state === 'COOLING_BREAK') {
-        // Only skip if monitoring outside window is not explicitly enabled
-        if (!activeConfig.schedule?.monitorOutsideWindow) {
-          return;
-        }
+      // STRICT SCHEDULE GATE - COMPLETELY STOP IF OUTSIDE OPERATING WINDOW
+      if (!aiTradingService.isWithinOperatingWindow(activeConfig.schedule)) {
+        return;
       }
 
       // Check Session Duration
@@ -1326,10 +1421,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const sessionConfigId = currentSession.activeConfigId;
       const activeConfig = (configs.find(c => c.id === sessionConfigId) || configRefVal.current || configs[0]) as AiConfiguration;
 
-      // STRICT SCHEDULE GATE
-      const status = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
-      if (status.state === 'SLEEPING' || status.state === 'COOLING_BREAK') {
-        orderTimeout = setTimeout(runOrderLoop, 5000);
+      // STRICT SCHEDULE GATE - COMPLETELY STOP IF OUTSIDE OPERATING WINDOW
+      if (!aiTradingService.isWithinOperatingWindow(activeConfig.schedule)) {
+        orderTimeout = setTimeout(runOrderLoop, 1000);
         return;
       }
 
@@ -1450,35 +1544,84 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     }, 5000);
     */
 
-    // Status Monitoring & Log Transition States
+    // Second-by-Second Neural Schedule Status Monitoring & Log Transition States
     const statusInterval = setInterval(() => {
       const activeConfig = configRefVal.current;
-      if (sessionRefVal.current?.status === 'ACTIVE') {
-        const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig?.schedule, true);
-        
-        setEngineStatus(prev => {
-          if (prev.state !== nextStatus.state) {
-            logActivity('ENGINE_STATE_CHANGE', `AI Engine transitioning: ${prev.state} -> ${nextStatus.state}. Reason: ${nextStatus.reason}`);
-            
-            if (addNotification && nextStatus.state === 'SLEEPING') {
-              addNotification('trading', 'medium', 'AI Engine Sleeping', nextStatus.reason);
-            } else if (addNotification && nextStatus.state === 'SESSION_SCANNING' && prev.state !== 'SESSION_SCANNING') {
-              addNotification('trading', 'medium', 'AI Engine Awake', 'Trading session resumed according to schedule.');
-            }
-          }
-          return nextStatus;
-        });
-      } else {
-        setEngineStatus({ state: 'INACTIVE', reason: 'AI core is powered down.' });
+      const currentSession = sessionRefVal.current;
+
+      const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig?.schedule, currentSession?.status === 'ACTIVE');
+      
+      const prevStatus = lastEngineStatusRef.current;
+      if (!prevStatus || prevStatus.state !== nextStatus.state) {
+        const prevStateName = prevStatus?.state || 'INACTIVE';
+        lastEngineStatusRef.current = nextStatus;
+        logActivity('ENGINE_STATE_CHANGE', `AI Engine transitioning: ${prevStateName} -> ${nextStatus.state}. Reason: ${nextStatus.reason}`);
+        if (addNotification) {
+          addNotification('ai', nextStatus.state === 'RUNNING' ? 'medium' : 'low', `AI Engine: ${nextStatus.state}`, nextStatus.reason);
+        }
       }
-    }, 10000);
+
+      setEngineStatus(nextStatus);
+
+      // Record Equity Curve Point for Active AI Trading Session
+      if (currentSession && currentSession.status === 'ACTIVE' && userRef.current?.uid) {
+        const nowMs = Date.now();
+        const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
+        const closedTrades = tradesRefVal.current.filter(t => t.status === 'CLOSED');
+        const initialCap = currentSession.initialCapital || 1000;
+        
+        const floatingPnl = openTrades.reduce((sum, t) => {
+          const p = livePricesRef.current[t.id] || livePricesRef.current[t.asset] || t.currentPrice || t.entry;
+          return sum + ((p - t.entry) * t.quantity);
+        }, 0);
+        
+        const realizedPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+        const equity = Math.max(0, initialCap + realizedPnl + floatingPnl);
+        const totalPnl = equity - initialCap;
+        const pnlPercent = (totalPnl / initialCap) * 100;
+        
+        if (equity > peakEquityRef.current) {
+          peakEquityRef.current = equity;
+        }
+        const drawdown = peakEquityRef.current > 0 ? ((peakEquityRef.current - equity) / peakEquityRef.current) * 100 : 0;
+
+        const timeFormatted = new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        const newPoint: SessionEquityPoint = {
+          sessionId: currentSession.id,
+          timestamp: nowMs,
+          timeFormatted,
+          equity: parseFloat(equity.toFixed(2)),
+          initialCapital: initialCap,
+          floatingPnl: parseFloat(floatingPnl.toFixed(2)),
+          realizedPnl: parseFloat(realizedPnl.toFixed(2)),
+          totalPnl: parseFloat(totalPnl.toFixed(2)),
+          pnlPercent: parseFloat(pnlPercent.toFixed(2)),
+          drawdown: parseFloat(drawdown.toFixed(2)),
+          trigger: 'PERIODIC_UPDATE',
+          openPositionsCount: openTrades.length
+        };
+
+        let pointRecorded = false;
+        setSessionEquityPoints(prev => {
+          if (prev.length > 0 && (nowMs - prev[prev.length - 1].timestamp < 3000)) {
+            return prev;
+          }
+          pointRecorded = true;
+          return [...prev, newPoint];
+        });
+
+        if (pointRecorded && userRef.current?.uid) {
+          equityService.recordSessionPoint(userRef.current.uid, newPoint);
+        }
+      }
+    }, 1000);
 
     return () => {
       clearInterval(tickInterval);
       clearInterval(positionInterval);
       clearInterval(loggingInterval);
       clearInterval(statusInterval);
-      // clearInterval(driftInterval);
       clearTimeout(orderTimeout);
     };
   }, [user?.uid, session?.id, session?.status]);
@@ -1486,7 +1629,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const updateConfig = useCallback(async (newConfig: Partial<AiConfiguration>) => {
     if (!user || !config) return;
     
-    // Immediate state updates
     setConfig(prev => prev ? { ...prev, ...newConfig } as AiConfiguration : null);
     setConfigs(prev => prev.map(c => c.id === config.id ? { ...c, ...newConfig } as AiConfiguration : c));
     
@@ -1502,6 +1644,81 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     }
   }, [user?.uid, config, logActivity]);
 
+  const toggleManualOverride = useCallback(async () => {
+    if (!config) return;
+    const currentSchedule = config.schedule || {
+      enabled: true,
+      operatingWindows: [],
+      coolingBreaks: [],
+      marketCalendar: {}
+    };
+    const updatedSchedule: TradingSchedule = {
+      ...currentSchedule,
+      manualOverride: !currentSchedule.manualOverride
+    };
+    await saveConfiguration({
+      ...config,
+      schedule: updatedSchedule
+    });
+    const overrideState = updatedSchedule.manualOverride ? 'ENABLED' : 'DISABLED';
+    logActivity('AI_SCHEDULE_OVERRIDE', `Manual Override ${overrideState} for Neural Schedule.`);
+    addNotification('ai', 'medium', 'Manual Override Updated', `Neural Schedule Manual Override is now ${overrideState}.`);
+  }, [config, saveConfiguration, logActivity, addNotification]);
+
+  const toggleOperatingWindow = useCallback(async (windowId: string) => {
+    if (!config || !config.schedule) return;
+    const updatedWindows = (config.schedule.operatingWindows || []).map(w => 
+      w.id === windowId ? { ...w, enabled: !w.enabled } : w
+    );
+    await saveConfiguration({
+      ...config,
+      schedule: {
+        ...config.schedule,
+        operatingWindows: updatedWindows
+      }
+    });
+  }, [config, saveConfiguration]);
+
+  const toggleCoolingBreak = useCallback(async (breakId: string) => {
+    if (!config || !config.schedule) return;
+    const updatedBreaks = (config.schedule.coolingBreaks || []).map(b => 
+      b.id === breakId ? { ...b, enabled: !b.enabled } : b
+    );
+    await saveConfiguration({
+      ...config,
+      schedule: {
+        ...config.schedule,
+        coolingBreaks: updatedBreaks
+      }
+    });
+  }, [config, saveConfiguration]);
+
+  const togglePauseTrading = useCallback(async () => {
+    if (!config) return;
+    const currentSchedule = config.schedule || { enabled: true, operatingWindows: [], coolingBreaks: [], marketCalendar: {} };
+    const updatedSchedule: TradingSchedule = {
+      ...currentSchedule,
+      pauseTrading: !currentSchedule.pauseTrading
+    };
+    await saveConfiguration({
+      ...config,
+      schedule: updatedSchedule
+    });
+  }, [config, saveConfiguration]);
+
+  const toggleEmergencyStop = useCallback(async () => {
+    if (!config) return;
+    const currentSchedule = config.schedule || { enabled: true, operatingWindows: [], coolingBreaks: [], marketCalendar: {} };
+    const updatedSchedule: TradingSchedule = {
+      ...currentSchedule,
+      emergencyStop: !currentSchedule.emergencyStop
+    };
+    await saveConfiguration({
+      ...config,
+      schedule: updatedSchedule
+    });
+  }, [config, saveConfiguration]);
+
   const contextValue = React.useMemo(() => ({
     configs,
     config,
@@ -1511,6 +1728,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     trades,
     activity,
     recommendations,
+    sessionEquityPoints,
+    completedSessions,
     updateConfig,
     logActivity,
     startSession,
@@ -1522,7 +1741,12 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     deleteConfiguration,
     duplicateConfiguration,
     activateConfiguration,
-    closeTrade
+    closeTrade,
+    toggleManualOverride,
+    toggleOperatingWindow,
+    toggleCoolingBreak,
+    togglePauseTrading,
+    toggleEmergencyStop
   }), [
     configs,
     config,
@@ -1532,6 +1756,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     trades,
     activity,
     recommendations,
+    sessionEquityPoints,
+    completedSessions,
     updateConfig,
     logActivity,
     startSession,
@@ -1543,7 +1769,12 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     deleteConfiguration,
     duplicateConfiguration,
     activateConfiguration,
-    closeTrade
+    closeTrade,
+    toggleManualOverride,
+    toggleOperatingWindow,
+    toggleCoolingBreak,
+    togglePauseTrading,
+    toggleEmergencyStop
   ]);
 
   return (

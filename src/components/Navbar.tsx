@@ -8,13 +8,15 @@ interface NavbarProps {
   onNavigate: (section: string) => void;
   activeSection: string;
   onShowcase: () => void;
+  onAdminAccess?: () => void;
 }
 
 export default function Navbar({
   theme,
   onNavigate,
   activeSection,
-  onShowcase
+  onShowcase,
+  onAdminAccess
 }: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -58,7 +60,10 @@ export default function Navbar({
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         
         {/* Branding */}
-        <button onClick={() => handleNavClick('hero')} className="focus:outline-none cursor-pointer">
+        <button 
+          onClick={() => handleNavClick('hero')} 
+          className="focus:outline-none cursor-pointer group active:scale-95 transition-transform"
+        >
           <AverLogo theme={theme} size={36} />
         </button>
 

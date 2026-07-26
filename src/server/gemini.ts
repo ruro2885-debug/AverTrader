@@ -35,7 +35,6 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 10
                          errorMessage.includes('RESOURCE_EXHAUSTED');
     
     if (isQuotaError) {
-      console.warn(`Gemini API hard quota limit reached: "${errorMessage}". Enabling safety lockout fallback.`);
       isQuotaExhausted = true;
       quotaExhaustionTime = Date.now();
       throw error; // Immediately fail fast so that fallback is triggered without wasteful retries
@@ -48,7 +47,6 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 10
                         error.status === 429;
     
     if (retries > 0 && isTransient) {
-      console.warn(`Gemini API call failed with transient error: "${errorMessage}". Retrying in ${delay}ms... (${retries} attempts left)`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return retryWithBackoff(fn, retries - 1, delay * 2);
     }
@@ -59,7 +57,6 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 10
 async function generateContentWithFallback(prompt: string, config?: any, defaultModel: string = "gemini-3.6-flash") {
   const now = Date.now();
   if (isQuotaExhausted && (now - quotaExhaustionTime < QUOTA_LOCKOUT_DURATION)) {
-    console.warn("Gemini API safety lockout is active due to quota limits. Bypassing API calls to use local rules engine.");
     throw new Error("Gemini API quota currently exhausted (lockout active)");
   }
 
@@ -87,10 +84,8 @@ async function generateContentWithFallback(prompt: string, config?: any, default
                            errorMessage.includes('exceeded your current quota') ||
                            errorMessage.includes('RESOURCE_EXHAUSTED');
       if (isQuotaError) {
-        console.warn(`Quota limit reached for model ${model}. Trying next fallback model...`);
         continue; // Don't break, try next model which might have quota
       }
-      console.warn(`Gemini API call failed for model ${model}. Error: ${error.message}. Trying next fallback model...`);
     }
   }
 
@@ -140,7 +135,6 @@ export async function generateAiRecommendation(marketData: any, userProfile: any
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr);
   } catch (error: any) {
-    console.warn("AI Recommendation failed, using rule-based fallback:", error.message);
     // Dynamic rule-based fallback
     const btcPrice = marketData?.BTC?.price || 64000;
     const isBullish = (marketData?.BTC?.change24h || 0) > 0;
@@ -194,7 +188,6 @@ export async function analyzeTradeAction(trade: any, marketCondition: any) {
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr);
   } catch (error: any) {
-    console.warn("Trade analysis failed, using local heuristic:", error.message);
     const pnl = trade.pnl || 0;
     const pnlPercent = (pnl / (trade.entry * trade.quantity)) * 100;
     
@@ -235,7 +228,6 @@ export async function generateCatherineCommentary(portfolioMetrics: any) {
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr);
   } catch (error: any) {
-    console.warn("Catherine Commentary failed, using fallback:", error.message);
     return {
       topic: "Institutional Capital Overview",
       text: "Your current allocation demonstrates a refined balance between active liquidity and strategic asset exposure. We continue to monitor the overarching macroeconomic variables to ensure your portfolio remains resilient against systemic volatility while capturing emerging alpha clusters across the digital estate."
@@ -319,7 +311,6 @@ export async function generateMarketIntelligence(currentPrices: any) {
     } catch (e: any) {
       // If 429 or search failure, try secondary: WITHOUT Search
       if (e.message?.includes('429') || e.message?.includes('RESOURCE_EXHAUSTED')) {
-        console.warn("Market Intelligence Search rate-limited, retrying without search...");
         data = await callAi(false);
       } else {
         throw e;
@@ -334,7 +325,6 @@ export async function generateMarketIntelligence(currentPrices: any) {
     
     return data;
   } catch (error: any) {
-    console.warn("Gemini API error in generateMarketIntelligence, falling back to rule-based intelligence generator:", error.message);
     const btc = currentPrices?.BTC || 64230;
     const eth = currentPrices?.ETH || 3450.20;
     const sol = currentPrices?.SOL || 145.60;
@@ -407,7 +397,6 @@ export async function generateAssetAnalysis(symbol: string, currentPrice: number
     const jsonStr = text.replace(/```json|```/g, "").trim();
     return JSON.parse(jsonStr);
   } catch (error) {
-    console.warn(`Gemini API error in generateAssetAnalysis for ${symbol}, falling back to local strategist generator:`, error);
     const multiplier = symbol === 'AVR' ? 1.25 : 1.10;
     return {
       symbol,

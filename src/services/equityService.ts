@@ -6,18 +6,21 @@ import {
   orderBy, 
   getDocs, 
   Timestamp,
-  onSnapshot
+  onSnapshot,
+  setDoc,
+  doc
 } from 'firebase/firestore';
 import { db, OperationType, handleFirestoreError } from '../lib/firebase';
-import { EquityHistoryRecord } from '../types/aiTrading';
+import { EquityHistoryRecord, SessionEquityPoint, CompletedSessionData } from '../types/aiTrading';
 
 const COLLECTION_NAME = 'equityHistory';
+const SESSION_POINTS_COLLECTION = 'sessionEquityPoints';
+const COMPLETED_SESSIONS_COLLECTION = 'completedSessions';
 
 export const equityService = {
   async recordEquity(record: Omit<EquityHistoryRecord, 'id'>): Promise<void> {
     try {
       if (record.userId.startsWith('local-')) {
-        // Handle local user persistence if needed, or just skip
         console.log('[equityService] Skipping record for local user');
         return;
       }
@@ -28,6 +31,68 @@ export const equityService = {
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${record.userId}/${COLLECTION_NAME}`);
+    }
+  },
+
+  async recordSessionPoint(userId: string, point: SessionEquityPoint): Promise<void> {
+    try {
+      // LocalStorage caching
+      const cacheKey = `aver_session_points_${userId}_${point.sessionId}`;
+      const existingStr = localStorage.getItem(cacheKey);
+      const existing: SessionEquityPoint[] = existingStr ? JSON.parse(existingStr) : [];
+      existing.push(point);
+      localStorage.setItem(cacheKey, JSON.stringify(existing));
+
+      if (!userId.startsWith('local-')) {
+        const colRef = collection(db, 'users', userId, SESSION_POINTS_COLLECTION);
+        await addDoc(colRef, {
+          ...point,
+          timestampMs: point.timestamp,
+          timestamp: Timestamp.fromMillis(point.timestamp)
+        });
+      }
+    } catch (error) {
+      console.warn('[equityService] Error recording session point:', error);
+    }
+  },
+
+  getSessionPointsLocally(userId: string, sessionId: string): SessionEquityPoint[] {
+    try {
+      const cacheKey = `aver_session_points_${userId}_${sessionId}`;
+      const existingStr = localStorage.getItem(cacheKey);
+      return existingStr ? JSON.parse(existingStr) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveCompletedSession(userId: string, sessionData: CompletedSessionData): Promise<void> {
+    try {
+      const cacheKey = `aver_completed_sessions_${userId}`;
+      const existingStr = localStorage.getItem(cacheKey);
+      const existing: CompletedSessionData[] = existingStr ? JSON.parse(existingStr) : [];
+      const updated = [sessionData, ...existing.filter(s => s.sessionId !== sessionData.sessionId)];
+      localStorage.setItem(cacheKey, JSON.stringify(updated));
+
+      if (!userId.startsWith('local-')) {
+        const docRef = doc(db, 'users', userId, COMPLETED_SESSIONS_COLLECTION, sessionData.sessionId);
+        await setDoc(docRef, {
+          ...sessionData,
+          savedAt: Timestamp.now()
+        });
+      }
+    } catch (error) {
+      console.warn('[equityService] Error saving completed session:', error);
+    }
+  },
+
+  getCompletedSessionsLocally(userId: string): CompletedSessionData[] {
+    try {
+      const cacheKey = `aver_completed_sessions_${userId}`;
+      const existingStr = localStorage.getItem(cacheKey);
+      return existingStr ? JSON.parse(existingStr) : [];
+    } catch {
+      return [];
     }
   },
 

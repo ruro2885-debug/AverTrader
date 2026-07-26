@@ -20,6 +20,9 @@ import {
   Clock,
   Shield,
   AlertCircle,
+  AlertTriangle,
+  Wallet,
+  X,
   HelpCircle,
   Play,
   Square,
@@ -952,39 +955,109 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
           >
             <motion.div 
-              initial={{ scale: 0.95 }} 
-              animate={{ scale: 1 }} 
-              exit={{ scale: 0.95 }}
-              className={`max-w-md w-full rounded-3xl p-8 border ${isDark ? 'bg-[#0B0E14] border-white/10' : 'bg-white border-slate-200'} shadow-2xl`}
+              initial={{ scale: 0.94, y: 12, opacity: 0 }} 
+              animate={{ scale: 1, y: 0, opacity: 1 }} 
+              exit={{ scale: 0.94, y: 12, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className={`max-w-md w-full rounded-3xl overflow-hidden border shadow-2xl relative ${
+                isDark ? 'bg-[#0E131F] border-amber-500/25 shadow-amber-950/20' : 'bg-white border-amber-200 shadow-2xl'
+              }`}
             >
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-6">
-                <AlertCircle className="w-6 h-6 text-amber-500" />
-              </div>
-              <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'} mb-3 tracking-tight`}>
-                Unable to Start Trading Session
-              </h3>
-              <p className={`text-sm leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'} mb-8`}>
-                The allocated trading capital exceeds your available wallet balance. Please reduce the allocated amount or deposit more funds to continue. The trading session cannot begin until sufficient funds are available.
-              </p>
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => setShowInsufficientFundsModal(false)}
-                  className={`flex-1 px-4 py-3.5 rounded-xl text-xs font-bold transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'}`}
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={() => {
-                    setShowInsufficientFundsModal(false);
-                    onOpenDeposit();
-                  }}
-                  className="flex-1 px-4 py-3.5 rounded-xl text-xs font-black bg-[#00D09C] hover:bg-[#00b387] text-black transition-all shadow-lg shadow-[#00D09C]/20"
-                >
-                  Deposit Funds
-                </button>
+              {/* Top Warning Accent Bar */}
+              <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500" />
+
+              <div className="p-6 sm:p-7">
+                {/* Header Section */}
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider mb-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        Capital Shortfall Guard
+                      </div>
+                      <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'} tracking-tight`}>
+                        Unable to Start Trading Session
+                      </h3>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowInsufficientFundsModal(false)}
+                    className={`p-1.5 rounded-xl transition-colors ${
+                      isDark ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'} mb-5`}>
+                  The allocated capital for this automated strategy exceeds your available wallet balance. Deposit additional funds or adjust your session allocation to begin execution.
+                </p>
+
+                {/* Capital Breakdown Ledger */}
+                <div className={`p-4 rounded-2xl border mb-6 space-y-2.5 ${
+                  isDark ? 'bg-[#141A29] border-white/5' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Briefcase className="w-3.5 h-3.5 text-slate-500" />
+                      Allocated Capital
+                    </span>
+                    <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {formatCurrency(config?.sessionSetup?.amountToAllocate || 25000)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                      <Wallet className="w-3.5 h-3.5 text-slate-500" />
+                      Available Wallet Balance
+                    </span>
+                    <span className={`font-mono font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      {formatCurrency(tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0))}
+                    </span>
+                  </div>
+
+                  <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs">
+                    <span className="text-amber-400 font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Capital Shortfall
+                    </span>
+                    <span className="font-mono font-bold text-amber-400">
+                      -{formatCurrency(Math.max(0, (config?.sessionSetup?.amountToAllocate || 25000) - (tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0))))}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowInsufficientFundsModal(false)}
+                    className={`flex-1 px-4 py-3 rounded-xl text-xs font-bold transition-all ${
+                      isDark 
+                        ? 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10' 
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    Adjust Setup
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setShowInsufficientFundsModal(false);
+                      onOpenDeposit();
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl text-xs font-bold bg-[#00D09C] hover:bg-[#00b387] text-black transition-all shadow-lg shadow-[#00D09C]/20 flex items-center justify-center gap-2"
+                  >
+                    <Wallet className="w-4 h-4" />
+                    Deposit Funds
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>

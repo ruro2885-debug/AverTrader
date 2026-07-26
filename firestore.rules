@@ -44,6 +44,23 @@ service cloud.firestore {
     }
 
     // 4. Admin Specific Collections
+    match /platform_analytics/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /platform_health/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /system_settings/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /support_tickets/{id} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['messages', 'updatedAt']));
+      allow delete: if isAdmin();
+    }
     match /admin_audit_logs/{logId} {
       allow read, write: if isAdmin();
     }

@@ -24,6 +24,7 @@ import {
   AiConfiguration,
   EquityTrigger,
   TradingSchedule,
+  OperatingWindow,
   MarketCategory
 } from '../types/aiTrading';
 import { equityService } from './equityService';
@@ -32,9 +33,41 @@ import { portfolioPersistenceService } from './portfolioPersistenceService';
 const SESSIONS_COLLECTION = 'aiSessions';
 const RECOMMENDATIONS_COLLECTION = 'aiRecommendations';
 
+export type EngineState = 
+  | 'RUNNING' 
+  | 'WAITING' 
+  | 'PAUSED' 
+  | 'COOLDOWN' 
+  | 'RISK_LOCK' 
+  | 'MARKET_CLOSED' 
+  | 'EMERGENCY_STOP' 
+  | 'SESSION_COMPLETE' 
+  | 'INACTIVE'
+  | 'SESSION_SCANNING'
+  | 'COOLING_BREAK'
+  | 'SLEEPING';
+
 export interface EngineStatus {
-  state: 'INACTIVE' | 'SESSION_SCANNING' | 'COOLING_BREAK' | 'SLEEPING' | 'ERROR';
+  state: EngineState;
   reason: string;
+  nextState?: EngineState;
+  nextTransitionTime?: number;
+  countdownSeconds?: number;
+  countdownText?: string;
+  manualOverride?: boolean;
+  activeWindowName?: string;
+}
+
+function formatCountdown(seconds: number): string {
+  if (seconds <= 0) return '00m 00s';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  if (hrs > 0) {
+    return `${pad(hrs)}h ${pad(mins)}m ${pad(secs)}s`;
+  }
+  return `${pad(mins)}m ${pad(secs)}s`;
 }
 
 export const aiTradingService = {
@@ -572,20 +605,90 @@ export const aiTradingService = {
 
   /**
    * Enforces the Neural Schedule as the single source of truth for AI activity.
-   * Completely rebuilt for Rule-Based Scheduling with Market Calendar awareness.
+   * Completely rebuilt for Rule-Based Scheduling with Market Calendar awareness and live countdown.
    */
-  getEngineOperationStatus(schedule?: TradingSchedule, isSessionActive?: boolean): EngineStatus {
+  getEngineOperationStatus(
+    schedule?: TradingSchedule, 
+    isSessionActive?: boolean,
+    riskContext?: { isRiskLocked?: boolean; isSessionCompleted?: boolean; reason?: string }
+  ): EngineStatus {
     if (!isSessionActive) {
-      return { state: 'INACTIVE', reason: 'AI core is powered down. No active session.' };
+      return { 
+        state: 'INACTIVE', 
+        reason: 'AI core is powered down. No active session.',
+        countdownText: '00m 00s'
+      };
     }
-    
-    // 1. Check if Scheduler is Enabled (24/7 Mode)
+
+    if (schedule?.emergencyStop) {
+      return {
+        state: 'EMERGENCY_STOP',
+        reason: 'Emergency Kill Switch active • All trading halted.',
+        manualOverride: schedule.manualOverride,
+        countdownText: 'HALTED'
+      };
+    }
+
+    if (schedule?.pauseTrading) {
+      return {
+        state: 'PAUSED',
+        reason: 'AI engine manually paused by user.',
+        manualOverride: schedule.manualOverride,
+        countdownText: 'PAUSED'
+      };
+    }
+
+    if (riskContext?.isRiskLocked) {
+      return {
+        state: 'RISK_LOCK',
+        reason: riskContext.reason || 'Risk Lock active • Session maximum loss limit reached.',
+        manualOverride: schedule?.manualOverride,
+        countdownText: 'LOCKED'
+      };
+    }
+
+    if (riskContext?.isSessionCompleted) {
+      return {
+        state: 'SESSION_COMPLETE',
+        reason: riskContext.reason || 'Session Complete • Profit target reached or duration elapsed.',
+        manualOverride: schedule?.manualOverride,
+        countdownText: 'COMPLETE'
+      };
+    }
+
+    if (schedule?.manualOverride) {
+      return {
+        state: 'RUNNING',
+        reason: 'Manual Override Active • Bypassing Neural Schedule',
+        manualOverride: true,
+        countdownText: 'OVERRIDE'
+      };
+    }
+
     if (!schedule || schedule.enabled === false) {
-      return { state: 'SESSION_SCANNING', reason: 'Scheduler Disabled • AI operates continuously (24/7)' };
+      return {
+        state: 'RUNNING',
+        reason: 'Continuous Mode (24/7) • AI engine running around the clock',
+        countdownText: '24/7 MODE'
+      };
     }
-    
+
     try {
       const now = new Date();
+
+      const parseTimeToSecs = (timeStr: string): number => {
+        if (!timeStr) return 0;
+        const cleanStr = timeStr.trim();
+        const isPM = /pm/i.test(cleanStr);
+        const isAM = /am/i.test(cleanStr);
+        const parts = cleanStr.replace(/(am|pm)/i, '').trim().split(':').map(Number);
+        let h = parts[0] || 0;
+        const m = parts[1] || 0;
+        const s = parts[2] || 0;
+        if (isPM && h < 12) h += 12;
+        if (isAM && h === 12) h = 0;
+        return h * 3600 + m * 60 + s;
+      };
 
       // Helper to get time details in a specific timezone
       const getTimeInTz = (tz: string) => {
@@ -595,68 +698,122 @@ export const aiTradingService = {
         else if (tz === 'GMT') ianaTz = 'Europe/London';
         else if (tz === 'UTC') ianaTz = 'UTC';
 
-        const formatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: ianaTz,
-          hour12: false,
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          weekday: 'short'
-        });
-        
-        const parts = formatter.formatToParts(now);
-        const partMap: Record<string, string> = {};
-        parts.forEach(p => { partMap[p.type] = p.value; });
-        
-        return {
-          weekday: partMap['weekday'],
-          month: partMap['month'],
-          day: partMap['day'],
-          hours: partMap['hour'] || '00',
-          minutes: partMap['minute'] || '00',
-          timeStr: `${partMap['hour'] || '00'}:${partMap['minute'] || '00'}`
-        };
+        try {
+          const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: ianaTz,
+            hour12: false,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            weekday: 'short'
+          });
+          
+          const parts = formatter.formatToParts(now);
+          const partMap: Record<string, string> = {};
+          parts.forEach(p => { partMap[p.type] = p.value; });
+          
+          let h = parseInt(partMap['hour'] || '0', 10);
+          if (h === 24) h = 0;
+          const m = parseInt(partMap['minute'] || '0', 10);
+          const s = parseInt(partMap['second'] || '0', 10);
+          const totalSecs = h * 3600 + m * 60 + s;
+          const pad = (n: number) => n.toString().padStart(2, '0');
+
+          return {
+            weekday: partMap['weekday'],
+            month: partMap['month'],
+            day: partMap['day'],
+            hours: pad(h),
+            minutes: pad(m),
+            timeStr: `${pad(h)}:${pad(m)}`,
+            totalSecs
+          };
+        } catch (e) {
+          const h = now.getUTCHours();
+          const m = now.getUTCMinutes();
+          const s = now.getUTCSeconds();
+          const pad = (n: number) => n.toString().padStart(2, '0');
+          return {
+            weekday: 'Mon',
+            month: '01',
+            day: '01',
+            hours: pad(h),
+            minutes: pad(m),
+            timeStr: `${pad(h)}:${pad(m)}`,
+            totalSecs: h * 3600 + m * 60 + s
+          };
+        }
       };
 
-      // 2. Check Cooling Breaks (Global priority)
+      // 1. Check Cooling Breaks
       if (schedule.coolingBreaks && schedule.coolingBreaks.length > 0) {
         for (const brk of schedule.coolingBreaks) {
           if (!brk.enabled) continue;
           
-          // Use UTC for breaks by default or current system time
           const timeData = getTimeInTz('UTC');
           const isDayMatch = brk.days === 'Every Day' || brk.days.includes(timeData.weekday);
+          const startSecs = parseTimeToSecs(brk.startTime);
+          const endSecs = parseTimeToSecs(brk.endTime);
           
-          if (isDayMatch && timeData.timeStr >= brk.startTime && timeData.timeStr <= brk.endTime) {
-            return { state: 'COOLING_BREAK', reason: `AI Cooling: Scheduled neural break active until ${brk.endTime}.` };
+          const isTimeMatch = startSecs <= endSecs 
+            ? (timeData.totalSecs >= startSecs && timeData.totalSecs <= endSecs)
+            : (timeData.totalSecs >= startSecs || timeData.totalSecs <= endSecs);
+
+          if (isDayMatch && isTimeMatch) {
+            const remaining = Math.max(0, endSecs - timeData.totalSecs);
+            return {
+              state: 'COOLDOWN',
+              reason: `Scheduled Neural Cooling Break active until ${brk.endTime}.`,
+              nextState: 'RUNNING',
+              countdownSeconds: remaining,
+              countdownText: formatCountdown(remaining)
+            };
           }
         }
       }
       
-      // 3. Check Operating Windows
-      if (!schedule.operatingWindows || schedule.operatingWindows.length === 0) {
-        return { state: 'SESSION_SCANNING', reason: 'Scheduler Disabled • AI operates continuously (24/7)' };
+      // 1.5. Manual Schedule Override check
+      if (schedule.manualOverride) {
+        return {
+          state: 'RUNNING',
+          reason: 'Continuous Mode • Manual schedule override enabled',
+          countdownText: 'OVERRIDE'
+        };
       }
 
-      let activeWindowFound = false;
-      let sleepReason = 'AI Sleeping: Outside configured operating windows.';
+      // 2. Check Operating Windows
+      if (!schedule.operatingWindows || schedule.operatingWindows.length === 0) {
+        return {
+          state: 'RUNNING',
+          reason: 'Continuous Mode • No restricted operating windows',
+          countdownText: '24/7 MODE'
+        };
+      }
+
+      let activeWindow: OperatingWindow | null = null;
+      let nextWindowStartSecs: number | null = null;
+      let isHolidayClosure = false;
 
       for (const window of schedule.operatingWindows) {
         if (!window.enabled) continue;
 
         const timeData = getTimeInTz(window.timezone);
         const isDayMatch = window.days === 'Every Day' || (Array.isArray(window.days) && window.days.includes(timeData.weekday));
-        const isTimeMatch = timeData.timeStr >= window.startTime && timeData.timeStr <= window.endTime;
+        const startSecs = parseTimeToSecs(window.startTime);
+        const endSecs = parseTimeToSecs(window.endTime);
+
+        const isTimeMatch = startSecs <= endSecs 
+          ? (timeData.totalSecs >= startSecs && timeData.totalSecs <= endSecs)
+          : (timeData.totalSecs >= startSecs || timeData.totalSecs <= endSecs);
 
         if (isDayMatch && isTimeMatch) {
-          // Check for Holiday exclusion for this window's markets
+          // Check for Holiday exclusion
           const mmdd = `${timeData.month}-${timeData.day}`;
           const HOLIDAYS = ['01-01', '07-04', '12-25', '12-31', '05-27', '09-02', '11-28'];
-          const isHolidayToday = HOLIDAYS.includes(mmdd);
-
-          if (isHolidayToday) {
+          if (HOLIDAYS.includes(mmdd)) {
             let allMarketsExempt = true;
             const marketList = window.markets === 'All Markets' 
               ? ['Stocks', 'Crypto', 'Forex', 'Indices', 'Commodities'] as MarketCategory[]
@@ -670,45 +827,111 @@ export const aiTradingService = {
             }
 
             if (!allMarketsExempt) {
-              sleepReason = 'AI Sleeping: Market holiday detected for active operating window.';
+              isHolidayClosure = true;
               continue; 
             }
           }
 
-          activeWindowFound = true;
+          activeWindow = window;
           break;
+        } else if (isDayMatch && timeData.totalSecs < startSecs) {
+          const diff = startSecs - timeData.totalSecs;
+          if (nextWindowStartSecs === null || diff < nextWindowStartSecs) {
+            nextWindowStartSecs = diff;
+          }
+        } else {
+          // Window is on future day or earlier today
+          const secondsInDay = 86400;
+          const diff = (secondsInDay - timeData.totalSecs) + startSecs;
+          if (nextWindowStartSecs === null || diff < nextWindowStartSecs) {
+            nextWindowStartSecs = diff;
+          }
         }
       }
 
-      if (activeWindowFound) {
-        return { state: 'SESSION_SCANNING', reason: 'AI Active: Neural core operational. Scanning for opportunities.' };
+      if (isHolidayClosure && !activeWindow) {
+        return {
+          state: 'MARKET_CLOSED',
+          reason: 'Market Holiday Closure active today.',
+          nextState: 'WAITING',
+          countdownText: 'HOLIDAY'
+        };
       }
 
-      return { state: 'SLEEPING', reason: sleepReason };
+      if (activeWindow) {
+        const timeData = getTimeInTz(activeWindow.timezone);
+        const startSecs = parseTimeToSecs(activeWindow.startTime);
+        const endSecs = parseTimeToSecs(activeWindow.endTime);
+        const remaining = startSecs <= endSecs
+          ? Math.max(0, endSecs - timeData.totalSecs)
+          : (timeData.totalSecs >= startSecs ? (86400 - timeData.totalSecs + endSecs) : (endSecs - timeData.totalSecs));
+          
+        return {
+          state: 'RUNNING',
+          reason: `AI Operational • Operating window active until ${activeWindow.endTime}`,
+          nextState: 'PAUSED',
+          countdownSeconds: remaining,
+          countdownText: formatCountdown(remaining),
+          activeWindowName: activeWindow.id
+        };
+      }
+
+      // Outside operating window - Trading paused
+      const countdown = nextWindowStartSecs !== null ? nextWindowStartSecs : 0;
+      return {
+        state: 'PAUSED',
+        reason: 'Trading Paused • Scheduled operating window inactive',
+        nextState: 'RUNNING',
+        countdownSeconds: countdown,
+        countdownText: countdown > 0 ? formatCountdown(countdown) : 'STANDBY'
+      };
     } catch (error) {
       console.warn("Scheduler logic error:", error);
-      return { state: 'SESSION_SCANNING', reason: 'AI Active: Safety fallback enabled (24/7 mode).' };
+      return { 
+        state: 'PAUSED', 
+        reason: 'Trading Paused • Scheduler safety safeguard active due to evaluation error.',
+        countdownText: 'STANDBY'
+      };
     }
   },
 
   isAssetTradable(asset: string, schedule?: TradingSchedule): boolean {
+    if (schedule?.manualOverride) return true;
     if (!schedule || schedule.enabled === false) return true;
     
     const engineStatus = this.getEngineOperationStatus(schedule, true);
     
-    // If cooling break, nothing is tradable
-    if (engineStatus.state === 'COOLING_BREAK') return false;
+    // Only allow trading if engine state is RUNNING or SESSION_SCANNING
+    if (engineStatus.state !== 'RUNNING' && engineStatus.state !== 'SESSION_SCANNING') {
+      return false;
+    }
 
     const category = this.getMarketCategory(asset);
 
     // 1. Check Holiday Closure for this specific market category
     const mmdd = new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit' }).format(new Date());
     const HOLIDAYS = ['01-01', '07-04', '12-25', '12-31', '05-27', '09-02', '11-28'];
-    if (HOLIDAYS.includes(mmdd) && schedule.marketCalendar[category]?.excludeHolidays) {
+    if (HOLIDAYS.includes(mmdd) && schedule.marketCalendar?.[category]?.excludeHolidays) {
       return false;
     }
 
-    // 2. Check if we are within an operating window that covers this asset
+    // 2. Check if we have operating windows
+    if (!schedule.operatingWindows || schedule.operatingWindows.length === 0) return true;
+
+    const parseTimeToSecs = (timeStr: string): number => {
+      if (!timeStr) return 0;
+      const cleanStr = timeStr.trim();
+      const isPM = /pm/i.test(cleanStr);
+      const isAM = /am/i.test(cleanStr);
+      const parts = cleanStr.replace(/(am|pm)/i, '').trim().split(':').map(Number);
+      let h = parts[0] || 0;
+      const m = parts[1] || 0;
+      const s = parts[2] || 0;
+      if (isPM && h < 12) h += 12;
+      if (isAM && h === 12) h = 0;
+      return h * 3600 + m * 60 + s;
+    };
+
     const now = new Date();
     const getTimeInTz = (tz: string) => {
       let ianaTz = tz;
@@ -717,44 +940,60 @@ export const aiTradingService = {
       else if (tz === 'GMT') ianaTz = 'Europe/London';
       else if (tz === 'UTC') ianaTz = 'UTC';
 
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: ianaTz,
-        hour12: false,
-        weekday: 'short',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      const parts = formatter.formatToParts(now);
-      const partMap: Record<string, string> = {};
-      parts.forEach(p => { partMap[p.type] = p.value; });
-      return {
-        weekday: partMap['weekday'],
-        timeStr: `${partMap['hour'] || '00'}:${partMap['minute'] || '00'}`
-      };
+      try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: ianaTz,
+          hour12: false,
+          weekday: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        const parts = formatter.formatToParts(now);
+        const partMap: Record<string, string> = {};
+        parts.forEach(p => { partMap[p.type] = p.value; });
+        
+        let h = parseInt(partMap['hour'] || '0', 10);
+        if (h === 24) h = 0;
+        const m = parseInt(partMap['minute'] || '0', 10);
+        const s = parseInt(partMap['second'] || '0', 10);
+        return {
+          weekday: partMap['weekday'],
+          totalSecs: h * 3600 + m * 60 + s
+        };
+      } catch (e) {
+        const h = now.getUTCHours();
+        const m = now.getUTCMinutes();
+        const s = now.getUTCSeconds();
+        return {
+          weekday: 'Mon',
+          totalSecs: h * 3600 + m * 60 + s
+        };
+      }
     };
-
-    if (!schedule.operatingWindows || schedule.operatingWindows.length === 0) return true;
 
     let inWindow = false;
     for (const win of schedule.operatingWindows) {
       if (!win.enabled) continue;
       
-      const isMarketMatch = win.markets === 'All Markets' || (Array.isArray(win.markets) && win.markets.includes(category));
+      const isMarketMatch = win.markets === 'All Markets' || 
+                            (Array.isArray(win.markets) && (win.markets.includes(category) || (win.markets as string[]).includes('All Markets'))) ||
+                            category === 'Crypto'; // Crypto markets are 24/7 global markets
       if (!isMarketMatch) continue;
 
       const timeData = getTimeInTz(win.timezone);
       const isDayMatch = win.days === 'Every Day' || (Array.isArray(win.days) && win.days.includes(timeData.weekday));
-      const isTimeMatch = timeData.timeStr >= win.startTime && timeData.timeStr <= win.endTime;
+      const startSecs = parseTimeToSecs(win.startTime);
+      const endSecs = parseTimeToSecs(win.endTime);
+
+      const isTimeMatch = startSecs <= endSecs 
+        ? (timeData.totalSecs >= startSecs && timeData.totalSecs <= endSecs)
+        : (timeData.totalSecs >= startSecs || timeData.totalSecs <= endSecs);
 
       if (isDayMatch && isTimeMatch) {
         inWindow = true;
         break;
       }
-    }
-
-    // 3. Post-Window monitoring check
-    if (!inWindow && schedule.monitorOutsideWindow) {
-      return true;
     }
 
     return inWindow;
@@ -777,6 +1016,7 @@ export const aiTradingService = {
   },
 
   isWithinOperatingWindow(schedule?: TradingSchedule): boolean {
-    return this.getEngineOperationStatus(schedule, true).state === 'SESSION_SCANNING';
+    const state = this.getEngineOperationStatus(schedule, true).state;
+    return state === 'RUNNING' || state === 'SESSION_SCANNING';
   }
 };

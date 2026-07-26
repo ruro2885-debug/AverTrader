@@ -403,15 +403,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               const userData = docSnap.data() as User;
               console.log("[AuthContext] User data updated from Firestore for uid:", firebaseUser.uid);
 
-              // Check for Super Admin promotion if email matches and role is missing
-              const ADMIN_EMAIL = 'ruro2885@gmail.com';
-              if (userData.email?.toLowerCase() === ADMIN_EMAIL && userData.role !== 'super_admin') {
-                console.log("[AuthContext] Promoting matching email to super_admin role...");
-                updateDoc(userDocRef, { role: 'super_admin' }).catch(err => {
-                  console.error("[AuthContext] Failed to promote user to admin:", err);
-                });
-              }
-
               // Only initialize if there is no seed AND no custom photo/avatar URL at all
               const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
 
@@ -468,6 +459,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   consecutiveLosses: 0
                 }
               } as User;
+
+              // Check daily login streak and XP progression
+              const todayStr = new Date().toISOString().split('T')[0];
+              if (updatedUser.lastLoginDate !== todayStr) {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
+                
+                let newStreak = updatedUser.loginStreak || 0;
+                if (updatedUser.lastLoginDate === yesterdayStr) {
+                  newStreak += 1; // consecutive
+                } else if (updatedUser.lastLoginDate) {
+                  newStreak = 1; // broken streak
+                } else {
+                  newStreak = 1; // first login
+                }
+
+                let currentLevel = updatedUser.level || 1;
+                let currentXp = updatedUser.xp || 0;
+                let insignias = updatedUser.insignias || [];
+                const xpGain = 50 + (newStreak * 10);
+                currentXp += xpGain;
+                
+                let nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+                while (currentXp >= nextLevelXp) {
+                  currentLevel += 1;
+                  currentXp -= nextLevelXp;
+                  insignias.push(`Level ${currentLevel} Vanguard`);
+                  nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+                }
+
+                updateDoc(userDocRef, {
+                  lastLoginDate: todayStr,
+                  loginStreak: newStreak,
+                  level: currentLevel,
+                  xp: currentXp,
+                  insignias
+                }).catch(err => console.error("Failed to update daily progression:", err));
+              }
+
               setUser(prev => {
                 if (
                   prev &&
@@ -506,24 +537,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             } else {
               console.warn("[AuthContext] User profile document not found in Firestore for uid:", firebaseUser.uid);
               
-              // Handle first-time login for Super Admin (e.g. via Google Auth)
-              const ADMIN_EMAIL = 'ruro2885@gmail.com';
-              if (firebaseUser.email?.toLowerCase() === ADMIN_EMAIL) {
-                console.log("[AuthContext] First-time Super Admin detected. Initializing secure administrative profile...");
+              // Initialize profile for first-time login if user doc doesn't exist
+              if (firebaseUser.email) {
+                console.log("[AuthContext] First-time user detected. Initializing profile...");
                 
                 const seed = firebaseUser.email.toLowerCase();
                 const dataUrl = getAvatarDataUrl(seed);
                 
-                const adminProfile = {
+                const defaultProfile = {
                   uid: firebaseUser.uid,
                   email: firebaseUser.email,
-                  username: firebaseUser.displayName || 'Super Admin',
-                  role: 'super_admin',
+                  username: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+                  role: 'user',
                   profilePhotoURL: dataUrl,
                   avatarUrl: dataUrl,
                   avatarSeed: seed,
                   hasCustomPhoto: false,
-                  accountType: 'Institutional',
+                  accountType: 'Standard',
                   accountStatus: 'Active',
                   portfolioBalance: 0,
                   availableBalance: 0,
@@ -552,8 +582,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   }
                 };
 
-                setDoc(userDocRef, adminProfile).catch(err => {
-                  console.error("[AuthContext] Failed to initialize Super Admin profile:", err);
+                setDoc(userDocRef, defaultProfile).catch(err => {
+                  console.error("[AuthContext] Failed to initialize user profile:", err);
                 });
               }
             }
@@ -819,7 +849,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         avatarUrl: dataUrl,
         profilePhotoURL: dataUrl,
         hasCustomPhoto: true,
-        role: data.email.toLowerCase() === 'ruro2885@gmail.com' ? 'super_admin' : 'user',
+        role: 'user',
         country: data.country,
         phoneNumber: data.phoneNumber || '',
         accountType: 'Standard',

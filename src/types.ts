@@ -44,10 +44,19 @@ export interface UserProfile {
   createdAt: any;
   lastLogin: any;
   lastUpdated: any;
+  // Progression & Milestones
+  level?: number;
+  xp?: number;
+  loginStreak?: number;
+  lastLoginDate?: string;
+  winRun?: number;
+  aiTradesCount?: number;
+  insignias?: string[];
+  
   onboardingCompleted?: boolean;
   bonuses?: any[];
   kycStatus?: 'unverified' | 'pending' | 'verified';
-  role?: 'user' | 'super_admin';
+  role?: 'user';
   watchlist?: string[];
 }
 

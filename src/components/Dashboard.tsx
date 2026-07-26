@@ -39,7 +39,7 @@ import { safeStorage } from '../utils/storage';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService, WalletData } from '../services/walletService';
 
-export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos') => void }) {
+export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
   const { activity, trades, liveTradePrices, session } = useContext(TradingEngineContext);
@@ -307,47 +307,27 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const referralCount = user?.referralCount || 0;
   const completedAiTrades = trades.length || 0;
   
-  const loginStreak = useMemo(() => {
-    const activityDates = activity.map((h: any) => new Date(h.timestamp).toDateString());
-    const uniqueDates = Array.from(new Set(activityDates)) as string[];
-    uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-    let streak = 0;
-    const now = new Date();
-    for (let i = 0; i < uniqueDates.length; i++) {
-      const date = new Date(uniqueDates[i]);
-      const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-      if (diffDays <= i + 1) {
-        streak++;
-      } else {
-        break;
-      }
-    }
-    return streak;
-  }, [activity]);
+  const loginStreak = user?.loginStreak || 0;
+  const winRun = user?.winRun || 0;
+  const aiTradesCount = user?.aiTradesCount || 0;
   
-  const profitableDays = useMemo(() => {
-    const profitByDate = trades.reduce((acc: Record<string, number>, t) => {
-        if (t.pnl === undefined) return acc;
-        const date = new Date(t.timestamp).toDateString();
-        acc[date] = (acc[date] || 0) + t.pnl;
-        return acc;
-    }, {});
-    
-    return Object.values(profitByDate).filter((pnl: unknown) => (pnl as number) > 0).length;
-  }, [trades]);
-
-  const totalXp = (referralCount * 250) + (completedAiTrades * 120) + (trades.length || 0) * 80 + (profitableDays * 150) + (loginStreak * 75) + ((user?.totalDeposits || 0) * 0.1);
-  const xpPerLevel = 1000;
-  const currentLevel = Math.floor(totalXp / xpPerLevel) + 1;
-  const currentXp = totalXp % xpPerLevel;
-  const xpProgressPercent = Math.min(100, Math.round((currentXp / xpPerLevel) * 100));
+  const currentLevel = user?.level || 1;
+  const totalXp = user?.xp || 0;
+  const nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+  const xpProgressPercent = Math.min(100, Math.round((totalXp / nextLevelXp) * 100));
 
   const badges = [
     { name: 'Pioneer', unlocked: true, icon: '🚀', desc: 'Aver platform voyager' },
-    { name: 'AI Pilot', unlocked: completedAiTrades > 0, icon: '🤖', desc: 'Executed AI trade' },
+    { name: 'AI Pilot', unlocked: aiTradesCount > 0, icon: '🤖', desc: 'Executed AI trade' },
     { name: 'Alpha', unlocked: referralCount > 0, icon: '👑', desc: 'Referred active user' },
     { name: 'VIP Vault', unlocked: (Number(user?.totalDeposits) || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
   ];
+
+  if (user?.insignias && user.insignias.length > 0) {
+    user.insignias.forEach((insignia: string) => {
+      badges.push({ name: insignia, unlocked: true, icon: '🎖️', desc: 'Level Milestone' });
+    });
+  }
   
   // HELPER METHODS FOR ACCOUNT ACTIVITY AND SMART ASSISTANT
   const getRelativeTime = (date: Date) => {
@@ -884,7 +864,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                             <span className="text-xs font-black text-emerald-500 uppercase tracking-wider">Trading Rank</span>
                             <h4 className={`text-lg font-black tracking-tight ${textPrimary}`}>Level {currentLevel}</h4>
                           </div>
-                          <span className={`text-xs font-bold ${textSecondary}`}>{currentXp} / 1000 XP</span>
+                          <span className={`text-xs font-bold ${textSecondary}`}>{totalXp} / {nextLevelXp} XP</span>
                         </div>
                         <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
                           <motion.div 
@@ -905,7 +885,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
                           <p className={`text-[10px] font-bold ${textSecondary}`}>Win Run</p>
-                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{profitableDays}</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{winRun}</p>
                         </div>
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <Brain className="w-4 h-4 text-blue-400 mx-auto mb-1" />
@@ -956,7 +936,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => setActiveTab('support')} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => setActiveTab('support')} onOpenStrategies={() => onNavigate('strategies')} />}
           {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { setActiveTab('home'); setShowDepositModal(true); }} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
           

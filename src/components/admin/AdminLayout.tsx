@@ -1,86 +1,65 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  LayoutDashboard, 
-  Users, 
-  Wallet, 
-  ArrowDownCircle, 
-  ArrowUpCircle, 
-  UserCheck, 
-  Ticket, 
-  Activity, 
-  Bell, 
-  History, 
-  PieChart, 
-  Calendar,
-  Settings,
-  Menu,
-  X,
-  ChevronRight,
-  LogOut,
-  Moon,
-  Sun,
-  Search
+  LayoutDashboard, Users, Wallet, ArrowDownCircle, ArrowUpCircle, 
+  ShieldCheck, MessageSquare, Megaphone, Bell, BarChart3, 
+  History, Bot, Activity, Settings, LogOut, Menu, X, 
+  ChevronRight, Command, Search, Globe, Shield
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import AdminAuthGate from './AdminAuthGate';
-import AdminDashboard from './AdminDashboard';
-import AdminUsers from './AdminUsers';
-import AdminWallets from './AdminWallets';
-import AdminDeposits from './AdminDeposits';
-import AdminWithdrawals from './AdminWithdrawals';
-import AdminKyc from './AdminKyc';
-import AdminSupport from './AdminSupport';
-import AdminTradingMonitor from './AdminTradingMonitor';
-import AdminNotifications from './AdminNotifications';
-import AdminAuditLogs from './AdminAuditLogs';
-import AdminAnalytics from './AdminAnalytics';
-import AdminCampaigns from './AdminCampaigns';
-import AverLogo from '../AverLogo';
 
-interface AdminLayoutProps {
-  theme: 'light' | 'dark';
-  onToggleTheme: () => void;
+// Placeholder views for modules
+import AdminDashboard from './views/AdminDashboard';
+import AdminUsers from './views/AdminUsers';
+import AdminWallets from './views/AdminWallets';
+import AdminDeposits from './views/AdminDeposits';
+import AdminWithdrawals from './views/AdminWithdrawals';
+import AdminKYC from './views/AdminKYC';
+import AdminSupport from './views/AdminSupport';
+import AdminCampaigns from './views/AdminCampaigns';
+import AdminNotifications from './views/AdminNotifications';
+import AdminAnalytics from './views/AdminAnalytics';
+import AdminAuditLogs from './views/AdminAuditLogs';
+import AdminAiMonitor from './views/AdminAiMonitor';
+import AdminSystemHealth from './views/AdminSystemHealth';
+import AdminSettings from './views/AdminSettings';
+
+type ViewID = 'dashboard' | 'users' | 'wallets' | 'deposits' | 'withdrawals' | 'kyc' | 'support' | 'campaigns' | 'notifications' | 'analytics' | 'audit' | 'ai' | 'health' | 'settings';
+
+interface SidebarItem {
+  id: ViewID;
+  label: string;
+  icon: any;
+  category: 'core' | 'finance' | 'ops' | 'system';
 }
 
-type AdminView = 
-  | 'dashboard' 
-  | 'users' 
-  | 'wallets' 
-  | 'deposits' 
-  | 'withdrawals' 
-  | 'kyc' 
-  | 'support' 
-  | 'trading' 
-  | 'notifications' 
-  | 'audit' 
-  | 'analytics' 
-  | 'campaigns';
+const SIDEBAR_ITEMS: SidebarItem[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, category: 'core' },
+  { id: 'users', label: 'Users', icon: Users, category: 'core' },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3, category: 'core' },
+  
+  { id: 'wallets', label: 'Linked Wallets', icon: Wallet, category: 'finance' },
+  { id: 'deposits', label: 'Deposits', icon: ArrowDownCircle, category: 'finance' },
+  { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpCircle, category: 'finance' },
+  
+  { id: 'kyc', label: 'KYC Verification', icon: ShieldCheck, category: 'ops' },
+  { id: 'support', label: 'Support Tickets', icon: MessageSquare, category: 'ops' },
+  { id: 'campaigns', label: 'Campaigns & Events', icon: Megaphone, category: 'ops' },
+  { id: 'notifications', label: 'Notifications', icon: Bell, category: 'ops' },
+  
+  { id: 'ai', label: 'AI Trading Monitor', icon: Bot, category: 'system' },
+  { id: 'audit', label: 'Audit Logs', icon: History, category: 'system' },
+  { id: 'health', label: 'Platform Health', icon: Activity, category: 'system' },
+  { id: 'settings', label: 'System Settings', icon: Settings, category: 'system' },
+];
 
-export default function AdminLayout({ theme, onToggleTheme }: AdminLayoutProps) {
-  const { user, signOutUser } = useAuth();
-  const [activeView, setActiveView] = useState<AdminView>('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'users', label: 'User Management', icon: Users },
-    { id: 'wallets', label: 'Linked Wallets', icon: Wallet },
-    { id: 'deposits', label: 'Deposits', icon: ArrowDownCircle },
-    { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpCircle },
-    { id: 'kyc', label: 'KYC Reviews', icon: UserCheck },
-    { id: 'support', label: 'Support Tickets', icon: Ticket },
-    { id: 'trading', label: 'Trading Monitor', icon: Activity },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'audit', label: 'Audit Logs', icon: History },
-    { id: 'analytics', label: 'Analytics', icon: PieChart },
-    { id: 'campaigns', label: 'Campaigns & Events', icon: Calendar },
-  ];
-
-  const handleLogout = async () => {
-    await signOutUser();
-    window.location.href = '/';
-  };
+export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dark', onLogout: () => void }) {
+  const [activeView, setActiveView] = useState<ViewID>('dashboard');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { user } = useAuth();
+  
+  const isDark = theme === 'dark';
 
   const renderView = () => {
     switch (activeView) {
@@ -89,152 +68,197 @@ export default function AdminLayout({ theme, onToggleTheme }: AdminLayoutProps) 
       case 'wallets': return <AdminWallets theme={theme} />;
       case 'deposits': return <AdminDeposits theme={theme} />;
       case 'withdrawals': return <AdminWithdrawals theme={theme} />;
-      case 'kyc': return <AdminKyc theme={theme} />;
+      case 'kyc': return <AdminKYC theme={theme} />;
       case 'support': return <AdminSupport theme={theme} />;
-      case 'trading': return <AdminTradingMonitor theme={theme} />;
-      case 'notifications': return <AdminNotifications theme={theme} />;
-      case 'audit': return <AdminAuditLogs theme={theme} />;
-      case 'analytics': return <AdminAnalytics theme={theme} />;
       case 'campaigns': return <AdminCampaigns theme={theme} />;
+      case 'notifications': return <AdminNotifications theme={theme} />;
+      case 'analytics': return <AdminAnalytics theme={theme} />;
+      case 'audit': return <AdminAuditLogs theme={theme} />;
+      case 'ai': return <AdminAiMonitor theme={theme} />;
+      case 'health': return <AdminSystemHealth theme={theme} />;
+      case 'settings': return <AdminSettings theme={theme} />;
       default: return <AdminDashboard theme={theme} />;
     }
   };
 
-  const currentTitle = menuItems.find(i => i.id === activeView)?.label || 'Admin Panel';
-
   return (
-    <div className={`flex min-h-screen font-sans ${theme === 'dark' ? 'bg-[#05070A] text-slate-200' : 'bg-slate-50 text-slate-900'}`}>
-        
-        {/* Sidebar */}
-        <motion.aside 
-          initial={false}
-          animate={{ width: isSidebarOpen ? 280 : 80 }}
-          className={`fixed left-0 top-0 h-full z-40 border-r ${
-            theme === 'dark' ? 'bg-[#0D1117] border-white/[0.05]' : 'bg-white border-slate-200'
-          } overflow-hidden flex flex-col`}
-        >
-          {/* Sidebar Header */}
-          <div className="h-20 flex items-center px-6 gap-4 border-b border-white/[0.03]">
-            <AverLogo size={32} />
-            <AnimatePresence>
-              {isSidebarOpen && (
-                <motion.div
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -10 }}
-                  className="whitespace-nowrap"
-                >
-                  <span className="font-bold text-lg tracking-tight">Admin Terminal</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
+    <div className={`min-h-screen flex ${isDark ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'}`}>
+      {/* Desktop Sidebar */}
+      <motion.aside 
+        initial={false}
+        animate={{ width: isSidebarCollapsed ? 80 : 260 }}
+        className={`hidden lg:flex flex-col border-r sticky top-0 h-screen transition-colors ${
+          isDark ? 'bg-slate-900/50 border-white/5 backdrop-blur-xl' : 'bg-white border-slate-200'
+        }`}
+      >
+        {/* Sidebar Header */}
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center flex-shrink-0">
+            <Shield className="w-5 h-5 text-slate-950" />
           </div>
+          {!isSidebarCollapsed && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col"
+            >
+              <span className="text-sm font-black tracking-tight leading-none">TERMINAL</span>
+              <span className="text-[10px] text-emerald-500 font-bold tracking-widest uppercase mt-0.5">Admin Ops</span>
+            </motion.div>
+          )}
+        </div>
 
-          {/* Navigation Items */}
-          <div className="flex-1 py-6 px-3 space-y-1 overflow-y-auto no-scrollbar">
-            {menuItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeView === item.id;
-              
-              return (
+        {/* Navigation */}
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6">
+          {(['core', 'finance', 'ops', 'system'] as const).map(category => (
+            <div key={category} className="space-y-1">
+              {!isSidebarCollapsed && (
+                <h4 className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                  {category}
+                </h4>
+              )}
+              {SIDEBAR_ITEMS.filter(item => item.category === category).map(item => (
                 <button
                   key={item.id}
-                  onClick={() => setActiveView(item.id as AdminView)}
-                  className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all relative group ${
-                    isActive 
-                      ? 'bg-emerald-500/10 text-emerald-500' 
-                      : 'hover:bg-white/[0.03] text-slate-400 hover:text-white'
+                  onClick={() => setActiveView(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group ${
+                    activeView === item.id 
+                      ? (isDark ? 'bg-white/10 text-white' : 'bg-slate-900 text-white')
+                      : (isDark ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
                   }`}
                 >
-                  <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-emerald-500' : 'text-slate-400 group-hover:text-white'}`} />
-                  <AnimatePresence>
-                    {isSidebarOpen && (
-                      <motion.span
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        className="text-sm font-medium whitespace-nowrap"
-                      >
-                        {item.label}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                  {isActive && (
-                    <motion.div 
-                      layoutId="sidebar-pill"
-                      className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-emerald-500 rounded-l-full" 
-                    />
+                  <item.icon className={`w-5 h-5 flex-shrink-0 ${activeView === item.id ? 'text-emerald-500' : ''}`} />
+                  {!isSidebarCollapsed && (
+                    <span className="text-sm font-semibold flex-1 text-left">{item.label}</span>
+                  )}
+                  {!isSidebarCollapsed && activeView === item.id && (
+                    <div className="w-1 h-4 rounded-full bg-emerald-500" />
                   )}
                 </button>
-              );
-            })}
-          </div>
-
-          {/* Sidebar Footer */}
-          <div className="p-4 border-t border-white/[0.03] space-y-1">
-            <button
-              onClick={onToggleTheme}
-              className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-white/[0.03] text-slate-400 hover:text-white transition-all"
-            >
-              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-              {isSidebarOpen && <span className="text-sm font-medium">Toggle Theme</span>}
-            </button>
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-all"
-            >
-              <LogOut className="w-5 h-5" />
-              {isSidebarOpen && <span className="text-sm font-medium">Log Out</span>}
-            </button>
-          </div>
-        </motion.aside>
-
-        {/* Main Content Area */}
-        <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-[280px]' : 'ml-[80px]'}`}>
-          {/* Top Navbar */}
-          <header className={`h-20 sticky top-0 z-30 border-b flex items-center justify-between px-8 backdrop-blur-md ${
-            theme === 'dark' ? 'bg-[#05070A]/80 border-white/[0.05]' : 'bg-white/80 border-slate-200'
-          }`}>
-            <div className="flex items-center gap-6">
-              <button 
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="p-2 hover:bg-white/5 rounded-lg transition-colors"
-              >
-                {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-              </button>
-              <h1 className="text-xl font-bold tracking-tight">{currentTitle}</h1>
+              ))}
             </div>
+          ))}
+        </div>
 
-            <div className="flex items-center gap-6">
-              <div className="relative hidden md:block">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                <input 
-                  type="text" 
-                  placeholder="Global terminal search..."
-                  className="bg-white/5 border border-white/10 rounded-full pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/50 w-64"
-                />
-              </div>
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-white/5">
+          <button 
+            onClick={onLogout}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+              isDark ? 'text-slate-400 hover:bg-rose-500/10 hover:text-rose-500' : 'text-slate-600 hover:bg-rose-50 hover:text-rose-600'
+            }`}
+          >
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            {!isSidebarCollapsed && <span className="text-sm font-semibold">Sign Out</span>}
+          </button>
+        </div>
+      </motion.aside>
 
-              <div className="flex items-center gap-4 pl-6 border-l border-white/10">
-                <div className="text-right hidden sm:block">
-                  <p className="text-sm font-bold text-white leading-none mb-1">{user?.displayName || 'Super Admin'}</p>
-                  <p className="text-[10px] text-emerald-500 font-mono tracking-widest uppercase">{user?.email === ADMIN_EMAIL ? 'Root Authority' : 'Administrator'}</p>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-lg">
-                  {user?.email?.[0].toUpperCase()}
-                </div>
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* Top Command Bar */}
+        <header className={`sticky top-0 z-40 h-16 border-b flex items-center justify-between px-6 transition-colors ${
+          isDark ? 'bg-slate-950/80 border-white/5 backdrop-blur-md' : 'bg-white/80 border-slate-200 backdrop-blur-md'
+        }`}>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className={`p-2 rounded-lg lg:flex hidden transition-colors ${isDark ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className={`p-2 rounded-lg lg:hidden flex transition-colors ${isDark ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            
+            <div className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-all ${
+              isDark ? 'bg-white/5 border-white/10 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'
+            }`}>
+              <Command className="w-3.5 h-3.5" />
+              <span>Search platform...</span>
+              <div className="flex items-center gap-1 ml-2 opacity-50">
+                <span className="px-1 py-0.5 rounded border border-current font-mono">⌘</span>
+                <span className="px-1 py-0.5 rounded border border-current font-mono">K</span>
               </div>
             </div>
-          </header>
+          </div>
 
-          {/* View Container */}
-          <div className="p-8 max-w-[1600px] mx-auto">
+          <div className="flex items-center gap-4">
+            <div className="hidden sm:flex flex-col items-end mr-2">
+              <span className="text-xs font-bold leading-none">{user?.email}</span>
+              <span className="text-[10px] text-emerald-500 font-bold uppercase mt-1">Super Admin</span>
+            </div>
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-emerald-500/20`}>
+              {user?.email?.charAt(0).toUpperCase()}
+            </div>
+          </div>
+        </header>
+
+        {/* View Content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-6 sm:p-8 max-w-[1600px] mx-auto">
             {renderView()}
           </div>
-        </main>
+        </div>
+      </main>
 
-      </div>
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] lg:hidden"
+            />
+            <motion.aside
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              className={`fixed inset-y-0 left-0 w-[280px] z-[70] lg:hidden flex flex-col ${
+                isDark ? 'bg-slate-900' : 'bg-white'
+              }`}
+            >
+              <div className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-slate-950" />
+                  </div>
+                  <span className="font-black">TERMINAL</span>
+                </div>
+                <button onClick={() => setIsMobileMenuOpen(false)} className="p-2">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 space-y-6 pb-12">
+                {/* Same items as desktop sidebar */}
+                {SIDEBAR_ITEMS.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveView(item.id);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
+                      activeView === item.id 
+                        ? (isDark ? 'bg-white/10 text-white' : 'bg-slate-900 text-white')
+                        : (isDark ? 'text-slate-400' : 'text-slate-600')
+                    }`}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    <span className="font-semibold">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
-
-const ADMIN_EMAIL = 'ruro2885@gmail.com';
