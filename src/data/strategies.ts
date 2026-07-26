@@ -16,6 +16,13 @@ export interface Strategy {
   expectedBehavior: string;
   strengths: string[];
   weaknesses: string[];
+  advantages: string[];
+  disadvantages: string[];
+  whenToUse: string;
+  whenNotToUse: string;
+  supportedAssets: string[];
+  timeframes: string[];
+  aiConfidence: string;
   recommendedAiConfig: {
     frequency: string;
     riskExposure: string;
@@ -58,6 +65,13 @@ export const STRATEGIES: Strategy[] = [
     expectedBehavior: "Rapid execution with high win rates but small individual gains. Expect frequent activity during London and New York sessions.",
     strengths: ["Ultra-fast execution", "Sentiment-aware entries", "Low latency advantage"],
     weaknesses: ["High trading fees", "Sensitive to network congestion", "Struggles in low-volume weekends"],
+    advantages: ["Rapid profit capture", "Adaptive to news"],
+    disadvantages: ["High cost", "Network dependency"],
+    whenToUse: "High volatility periods",
+    whenNotToUse: "Low volume weekends",
+    supportedAssets: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
+    timeframes: ['1m', '5m', '15m'],
+    aiConfidence: '92%',
     recommendedAiConfig: {
       frequency: "High (~140 trades/day)",
       riskExposure: "Moderate (5/10)",
@@ -86,6 +100,13 @@ export const STRATEGIES: Strategy[] = [
     expectedBehavior: "Steady, incremental growth with minimal drawdowns. Returns are relatively independent of market direction.",
     strengths: ["Zero directional risk", "Consistent performance", "Low maximum drawdown"],
     weaknesses: ["Lower ceiling during bull markets", "Margin efficiency requirements", "Exchange withdrawal dependencies"],
+    advantages: ["Market-neutral", "Low drawdown"],
+    disadvantages: ["High margin requirements", "Execution speed dependent"],
+    whenToUse: "High price discrepancy environments",
+    whenNotToUse: "When spreads are too tight to cover fees",
+    supportedAssets: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
+    timeframes: ['1m', '5m'],
+    aiConfidence: '98%',
     recommendedAiConfig: {
       frequency: "Very High (~320 trades/day)",
       riskExposure: "Low (2/10)",
@@ -114,6 +135,13 @@ export const STRATEGIES: Strategy[] = [
     expectedBehavior: "Excellent performance in boring, flat markets. Potential for 'holding' if price breaks out of the bottom of the grid without stop-loss.",
     strengths: ["Passive income in flat markets", "Emotional-free execution", "Compounding gains"],
     weaknesses: ["Trending market underperformance", "Potential for unrealized losses if range breaks", "High capital commitment"],
+    advantages: ["Steady yield", "Automated"],
+    disadvantages: ["Capital lockup", "Vulnerable to breaks"],
+    whenToUse: "Ranging markets",
+    whenNotToUse: "Strongly trending markets",
+    supportedAssets: ['BTC/USDT', 'ETH/USDT'],
+    timeframes: ['15m', '1h'],
+    aiConfidence: '88%',
     recommendedAiConfig: {
       frequency: "High (~80 trades/day)",
       riskExposure: "Moderate (6/10)",
@@ -142,6 +170,13 @@ export const STRATEGIES: Strategy[] = [
     expectedBehavior: "Fewer trades but with significantly higher profit-per-trade. High probability of being stopped out on 'fakeouts' before the real move.",
     strengths: ["High reward-to-risk ratio", "Captures major market turns", "Efficient use of capital"],
     weaknesses: ["Lower win rate", "Frustrating in choppy markets", "Requires precise entry timing"],
+    advantages: ["High upside", "Trend capture"],
+    disadvantages: ["Low win rate", "Fakeout vulnerability"],
+    whenToUse: "Following low-volatility consolidation",
+    whenNotToUse: "During highly choppy/sideways markets",
+    supportedAssets: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
+    timeframes: ['4h', '1d'],
+    aiConfidence: '75%',
     recommendedAiConfig: {
       frequency: "Low (~5 trades/week)",
       riskExposure: "High (8/10)",
@@ -170,6 +205,13 @@ export const STRATEGIES: Strategy[] = [
     expectedBehavior: "Slow and steady. It won't catch the exact bottom or top, but it will capture the meat of the move.",
     strengths: ["Robust performance", "Low stress execution", "Proven historical edge"],
     weaknesses: ["Gives back profit in reversals", "Loses money in flat markets", "Slow response to flash crashes"],
+    advantages: ["High ROI", "Proven edge"],
+    disadvantages: ["Slow to react", "Profit give-back"],
+    whenToUse: "Strong bull/bear markets",
+    whenNotToUse: "Range-bound markets",
+    supportedAssets: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
+    timeframes: ['4h', '1d', '1w'],
+    aiConfidence: '85%',
     recommendedAiConfig: {
       frequency: "Very Low (~2 trades/month)",
       riskExposure: "Moderate (4/10)",
@@ -184,89 +226,5 @@ export const STRATEGIES: Strategy[] = [
     sharpeRatio: "2.45",
     color: "indigo",
     icon: TrendingUp
-  },
-  {
-    id: 'scalper-supreme',
-    name: "Scalper Supreme AI",
-    category: 'Scalping',
-    badge: "Flash Profit",
-    tagline: "Sub-Minute Order Flow Scalping",
-    description: "Captures tiny price movements within seconds using advanced order flow imbalances and liquidation heatmaps.",
-    howItWorks: "Uses sub-second API hooks to front-run large orders or capitalize on liquidity vacuums created by liquidations.",
-    idealMarketConditions: "High volatility with high trading volume.",
-    riskLevel: 'Very High',
-    expectedBehavior: "Thousands of trades per day. Extremely sensitive to execution speed and fee structure.",
-    strengths: ["Profitable in any direction", "High compounding speed", "No overnight risk"],
-    weaknesses: ["Extremely sensitive to fees", "Requires high-tier API access", "Potential for technical failure"],
-    recommendedAiConfig: {
-      frequency: "Ultra High (~500+ trades/day)",
-      riskExposure: "Very High (9/10)",
-      positionSizing: "5% per scalp",
-      stopLoss: "Fixed 0.2% stop",
-      capitalAllocation: "100% active"
-    },
-    apy: "+112.5%",
-    successRate: "76.4%",
-    maxDrawdown: "-15.8%",
-    monthlyReturn: "+24.5%",
-    sharpeRatio: "3.56",
-    color: "rose",
-    icon: Target
-  },
-  {
-    id: 'swing-commander',
-    name: "Swing Commander",
-    category: 'Swing Trading',
-    badge: "Intermediate Edge",
-    tagline: "Multi-Day Reversal & Pivot Hunter",
-    description: "Targets medium-term price swings over 3-10 days based on overbought/oversold technical extremes.",
-    howItWorks: "Identifies exhaustion points using RSI, Stochastic divergence, and Bollinger Band deviations. Enters when mean reversion is statistically probable.",
-    idealMarketConditions: "Oscillating markets with well-defined support and resistance.",
-    riskLevel: 'Medium',
-    expectedBehavior: "Moderate trade frequency. Excellent for capturing 10-20% moves over several days.",
-    strengths: ["High win rate", "Clear target levels", "Lower fee impact"],
-    weaknesses: ["Vulnerable to 'blow off' tops", "Requires patience", "Misses parabolic trends"],
-    recommendedAiConfig: {
-      frequency: "Moderate (~8 trades/month)",
-      riskExposure: "Moderate (5/10)",
-      positionSizing: "15% per swing setup",
-      stopLoss: "Pivot-point based stop",
-      capitalAllocation: "70% active / 30% cash"
-    },
-    apy: "+45.6%",
-    successRate: "68.2%",
-    maxDrawdown: "-6.4%",
-    monthlyReturn: "+12.1%",
-    sharpeRatio: "2.28",
-    color: "violet",
-    icon: Compass
-  },
-  {
-    id: 'volatility-vortex',
-    name: "Volatility Vortex",
-    category: 'Volatility',
-    badge: "Chaos Specialist",
-    tagline: "Delta-Neutral Volatility Expansion Capture",
-    description: "Profits from increases in market volatility regardless of price direction using advanced options straddles.",
-    howItWorks: "Calculates implied vs realized volatility. It buys volatility when it's underpriced and sells when it's overpriced relative to historic norms.",
-    idealMarketConditions: "Pre-event uncertainty (earnings, news) or sudden market panics.",
-    riskLevel: 'High',
-    expectedBehavior: "Quiet performance during stable periods followed by massive gains during market crashes or spikes.",
-    strengths: ["Uncorrelated to market direction", "Protects portfolio from crashes", "High alpha generation"],
-    weaknesses: ["Time decay (Theta) costs", "Complexity of execution", "Sensitive to volatility crush"],
-    recommendedAiConfig: {
-      frequency: "Low (~4 strategic setups/month)",
-      riskExposure: "High (7/10)",
-      positionSizing: "10% per vol-event",
-      stopLoss: "Vega-based exit strategy",
-      capitalAllocation: "50% active / 50% reserve"
-    },
-    apy: "+55.0%",
-    successRate: "55.2%",
-    maxDrawdown: "-9.1%",
-    monthlyReturn: "+15.4%",
-    sharpeRatio: "2.12",
-    color: "amber",
-    icon: BarChart2
   }
 ];

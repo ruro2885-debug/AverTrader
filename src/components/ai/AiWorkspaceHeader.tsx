@@ -102,7 +102,7 @@ export default function AiWorkspaceHeader({ session, engineStatus, onStart, onEn
               <span>Terminate Session</span>
             </button>
             
-            {engineStatus.reason && (
+            {engineStatus.reason && !engineStatus.reason.includes('Continuous Mode') && (
               <div className={`flex items-center gap-2 px-3.5 py-1.5 border rounded-xl text-[11px] font-semibold ${getStateBadgeStyle(engineStatus.state)}`}>
                 {engineStatus.state === 'RISK_LOCK' || engineStatus.state === 'EMERGENCY_STOP' ? <ShieldAlert className="w-3.5 h-3.5" /> :
                  engineStatus.state === 'PAUSED' ? <PauseCircle className="w-3.5 h-3.5" /> :

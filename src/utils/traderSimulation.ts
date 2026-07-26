@@ -329,27 +329,9 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       'SWING_TRADING': `Monitors multi-day macro structures and weekly support blocks. Accumulates spots and low-leverage futures positions in strong trend corridors, letting profits run over major structural expansions.`
     };
 
-    // Real Photos
-    const MALE_PHOTOS = [
-      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80',
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80'
-    ];
-    const FEMALE_PHOTOS = [
-      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80',
-      'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80'
-    ];
-    let avatarUrl: string | undefined = undefined;
-    if (i === 3 && isMale) avatarUrl = MALE_PHOTOS[0];
-    else if (i === 3) avatarUrl = FEMALE_PHOTOS[0];
-    
-    if (i === 12 && !isMale) avatarUrl = FEMALE_PHOTOS[0];
-    else if (i === 12) avatarUrl = MALE_PHOTOS[0];
-    
-    if (i === 22 && isMale) avatarUrl = MALE_PHOTOS[1];
-    else if (i === 22) avatarUrl = FEMALE_PHOTOS[1];
-
-    if (i === 31 && !isMale) avatarUrl = FEMALE_PHOTOS[1];
-    else if (i === 31) avatarUrl = MALE_PHOTOS[1];
+    // Unique Avatar Seed for every trader
+    const uniqueSeed = `trader_seed_${username}_${i}_${(i + 1) * 31}`;
+    const avatarUrl = getAvatarDataUrl(uniqueSeed);
 
     // Unique Schedules
     const SESSIONS_LIST = [
@@ -408,8 +390,8 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       preferredMarkets,
       status,
       bio,
-      avatarSeed: `avatar_seed_${username}`,
-      avatarUrl: avatarUrl || getAvatarDataUrl(`avatar_seed_${username}`),
+      avatarSeed: uniqueSeed,
+      avatarUrl,
       strategyName,
       avgTradeDuration: avgDuration,
       followers,

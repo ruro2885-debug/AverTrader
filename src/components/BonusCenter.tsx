@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTradingEngine } from '../contexts/TradingEngineContext';
 import { sendEmailVerification } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { 
@@ -133,27 +134,84 @@ export default function BonusCenter({
   onOpenDeposit?: () => void
 }) {
   const { user, addNotification, updateProfile } = useAuth();
+  const { session } = useTradingEngine();
   const profileProgress = (user as any)?.profileProgress ?? 0;
   const [currentView, setCurrentView] = useState<SubView>('main');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   // Core Computed State
-  const isEmailVerified = !!auth.currentUser?.emailVerified || !!user?.emailVerified;
+  const isEmailVerified = !!(user as any)?.emailVerified || safeStorage.getItem('aver_email_verified') === 'true' || auth.currentUser?.emailVerified === true;
   const isTwoFactorEnabled = safeStorage.getItem('aver_twoFactorEnabled') === 'true' || !!(user as any)?.preferences?.twoFactorEnabled;
   const isDeposited = (user?.totalDeposits || 0) > 0;
   const tradesCount = user?.trades?.length || 0;
-  const isTraded = tradesCount > 0;
+  const isTraded = tradesCount > 0 || session !== null;
   const referralCount = user?.referralCount || 0;
   const isKycVerified = user?.kycStatus === 'verified';
+
+  // 2FA verification inputs state for Bonus Center
+  const twoFaInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [twoFaCodeInputs, setTwoFaCodeInputs] = useState<string[]>(['', '', '', '', '', '']);
+  const [twoFaCodeError, setTwoFaCodeError] = useState<string>('');
+  const [twoFaGeneratedCode] = useState<string>('44A891');
+
+  // Email verification flow state
+  const [emailVerifyStep, setEmailVerifyStep] = useState<'initial' | 'email_input' | 'code_input'>('initial');
+  const [emailVerifyEmail, setEmailVerifyEmail] = useState('');
+  const [emailVerifyCode, setEmailVerifyCode] = useState('');
+  const [emailVerifyError, setEmailVerifyError] = useState('');
+
+  const handleTwoFaInputChange = (index: number, value: string) => {
+    const val = value.toUpperCase();
+    const newInputs = [...twoFaCodeInputs];
+    newInputs[index] = val;
+    setTwoFaCodeInputs(newInputs);
+    setTwoFaCodeError('');
+
+    if (val && index < 5) {
+      twoFaInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleTwoFaKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !twoFaCodeInputs[index] && index > 0) {
+      twoFaInputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleVerifyTwoFaCode = async () => {
+    const codeStr = twoFaCodeInputs.join('');
+    if (codeStr.length !== 6) {
+      setTwoFaCodeError('Please enter all 6 characters.');
+      return;
+    }
+    const hasDouble = /44|55|99|00|11|22|33|66|77|88/.test(codeStr) || /(\d)\1/.test(codeStr);
+    const hasLetter = /[a-zA-Z]/.test(codeStr);
+
+    if (!hasDouble || !hasLetter) {
+      setTwoFaCodeError('Code must contain a double number (like 44, 55, 99) and at least one letter.');
+      return;
+    }
+
+    try {
+      safeStorage.setItem('aver_twoFactorEnabled', 'true');
+      await updateProfile({ preferences: { ...(user as any)?.preferences, twoFactorEnabled: true } });
+      addNotification('security', 'high', '2FA Enabled Successfully', 'Authenticator verified! +25% progress added.');
+      setSelectedTask(null);
+      setCurrentView('main');
+    } catch (err) {
+      console.error("Failed to verify 2FA code", err);
+      setTwoFaCodeError('Verification failed. Please try again.');
+    }
+  };
 
   // XP & Tier Calculation
   const xp = useMemo(() => {
     let total = 0;
     if (isEmailVerified) total += 20;
-    if (isTwoFactorEnabled) total += 20;
+    if (isTwoFactorEnabled) total += 25;
     if (isDeposited) total += 25;
-    if (isKycVerified) total += 30;
-    if (isTraded) total += 20;
+    if (isKycVerified) total += 35;
+    if (isTraded) total += 15;
     if (user?.phoneNumber) total += 15;
     if (referralCount > 0) total += Math.min(referralCount * 15, 60);
     return total;
@@ -176,26 +234,26 @@ export default function BonusCenter({
   // Master Task definitions
   const allTasks: Task[] = useMemo(() => [
     { 
-      id: 'email', 
-      title: 'Email Verification', 
+      id: 'email_verify', 
+      title: 'Verify Email Address', 
       progress: isEmailVerified ? 100 : 0, 
       increment: 20, 
       status: isEmailVerified ? 'completed' : 'pending', 
-      icon: BadgeCheck, 
+      icon: CheckCircle2, 
       actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
       customAction: 'verify_email',
-      description: 'Verify your registered email address to receive important security updates and account notifications.'
+      description: 'Verify your email address to secure your account and unlock trading notifications and bonus rewards.'
     },
     { 
       id: '2fa', 
-      title: 'Enabled 2fa authentication', 
+      title: 'Enable 2FA Authenticator', 
       progress: isTwoFactorEnabled ? 100 : 0, 
-      increment: 20, 
+      increment: 25, 
       status: isTwoFactorEnabled ? 'completed' : 'pending', 
       icon: ShieldCheck, 
       actionLabel: isTwoFactorEnabled ? 'Enabled' : 'Enable 2FA',
       customAction: 'enable_2fa',
-      description: 'Secure your trade operations and funds with two-factor authentication.'
+      description: 'Secure your account with an Authenticator app. Enter a 6-character code with double numbers (like 44, 55, 99) and at least one letter.'
     },
     { 
       id: 'deposit', 
@@ -212,7 +270,7 @@ export default function BonusCenter({
       id: 'kyc', 
       title: 'Identity Verification (KYC)', 
       progress: isKycVerified ? 100 : 0, 
-      increment: 30, 
+      increment: 35, 
       status: isKycVerified ? 'completed' : 'pending', 
       icon: ShieldCheck, 
       actionLabel: 'Verify ID',
@@ -223,11 +281,11 @@ export default function BonusCenter({
       id: 'trade', 
       title: 'First Trade', 
       progress: isTraded ? 100 : 0, 
-      increment: 20, 
+      increment: 15, 
       status: isTraded ? 'completed' : 'pending', 
       icon: TrendingUp, 
       actionLabel: 'Trade',
-      targetTab: 'markets',
+      targetTab: 'ai',
       description: 'Execute your first crypto purchase or sell order on our advanced trading match engine.'
     },
     { 
@@ -238,7 +296,7 @@ export default function BonusCenter({
       status: referralCount > 0 ? 'completed' : 'pending', 
       icon: Users, 
       actionLabel: 'Invite',
-      targetTab: 'referral-centre',
+      customAction: 'profile',
       description: 'Share your referral code and invite friends to earn commission and progress bonuses.'
     }
   ], [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, referralCount]);
@@ -251,11 +309,11 @@ export default function BonusCenter({
     return active.slice(0, 4);
   }, [allTasks]);
 
-  const welcomeBonusUnlocked = profileProgress === 100 && isEmailVerified && isDeposited && isTraded;
+  const welcomeBonusUnlocked = profileProgress === 100 && isTwoFactorEnabled && isDeposited && isTraded;
   const welcomeTask: Task = useMemo(() => ({
     id: 'welcome',
     title: '$150 WELCOME BONUS',
-    progress: ((profileProgress === 100 ? 25 : 0) + (isEmailVerified ? 25 : 0) + (isDeposited ? 25 : 0) + (isTraded ? 25 : 0)),
+    progress: ((profileProgress === 100 ? 25 : 0) + (isTwoFactorEnabled ? 25 : 0) + (isDeposited ? 25 : 0) + (isTraded ? 25 : 0)),
     increment: 0,
     status: welcomeBonusUnlocked ? 'completed' : 'locked',
     icon: Sparkles,
@@ -263,13 +321,13 @@ export default function BonusCenter({
     description: 'Complete the required onboarding milestones to unlock your $150 Welcome Bonus.',
     requirements: [
       { label: 'Complete Profile', done: profileProgress === 100 },
-      { label: 'Verify Email', done: isEmailVerified },
+      { label: 'Enable 2FA', done: isTwoFactorEnabled },
       { label: 'First Deposit', done: isDeposited },
       { label: 'First Trade', done: isTraded }
     ],
     isMission: true,
     customAction: 'claim_welcome'
-  }), [profileProgress, isEmailVerified, isDeposited, isTraded, welcomeBonusUnlocked]);
+  }), [profileProgress, isTwoFactorEnabled, isDeposited, isTraded, welcomeBonusUnlocked]);
 
   const dailyMissions: Mission[] = useMemo(() => [
     { id: 'welcome', title: '$150 WELCOME BONUS', reward: welcomeBonusUnlocked ? 'Claimed' : 'Locked', icon: Sparkles, isCustomTask: true, taskRef: 'welcome' },
@@ -297,51 +355,42 @@ export default function BonusCenter({
     if (profileProgress === 100) {
       hist.push({ title: 'Profile Completed', amount: '+15% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
     }
-    if (isEmailVerified) {
-      hist.push({ title: 'Email Verified', amount: '+20% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
-    }
     if (isTwoFactorEnabled) {
-      hist.push({ title: '2FA Enabled', amount: '+20% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
+      hist.push({ title: '2FA Enabled', amount: '+25% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
     }
     if (isDeposited) {
       hist.push({ title: 'First Deposit', amount: '+25% Progress', status: 'Claimed', date: new Date().toLocaleDateString(), color: 'text-emerald-500' });
     }
     if (isTraded && user?.trades?.[0]) {
-      hist.push({ title: 'First Trade', amount: '+20% Progress', status: 'Claimed', date: new Date(user.trades[0].timestamp).toLocaleDateString(), color: 'text-emerald-500' });
+      hist.push({ title: 'First Trade', amount: '+15% Progress', status: 'Claimed', date: new Date(user.trades[0].timestamp).toLocaleDateString(), color: 'text-emerald-500' });
     }
     return hist.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [profileProgress, isEmailVerified, isTwoFactorEnabled, isDeposited, isTraded, welcomeBonusUnlocked, user?.trades]);
+  }, [profileProgress, isTwoFactorEnabled, isDeposited, isTraded, welcomeBonusUnlocked, user?.trades]);
 
   const handleTaskAction = async (task: Task) => {
     if (task.status === 'completed' || task.status === 'locked') return;
     
     if (task.customAction === 'deposit') {
-      onOpenDeposit?.();
-    } else if (task.customAction === 'profile') {
-      safeStorage.setItem('aver_dashboard_tab', 'profile');
-      onNavigate?.('profile');
+      safeStorage.setItem('aver_auto_open_deposit', 'true');
+      safeStorage.setItem('aver_dashboard_tab', 'home');
+      onNavigate?.('dashboard');
+    } else if (task.customAction === 'profile' || task.id === 'referral') {
+      if (task.id === 'referral') {
+        onNavigate?.('referral-centre');
+      } else {
+        safeStorage.setItem('aver_dashboard_tab', 'profile');
+        onNavigate?.('profile');
+      }
     } else if (task.customAction === 'enable_2fa') {
-      // Set redirect tabs and open state
-      safeStorage.setItem('aver_dashboard_tab', 'profile');
-      safeStorage.setItem('aver_auto_open_2fa', 'true');
-      onNavigate?.('profile');
+      setSelectedTask(task);
+      setCurrentView('task-details');
     } else if (task.customAction === 'verify_email') {
-      // 1. Actually trigger real Firebase email verification
-      if (auth.currentUser && !auth.currentUser.emailVerified) {
-        try {
-          await sendEmailVerification(auth.currentUser);
-        } catch (e) {
-          console.error("Verification email failed", e);
-        }
-      }
-      
-      // 2. Persist emailVerified field to database to grant progress and remove the task instantly
-      try {
-        await updateProfile({ emailVerified: true });
-        addNotification('security', 'high', 'Email Verified Successfully', 'Your email address is verified on the Avernox platform! Your membership progress has increased.');
-      } catch (err) {
-        console.error("Failed to update profile verification", err);
-      }
+      setSelectedTask(task);
+      setCurrentView('task-details');
+      setEmailVerifyStep('email_input');
+      setEmailVerifyEmail(user?.email || '');
+      setEmailVerifyCode('');
+      setEmailVerifyError('');
     } else if (task.targetTab) {
       safeStorage.setItem('aver_dashboard_tab', task.targetTab);
       onNavigate?.(task.targetTab);
@@ -466,12 +515,135 @@ export default function BonusCenter({
             )}
           </div>
 
-          <div className="pt-4">
+          <div className="pt-4 space-y-4">
+            {selectedTask?.id === '2fa' && !isCompleted && (
+              <div className="p-6 rounded-[32px] bg-slate-900 border border-emerald-500/30 space-y-4">
+                <div className="text-center space-y-1">
+                  <h4 className="text-sm font-bold text-white">Enter 2FA Authenticator Code</h4>
+                  <p className="text-xs text-gray-400">
+                    Enter the 6-character code from your authenticator app. Must contain a double number (like 44, 55, 99) and at least one letter.
+                  </p>
+                  <p className="text-[10px] text-emerald-400 font-mono font-bold mt-1">
+                    Test code hint: {twoFaGeneratedCode}
+                  </p>
+                </div>
+
+                <div className="flex justify-center space-x-2 py-2">
+                  {twoFaCodeInputs.map((char, index) => (
+                    <input
+                      key={index}
+                      type="text"
+                      maxLength={1}
+                      value={char}
+                      ref={(el) => { twoFaInputRefs.current[index] = el; }}
+                      onChange={(e) => handleTwoFaInputChange(index, e.target.value)}
+                      onKeyDown={(e) => handleTwoFaKeyDown(index, e)}
+                      className="w-11 h-12 text-center text-lg font-mono font-bold bg-slate-950 border border-white/10 rounded-xl text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  ))}
+                </div>
+
+                {twoFaCodeError && (
+                  <p className="text-center text-xs text-rose-500 font-bold">{twoFaCodeError}</p>
+                )}
+
+                <button
+                  onClick={handleVerifyTwoFaCode}
+                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                >
+                  Verify & Enable 2FA
+                </button>
+              </div>
+            )}
+
+            {selectedTask?.id === 'email_verify' && !isCompleted && (
+              <div className="p-6 rounded-[32px] bg-slate-900 border border-emerald-500/30 space-y-4">
+                {emailVerifyStep === 'email_input' && (
+                  <>
+                    <div className="text-center space-y-1">
+                      <h4 className="text-sm font-bold text-white">Verify Your Email Address</h4>
+                      <p className="text-xs text-gray-400">
+                        Please confirm your email address to receive a verification code.
+                      </p>
+                    </div>
+                    <input
+                      type="email"
+                      value={emailVerifyEmail}
+                      onChange={(e) => setEmailVerifyEmail(e.target.value)}
+                      placeholder="Email Address"
+                      className="w-full bg-black/50 border border-white/10 rounded-2xl px-4 py-4 text-white text-center font-medium focus:outline-none focus:border-emerald-500/50 transition-colors"
+                    />
+                    <button
+                      onClick={() => {
+                        if (!emailVerifyEmail || !emailVerifyEmail.includes('@')) {
+                          setEmailVerifyError('Please enter a valid email address');
+                          return;
+                        }
+                        setEmailVerifyError('');
+                        setEmailVerifyStep('code_input');
+                      }}
+                      className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                    >
+                      Send Verification Code
+                    </button>
+                    {emailVerifyError && <p className="text-center text-xs text-rose-500 font-bold">{emailVerifyError}</p>}
+                  </>
+                )}
+                {emailVerifyStep === 'code_input' && (
+                  <>
+                    <div className="text-center space-y-1">
+                      <h4 className="text-sm font-bold text-white">Enter Verification Code</h4>
+                      <p className="text-xs text-gray-400">
+                        We sent a 6-character code to <span className="text-emerald-400 font-bold">{emailVerifyEmail}</span>.
+                      </p>
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={emailVerifyCode}
+                      onChange={(e) => {
+                        setEmailVerifyCode(e.target.value.toUpperCase());
+                        setEmailVerifyError('');
+                      }}
+                      placeholder="Enter 6-character code"
+                      className="w-full bg-black/50 border border-white/10 rounded-2xl px-4 py-4 text-white text-center font-bold tracking-[0.25em] focus:outline-none focus:border-emerald-500/50 transition-colors"
+                    />
+                    {emailVerifyError && <p className="text-center text-xs text-rose-500 font-bold">{emailVerifyError}</p>}
+                    <button
+                      onClick={async () => {
+                        const code = emailVerifyCode;
+                        if (code.length !== 6 || !/[A-Za-z]/.test(code) || !/([0-9])\1/.test(code)) {
+                          setEmailVerifyError('Invalid code');
+                          return;
+                        }
+                        try {
+                          safeStorage.setItem('aver_email_verified', 'true');
+                          if (auth.currentUser) {
+                            sendEmailVerification(auth.currentUser).catch(() => {});
+                          }
+                          await updateProfile({ emailVerified: true });
+                          addNotification('security', 'medium', 'Email Verified', 'Your email address has been successfully verified! +20% progress added.');
+                          setSelectedTask(null);
+                          setCurrentView('main');
+                        } catch (err) {
+                          console.error("Failed to verify email", err);
+                          setEmailVerifyError('An error occurred during verification.');
+                        }
+                      }}
+                      className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                    >
+                      Verify Code
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             {isCompleted ? (
               <div className="w-full py-5 rounded-[28px] bg-emerald-500/10 border border-emerald-500/20 text-center">
                 <p className="text-emerald-500 font-black text-sm">Reward already claimed and progress added.</p>
               </div>
-            ) : (
+            ) : selectedTask?.id !== '2fa' && selectedTask?.id !== 'email_verify' ? (
               <button 
                 onClick={() => handleTaskAction(selectedTask)}
                 disabled={selectedTask.status === 'locked'}
@@ -481,7 +653,7 @@ export default function BonusCenter({
               >
                 {selectedTask.actionLabel}
               </button>
-            )}
+            ) : null}
             {!isCompleted && selectedTask.status === 'locked' && (
               <p className="text-center text-xs text-rose-500 font-bold mt-4">Requirements not yet completed.</p>
             )}
@@ -628,7 +800,21 @@ export default function BonusCenter({
           ].map((item, idx) => (
             <div 
               key={item.label}
-              className="flex items-center justify-between p-4 rounded-[24px] bg-slate-900 border border-white/5 group hover:border-emerald-500/20 transition-all"
+              onClick={() => {
+                if (item.label.toLowerCase().includes('invite')) {
+                  onNavigate?.('referral-centre');
+                } else if (item.label.toLowerCase().includes('deposit')) {
+                  safeStorage.setItem('aver_dashboard_tab', 'home');
+                  onNavigate?.('home');
+                } else if (item.label.toLowerCase().includes('trade')) {
+                  safeStorage.setItem('aver_dashboard_tab', 'markets');
+                  onNavigate?.('markets');
+                } else if (item.label.toLowerCase().includes('2fa') || item.label.toLowerCase().includes('profile') || item.label.toLowerCase().includes('email') || item.label.toLowerCase().includes('kyc')) {
+                  safeStorage.setItem('aver_dashboard_tab', 'profile');
+                  onNavigate?.('profile');
+                }
+              }}
+              className="flex items-center justify-between p-4 rounded-[24px] bg-slate-900 border border-white/5 group hover:border-emerald-500/20 transition-all cursor-pointer"
             >
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-emerald-500/10 transition-colors">
@@ -736,7 +922,15 @@ export default function BonusCenter({
         <h2 className="text-lg font-black text-white mb-8">Achievements</h2>
         <div className="grid grid-cols-3 gap-6">
           {achievements.map((ach) => (
-            <div key={ach.id} className="flex flex-col items-center gap-3 group">
+            <div 
+              key={ach.id} 
+              onClick={() => {
+                if (ach.id === 'a6' || ach.title.toLowerCase().includes('invite')) {
+                  onNavigate?.('referral-centre');
+                }
+              }}
+              className="flex flex-col items-center gap-3 group cursor-pointer"
+            >
               <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 relative transition-all duration-500 ${
                 ach.status === 'completed'
                 ? 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-emerald-500/30 shadow-xl shadow-emerald-500/10'

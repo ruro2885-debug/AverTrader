@@ -41,6 +41,10 @@ export interface UserProfile {
   riskPreference: string;
   currency?: string;
   rememberMeEnabled?: boolean;
+  twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+  twoFactorEnabledAt?: string;
+  twoFactorBackupCodes?: string[];
   createdAt: any;
   lastLogin: any;
   lastUpdated: any;
@@ -52,6 +56,10 @@ export interface UserProfile {
   winRun?: number;
   aiTradesCount?: number;
   insignias?: string[];
+  dailyMissions?: {
+    lastResetDate: string;
+    completedIds: string[];
+  };
   
   onboardingCompleted?: boolean;
   bonuses?: any[];
@@ -71,6 +79,9 @@ export interface Preferences {
   rememberMeEnabled?: boolean;
   biometricsEnabled?: boolean;
   twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+  twoFactorEnabledAt?: string;
+  twoFactorBackupCodes?: string[];
   notifications?: {
     master?: boolean;
     security?: boolean;

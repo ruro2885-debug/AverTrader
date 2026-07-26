@@ -1,3 +1,4 @@
+import { progressionService } from './progressionService';
 import { 
   collection, 
   doc, 
@@ -113,6 +114,14 @@ export const aiTradingService = {
       const sessionSnap = await getDoc(sessionRef);
       const sessionData = sessionSnap.exists() ? sessionSnap.data() as AiSession : null;
       const userId = sessionData?.userId || '';
+
+      // Progression Tracking
+      if (userId) {
+        await progressionService.updateProgress(userId, 'trade');
+        if (sessionData && (sessionData.totalProfit || 0) > (sessionData.totalLoss || 0)) {
+          await progressionService.updateProgress(userId, 'win');
+        }
+      }
 
       await updateDoc(sessionRef, {
         status: 'INACTIVE',

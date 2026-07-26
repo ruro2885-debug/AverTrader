@@ -147,18 +147,6 @@ export default function DiscoverView({
             </div>
           </div>
 
-          {/* Quick AI Market Insights Mini-Card */}
-          <div className={`mt-4 p-4 rounded-[20px] ${isDark ? 'bg-emerald-500/5 border border-emerald-500/10' : 'bg-emerald-50 border border-emerald-100'} flex items-start space-x-3`}>
-            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 flex-shrink-0">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div>
-              <p className={`text-xs font-bold ${textPrimary}`}>AI Market Pulse</p>
-              <p className={`text-[11px] ${textSecondary} mt-0.5 leading-relaxed`}>
-                Orderbook depth skew indicates institutional accumulation in SOL & AVAX derivatives. High-frequency arbitrage yields elevated by +1.4%.
-              </p>
-            </div>
-          </div>
         </div>
 
         {/* Institutional AI Strategies Summary Card */}

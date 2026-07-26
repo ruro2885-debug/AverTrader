@@ -13,17 +13,17 @@ import Footer from './components/Footer';
 import PlatformShowcase from './components/PlatformShowcase';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
-import ReferralCentre from './components/ReferralCentre';
 import Preferences from './components/Preferences';
 import BonusCenter from './components/BonusCenter';
+import ReferralCenter from './components/ReferralCenter';
 import MarketHighlightsPage from './components/MarketHighlightsPage';
 import EventsPromosPage from './components/EventsPromosPage';
-import StrategiesHub from './components/StrategiesHub';
 import AdminRoot from './components/admin/AdminRoot';
 import NotFound from './components/NotFound';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
+import { safeStorage } from './utils/storage';
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
@@ -39,7 +39,8 @@ function AppContent() {
   const { user, loading: authLoading } = useAuth();
   
   // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'admin' | 'not-found'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'preferences' | 'bonus-center' | 'referral-centre' | 'market-highlights' | 'events-promos' | 'admin' | 'not-found'>('home');
+
 
   const { preferences, updatePreference } = usePreferences();
   const { theme, language, currency } = preferences;
@@ -67,7 +68,7 @@ function AppContent() {
     } else {
       // If no user and we were on a protected view, go to login
       setCurrentView(prev => (
-        prev === 'dashboard' || prev === 'referral-centre' || prev === 'preferences' || prev === 'bonus-center' || prev === 'strategies'
+        prev === 'dashboard' || prev === 'referral-centre' || prev === 'preferences' || prev === 'bonus-center'
           ? 'auth' 
           : prev
       ));
@@ -240,15 +241,33 @@ function AppContent() {
           <AdminRoot theme={theme} />
         ) : currentView === 'dashboard' ? (
           <Dashboard theme={theme} onNavigate={(view) => setCurrentView(view)} />
-        ) : currentView === 'referral-centre' ? (
-          <ReferralCentre theme={theme} onBack={() => setCurrentView('dashboard')} />
         ) : currentView === 'preferences' ? (
           <Preferences theme={theme} onBack={() => setCurrentView('dashboard')} />
         ) : currentView === 'bonus-center' ? (
           <BonusCenter 
             theme={theme} 
             onBack={() => setCurrentView('dashboard')} 
-            onNavigate={(tab) => { setCurrentView('dashboard'); /* logic for inner navigation if needed */ }}
+            onNavigate={(tab) => { 
+              if (tab === 'preferences') {
+                setCurrentView('preferences');
+              } else if (tab === 'market-highlights') {
+                setCurrentView('market-highlights');
+              } else if (tab === 'events-promos') {
+                setCurrentView('events-promos');
+              } else if (tab === 'referral-centre') {
+                setCurrentView('referral-centre');
+              } else {
+                if (tab === 'ai') {
+                  safeStorage.setItem('aver_dashboard_tab', 'ai');
+                }
+                setCurrentView('dashboard');
+              }
+            }}
+          />
+        ) : currentView === 'referral-centre' ? (
+          <ReferralCenter
+            theme={theme}
+            onBack={() => setCurrentView('dashboard')}
           />
         ) : currentView === 'market-highlights' ? (
           <MarketHighlightsPage 
@@ -259,11 +278,6 @@ function AppContent() {
           <EventsPromosPage 
             theme={theme} 
             onBack={() => setCurrentView('dashboard')} 
-          />
-        ) : currentView === 'strategies' ? (
-          <StrategiesHub 
-            theme={theme}
-            onBack={() => setCurrentView('dashboard')}
           />
         ) : currentView === 'showcase' ? (
           <PlatformShowcase

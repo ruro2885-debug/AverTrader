@@ -1,4 +1,4 @@
-import React, { useState, useContext, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
@@ -17,6 +17,7 @@ import AiTradingModule from './AiTradingModule';
 import CopyTrading from './CopyTrading/CopyTrading';
 
 import { NotificationCenter } from './NotificationCenter';
+import { ExploreStrategiesModal } from './ExploreStrategiesModal';
 import EventsPromosPage from './EventsPromosPage';
 import SupportCenterPage from './SupportCenterPage';
 import { useAuth } from '../contexts/AuthContext';
@@ -42,7 +43,36 @@ import { walletService, WalletData } from '../services/walletService';
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
-  const { activity, trades, liveTradePrices, session } = useContext(TradingEngineContext);
+  const { activity, trades, liveTradePrices, session, saveConfiguration, config: currentConfig } = useContext(TradingEngineContext);
+
+  const handleSelectStrategy = async (strategy: any) => {
+    if (!currentConfig) return;
+
+    // Map strategy to AiTradingRules.tradingStrategy
+    let tradingStrategy: 'NEURAL_MOMENTUM' | 'VOLATILITY_BREAKOUT' | 'MEAN_REVERSION' | 'QUANT_GRID' = 'NEURAL_MOMENTUM';
+    if (strategy.category === 'Breakout') tradingStrategy = 'VOLATILITY_BREAKOUT';
+    else if (strategy.category === 'Grid') tradingStrategy = 'QUANT_GRID';
+    else if (strategy.category === 'Mean Reversion') tradingStrategy = 'MEAN_REVERSION';
+
+    const updatedConfig = {
+      ...currentConfig,
+      aiTradingRules: {
+        ...currentConfig.aiTradingRules,
+        tradingStrategy
+      },
+      configurationDetails: {
+        ...currentConfig.configurationDetails,
+        description: strategy.description,
+        category: strategy.category,
+      },
+      analyticsAndNotes: {
+        ...currentConfig.analyticsAndNotes,
+        strategyNotes: `${strategy.name}: ${strategy.description}`
+      }
+    };
+    
+    await saveConfiguration(updatedConfig);
+  };
   const isDark = preferences.theme === 'dark';
   
   const enrichedActiveTrades = useMemo(() => trades.filter(t => t.status === 'OPEN').map(trade => {
@@ -205,11 +235,19 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   }, [user?.uid]);
 
   const [showDepositModal, setShowDepositModal] = useState(false);
+
+  useEffect(() => {
+    if (safeStorage.getItem('aver_auto_open_deposit') === 'true') {
+      safeStorage.removeItem('aver_auto_open_deposit');
+      setShowDepositModal(true);
+    }
+  }, []);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showEventsPromosModal, setShowEventsPromosModal] = useState(false);
   const [showSupportCenterModal, setShowSupportCenterModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [showExploreStrategiesModal, setShowExploreStrategiesModal] = useState(false);
 
   const [amount, setAmount] = useState('');
   const [txError, setTxError] = useState('');
@@ -779,6 +817,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                             </p>
                             <button 
                               onClick={() => {
+                                if ((warning as any).onClick) (warning as any).onClick();
                                 if (warning.actionType === 'tab') {
                                   setActiveTab(warning.targetTab);
                                 } else if (warning.actionType === 'prop') {
@@ -936,7 +975,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => setActiveTab('support')} onOpenStrategies={() => onNavigate('strategies')} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => setActiveTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
           {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { setActiveTab('home'); setShowDepositModal(true); }} />}
           {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
           
@@ -1212,6 +1251,13 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           <NotificationCenter onClose={() => setShowNotificationsModal(false)} isDark={isDark} />
         )}
       </AnimatePresence>
+
+      <ExploreStrategiesModal
+        isOpen={showExploreStrategiesModal}
+        onClose={() => setShowExploreStrategiesModal(false)}
+        theme={theme}
+        onSelectStrategy={handleSelectStrategy}
+      />
 
     </div>
   );

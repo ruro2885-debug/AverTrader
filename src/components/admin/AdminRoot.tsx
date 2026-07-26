@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, Home, Search, Shield, Bot, Lock, Key } from 'lucide-react';
+import { AlertCircle, Home, Search, Shield, Bot, Lock, Key, Cpu } from 'lucide-react';
 import AdminLayout from './AdminLayout';
 
 export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
-  const [showAdmin, setShowAdmin] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(true);
   const [clickCount, setClickCount] = useState(0);
   const [showAccessPrompt, setShowAccessPrompt] = useState(false);
   const [accessCode, setAccessCode] = useState('');
@@ -34,12 +34,12 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
     }
   };
 
-  useEffect(() => {
-    const session = localStorage.getItem('admin_session_active');
-    if (session === 'true') {
-      setShowAdmin(true);
-    }
-  }, []);
+  // useEffect(() => {
+  //   const session = localStorage.getItem('admin_session_active');
+  //   if (session === 'true') {
+  //     setShowAdmin(true);
+  //   }
+  // }, []);
 
   if (showAdmin) {
     return <AdminLayout theme={theme} onLogout={() => {

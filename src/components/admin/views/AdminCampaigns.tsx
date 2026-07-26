@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Megaphone, Search, Plus, Calendar, Trophy, Users, Edit3, Trash2, Globe, Lock } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, addDoc, updateDoc, doc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
+import CreateCampaignModal from './CreateCampaignModal';
 
 interface EventHub {
   id: string;
@@ -21,6 +22,7 @@ export default function AdminCampaigns({ theme }: { theme: 'light' | 'dark' }) {
   const [events, setEvents] = useState<EventHub[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
 
   const isDark = theme === 'dark';
 
@@ -43,6 +45,12 @@ export default function AdminCampaigns({ theme }: { theme: 'light' | 'dark' }) {
     }
   };
 
+  const handleDelete = async (id: string) => {
+    if (confirm('Are you sure you want to delete this campaign?')) {
+      await deleteDoc(doc(db, 'events_hub', id));
+    }
+  };
+
   const filtered = events.filter(e => 
     e.title?.toLowerCase().includes(search.toLowerCase()) || 
     e.category?.toLowerCase().includes(search.toLowerCase())
@@ -50,6 +58,7 @@ export default function AdminCampaigns({ theme }: { theme: 'light' | 'dark' }) {
 
   return (
     <div className="space-y-8">
+      {showModal && <CreateCampaignModal theme={theme} onClose={() => setShowModal(false)} />}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black tracking-tight mb-2">Campaign Manager</h1>
@@ -57,7 +66,10 @@ export default function AdminCampaigns({ theme }: { theme: 'light' | 'dark' }) {
             Deploy global promotional events, competitions, and institutional rewards.
           </p>
         </div>
-        <button className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all">
+        <button 
+          onClick={() => setShowModal(true)}
+          className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all"
+        >
           <Plus className="w-5 h-5" />
           Create Campaign
         </button>
@@ -138,6 +150,12 @@ export default function AdminCampaigns({ theme }: { theme: 'light' | 'dark' }) {
               <div className="flex items-center gap-2">
                 <button className={`p-2.5 rounded-xl border transition-all ${isDark ? 'border-white/5 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}>
                   <Edit3 className="w-4 h-4 text-slate-500" />
+                </button>
+                <button 
+                  onClick={() => handleDelete(event.id)}
+                  className={`p-2.5 rounded-xl border transition-all ${isDark ? 'border-white/5 hover:bg-white/5 hover:text-rose-500' : 'border-slate-200 hover:bg-slate-100 hover:text-rose-600'}`}
+                >
+                  <Trash2 className="w-4 h-4 text-slate-500" />
                 </button>
                 <button 
                   onClick={() => toggleStatus(event.id, event.status)}

@@ -40,6 +40,7 @@ import { getAvatarDataUrl } from '../utils/avatarGenerator';
 import { TradingEngineConfig } from '../types/trading';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService } from '../services/walletService';
+import { progressionService } from '../services/progressionService';
 
 export interface UserPreferences {
   language: string;
@@ -65,6 +66,9 @@ export interface UserPreferences {
     showNews: boolean;
   };
   twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+  twoFactorEnabledAt?: string;
+  twoFactorBackupCodes?: string[];
   biometricsEnabled?: boolean;
   rememberMeEnabled?: boolean;
   watchlist: string[];
@@ -460,43 +464,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 }
               } as User;
 
-              // Check daily login streak and XP progression
+                // Check daily login streak and XP progression
               const todayStr = new Date().toISOString().split('T')[0];
               if (updatedUser.lastLoginDate !== todayStr) {
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-                const yesterdayStr = yesterday.toISOString().split('T')[0];
-                
-                let newStreak = updatedUser.loginStreak || 0;
-                if (updatedUser.lastLoginDate === yesterdayStr) {
-                  newStreak += 1; // consecutive
-                } else if (updatedUser.lastLoginDate) {
-                  newStreak = 1; // broken streak
-                } else {
-                  newStreak = 1; // first login
-                }
-
-                let currentLevel = updatedUser.level || 1;
-                let currentXp = updatedUser.xp || 0;
-                let insignias = updatedUser.insignias || [];
-                const xpGain = 50 + (newStreak * 10);
-                currentXp += xpGain;
-                
-                let nextLevelXp = 1000 + ((currentLevel - 1) * 250);
-                while (currentXp >= nextLevelXp) {
-                  currentLevel += 1;
-                  currentXp -= nextLevelXp;
-                  insignias.push(`Level ${currentLevel} Vanguard`);
-                  nextLevelXp = 1000 + ((currentLevel - 1) * 250);
-                }
-
-                updateDoc(userDocRef, {
-                  lastLoginDate: todayStr,
-                  loginStreak: newStreak,
-                  level: currentLevel,
-                  xp: currentXp,
-                  insignias
-                }).catch(err => console.error("Failed to update daily progression:", err));
+                progressionService.updateProgress(firebaseUser.uid, 'login').catch(console.error);
               }
 
               setUser(prev => {
@@ -1645,6 +1616,10 @@ function dataURLtoBlob(dataurl: string): Blob {
           if (prefs.notifications) updates.notificationSettings = prefs.notifications;
           if (prefs.biometricsEnabled !== undefined) updates.biometricEnabled = prefs.biometricsEnabled;
           if (prefs.rememberMeEnabled !== undefined) updates.rememberMeEnabled = prefs.rememberMeEnabled;
+          if (prefs.twoFactorEnabled !== undefined) updates.twoFactorEnabled = prefs.twoFactorEnabled;
+          if (prefs.twoFactorSecret !== undefined) updates.twoFactorSecret = prefs.twoFactorSecret;
+          if (prefs.twoFactorEnabledAt !== undefined) updates.twoFactorEnabledAt = prefs.twoFactorEnabledAt;
+          if (prefs.twoFactorBackupCodes !== undefined) updates.twoFactorBackupCodes = prefs.twoFactorBackupCodes;
 
           const updated = { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
           safeStorage.setItem('aver_active_user', JSON.stringify(updated));
@@ -1674,6 +1649,10 @@ function dataURLtoBlob(dataurl: string): Blob {
       if (prefs.notifications) updates.notificationSettings = prefs.notifications;
       if (prefs.biometricsEnabled !== undefined) updates.biometricEnabled = prefs.biometricsEnabled;
       if (prefs.rememberMeEnabled !== undefined) updates.rememberMeEnabled = prefs.rememberMeEnabled;
+      if (prefs.twoFactorEnabled !== undefined) updates.twoFactorEnabled = prefs.twoFactorEnabled;
+      if (prefs.twoFactorSecret !== undefined) updates.twoFactorSecret = prefs.twoFactorSecret;
+      if (prefs.twoFactorEnabledAt !== undefined) updates.twoFactorEnabledAt = prefs.twoFactorEnabledAt;
+      if (prefs.twoFactorBackupCodes !== undefined) updates.twoFactorBackupCodes = prefs.twoFactorBackupCodes;
 
       await updateDoc(userDocRef, updates);
 

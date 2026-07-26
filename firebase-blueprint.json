@@ -41,7 +41,8 @@
         "uid": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "role": { "type": "string", "enum": ["user", "super_admin"] },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "twoFactorEnabled": { "type": "boolean" }
       },
       "required": ["uid", "email", "createdAt"]
     },
