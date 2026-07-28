@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { 
   Users, Wallet, ArrowDownCircle, ArrowUpCircle, 
-  TrendingUp, TrendingDown, Activity, ShieldAlert
+  TrendingUp, Activity, ShieldAlert, MessageSquare, UserCheck, RefreshCw
 } from 'lucide-react';
-import { collection, query, limit, onSnapshot, orderBy, where } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../../../lib/firebase';
 
 interface AdminStats {
   totalUsers: number;
@@ -15,6 +15,15 @@ interface AdminStats {
   pendingKYC: number;
   openTickets: number;
 }
+
+interface FinancialRecord {
+  amount?: number;
+  timestamp?: any;
+  status?: string;
+  type?: string;
+}
+
+type TimeframeRange = 'days' | 'weeks' | 'months';
 
 export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
   const [stats, setStats] = useState<AdminStats>({
@@ -26,41 +35,76 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
     openTickets: 0
   });
 
+  const [allDeposits, setAllDeposits] = useState<FinancialRecord[]>([]);
+  const [allWithdrawals, setAllWithdrawals] = useState<FinancialRecord[]>([]);
+  const [timeframe, setTimeframe] = useState<TimeframeRange>('days');
+  const [loading, setLoading] = useState(true);
+
   const isDark = theme === 'dark';
 
   useEffect(() => {
-    // Real-time listener for Users
+    let loadedCount = 0;
+    const checkLoaded = () => {
+      loadedCount++;
+      if (loadedCount >= 5) {
+        setLoading(false);
+      }
+    };
+
+    // Real-time listener for Total Platform Users
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setStats(prev => ({ ...prev, totalUsers: snap.size }));
+      setStats(prev => ({ ...prev, totalUsers: Math.max(snap.size, 1) }));
+      checkLoaded();
+    }, (err) => {
+      console.warn('Users listener fallback:', err);
+      setStats(prev => ({ ...prev, totalUsers: 1 }));
+      checkLoaded();
     });
 
-    // Real-time listener for Wallets
+    // Real-time listener for Linked Institutional Wallets
     const unsubWallets = onSnapshot(collection(db, 'linked_wallets'), (snap) => {
       setStats(prev => ({ ...prev, totalWallets: snap.size }));
+      checkLoaded();
+    }, (err) => {
+      console.warn('Wallets listener fallback:', err);
+      checkLoaded();
     });
 
-    // Real-time listener for Pending Deposits
-    const unsubDeposits = onSnapshot(
-      query(collection(db, 'admin_deposits'), where('status', '==', 'pending')),
-      (snap) => {
-        setStats(prev => ({ ...prev, pendingDeposits: snap.size }));
-      }
-    );
+    // Real-time listener for Deposits and Inbound Financial Flux
+    const unsubDeposits = onSnapshot(collection(db, 'admin_deposits'), (snap) => {
+      const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
+      const pendingCount = docs.filter(d => d.status === 'pending').length;
+      setStats(prev => ({ ...prev, pendingDeposits: pendingCount }));
+      setAllDeposits(docs);
+      checkLoaded();
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'admin_deposits'));
 
-    // Real-time listener for Pending Withdrawals
-    const unsubWithdrawals = onSnapshot(
-      query(collection(db, 'admin_withdrawals'), where('status', '==', 'pending')),
-      (snap) => {
-        setStats(prev => ({ ...prev, pendingWithdrawals: snap.size }));
-      }
-    );
+    // Real-time listener for Withdrawals and Outbound Financial Flux
+    const unsubWithdrawals = onSnapshot(collection(db, 'admin_withdrawals'), (snap) => {
+      const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
+      const pendingCount = docs.filter(w => w.status === 'pending').length;
+      setStats(prev => ({ ...prev, pendingWithdrawals: pendingCount }));
+      setAllWithdrawals(docs);
+      checkLoaded();
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'admin_withdrawals'));
 
-    // Real-time listener for Pending KYC
+    // Real-time listener for Pending KYC Verifications
     const unsubKYC = onSnapshot(
       query(collection(db, 'admin_kyc'), where('status', '==', 'pending')),
       (snap) => {
         setStats(prev => ({ ...prev, pendingKYC: snap.size }));
-      }
+        checkLoaded();
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, 'admin_kyc')
+    );
+
+    // Real-time listener for Open Support Tickets
+    const unsubSupport = onSnapshot(
+      query(collection(db, 'support_tickets'), where('status', 'in', ['open', 'pending', 'unanswered'])),
+      (snap) => {
+        setStats(prev => ({ ...prev, openTickets: snap.size }));
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, 'support_tickets')
     );
 
     return () => {
@@ -69,15 +113,134 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
       unsubDeposits();
       unsubWithdrawals();
       unsubKYC();
+      unsubSupport();
     };
   }, []);
 
+  // Compute dynamic period flux data (M1 - M6) from real transaction history
+  const fluxData = useMemo(() => {
+    const now = new Date();
+    const periods: { label: string; startDate: Date; endDate: Date; inbound: number; outbound: number }[] = [];
+
+    if (timeframe === 'days') {
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+        const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+        const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        periods.push({ label, startDate: start, endDate: end, inbound: 0, outbound: 0 });
+      }
+    } else if (timeframe === 'weeks') {
+      for (let i = 5; i >= 0; i--) {
+        const end = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+        const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const label = `Wk ${6 - i}`;
+        periods.push({ label, startDate: start, endDate: end, inbound: 0, outbound: 0 });
+      }
+    } else {
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0);
+        const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+        const label = d.toLocaleDateString('en-US', { month: 'short' });
+        periods.push({ label, startDate: start, endDate: end, inbound: 0, outbound: 0 });
+      }
+    }
+
+    const parseTs = (ts: any): Date | null => {
+      if (!ts) return null;
+      if (typeof ts === 'string') {
+        const parsed = new Date(ts);
+        return isNaN(parsed.getTime()) ? null : parsed;
+      }
+      if (typeof ts === 'number') return new Date(ts);
+      if (ts.seconds) return new Date(ts.seconds * 1000);
+      return null;
+    };
+
+    // Aggregate Inbound (Deposits)
+    allDeposits.forEach((dep) => {
+      const dt = parseTs(dep.timestamp);
+      if (!dt) return;
+      const amount = dep.amount || 0;
+      const target = periods.find(p => dt >= p.startDate && dt <= p.endDate);
+      if (target) {
+        target.inbound += amount;
+      }
+    });
+
+    // Aggregate Outbound (Withdrawals)
+    allWithdrawals.forEach((wd) => {
+      const dt = parseTs(wd.timestamp);
+      if (!dt) return;
+      const amount = wd.amount || 0;
+      const target = periods.find(p => dt >= p.startDate && dt <= p.endDate);
+      if (target) {
+        target.outbound += amount;
+      }
+    });
+
+    const maxVal = Math.max(
+      ...periods.map(p => Math.max(p.inbound, p.outbound)),
+      1
+    );
+
+    return periods.map(p => ({
+      ...p,
+      inboundPct: p.inbound === 0 ? 0 : Math.max(8, Math.min(100, Math.round((p.inbound / maxVal) * 100))),
+      outboundPct: p.outbound === 0 ? 0 : Math.max(8, Math.min(100, Math.round((p.outbound / maxVal) * 100))),
+    }));
+  }, [allDeposits, allWithdrawals, timeframe]);
+
+  const totalVolume = useMemo(() => {
+    return fluxData.reduce((acc, p) => acc + p.inbound + p.outbound, 0);
+  }, [fluxData]);
+
   const statCards = [
-    { label: 'Total Platform Users', value: stats.totalUsers, icon: Users, color: 'blue', trend: '+12%', bg: 'bg-blue-500/10', text: 'text-blue-500', border: 'border-blue-500/20' },
-    { label: 'Linked Institutional Wallets', value: stats.totalWallets, icon: Wallet, color: 'emerald', trend: '+5%', bg: 'bg-emerald-500/10', text: 'text-emerald-500', border: 'border-emerald-500/20' },
-    { label: 'Pending Deposits', value: stats.pendingDeposits, icon: ArrowDownCircle, color: 'amber', trend: stats.pendingDeposits > 0 ? 'Action Needed' : 'Clean', bg: 'bg-amber-500/10', text: 'text-amber-500', border: 'border-amber-500/20' },
-    { label: 'Pending Withdrawals', value: stats.pendingWithdrawals, icon: ArrowUpCircle, color: 'rose', trend: stats.pendingWithdrawals > 5 ? 'High Volume' : 'Stable', bg: 'bg-rose-500/10', text: 'text-rose-500', border: 'border-rose-500/20' },
+    { 
+      label: 'Total Platform Users', 
+      value: loading ? '...' : stats.totalUsers.toLocaleString(), 
+      icon: Users, 
+      color: 'blue', 
+      trend: loading ? '...' : (stats.totalUsers > 0 ? 'Live' : '0 Users'), 
+      bg: 'bg-blue-500/10', 
+      text: 'text-blue-500', 
+      border: 'border-blue-500/20' 
+    },
+    { 
+      label: 'Linked Institutional Wallets', 
+      value: loading ? '...' : stats.totalWallets.toLocaleString(), 
+      icon: Wallet, 
+      color: 'emerald', 
+      trend: loading ? '...' : (stats.totalWallets > 0 ? 'Connected' : '0 Wallets'), 
+      bg: 'bg-emerald-500/10', 
+      text: 'text-emerald-500', 
+      border: 'border-emerald-500/20' 
+    },
+    { 
+      label: 'Pending Deposits', 
+      value: loading ? '...' : stats.pendingDeposits.toLocaleString(), 
+      icon: ArrowDownCircle, 
+      color: 'amber', 
+      trend: stats.pendingDeposits > 0 ? 'Action Needed' : 'Clean', 
+      bg: 'bg-amber-500/10', 
+      text: 'text-amber-500', 
+      border: 'border-amber-500/20' 
+    },
+    { 
+      label: 'Pending Withdrawals', 
+      value: loading ? '...' : stats.pendingWithdrawals.toLocaleString(), 
+      icon: ArrowUpCircle, 
+      color: 'rose', 
+      trend: stats.pendingWithdrawals > 0 ? 'High Priority' : 'Stable', 
+      bg: 'bg-rose-500/10', 
+      text: 'text-rose-500', 
+      border: 'border-rose-500/20' 
+    },
   ];
+
+  const hasAlerts = stats.pendingWithdrawals > 0 || stats.pendingKYC > 0 || stats.pendingDeposits > 0 || stats.openTickets > 0;
 
   return (
     <div className="space-y-8">
@@ -106,7 +269,9 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
                 <stat.icon className="w-5 h-5" />
               </div>
               <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
-                stat.trend.includes('+') ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
+                stat.trend === 'Action Needed' || stat.trend === 'High Priority' 
+                  ? 'bg-rose-500/10 text-rose-500' 
+                  : 'bg-emerald-500/10 text-emerald-500'
               }`}>
                 {stat.trend}
               </span>
@@ -116,7 +281,7 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
                 {stat.label}
               </span>
               <div className="text-3xl font-black tracking-tight">
-                {stat.value.toLocaleString()}
+                {stat.value}
               </div>
             </div>
           </motion.div>
@@ -124,7 +289,7 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Operational Alerts */}
+        {/* Operational Alerts & Priority Queue */}
         <div className={`p-8 rounded-[2rem] border ${
           isDark ? 'bg-white/5 border-white/5' : 'bg-white border-slate-200 shadow-sm'
         }`}>
@@ -137,72 +302,187 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
           </div>
 
           <div className="space-y-4">
-            {stats.pendingKYC > 0 && (
-              <div className={`p-4 rounded-2xl border flex items-center justify-between ${
-                isDark ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-200'
-              }`}>
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  <span className="text-sm font-bold">Pending KYC Verifications</span>
-                </div>
-                <span className="text-sm font-black text-amber-500">{stats.pendingKYC} Requests</span>
-              </div>
-            )}
-            
+            {/* Critical Priority: Pending Withdrawals */}
             {stats.pendingWithdrawals > 0 && (
               <div className={`p-4 rounded-2xl border flex items-center justify-between ${
                 isDark ? 'bg-rose-500/5 border-rose-500/20' : 'bg-rose-50 border-rose-200'
               }`}>
                 <div className="flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                  <span className="text-sm font-bold">Withdrawal Approvals Required</span>
+                  <div>
+                    <span className="text-sm font-bold block">Withdrawal Approvals Required</span>
+                    <span className="text-[10px] text-slate-500 font-medium">Outbound institutional capital security queue</span>
+                  </div>
                 </div>
-                <span className="text-sm font-black text-rose-500">{stats.pendingWithdrawals} Pending</span>
+                <span className="text-sm font-black text-rose-500 px-3 py-1 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                  {stats.pendingWithdrawals} Pending
+                </span>
               </div>
             )}
 
-            {stats.pendingKYC === 0 && stats.pendingWithdrawals === 0 && (
-              <div className="py-12 flex flex-col items-center justify-center text-center space-y-3 opacity-30">
-                <Activity className="w-12 h-12" />
+            {/* High Priority: Unanswered Support Chats */}
+            {stats.openTickets > 0 && (
+              <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+                isDark ? 'bg-blue-500/5 border-blue-500/20' : 'bg-blue-50 border-blue-200'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <MessageSquare className="w-4 h-4 text-blue-500 animate-bounce" />
+                  <div>
+                    <span className="text-sm font-bold block">Unanswered Support Chats</span>
+                    <span className="text-[10px] text-slate-500 font-medium">Active client support requests</span>
+                  </div>
+                </div>
+                <span className="text-sm font-black text-blue-500 px-3 py-1 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                  {stats.openTickets} Open
+                </span>
+              </div>
+            )}
+
+            {/* Medium Priority: Pending KYC Verifications */}
+            {stats.pendingKYC > 0 && (
+              <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+                isDark ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-200'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <UserCheck className="w-4 h-4 text-amber-500" />
+                  <div>
+                    <span className="text-sm font-bold block">Pending KYC Verifications</span>
+                    <span className="text-[10px] text-slate-500 font-medium">Compliance and verification documentation</span>
+                  </div>
+                </div>
+                <span className="text-sm font-black text-amber-500 px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  {stats.pendingKYC} Requests
+                </span>
+              </div>
+            )}
+
+            {/* Medium Priority: Pending Capital Deposits */}
+            {stats.pendingDeposits > 0 && (
+              <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+                isDark ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <ArrowDownCircle className="w-4 h-4 text-emerald-500" />
+                  <div>
+                    <span className="text-sm font-bold block">Pending Deposit Confirmations</span>
+                    <span className="text-[10px] text-slate-500 font-medium">Inbound capital audit and verification</span>
+                  </div>
+                </div>
+                <span className="text-sm font-black text-emerald-500 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                  {stats.pendingDeposits} Pending
+                </span>
+              </div>
+            )}
+
+            {/* System Clean Empty State */}
+            {!hasAlerts && !loading && (
+              <div className="py-12 flex flex-col items-center justify-center text-center space-y-2 opacity-50">
+                <Activity className="w-10 h-10 mb-1 text-emerald-500" />
                 <p className="text-sm font-bold">System clean. No high-priority alerts.</p>
+                <p className="text-xs text-slate-500">No pending administrative tasks.</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Global Volume Flow (Placeholder for dynamic chart) */}
+        {/* Financial Flux (Real-time Dynamic Chart) */}
         <div className={`p-8 rounded-[2rem] border ${
           isDark ? 'bg-white/5 border-white/5' : 'bg-white border-slate-200 shadow-sm'
         }`}>
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div className="flex items-center gap-3">
               <TrendingUp className="w-6 h-6 text-emerald-500" />
-              <h3 className="text-xl font-bold">Financial Flux</h3>
+              <div>
+                <h3 className="text-xl font-bold">Financial Flux</h3>
+                <span className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">
+                  Real-Time Capital Flows
+                </span>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <div className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase">Inbound</div>
-              <div className="px-2 py-1 rounded bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase">Outbound</div>
+
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <div className={`flex gap-1 p-1 rounded-xl border ${isDark ? 'bg-white/5 border-white/5' : 'bg-slate-100 border-slate-200'}`}>
+                <button
+                  onClick={() => setTimeframe('days')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                    timeframe === 'days' 
+                      ? 'bg-emerald-500 text-slate-950 font-black' 
+                      : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                  }`}
+                >
+                  6 Days
+                </button>
+                <button
+                  onClick={() => setTimeframe('weeks')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                    timeframe === 'weeks' 
+                      ? 'bg-emerald-500 text-slate-950 font-black' 
+                      : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                  }`}
+                >
+                  6 Weeks
+                </button>
+                <button
+                  onClick={() => setTimeframe('months')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                    timeframe === 'months' 
+                      ? 'bg-emerald-500 text-slate-950 font-black' 
+                      : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900')
+                  }`}
+                >
+                  6 Months
+                </button>
+              </div>
+
+              <div className="flex gap-1.5">
+                <div className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase">Inbound</div>
+                <div className="px-2 py-1 rounded bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase">Outbound</div>
+              </div>
             </div>
           </div>
 
-          <div className="h-[240px] flex items-end gap-2 px-2">
-            {[40, 70, 45, 90, 65, 80, 55, 95, 75, 85, 60, 100].map((h, i) => (
-              <div key={i} className="flex-1 flex flex-col gap-1 items-center group">
-                <div className="w-full relative h-[200px] flex items-end">
-                  <motion.div 
-                    initial={{ height: 0 }}
-                    animate={{ height: `${h}%` }}
-                    className={`w-full rounded-t-lg transition-all ${
-                      i % 2 === 0 ? 'bg-emerald-500/40 group-hover:bg-emerald-500' : 'bg-rose-500/40 group-hover:bg-rose-500'
-                    }`}
-                  />
+          {totalVolume === 0 ? (
+            <div className="h-[200px] flex flex-col items-center justify-center text-center opacity-40 space-y-2">
+              <TrendingUp className="w-10 h-10 text-slate-500" />
+              <p className="text-sm font-bold">No transaction history yet.</p>
+              <p className="text-xs text-slate-500">Inbound deposits and outbound withdrawals will render here automatically.</p>
+            </div>
+          ) : (
+            <div className="h-[220px] flex items-end gap-3 px-2">
+              {fluxData.map((period, i) => (
+                <div key={i} className="flex-1 flex flex-col gap-2 items-center group">
+                  <div className="w-full relative h-[180px] flex items-end justify-center gap-1">
+                    {/* Inbound Bar */}
+                    <div className="w-1/2 h-full flex items-end">
+                      <motion.div 
+                        initial={{ height: 0 }}
+                        animate={{ height: `${period.inboundPct}%` }}
+                        transition={{ duration: 0.5, delay: i * 0.05 }}
+                        className="w-full rounded-t-md bg-emerald-500/60 group-hover:bg-emerald-500 transition-all cursor-pointer"
+                        title={`Inbound: $${period.inbound.toLocaleString()}`}
+                      />
+                    </div>
+                    {/* Outbound Bar */}
+                    <div className="w-1/2 h-full flex items-end">
+                      <motion.div 
+                        initial={{ height: 0 }}
+                        animate={{ height: `${period.outboundPct}%` }}
+                        transition={{ duration: 0.5, delay: i * 0.05 }}
+                        className="w-full rounded-t-md bg-rose-500/60 group-hover:bg-rose-500 transition-all cursor-pointer"
+                        title={`Outbound: $${period.outbound.toLocaleString()}`}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 truncate max-w-full">
+                    {period.label}
+                  </span>
                 </div>
-                <span className="text-[8px] font-bold text-slate-500">M{i+1}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
+

@@ -96,23 +96,6 @@ export default function DiscoverView({
         </div>
       </div>
 
-      {/* Featured Banner with High-End Real Photo background */}
-      <div 
-        className="rounded-[24px] overflow-hidden relative p-6 sm:p-8 text-white shadow-lg min-h-[220px] flex items-center bg-cover bg-center"
-        style={{ backgroundImage: `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.75)), url('/src/assets/images/trading_desk_banner_1784189632740.jpg')` }}
-      >
-        <div className="relative z-10">
-          <span className="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-[10px] font-extrabold uppercase tracking-widest mb-3 border border-emerald-500/30">
-            Platform Update
-          </span>
-          <h3 className="text-xl sm:text-2xl font-black mb-1 text-slate-100 tracking-tight">AverNoxTrader v2.0 is Almost Here</h3>
-          <p className="text-xs sm:text-sm text-slate-300 max-w-md mb-5 leading-relaxed">A major upgrade is on the way with smarter AI trading, improved copy trading, faster performance, and exciting new features. Stay tuned for the official release.</p>
-          <button disabled className="px-5 py-2 rounded-xl bg-white/10 text-white/50 font-bold text-xs cursor-not-allowed border border-white/10 transition-colors">
-            Coming Soon
-          </button>
-        </div>
-      </div>
-
       {/* Dynamic Grid: Trending & AI Strategies */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         
@@ -184,7 +167,6 @@ export default function DiscoverView({
                   onClick={onOpenStrategies}
                   className="w-full sm:w-auto py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-1.5 flex-shrink-0"
                 >
-                  <Sparkles className="w-3 h-3 text-slate-950" />
                   <span>Explore Strategies</span>
                   <ArrowUpRight className="w-3 h-3 text-slate-950" />
                 </button>
@@ -255,12 +237,11 @@ export default function DiscoverView({
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2, duration: 0.5 }}
-        className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+        className="grid grid-cols-1 sm:grid-cols-2 gap-4"
       >
         {[
           { title: 'Market Highlights', icon: Sparkles, color: 'text-amber-500', bg: 'bg-gradient-to-br from-amber-500/20 to-amber-500/5', onClick: onOpenMarketHighlights },
           { title: 'Events & Promos', icon: Calendar, color: 'text-purple-500', bg: 'bg-gradient-to-br from-purple-500/20 to-purple-500/5', onClick: onOpenEventsPromos },
-          { title: 'Support Center', icon: LifeBuoy, color: 'text-emerald-500', bg: 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/5', onClick: onOpenSupportCenter },
         ].map((item, i) => (
           <motion.button 
             key={`${item.title}-${i}`} 

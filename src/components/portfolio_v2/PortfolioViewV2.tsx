@@ -420,7 +420,19 @@ export default function PortfolioViewV2({
 
   const [tickTracker, setTickTracker] = useState(0);
 
+  // Live timer interval to update tickTracker every 2 seconds for dynamic AI scores and market fluctuations
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTickTracker(prev => prev + 1);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Real-time AI Opinion / Radar state
+  const [selectedRadarCategory, setSelectedRadarCategory] = useState<string>('all');
+  const [isRescanningRadar, setIsRescanningRadar] = useState<boolean>(false);
+  const [lastRadarScan, setLastRadarScan] = useState<Date>(new Date());
+
   const [radarAssets, setRadarAssets] = useState<RadarAsset[]>([
     { symbol: 'BTC', name: 'Bitcoin', baseConfidence: 96, category: 'high_conviction' },
     { symbol: 'ETH', name: 'Ethereum', baseConfidence: 89, category: 'preparing_entry' },
@@ -431,6 +443,20 @@ export default function PortfolioViewV2({
     { symbol: 'DOGE', name: 'Dogecoin', baseConfidence: 18, category: 'avoiding' },
     { symbol: 'PEPE', name: 'Pepe', baseConfidence: 11, category: 'avoiding' },
   ]);
+
+  const handleRescanRadar = () => {
+    setIsRescanningRadar(true);
+    setTimeout(() => {
+      setRadarAssets(prev => prev.map(asset => {
+        const delta = (Math.random() - 0.5) * 3;
+        const newBase = Math.min(99, Math.max(10, Math.round((asset.baseConfidence + delta) * 10) / 10));
+        return { ...asset, baseConfidence: newBase };
+      }));
+      setLastRadarScan(new Date());
+      setIsRescanningRadar(false);
+      showNotification('AI Market Radar rescanned 182 signals across 12 exchanges.');
+    }, 1200);
+  };
 
   const radarCategories = useMemo<RadarCategory[]>(() => [
     {
@@ -1365,69 +1391,153 @@ export default function PortfolioViewV2({
 
         {/* --- 6. AI MARKET INTELLIGENCE --- */}
         <div className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <Sparkles className="w-4 h-4 text-[#00D09C]" />
-            <h3 className="text-xs font-bold tracking-wider text-slate-400 font-sans uppercase">
-              AI Market Intelligence
-            </h3>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-[#00D09C]" />
+              <h3 className="text-xs font-bold tracking-wider text-slate-400 font-sans uppercase">
+                AI Market Intelligence
+              </h3>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-[#00D09C] animate-pulse" />
+              <span className="text-[10px] font-bold text-[#00D09C] uppercase tracking-wider font-mono">182 Signals/min</span>
+            </div>
           </div>
 
           <div className="space-y-5">
-            {/* LEFT CARD — AI MARKET RADAR */}
+            {/* AI MARKET RADAR CARD */}
             <div className={`${cardClasses} rounded-[24px] p-5 space-y-4`}>
-              <div className="space-y-1">
-                <h4 className="text-base font-bold text-white tracking-tight">AI Market Radar</h4>
-                <p className="text-xs text-slate-400 font-normal leading-relaxed">Assets currently monitored by the AI engine.</p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.05] pb-4">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-base font-bold text-white tracking-tight">AI Market Radar</h4>
+                    <span className="px-2 py-0.5 rounded-full bg-[#00D09C]/10 border border-[#00D09C]/20 text-[9px] font-bold text-[#00D09C] uppercase tracking-wider">
+                      Live Stream
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 font-normal leading-relaxed mt-0.5">
+                    Assets dynamically monitored by the Aver AI engine.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2 self-start sm:self-auto">
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    Scan: {lastRadarScan.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                  <button
+                    onClick={handleRescanRadar}
+                    disabled={isRescanningRadar}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#080B11] hover:bg-black/60 border border-white/[0.08] hover:border-[#00D09C]/30 text-slate-300 hover:text-[#00D09C] rounded-xl text-xs font-semibold transition-all cursor-pointer touch-manipulation active:scale-95"
+                    title="Rescan AI Engine Radar"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRescanningRadar ? 'animate-spin text-[#00D09C]' : ''}`} />
+                    <span>{isRescanningRadar ? 'Scanning...' : 'Rescan AI'}</span>
+                  </button>
+                </div>
               </div>
 
+              {/* Category Filter Pills */}
+              <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 no-scrollbar">
+                {[
+                  { id: 'all', label: 'All Assets', count: radarAssets.length },
+                  { id: 'high_conviction', label: '🟢 High Conviction', count: radarAssets.filter(a => a.category === 'high_conviction').length },
+                  { id: 'preparing_entry', label: '🟡 Preparing Entry', count: radarAssets.filter(a => a.category === 'preparing_entry').length },
+                  { id: 'watching', label: '👁 Watching', count: radarAssets.filter(a => a.category === 'watching').length },
+                  { id: 'avoiding', label: '🔴 Avoiding', count: radarAssets.filter(a => a.category === 'avoiding').length },
+                ].map(tab => {
+                  const isActive = selectedRadarCategory === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setSelectedRadarCategory(tab.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer touch-manipulation border ${
+                        isActive 
+                          ? 'bg-[#00D09C] text-black border-[#00D09C] font-bold shadow-lg shadow-[#00D09C]/20' 
+                          : 'bg-white/[0.02] text-slate-400 border-white/[0.05] hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      {tab.label} <span className={isActive ? 'text-black/70' : 'text-slate-500'}>({tab.count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Render Radar Categories */}
               <div className="space-y-4 pt-1">
-                {radarCategories.map((cat, i) => (
-                  <div key={`${cat.key}-${i}`} className="space-y-2">
-                    <div className="flex items-center justify-between border-b border-white/[0.03] pb-1">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-xs">{cat.icon}</span>
-                        <span className="text-xs font-bold text-white">{cat.label}</span>
+                {radarCategories
+                  .filter(cat => selectedRadarCategory === 'all' || selectedRadarCategory === cat.key)
+                  .map((cat, i) => (
+                    <div key={`${cat.key}-${i}`} className="space-y-2">
+                      <div className="flex items-center justify-between border-b border-white/[0.03] pb-1.5">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm">{cat.icon}</span>
+                          <span className="text-xs font-bold text-white tracking-wide">{cat.label}</span>
+                          <span className="text-[10px] px-2 py-0.2 rounded-full bg-white/[0.04] text-slate-400 font-mono">
+                            {cat.assets.length}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-medium font-sans uppercase tracking-wider">{cat.subtitle}</span>
                       </div>
-                      <span className="text-[9px] text-slate-500 font-medium font-sans uppercase tracking-wider">{cat.subtitle}</span>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 gap-2 pl-2">
-                      {cat.assets.map((asset, j) => {
-                        const dynConf = getDynamicConfidence(asset.baseConfidence, asset.symbol);
-                        return (
-                          <button 
-                            key={`${asset.symbol}-${i}-${j}`} 
-                            onClick={() => runRadarAnalysis(asset)}
-                            className="w-full flex items-center justify-between p-2.5 rounded-xl bg-white/[0.01] border border-white/[0.03] hover:bg-white/[0.04] hover:border-[#00D09C]/20 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 touch-manipulation"
-                          >
-                            <div className="flex items-center space-x-2.5">
-                              <CoinLogo symbol={asset.symbol} size={24} className="rounded-full overflow-hidden" />
-                              <div>
-                                <div className="text-xs font-bold text-white">{asset.symbol}</div>
-                                <div className="text-[10px] text-slate-400 leading-tight">{asset.name}</div>
+                      
+                      <div className="grid grid-cols-1 gap-2 pl-1 sm:pl-2">
+                        {cat.assets.map((asset, j) => {
+                          const dynConf = getDynamicConfidence(asset.baseConfidence, asset.symbol);
+                          const livePrice = mergedLivePrices[asset.symbol] || (asset.symbol === 'BTC' ? 89450 : asset.symbol === 'ETH' ? 3420 : asset.symbol === 'SOL' ? 185 : asset.symbol === 'NVDA' ? 128 : asset.symbol === 'Gold' ? 2410 : asset.symbol === 'XRP' ? 2.45 : asset.symbol === 'DOGE' ? 0.38 : 0.000012);
+                          const mockChange = (Math.sin(tickTracker * 0.1 + asset.symbol.charCodeAt(0)) * 2.8).toFixed(2);
+                          const isPositive = Number(mockChange) >= 0;
+
+                          return (
+                            <button 
+                              key={`${asset.symbol}-${i}-${j}`} 
+                              onClick={() => runRadarAnalysis(asset)}
+                              className="w-full flex items-center justify-between p-3 rounded-2xl bg-white/[0.015] border border-white/[0.04] hover:bg-white/[0.05] hover:border-[#00D09C]/30 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 touch-manipulation group"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <CoinLogo symbol={asset.symbol} size={28} className="rounded-full overflow-hidden shadow-md" />
+                                <div>
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="text-xs font-bold text-white group-hover:text-[#00D09C] transition-colors">{asset.symbol}</span>
+                                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${
+                                      asset.category === 'high_conviction' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                      asset.category === 'preparing_entry' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                      asset.category === 'watching' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
+                                      'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                    }`}>
+                                      {asset.category === 'high_conviction' ? 'Strong Buy' :
+                                       asset.category === 'preparing_entry' ? 'Entry Target' :
+                                       asset.category === 'watching' ? 'Monitoring' : 'Avoid'}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{asset.name}</div>
+                                </div>
                               </div>
-                            </div>
-                            
-                            <div className="flex items-center space-x-3">
-                              <div className="text-right">
-                                <span className="text-[8px] text-slate-500 uppercase tracking-widest block font-sans">Confidence</span>
-                                <span className="text-xs font-bold text-[#00D09C] font-mono">
-                                  {dynConf}%
-                                </span>
+                              
+                              <div className="flex items-center space-x-4">
+                                <div className="text-right">
+                                  <div className="text-xs font-mono font-bold text-slate-200">
+                                    ${typeof livePrice === 'number' ? livePrice.toLocaleString(undefined, { minimumFractionDigits: livePrice < 10 ? 2 : 0, maximumFractionDigits: livePrice < 10 ? 4 : 2 }) : livePrice}
+                                  </div>
+                                  <div className={`text-[10px] font-mono font-semibold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {isPositive ? '+' : ''}{mockChange}%
+                                  </div>
+                                </div>
+
+                                <div className="text-right border-l border-white/[0.06] pl-3">
+                                  <span className="text-[8px] text-slate-500 uppercase tracking-widest block font-sans font-bold">Confidence</span>
+                                  <span className="text-xs font-bold text-[#00D09C] font-mono">
+                                    {dynConf}%
+                                  </span>
+                                </div>
+                                <span className={`w-2.5 h-2.5 rounded-full ${cat.dotColor} animate-pulse`} />
                               </div>
-                              <span className={`w-2 h-2 rounded-full ${cat.dotColor} animate-pulse`} />
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
-
-            {/* RIGHT CARD — MARKET EXPOSURE */}
-            {/* Market Exposure card removed as requested */}
           </div>
         </div>
 

@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  ArrowLeft, Send, Paperclip, LifeBuoy, CheckCircle2, Clock, 
-  AlertCircle, Plus, MessageSquare, Shield, Check, FileText, Image as ImageIcon, X, RefreshCw
+  ArrowLeft, Send, Paperclip, CheckCircle2, Clock, 
+  AlertCircle, Plus, MessageSquare, Shield, Check, FileText, 
+  Image as ImageIcon, X, RefreshCw, MoreVertical, Mic, Download, 
+  Trash2, Settings, Smile, ExternalLink, Search, Filter, Headphones, Sparkles, Volume2, VolumeX
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc, query, serverTimestamp } from 'firebase/firestore';
+import { db, storage } from '../lib/firebase';
+import { collection, onSnapshot, updateDoc, doc, setDoc, query, arrayUnion } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 export interface SupportMessage {
   id: string;
@@ -15,6 +18,10 @@ export interface SupportMessage {
   timestamp: string;
   attachmentUrl?: string;
   attachmentName?: string;
+  attachmentType?: 'image' | 'document';
+  reactions?: Record<string, number>;
+  status?: 'sending' | 'delivered' | 'read';
+  isVoice?: boolean;
 }
 
 export interface SupportTicket {
@@ -25,6 +32,8 @@ export interface SupportTicket {
   description: string;
   status: 'open' | 'pending' | 'in_progress' | 'resolved' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'critical';
+  transactionId?: string;
+  tradingSessionId?: string;
   createdAt: string;
   updatedAt: string;
   messages: SupportMessage[];
@@ -34,35 +43,58 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
   const isDark = theme === 'dark';
   const { user } = useAuth();
 
+  // Navigation State
+  const [viewMode, setViewMode] = useState<'chat' | 'tickets'>('chat');
+
+  // Real-time Firestore Tickets & Active Chat State
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [activeTicket, setActiveTicket] = useState<SupportTicket | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // Modals & Panels
+  // UI Menus & Modals
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showTicketsPanel, setShowTicketsPanel] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  // Settings State
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   // New Ticket Form State
-  const [newCategory, setNewCategory] = useState('Trading & Execution');
+  const [newCategory, setNewCategory] = useState('Deposits & Wallet');
   const [newSubject, setNewSubject] = useState('');
   const [newPriority, setNewPriority] = useState<SupportTicket['priority']>('medium');
+  const [newTransactionId, setNewTransactionId] = useState('');
+  const [newTradingSessionId, setNewTradingSessionId] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [attachment, setAttachment] = useState<{ name: string; url: string } | null>(null);
+  const [attachment, setAttachment] = useState<{ name: string; url: string; type: 'image' | 'document' } | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Search & Filter state on Tickets page
+  const [ticketSearch, setTicketSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Chat Input State
   const [messageText, setMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Toast
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recordingIntervalRef = useRef<any>(null);
+
+  // Toast State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
   const triggerToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Sync tickets real-time with Firestore support_tickets collection
+  // Sync tickets real-time with Firestore `support_tickets` collection
   useEffect(() => {
     if (!user?.uid) {
       setLoading(false);
@@ -71,27 +103,30 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
 
     const q = query(collection(db, 'support_tickets'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allTickets: SupportTicket[] = [];
+      const userTickets: SupportTicket[] = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data() as SupportTicket;
         if (data.userId === user.uid) {
-          allTickets.push({ id: docSnap.id, ...data });
+          userTickets.push({ id: docSnap.id, ...data });
         }
       });
 
-      // Sort newest first
-      allTickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      setTickets(allTickets);
+      // Sort newest updated first
+      userTickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      setTickets(userTickets);
       setLoading(false);
 
-      // If active ticket exists, keep it updated
-      if (activeTicket) {
-        const fresh = allTickets.find(t => t.id === activeTicket.id);
-        if (fresh) setActiveTicket(fresh);
-      } else if (allTickets.length > 0 && !activeTicket) {
-        // Automatically open the most recent ticket if available
-        setActiveTicket(allTickets[0]);
-      }
+      // If active ticket exists, keep it in sync with fresh data
+      setActiveTicket(prev => {
+        if (prev) {
+          const fresh = userTickets.find(t => t.id === prev.id);
+          return fresh || prev;
+        } else if (userTickets.length > 0) {
+          // Default to the most recent ticket/chat
+          return userTickets[0];
+        }
+        return null;
+      });
     }, (error) => {
       console.error("Firestore support tickets sync error:", error);
       setLoading(false);
@@ -100,90 +135,203 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     return () => unsubscribe();
   }, [user?.uid]);
 
-  // Auto scroll chat
+  // Auto scroll to bottom when messages change
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeTicket?.messages]);
-
-  // Handle Create Ticket submission
-  const handleCreateTicket = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSubject.trim() || !newDescription.trim() || !user) {
-      triggerToast("Please fill in subject and description.", "error");
-      return;
+    if (autoScroll) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
+  }, [activeTicket?.messages, activeTicket?.id, isTyping, autoScroll]);
 
-    setSubmitting(true);
-    const ticketId = "TCK-" + Math.floor(100000 + Math.random() * 900000);
+  // Handle Starting First Conversation from Empty State
+  const handleStartFirstConversation = async () => {
+    if (!user) return;
+    setSendingMessage(true);
+
+    const ticketId = "TCK-CHAT-" + Math.floor(100000 + Math.random() * 900000);
     const now = new Date().toISOString();
 
-    const initialMessage: SupportMessage = {
+    const welcomeMsg: SupportMessage = {
       id: "MSG-" + Math.floor(100000 + Math.random() * 900000),
-      sender: user.email || user.uid,
-      text: newDescription,
+      sender: "Support Specialist",
+      text: "Hello! Welcome to AVER Specialist Support. How can we assist you today with your deposits, withdrawals, trading, or security?",
       timestamp: now,
-      ...(attachment ? { attachmentUrl: attachment.url, attachmentName: attachment.name } : {})
+      status: 'read'
     };
 
-    const newTicket: SupportTicket = {
+    const newTicket: SupportTicket & { userEmail?: string; userName?: string } = {
       id: ticketId,
       userId: user.uid,
-      title: newSubject,
-      category: newCategory,
-      description: newDescription,
+      userEmail: user.email || `${user.uid.slice(0, 8)}@aver.com`,
+      userName: user.displayName || (user.email ? user.email.split('@')[0] : 'AVER Trader'),
+      title: "Live Support Session",
+      category: "General Inquiry",
+      description: "Direct live messaging session with AVER specialist team.",
       status: 'open',
-      priority: newPriority,
+      priority: 'medium',
       createdAt: now,
       updatedAt: now,
-      messages: [initialMessage]
+      messages: [welcomeMsg]
     };
 
     try {
       await setDoc(doc(db, 'support_tickets', ticketId), newTicket);
-      triggerToast("Support ticket created successfully!", "success");
-      
-      // Reset form
-      setNewSubject('');
-      setNewDescription('');
-      setAttachment(null);
-      setShowCreateModal(false);
-      
-      // Automatically open the new ticket conversation
       setActiveTicket(newTicket);
+      triggerToast("Live support session initialized", "success");
     } catch (err) {
-      console.error("Error creating ticket:", err);
-      triggerToast("Failed to create support ticket.", "error");
+      console.error("Error initializing conversation:", err);
+      triggerToast("Could not start conversation at this time", "error");
     } finally {
-      setSubmitting(false);
+      setSendingMessage(false);
     }
   };
 
-  // Send Message in Active Conversation
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeTicket || !messageText.trim() || !user) return;
+  // Handle Sending a Message in Active Chat
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!messageText.trim() || !user) return;
 
     const text = messageText.trim();
     setMessageText('');
+    setSendingMessage(true);
 
     const now = new Date().toISOString();
     const newMsg: SupportMessage = {
       id: "MSG-" + Math.floor(100000 + Math.random() * 900000),
-      sender: user.email || user.uid,
+      sender: user.displayName || user.email || user.uid,
       text: text,
-      timestamp: now
+      timestamp: now,
+      status: 'delivered',
+      ...(attachment ? {
+        attachmentUrl: attachment.url,
+        attachmentName: attachment.name,
+        attachmentType: attachment.type
+      } : {})
     };
 
-    const updatedMessages = [...(activeTicket.messages || []), newMsg];
+    setAttachment(null);
+
+    let targetTicket = activeTicket;
+
+    if (!targetTicket) {
+      // Auto create new live support ticket in Firestore if user sends first message without active chat
+      const ticketId = "TCK-CHAT-" + Math.floor(100000 + Math.random() * 900000);
+      const newTicketData = {
+        id: ticketId,
+        userId: user.uid,
+        userEmail: user.email || `${user.uid.slice(0, 8)}@aver.com`,
+        userName: user.displayName || (user.email ? user.email.split('@')[0] : 'AVER Trader'),
+        title: "Live Support Session",
+        category: "General Inquiry",
+        description: "Direct live messaging session with AVER specialist team.",
+        status: 'pending',
+        priority: 'medium',
+        createdAt: now,
+        updatedAt: now,
+        messages: [newMsg]
+      };
+
+      try {
+        await setDoc(doc(db, 'support_tickets', ticketId), newTicketData);
+        setActiveTicket(newTicketData);
+      } catch (err) {
+        console.error("Error creating initial conversation on send:", err);
+        triggerToast("Failed to send message. Please retry.", "error");
+      } finally {
+        setSendingMessage(false);
+      }
+      return;
+    }
+
+    const updatedMessages = [...(targetTicket.messages || []), newMsg];
 
     // Optimistic update
-    const updatedTicket = {
-      ...activeTicket,
+    const updatedTicket: SupportTicket = {
+      ...targetTicket,
       updatedAt: now,
       messages: updatedMessages,
-      status: 'pending' as const
+      status: 'pending'
     };
     setActiveTicket(updatedTicket);
+
+    try {
+      await updateDoc(doc(db, 'support_tickets', targetTicket.id), {
+        messages: updatedMessages,
+        updatedAt: now,
+        status: 'pending'
+      });
+
+      // Simulate typing indicator
+      setTimeout(() => {
+        setIsTyping(true);
+        setTimeout(() => {
+          setIsTyping(false);
+        }, 2500);
+      }, 1000);
+
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      triggerToast("Failed to send message. Please retry.", "error");
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  // Handle Real File Attachment Selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) { // 15MB limit
+      triggerToast("File size must be under 15MB.", "error");
+      return;
+    }
+
+    setSelectedFile(file);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const isImg = file.type.startsWith('image/');
+      setAttachment({
+        name: file.name,
+        url: reader.result as string,
+        type: isImg ? 'image' : 'document'
+      });
+      triggerToast(`Attached ${file.name}`, "info");
+    };
+    reader.onerror = () => {
+      triggerToast("Failed to read selected file.", "error");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Simulated Voice Note Recording
+  const startVoiceRecording = () => {
+    setIsVoiceRecording(true);
+    setRecordingSeconds(0);
+    recordingIntervalRef.current = setInterval(() => {
+      setRecordingSeconds(prev => prev + 1);
+    }, 1000);
+  };
+
+  const stopAndSendVoiceNote = async () => {
+    if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    setIsVoiceRecording(false);
+
+    if (!activeTicket || !user) return;
+
+    const durationStr = `0:${recordingSeconds < 10 ? '0' : ''}${recordingSeconds}`;
+    const now = new Date().toISOString();
+
+    const voiceMsg: SupportMessage = {
+      id: "MSG-VOICE-" + Math.floor(100000 + Math.random() * 900000),
+      sender: user.email || user.uid,
+      text: `🎤 Voice note (${durationStr})`,
+      timestamp: now,
+      status: 'delivered',
+      isVoice: true
+    };
+
+    const updatedMessages = [...(activeTicket.messages || []), voiceMsg];
 
     try {
       await updateDoc(doc(db, 'support_tickets', activeTicket.id), {
@@ -191,166 +339,398 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
         updatedAt: now,
         status: 'pending'
       });
+      triggerToast("Voice note sent!", "success");
     } catch (err) {
-      console.error("Failed to send message:", err);
-      triggerToast("Failed to send message.", "error");
+      console.error("Error sending voice note:", err);
     }
   };
 
-  // File attachment simulation
-  const handleAttachFile = () => {
-    const mockFiles = [
-      { name: 'error_stack_trace.log', url: '#' },
-      { name: 'trade_execution_receipt.png', url: '#' },
-      { name: 'verification_telemetry.pdf', url: '#' }
-    ];
-    const picked = mockFiles[Math.floor(Math.random() * mockFiles.length)];
-    setAttachment(picked);
-    triggerToast(`Attached ${picked.name}`, "info");
+  // Add Emoji Reaction to Message
+  const handleToggleReaction = async (msgId: string, emoji: string) => {
+    if (!activeTicket) return;
+
+    const updatedMsgs = activeTicket.messages.map(m => {
+      if (m.id === msgId) {
+        const reactions = { ...(m.reactions || {}) };
+        reactions[emoji] = (reactions[emoji] || 0) + 1;
+        return { ...m, reactions };
+      }
+      return m;
+    });
+
+    setActiveTicket({ ...activeTicket, messages: updatedMsgs });
+
+    try {
+      await updateDoc(doc(db, 'support_tickets', activeTicket.id), {
+        messages: updatedMsgs
+      });
+    } catch (err) {
+      console.error("Failed to add reaction:", err);
+    }
   };
 
+  // Handle Clear Conversation
+  const handleClearConversation = async () => {
+    if (!activeTicket) return;
+    if (window.confirm("Are you sure you want to clear this conversation view?")) {
+      const now = new Date().toISOString();
+      const clearedMsg: SupportMessage = {
+        id: "MSG-CLR-" + Math.floor(100000 + Math.random() * 900000),
+        sender: "Support Specialist",
+        text: "Conversation transcript cleared. Specialist standing by to assist you.",
+        timestamp: now
+      };
+      try {
+        await updateDoc(doc(db, 'support_tickets', activeTicket.id), {
+          messages: [clearedMsg],
+          updatedAt: now
+        });
+        triggerToast("Conversation history cleared.", "info");
+      } catch (err) {
+        console.error("Error clearing conversation:", err);
+      }
+    }
+    setShowMoreMenu(false);
+  };
+
+  // Export Chat Transcript
+  const handleExportChat = () => {
+    if (!activeTicket) return;
+    const lines = activeTicket.messages.map(m => `[${new Date(m.timestamp).toLocaleString()}] ${m.sender}: ${m.text}`);
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `aver_support_transcript_${activeTicket.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    triggerToast("Transcript downloaded successfully.", "success");
+    setShowMoreMenu(false);
+  };
+
+  // Create New Ticket Submit Handler
+  const handleCreateTicketSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSubject.trim() || !newDescription.trim()) {
+      triggerToast("Please fill in subject and description.", "error");
+      return;
+    }
+    if (!user) {
+      triggerToast("You must be logged in to create a support ticket.", "error");
+      return;
+    }
+
+    setSubmitting(true);
+    const ticketId = "TCK-" + Math.floor(100000 + Math.random() * 900000);
+    const now = new Date().toISOString();
+
+    try {
+      let finalAttachmentUrl = attachment?.url || '';
+
+      if (selectedFile) {
+        try {
+          const storageRef = ref(storage, `support_attachments/${ticketId}/${Date.now()}_${selectedFile.name}`);
+          const uploadResult = await uploadBytes(storageRef, selectedFile);
+          finalAttachmentUrl = await getDownloadURL(uploadResult.ref);
+        } catch (storageErr) {
+          console.warn("Firebase Storage upload fallback to Data URL:", storageErr);
+          finalAttachmentUrl = attachment?.url || '';
+        }
+      }
+
+      const initialMsg: SupportMessage = {
+        id: "MSG-" + Math.floor(100000 + Math.random() * 900000),
+        sender: user.displayName || user.email || user.uid,
+        text: newDescription.trim(),
+        timestamp: now,
+        status: 'delivered',
+        ...(finalAttachmentUrl ? {
+          attachmentUrl: finalAttachmentUrl,
+          attachmentName: attachment?.name || selectedFile?.name || 'attachment',
+          attachmentType: attachment?.type || (selectedFile?.type.startsWith('image/') ? 'image' : 'document')
+        } : {})
+      };
+
+      const newTicket: SupportTicket & { userEmail?: string; userName?: string; attachmentUrl?: string } = {
+        id: ticketId,
+        userId: user.uid,
+        userEmail: user.email || `${user.uid.slice(0, 8)}@aver.com`,
+        userName: user.displayName || (user.email ? user.email.split('@')[0] : 'AVER Trader'),
+        title: newSubject.trim(),
+        category: newCategory,
+        description: newDescription.trim(),
+        status: 'open',
+        priority: newPriority,
+        ...(newTransactionId.trim() ? { transactionId: newTransactionId.trim() } : {}),
+        ...(newTradingSessionId.trim() ? { tradingSessionId: newTradingSessionId.trim() } : {}),
+        ...(finalAttachmentUrl ? { attachmentUrl: finalAttachmentUrl } : {}),
+        createdAt: now,
+        updatedAt: now,
+        messages: [initialMsg]
+      };
+
+      await setDoc(doc(db, 'support_tickets', ticketId), newTicket);
+      triggerToast("Support ticket created successfully!", "success");
+
+      // Reset form
+      setNewSubject('');
+      setNewDescription('');
+      setNewTransactionId('');
+      setNewTradingSessionId('');
+      setAttachment(null);
+      setSelectedFile(null);
+      setShowCreateModal(false);
+
+      // Open new ticket in Chat view
+      setActiveTicket(newTicket);
+      setViewMode('chat');
+    } catch (err: any) {
+      console.error("Error creating ticket:", err);
+      triggerToast(`Failed to create ticket: ${err?.message || 'Unknown error'}`, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Filtered tickets for Support Tickets page
+  const filteredTickets = tickets.filter(t => {
+    const matchesSearch = t.title.toLowerCase().includes(ticketSearch.toLowerCase()) ||
+                          t.id.toLowerCase().includes(ticketSearch.toLowerCase()) ||
+                          t.category.toLowerCase().includes(ticketSearch.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || t.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   return (
-    <div className={`flex-1 flex flex-col h-full ${isDark ? 'bg-[#07090E] text-white' : 'bg-slate-50 text-slate-900'} font-sans overflow-hidden relative`}>
+    <div className={`flex-1 flex flex-col h-full ${isDark ? 'bg-[#07090E] text-white' : 'bg-slate-50 text-slate-900'} font-sans overflow-hidden relative select-none`}>
       
-      {/* Toast Notification */}
+      {/* Global File Input for Attachments */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*,.pdf,.doc,.docx,.txt"
+        className="hidden"
+      />
+
+      {/* Toast Banner */}
       <AnimatePresence>
         {toast && (
           <motion.div
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-20 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none"
+            className="fixed top-16 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none"
           >
             <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md text-xs font-bold pointer-events-auto max-w-sm ${
               toast.type === 'success' 
-                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' 
+                ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' 
                 : toast.type === 'error'
-                ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                : 'bg-teal-500/20 border-teal-500/40 text-teal-300'
             }`}>
-              {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0" />}
-              {toast.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0" />}
-              {toast.type === 'info' && <LifeBuoy className="w-4 h-4 shrink-0" />}
+              {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />}
+              {toast.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />}
+              {toast.type === 'info' && <Sparkles className="w-4 h-4 shrink-0 text-teal-300" />}
               <span>{toast.message}</span>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Premium Header */}
-      <header className={`shrink-0 h-16 px-6 flex items-center justify-between border-b backdrop-blur-md ${isDark ? 'bg-[#0E121B]/90 border-white/5' : 'bg-white/90 border-slate-200'}`}>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={onBack}
-            className={`p-2 rounded-xl transition-all ${isDark ? 'hover:bg-white/5 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600'}`}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-black tracking-tight">Support Center</h1>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">24/7 Live Support</span>
-            </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[10px] text-slate-400 font-mono">Connection: Online (Encrypted)</span>
-            </div>
+      {/* Lightbox for image attachments */}
+      <AnimatePresence>
+        {lightboxImage && (
+          <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4">
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute top-6 right-6 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img src={lightboxImage} alt="Attachment Preview" className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/10" />
           </div>
-        </div>
+        )}
+      </AnimatePresence>
 
-        <div className="flex items-center gap-3">
-          {/* My Tickets Button */}
-          <button
-            onClick={() => setShowTicketsPanel(!showTicketsPanel)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${
-              isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-200' : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700 shadow-sm'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4 text-emerald-400" />
-            <span>My Tickets</span>
-            {tickets.length > 0 && (
-              <span className="bg-emerald-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded-full">
-                {tickets.length}
-              </span>
-            )}
-          </button>
-
-          {/* Create Support Ticket Button */}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02]"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Support Ticket</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Body: Chat Interface or Welcome Screen */}
-      <div className="flex-1 flex overflow-hidden relative">
-        
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col justify-between overflow-hidden relative">
+      {/* MAIN VIEW MODE: CHAT INTERFACE */}
+      {viewMode === 'chat' ? (
+        <div className="flex-1 flex flex-col h-full overflow-hidden relative">
           
-          {loading ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
-              <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-              <p className="text-xs text-slate-400 font-bold">Connecting to Sovereign Support secure channel...</p>
-            </div>
-          ) : !activeTicket ? (
-            /* First Time / No Active Conversation Welcome Screen */
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-lg mx-auto space-y-6">
-              <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shadow-2xl shadow-emerald-500/10">
-                <LifeBuoy className="w-10 h-10 animate-pulse" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-2xl font-black tracking-tight">Welcome to Support Center</h2>
-                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed font-medium">
-                  Need help with your account, deposits, withdrawals, trading, verification, or security? Send us a message below and our support specialists will assist you.
+          {/* Clean Compact WhatsApp / Intercom Style Header */}
+          <header className={`shrink-0 h-14 px-3 sm:px-4 flex items-center justify-between border-b z-20 ${
+            isDark ? 'bg-[#0B0E14] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              {/* Back Button */}
+              <button 
+                onClick={onBack}
+                className={`p-1.5 sm:p-2 rounded-full transition-colors ${
+                  isDark ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                }`}
+                title="Back"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              {/* Name & Status */}
+              <div className="flex flex-col justify-center">
+                <h1 className="text-sm font-bold leading-tight tracking-tight">AVER Support</h1>
+                <p className="text-[11px] text-emerald-400 font-medium leading-none mt-0.5">
+                  Replies in under 5 min
                 </p>
               </div>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black px-8 py-4 rounded-2xl text-sm font-black shadow-xl shadow-emerald-500/20 transition-all hover:scale-105"
-              >
-                Create Support Ticket
-              </button>
             </div>
-          ) : (
-            /* Active Ticket Conversation */
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
+
+            {/* Three-dot Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMoreMenu(!showMoreMenu)}
+                className={`p-2 rounded-full transition-colors ${
+                  isDark ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
+                }`}
+                title="More options"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+
+              <AnimatePresence>
+                {showMoreMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    className={`absolute right-0 mt-2 w-56 rounded-2xl border p-1.5 shadow-2xl z-50 ${
+                      isDark ? 'bg-[#0E121B] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+                    }`}
+                  >
+                    {activeTicket && (
+                      <div className="px-3.5 py-2 mb-1 border-b border-white/5 text-[11px] space-y-0.5">
+                        <span className="text-slate-400 font-medium block">Active Case</span>
+                        <span className="font-mono text-emerald-400 font-bold block truncate">{activeTicket.id} - {activeTicket.title}</span>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        setViewMode('tickets');
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2.5 transition-colors ${
+                        isDark ? 'hover:bg-white/5 text-emerald-400' : 'hover:bg-slate-100 text-emerald-600'
+                      }`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>View All Tickets</span>
+                      {tickets.length > 0 && (
+                        <span className="ml-auto bg-emerald-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                          {tickets.length}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        setShowCreateModal(true);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2.5 transition-colors ${
+                        isDark ? 'hover:bg-white/5' : 'hover:bg-slate-100'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4 text-emerald-400" />
+                      <span>Create New Ticket</span>
+                    </button>
+
+                    <button
+                      onClick={handleExportChat}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2.5 transition-colors ${
+                        isDark ? 'hover:bg-white/5' : 'hover:bg-slate-100'
+                      }`}
+                    >
+                      <Download className="w-4 h-4 text-sky-400" />
+                      <span>Export Chat Transcript</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        setShowSettingsModal(true);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2.5 transition-colors ${
+                        isDark ? 'hover:bg-white/5' : 'hover:bg-slate-100'
+                      }`}
+                    >
+                      <Settings className="w-4 h-4 text-slate-400" />
+                      <span>Chat Settings</span>
+                    </button>
+
+                    <div className="my-1 border-t border-white/5"></div>
+
+                    <button
+                      onClick={handleClearConversation}
+                      className="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 flex items-center gap-2.5 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Clear Conversation</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </header>
+
+          {/* Conversation Middle Area */}
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 relative">
+            
+            {(!activeTicket || activeTicket.messages?.length === 0) ? (
               
-              {/* Ticket Status Bar */}
-              <div className={`px-6 py-3 border-b flex items-center justify-between text-xs ${isDark ? 'bg-[#0E121B]/40 border-white/5' : 'bg-slate-100/60 border-slate-200'}`}>
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-slate-400 font-bold">{activeTicket.id}</span>
-                  <span className="font-bold">{activeTicket.title}</span>
+              /* FIRST TIME / NO CONVERSATION EMPTY STATE */
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto space-y-6">
+                
+                {/* Support Illustration */}
+                <div className="relative">
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-tr from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-2xl shadow-emerald-500/10">
+                    <Headphones className="w-10 h-10 text-emerald-400" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400 uppercase font-bold">{activeTicket.category}</span>
-                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                    activeTicket.status === 'resolved' || activeTicket.status === 'closed'
-                      ? 'bg-slate-800 text-slate-400'
-                      : activeTicket.status === 'pending'
-                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20'
-                      : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20'
-                  }`}>
-                    {activeTicket.status}
-                  </span>
+
+                <div className="space-y-3">
+                  <h2 className="text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                    Welcome to AVER Support
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-400 leading-relaxed font-medium">
+                    Start a conversation with one of our specialists. We’re here to help with deposits, withdrawals, AI trading sessions, account security, verification, technical issues, and more.
+                  </p>
                 </div>
+
+                <button
+                  onClick={handleStartFirstConversation}
+                  disabled={sendingMessage}
+                  className="w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 hover:scale-[1.02] text-black font-black text-sm py-4 rounded-2xl shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                >
+                  <MessageSquare className="w-5 h-5 text-black" />
+                  <span>Start Conversation</span>
+                </button>
+
               </div>
 
-              {/* Messages Scroll Area */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {activeTicket.messages?.map((msg, idx) => {
-                  const isUser = msg.sender !== 'Admin Agent' && msg.sender !== 'Support Team';
+            ) : (
+
+              /* ACTIVE LIVE MESSAGES STREAM */
+              <div className="space-y-4">
+                {activeTicket.messages.map((msg, idx) => {
+                  const isUser = msg.sender !== 'Admin Agent' && msg.sender !== 'Support Specialist' && msg.sender !== 'Support Team';
+
                   return (
-                    <motion.div 
+                    <motion.div
                       key={msg.id || idx}
-                      initial={{ opacity: 0, y: 10 }}
+                      initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
                       className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
                     >
+                      {/* Sender label & Timestamp */}
                       <div className="flex items-center gap-2 mb-1 px-1">
                         <span className="text-[10px] font-bold text-slate-400">
                           {isUser ? 'You' : 'Support Specialist'}
@@ -360,194 +740,376 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                         </span>
                       </div>
 
-                      <div className={`max-w-[80%] rounded-2xl p-4 text-xs space-y-2 shadow-md ${
+                      {/* Bubble Card */}
+                      <div className={`relative max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 text-xs space-y-2 shadow-xl ${
                         isUser
-                          ? 'bg-emerald-500 text-black font-semibold rounded-tr-none'
-                          : isDark ? 'bg-[#121622] text-slate-200 border border-white/5 rounded-tl-none' : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
+                          ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-black font-semibold rounded-tr-none'
+                          : isDark
+                          ? 'bg-[#111622] text-slate-200 border border-white/10 rounded-tl-none'
+                          : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
                       }`}>
-                        <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                        {/* Voice Note Badge */}
+                        {msg.isVoice ? (
+                          <div className="flex items-center gap-3 py-1">
+                            <div className="p-2 rounded-xl bg-black/10 flex items-center justify-center">
+                              <Volume2 className="w-5 h-5 text-black animate-pulse" />
+                            </div>
+                            <div>
+                              <p className="font-mono text-xs font-bold">{msg.text}</p>
+                              <div className="flex items-center gap-1 mt-1">
+                                {[...Array(12)].map((_, i) => (
+                                  <span key={i} className="w-1 h-3 rounded-full bg-black/30" style={{ height: `${Math.random() * 12 + 4}px` }}></span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="leading-relaxed whitespace-pre-wrap font-medium">{msg.text}</p>
+                        )}
 
-                        {msg.attachmentName && (
-                          <div className={`flex items-center gap-2 p-2 rounded-xl text-[11px] font-mono ${isUser ? 'bg-black/10 text-black' : 'bg-black/30 text-emerald-400'}`}>
-                            <FileText className="w-4 h-4 shrink-0" />
-                            <span className="truncate">{msg.attachmentName}</span>
+                        {/* File Attachment Render */}
+                        {msg.attachmentUrl && (
+                          <div className="pt-2">
+                            {msg.attachmentType === 'image' ? (
+                              <button
+                                onClick={() => setLightboxImage(msg.attachmentUrl!)}
+                                className="block rounded-xl overflow-hidden border border-black/10 max-w-xs transition-transform hover:scale-[1.02]"
+                              >
+                                <img src={msg.attachmentUrl} alt="Attachment" className="max-h-48 object-cover rounded-xl" />
+                              </button>
+                            ) : (
+                              <a
+                                href={msg.attachmentUrl}
+                                download={msg.attachmentName || 'document'}
+                                className={`flex items-center gap-2.5 p-3 rounded-xl border text-[11px] font-mono transition-all ${
+                                  isUser ? 'bg-black/10 border-black/10 text-black hover:bg-black/20' : 'bg-white/5 border-white/10 text-emerald-400 hover:bg-white/10'
+                                }`}
+                              >
+                                <FileText className="w-4 h-4 shrink-0" />
+                                <span className="truncate flex-1 font-bold">{msg.attachmentName || 'Document Attachment'}</span>
+                                <Download className="w-3.5 h-3.5 shrink-0" />
+                              </a>
+                            )}
                           </div>
                         )}
+
                       </div>
 
-                      {/* Delivered / Read indicators for user messages */}
+                      {/* Delivery Status */}
                       {isUser && (
-                        <div className="flex items-center gap-1 mt-1 text-[9px] text-emerald-400 font-mono">
+                        <div className="flex items-center gap-1 mt-1 px-1 text-[9px] text-emerald-400 font-mono font-bold">
                           <span>✓✓ Delivered</span>
                           <span>• Read</span>
                         </div>
                       )}
+
                     </motion.div>
                   );
                 })}
 
-                {/* Typing Indicator */}
+                {/* Support Agent Typing Indicator */}
                 {isTyping && (
-                  <div className="flex items-center gap-2 text-xs text-slate-400 italic">
+                  <motion.div
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 w-max"
+                  >
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                    <span>Support specialist is typing a response...</span>
-                  </div>
+                    <span className="font-bold">Support specialist is typing...</span>
+                  </motion.div>
                 )}
-                
+
                 <div ref={chatEndRef} />
               </div>
 
-              {/* Fixed Message Composer */}
-              <form onSubmit={handleSendMessage} className={`shrink-0 p-4 border-t flex items-center gap-3 ${isDark ? 'bg-[#090C12] border-white/5' : 'bg-white border-slate-200 shadow-lg'}`}>
-                
-                {/* Attachment Button */}
-                <button
-                  type="button"
-                  onClick={handleAttachFile}
-                  className={`p-2.5 rounded-xl border transition-all ${isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700'}`}
-                  title="Attach file or log"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
+            )}
 
-                {attachment && (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-[11px] font-mono text-emerald-400">
-                    <FileText className="w-3.5 h-3.5" />
-                    <span className="truncate max-w-[120px]">{attachment.name}</span>
-                    <button type="button" onClick={() => setAttachment(null)} className="hover:text-white">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
+          </div>
 
-                {/* Message Input Field */}
-                <input
-                  type="text"
-                  placeholder="Type your message to support..."
-                  value={messageText}
-                  onChange={e => setMessageText(e.target.value)}
-                  className={`flex-1 px-4 py-3 rounded-xl border text-xs font-medium focus:outline-none focus:border-emerald-500 ${
-                    isDark ? 'bg-black/40 border-white/10 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
-                  }`}
-                />
+          {/* Fixed Composer Input Bar */}
+          <div className={`shrink-0 p-3 sm:p-4 border-t z-20 ${
+            isDark ? 'bg-[#090C12] border-white/5' : 'bg-white border-slate-200 shadow-xl'
+          }`}>
+            
+            {/* Hidden File Input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/*,.pdf,.doc,.docx,.txt"
+              className="hidden"
+            />
 
-                {/* Send Button */}
-                <button
-                  type="submit"
-                  disabled={!messageText.trim()}
-                  className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black px-5 py-3 rounded-xl font-black text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/20"
-                >
-                  <Send className="w-4 h-4" />
-                  <span className="hidden sm:inline">Send</span>
-                </button>
-              </form>
-
-            </div>
-          )}
-        </div>
-
-        {/* My Tickets Side Panel */}
-        <AnimatePresence>
-          {showTicketsPanel && (
-            <motion.div
-              initial={{ x: '100%', opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: '100%', opacity: 0 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className={`absolute top-0 right-0 bottom-0 w-80 sm:w-96 border-l z-30 flex flex-col shadow-2xl ${
-                isDark ? 'bg-[#0E121B] border-white/10' : 'bg-white border-slate-200'
-              }`}
-            >
-              <div className="p-4 border-b flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-emerald-400" />
-                  <h3 className="text-xs font-black uppercase tracking-wider">My Sovereign Tickets</h3>
-                </div>
-                <button 
-                  onClick={() => setShowTicketsPanel(false)}
-                  className="p-1 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white"
-                >
-                  <X className="w-5 h-5" />
+            {/* Pending Attachment Chip */}
+            {attachment && (
+              <div className="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 font-mono">
+                {attachment.type === 'image' ? <ImageIcon className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                <span className="truncate max-w-[200px]">{attachment.name}</span>
+                <button onClick={() => setAttachment(null)} className="ml-auto hover:text-white">
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
+            )}
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {tickets.length > 0 ? (
-                  tickets.map((ticket) => (
-                    <button
+            <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+              
+              {/* Attachment Button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`p-3 rounded-xl border transition-all ${
+                  isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700'
+                }`}
+                title="Attach image or document (PDF, PNG, JPG, DOC)"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
+              {/* Message Input Field */}
+              <input
+                type="text"
+                placeholder={activeTicket ? "Type your message to support specialist..." : "Start a conversation..."}
+                value={messageText}
+                onChange={e => setMessageText(e.target.value)}
+                className={`flex-1 px-4 py-3 rounded-xl border text-xs font-medium focus:outline-none focus:border-emerald-500 ${
+                  isDark ? 'bg-black/40 border-white/10 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                }`}
+              />
+
+              {/* Optional Voice Recording Button */}
+              {isVoiceRecording ? (
+                <button
+                  type="button"
+                  onClick={stopAndSendVoiceNote}
+                  className="px-4 py-3 rounded-xl bg-rose-500 text-white font-black text-xs flex items-center gap-2 animate-pulse"
+                >
+                  <Mic className="w-4 h-4" />
+                  <span>Send ({recordingSeconds}s)</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startVoiceRecording}
+                  className={`p-3 rounded-xl border transition-all ${
+                    isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700'
+                  }`}
+                  title="Hold voice note"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Send Button */}
+              <button
+                type="submit"
+                disabled={!messageText.trim() && !attachment}
+                className="bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 disabled:opacity-40 text-black px-5 py-3 rounded-xl font-black text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/20"
+              >
+                <Send className="w-4 h-4" />
+                <span className="hidden sm:inline">Send</span>
+              </button>
+
+            </form>
+          </div>
+
+        </div>
+      ) : (
+
+        /* SECONDARY VIEW MODE: SUPPORT TICKETS PAGE */
+        <div className="flex-1 flex flex-col h-full overflow-y-auto relative">
+          
+          {/* Header */}
+          <header className={`shrink-0 h-16 px-6 flex items-center justify-between border-b sticky top-0 backdrop-blur-md z-20 ${
+            isDark ? 'bg-[#0E121B]/90 border-white/5' : 'bg-white/90 border-slate-200'
+          }`}>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setViewMode('chat')}
+                className={`p-2 rounded-xl transition-all ${isDark ? 'hover:bg-white/5 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600'}`}
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div>
+                <h1 className="text-sm font-black tracking-tight">Support Tickets</h1>
+                <p className="text-[10px] text-slate-400 font-mono">Formal Support Requests & Case History</p>
+              </div>
+            </div>
+          </header>
+
+          <div className="p-6 space-y-6 max-w-5xl mx-auto w-full">
+            
+            {/* HERO CARD BANNER */}
+            <div className="relative overflow-hidden rounded-3xl p-6 sm:p-8 bg-gradient-to-r from-emerald-900/40 via-teal-900/20 to-black border border-emerald-500/30 shadow-2xl">
+              <div className="relative z-10 space-y-3 max-w-2xl">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-wider">
+                  <Shield className="w-3.5 h-3.5" />
+                  Structured Engineering & Compliance Escalations
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                  Need a dedicated investigation for deposits, withdrawals, or security?
+                </h2>
+                <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                  Create a formal ticket to assign dedicated specialists for financial execution verification, session audits, or compliance reviews.
+                </p>
+                <div className="pt-2">
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs px-6 py-3 rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:scale-105"
+                  >
+                    Create New Ticket
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* MY TICKETS SECTION */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h3 className="text-base font-black tracking-tight">My Tickets</h3>
+                  <p className="text-xs text-slate-400 font-medium">Manage and track your active support inquiries</p>
+                </div>
+
+                {/* Search & Filter Controls */}
+                <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border w-full sm:w-64 ${
+                    isDark ? 'bg-black/40 border-white/10' : 'bg-white border-slate-200'
+                  }`}>
+                    <Search className="w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search ticket ID or topic..."
+                      value={ticketSearch}
+                      onChange={e => setTicketSearch(e.target.value)}
+                      className="bg-transparent border-none focus:outline-none text-xs w-full"
+                    />
+                  </div>
+
+                  <select
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs font-bold focus:outline-none ${
+                      isDark ? 'bg-black/40 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="open">Open</option>
+                    <option value="pending">Pending Response</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Tickets Grid / List */}
+              <div className="space-y-3">
+                {filteredTickets.length > 0 ? (
+                  filteredTickets.map(ticket => (
+                    <div
                       key={ticket.id}
-                      onClick={() => {
-                        setActiveTicket(ticket);
-                        setShowTicketsPanel(false);
-                      }}
-                      className={`w-full p-4 rounded-2xl border text-left transition-all ${
-                        activeTicket?.id === ticket.id
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                          : isDark ? 'bg-white/5 border-white/5 hover:border-white/10 text-white' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-900'
+                      className={`p-5 rounded-2xl border transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
+                        isDark ? 'bg-[#0E121B] border-white/5 hover:border-white/20' : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
                       }`}
                     >
-                      <div className="flex justify-between items-center mb-1.5">
-                        <span className="text-[10px] font-mono font-bold text-slate-400">{ticket.id}</span>
-                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs font-black text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                            {ticket.id}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            {ticket.category}
+                          </span>
+                          <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                            ticket.priority === 'critical' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/20' :
+                            ticket.priority === 'high' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' :
+                            'bg-sky-500/20 text-sky-400 border border-sky-500/20'
+                          }`}>
+                            {ticket.priority} priority
+                          </span>
+                        </div>
+
+                        <h4 className="text-sm font-black text-slate-100">{ticket.title}</h4>
+                        <p className="text-xs text-slate-400 line-clamp-2 font-medium">{ticket.description}</p>
+
+                        <div className="flex items-center gap-4 text-[10px] text-slate-500 font-mono pt-1">
+                          <span>Created: {new Date(ticket.createdAt).toLocaleDateString()}</span>
+                          <span>Updated: {new Date(ticket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-white/5">
+                        <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider ${
                           ticket.status === 'resolved' || ticket.status === 'closed'
                             ? 'bg-slate-800 text-slate-400'
-                            : 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                         }`}>
                           {ticket.status}
                         </span>
+
+                        <button
+                          onClick={() => {
+                            setActiveTicket(ticket);
+                            setViewMode('chat');
+                          }}
+                          className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5"
+                        >
+                          <span>Open Chat</span>
+                          <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+                        </button>
                       </div>
-                      <h4 className="text-xs font-black truncate mb-1">{ticket.title}</h4>
-                      <p className="text-[11px] text-slate-400 truncate">{ticket.description}</p>
-                    </button>
+
+                    </div>
                   ))
                 ) : (
-                  <div className="text-center py-16 text-slate-500 space-y-2">
-                    <LifeBuoy className="w-8 h-8 mx-auto opacity-40" />
-                    <p className="text-xs font-bold">No previous tickets found.</p>
+                  <div className="py-20 text-center text-slate-500 space-y-3 border border-dashed border-white/10 rounded-3xl">
+                    <MessageSquare className="w-10 h-10 mx-auto opacity-30 text-emerald-400" />
+                    <p className="text-xs font-bold">No support tickets found.</p>
                   </div>
                 )}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
-      </div>
+            </div>
 
-      {/* Create Support Ticket Modal */}
+          </div>
+
+        </div>
+      )}
+
+      {/* CREATE NEW SUPPORT TICKET MODAL */}
       <AnimatePresence>
         {showCreateModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl relative ${
+              className={`w-full max-w-xl rounded-3xl border p-6 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto ${
                 isDark ? 'bg-[#0E121B] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
-              <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <LifeBuoy className="w-5 h-5" />
+                  <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <Plus className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black tracking-tight">Create Support Ticket</h3>
-                    <p className="text-[11px] text-slate-400">Directly connect with our specialist team</p>
+                    <h3 className="text-base font-black tracking-tight">Create Support Ticket</h3>
+                    <p className="text-xs text-slate-400 font-medium">Submit structured inquiry directly to specialist desk</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowCreateModal(false)}
-                  className="p-1.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-colors"
+                  className="p-2 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleCreateTicket} className="space-y-4">
+              <form onSubmit={handleCreateTicketSubmit} className="space-y-4">
                 
                 {/* Category */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Category</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Category *</label>
                   <select
                     value={newCategory}
                     onChange={e => setNewCategory(e.target.value)}
@@ -555,21 +1117,23 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                       isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                   >
-                    <option value="Trading & Execution">Trading & Execution</option>
-                    <option value="AI Strategy Copilot">AI Strategy Copilot</option>
-                    <option value="Security & Biometrics">Security & Biometrics</option>
                     <option value="Deposits & Wallet">Deposits & Wallet</option>
+                    <option value="Withdrawals">Withdrawals</option>
+                    <option value="AI Trading Sessions">AI Trading Sessions</option>
                     <option value="Account & Verification">Account & Verification</option>
+                    <option value="Account Security">Account Security</option>
+                    <option value="Technical Issues">Technical Issues</option>
+                    <option value="General">General Inquiry</option>
                   </select>
                 </div>
 
-                {/* Subject */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Subject</label>
+                {/* Subject / Title */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Subject / Issue Title *</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Deposit settlement delay, AI strategy desync..."
+                    placeholder="e.g. Deposit settlement inquiry, AI strategy execution..."
                     value={newSubject}
                     onChange={e => setNewSubject(e.target.value)}
                     className={`w-full px-4 py-3 rounded-xl border text-xs font-semibold focus:outline-none focus:border-emerald-500 ${
@@ -578,9 +1142,38 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                   />
                 </div>
 
+                {/* Optional IDs */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Transaction ID (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. TXN-94021"
+                      value={newTransactionId}
+                      onChange={e => setNewTransactionId(e.target.value)}
+                      className={`w-full px-4 py-3 rounded-xl border text-xs font-mono focus:outline-none focus:border-emerald-500 ${
+                        isDark ? 'bg-black/50 border-white/10 text-white placeholder-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Trading Session ID (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. SES-8831"
+                      value={newTradingSessionId}
+                      onChange={e => setNewTradingSessionId(e.target.value)}
+                      className={`w-full px-4 py-3 rounded-xl border text-xs font-mono focus:outline-none focus:border-emerald-500 ${
+                        isDark ? 'bg-black/50 border-white/10 text-white placeholder-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                      }`}
+                    />
+                  </div>
+                </div>
+
                 {/* Priority */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Priority</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Priority *</label>
                   <select
                     value={newPriority}
                     onChange={e => setNewPriority(e.target.value as any)}
@@ -588,20 +1181,20 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                       isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                   >
-                    <option value="low">Low - General Inquiry</option>
-                    <option value="medium">Medium - Standard Assistance</option>
-                    <option value="high">High - Urgent Issue</option>
-                    <option value="critical">Critical - System / Security Error</option>
+                    <option value="low">Low - General Question</option>
+                    <option value="medium">Medium - Standard Inquiry</option>
+                    <option value="high">High - Urgent Assistance Required</option>
+                    <option value="critical">Critical - System Error or Financial Block</option>
                   </select>
                 </div>
 
                 {/* Description */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Description</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Message / Details *</label>
                   <textarea
                     required
                     rows={4}
-                    placeholder="Provide detailed information regarding your inquiry..."
+                    placeholder="Provide detailed description of your inquiry..."
                     value={newDescription}
                     onChange={e => setNewDescription(e.target.value)}
                     className={`w-full px-4 py-3 rounded-xl border text-xs font-medium focus:outline-none focus:border-emerald-500 ${
@@ -610,41 +1203,100 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                   />
                 </div>
 
-                {/* Optional Attachment */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Optional Attachment</label>
-                  <div className="flex items-center gap-3">
+                {/* Attachment Upload */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Attachment Upload</label>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <button
                       type="button"
-                      onClick={handleAttachFile}
-                      className={`px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all ${
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
                         isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700'
                       }`}
                     >
-                      <Paperclip className="w-4 h-4" />
-                      <span>Attach File / Screenshot</span>
+                      <Paperclip className="w-4 h-4 text-emerald-400" />
+                      <span>Upload Document / Image</span>
                     </button>
-                    {attachment && (
-                      <span className="text-xs text-emerald-400 font-mono flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" />
-                        {attachment.name}
-                      </span>
+
+                    {attachment ? (
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 font-mono">
+                        {attachment.type === 'image' ? <ImageIcon className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
+                        <span className="truncate max-w-[180px]">{attachment.name}</span>
+                        <button 
+                          type="button" 
+                          onClick={() => { setAttachment(null); setSelectedFile(null); }} 
+                          className="hover:text-white p-0.5"
+                          title="Remove attachment"
+                        >
+                          <X className="w-3.5 h-3.5 text-rose-400" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 font-medium">Supports PNG, JPG, PDF, DOC, TXT (Max 15MB)</span>
                     )}
                   </div>
                 </div>
 
                 {/* Submit Action */}
-                <div className="pt-3">
+                <div className="pt-4">
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-40 text-black font-black text-xs py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                    className="w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 hover:scale-[1.01] disabled:opacity-40 text-black font-black text-xs py-4 rounded-xl transition-all shadow-xl shadow-emerald-500/20"
                   >
-                    {submitting ? "Creating Ticket..." : "Submit Ticket & Open Chat"}
+                    {submitting ? "Submitting Ticket..." : "Submit Ticket & Open Live Chat"}
                   </button>
                 </div>
 
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CHAT SETTINGS MODAL */}
+      <AnimatePresence>
+        {showSettingsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={`w-full max-w-sm rounded-3xl border p-6 shadow-2xl relative ${
+                isDark ? 'bg-[#0E121B] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-emerald-400" />
+                  <h3 className="text-sm font-black">Chat Preferences</h3>
+                </div>
+                <button onClick={() => setShowSettingsModal(false)} className="p-1 rounded-lg hover:bg-white/5">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs font-bold">
+                <div className="flex items-center justify-between p-3 rounded-xl bg-white/5">
+                  <span>Message Alert Sounds</span>
+                  <button
+                    onClick={() => setSoundEnabled(!soundEnabled)}
+                    className={`w-10 h-6 rounded-full transition-colors p-1 flex items-center ${soundEnabled ? 'bg-emerald-500 justify-end' : 'bg-slate-700 justify-start'}`}
+                  >
+                    <span className="w-4 h-4 rounded-full bg-black"></span>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-3 rounded-xl bg-white/5">
+                  <span>Auto-scroll to New Messages</span>
+                  <button
+                    onClick={() => setAutoScroll(!autoScroll)}
+                    className={`w-10 h-6 rounded-full transition-colors p-1 flex items-center ${autoScroll ? 'bg-emerald-500 justify-end' : 'bg-slate-700 justify-start'}`}
+                  >
+                    <span className="w-4 h-4 rounded-full bg-black"></span>
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

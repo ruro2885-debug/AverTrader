@@ -112,14 +112,27 @@ export default function Hero({ theme, onShowcase, onGetStarted }: HeroProps) {
         <div className="lg:col-span-7 flex flex-col items-start text-left space-y-6">
           
           {/* Technology Badges */}
-          <div className="flex flex-wrap gap-2 animate-fade-in">
-            <span className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-xs font-bold font-mono tracking-wide">
-              <Cpu className="w-3.5 h-3.5 animate-pulse" />
-              <span>{t('hero.badge.ai')}</span>
+          <div className="flex flex-wrap items-center gap-2.5 animate-fade-in">
+            <span className={`inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs tracking-wide transition-all shadow-sm ${
+              isDark 
+                ? 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300 shadow-emerald-950/30 hover:border-emerald-400/50' 
+                : 'border-emerald-600/30 bg-emerald-50/80 text-emerald-800 shadow-emerald-500/10 hover:border-emerald-500/60'
+            }`}>
+              <Cpu className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span className={isDark ? 'bg-gradient-to-r from-emerald-200 via-emerald-300 to-teal-200 bg-clip-text text-transparent font-semibold' : 'text-emerald-900 font-semibold'}>
+                {t('hero.badge.ai')}
+              </span>
             </span>
-            <span className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full border border-teal-500/20 bg-teal-500/10 text-teal-400 text-xs font-bold font-mono tracking-wide">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{t('hero.badge.peo')}</span>
+
+            <span className={`inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs tracking-wide transition-all shadow-sm ${
+              isDark 
+                ? 'border-teal-500/30 bg-teal-950/40 text-teal-300 shadow-teal-950/30 hover:border-teal-400/50' 
+                : 'border-teal-600/30 bg-teal-50/80 text-teal-800 shadow-teal-500/10 hover:border-teal-500/60'
+            }`}>
+              <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+              <span className={isDark ? 'bg-gradient-to-r from-teal-200 via-cyan-200 to-emerald-200 bg-clip-text text-transparent font-semibold' : 'text-teal-900 font-semibold'}>
+                {t('hero.badge.peo')}
+              </span>
             </span>
           </div>
 

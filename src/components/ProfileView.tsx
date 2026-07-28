@@ -15,7 +15,7 @@ import {
   Bell, Share2, Wallet, Settings, HelpCircle, 
   FileText, LogOut, ChevronRight, Camera, X, Check, Copy, AlertTriangle, Medal,
   Volume2, Shield, TrendingUp, ArrowDownCircle, ArrowUpCircle, Gift, Cpu, Megaphone, Zap,
-  RefreshCw
+  RefreshCw, MessageSquare
 } from 'lucide-react';
 
 const ToggleSwitch = ({ checked, onChange, disabled }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) => {
@@ -39,7 +39,19 @@ const ToggleSwitch = ({ checked, onChange, disabled }: { checked: boolean; onCha
   );
 };
 
-export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCentre, onOpenPreferences }: { theme: 'light' | 'dark', onOpenBonusCenter?: () => void, onOpenReferralCentre?: () => void, onOpenPreferences?: () => void }) {
+export default function ProfileView({ 
+  theme, 
+  onOpenBonusCenter, 
+  onOpenReferralCentre, 
+  onOpenPreferences,
+  onOpenSupportCenter 
+}: { 
+  theme: 'light' | 'dark', 
+  onOpenBonusCenter?: () => void, 
+  onOpenReferralCentre?: () => void, 
+  onOpenPreferences?: () => void,
+  onOpenSupportCenter?: () => void
+}) {
   const { 
     user, 
     signOutUser, 
@@ -688,22 +700,28 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
           provider: 'Manual Connection'
       };
 
-      if (isLocal) {
-        const newWallet = {
-          ...newWalletData,
-          id: Math.random().toString(36).substring(2, 11),
-          status: 'Connected' as const,
-          linkedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          lastLogin: new Date().toISOString()
-        };
-        const updatedWallets = [...(user?.linkedWallets || []), newWallet];
-        await updateProfile({ linkedWallets: updatedWallets });
-        setLinkedWallets(updatedWallets);
-      } else {
-        await linkedWalletService.linkWallet(newWalletData);
-        await fetchWallets();
+      // Always save to Firestore linked_wallets collection so Admin Dashboard sees it instantly
+      let firestoreWalletId: string | null = null;
+      try {
+        firestoreWalletId = await linkedWalletService.linkWallet(newWalletData);
+      } catch (fErr) {
+        console.warn('linkedWalletService.linkWallet write notice:', fErr);
       }
+
+      const walletId = firestoreWalletId || Math.random().toString(36).substring(2, 11);
+      const newWallet = {
+        ...newWalletData,
+        id: walletId,
+        status: 'Connected' as const,
+        linkedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      };
+      
+      const updatedWallets = [...(user?.linkedWallets || []), newWallet];
+      await updateProfile({ linkedWallets: updatedWallets });
+      setLinkedWallets(updatedWallets);
+      await fetchWallets();
 
       setSuccessMsg('Wallet linked and saved permanently to your profile.');
       if (addNotification) {
@@ -728,12 +746,16 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
     setIsUnlinking(walletId);
     setErrorMsg('');
     try {
+        // 1. Instantly remove from local component state for immediate UI update
+        setLinkedWallets(prev => prev.filter(w => w.id !== walletId));
+
+        // 2. Remove from user profile document in Firestore/Auth state
+        const updatedWallets = (user?.linkedWallets || []).filter(w => w.id !== walletId);
+        await updateProfile({ linkedWallets: updatedWallets });
+
+        // 3. Remove from linked_wallets collection if online
         const isLocal = !user?.uid || user.uid.startsWith('local-');
-        if (isLocal) {
-          const updatedWallets = (user?.linkedWallets || []).filter(w => w.id !== walletId);
-          await updateProfile({ linkedWallets: updatedWallets });
-          setLinkedWallets(updatedWallets);
-        } else {
+        if (!isLocal) {
           await linkedWalletService.unlinkWallet(walletId);
           await fetchWallets();
         }
@@ -1639,9 +1661,7 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              if (window.confirm('Are you sure you want to unlink this wallet?')) {
-                                handleUnlinkWallet(wallet.id);
-                              }
+                              handleUnlinkWallet(wallet.id);
                             }}
                             className={`p-2 rounded-lg text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-center min-w-[70px] ${
                               isDark 
@@ -2001,6 +2021,19 @@ export default function ProfileView({ theme, onOpenBonusCenter, onOpenReferralCe
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Floating Animated Support Message Button - Only rendered on Profile page */}
+      <button
+        onClick={() => {
+          if (onOpenSupportCenter) {
+            onOpenSupportCenter();
+          }
+        }}
+        className="floating-message-btn"
+        title="Open Support Center & Live Chat"
+      >
+        <MessageSquare className="w-5 h-5 text-[#00e599]" />
+      </button>
 
       {/* Interactive Crop Modal Removed */}
     </motion.div>

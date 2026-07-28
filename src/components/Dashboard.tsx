@@ -48,26 +48,66 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const handleSelectStrategy = async (strategy: any) => {
     if (!currentConfig) return;
 
-    // Map strategy to AiTradingRules.tradingStrategy
     let tradingStrategy: 'NEURAL_MOMENTUM' | 'VOLATILITY_BREAKOUT' | 'MEAN_REVERSION' | 'QUANT_GRID' = 'NEURAL_MOMENTUM';
     if (strategy.category === 'Breakout') tradingStrategy = 'VOLATILITY_BREAKOUT';
     else if (strategy.category === 'Grid') tradingStrategy = 'QUANT_GRID';
     else if (strategy.category === 'Mean Reversion') tradingStrategy = 'MEAN_REVERSION';
 
+    // Parse capital allocation string (e.g., "80% active trading" or "$1,000")
+    let capitalAmount = 1000;
+    if (strategy.recommendedAiConfig?.capitalAllocation) {
+      const match = strategy.recommendedAiConfig.capitalAllocation.match(/(\d+)/);
+      if (match) capitalAmount = Math.max(500, parseInt(match[1]) * 10);
+    }
+
+    // Parse confidence
+    const minConf = strategy.aiConfidence ? parseInt(strategy.aiConfidence) : 85;
+
+    // Clean asset formats (e.g. BTC/USDT -> BTC)
+    const assets = strategy.supportedAssets
+      ? strategy.supportedAssets.map((a: string) => a.split('/')[0])
+      : ['BTC', 'ETH', 'SOL'];
+
     const updatedConfig = {
       ...currentConfig,
+      name: `${strategy.name}`,
+      sessionSetup: {
+        ...currentConfig.sessionSetup,
+        amountToAllocate: capitalAmount > 0 ? capitalAmount : currentConfig.sessionSetup.amountToAllocate,
+      },
+      profitRiskManagement: {
+        ...currentConfig.profitRiskManagement,
+        sessionTakeProfit: Math.abs(parseFloat(strategy.apy) || 15),
+        sessionStopLoss: Math.abs(parseFloat(strategy.maxDrawdown) || 5),
+        maxRiskPerTrade: strategy.riskLevel === 'Low' ? 1.5 : strategy.riskLevel === 'Medium' ? 3 : 5,
+      },
       aiTradingRules: {
         ...currentConfig.aiTradingRules,
-        tradingStrategy
+        tradingStrategy,
+        minConfidence: minConf,
+        assetSelection: assets,
       },
       configurationDetails: {
         ...currentConfig.configurationDetails,
-        description: strategy.description,
+        description: `${strategy.description}\n\n[Implementation Logic]: ${strategy.howItWorks}`,
         category: strategy.category,
       },
       analyticsAndNotes: {
         ...currentConfig.analyticsAndNotes,
-        strategyNotes: `${strategy.name}: ${strategy.description}`
+        riskScore: strategy.riskLevel === 'Low' ? 25 : strategy.riskLevel === 'Medium' ? 55 : 85,
+        strategyNotes: `Deployed Strategy: ${strategy.name}\n` +
+          `• Implementation: ${strategy.howItWorks}\n` +
+          `• Timeframes: ${strategy.timeframes?.join(', ') || '15m, 1h'}\n` +
+          `• Execution Frequency: ${strategy.recommendedAiConfig?.frequency || 'Adaptive'}\n` +
+          `• Stop Loss Rule: ${strategy.recommendedAiConfig?.stopLoss || 'Dynamic Trailing'}\n` +
+          `• Position Sizing: ${strategy.recommendedAiConfig?.positionSizing || '15% per trade'}\n` +
+          `• Expected Behavior: ${strategy.expectedBehavior}\n` +
+          `• Key Advantages: ${strategy.advantages?.join(', ')}`,
+        performanceStats: {
+          winRate: parseFloat(strategy.successRate) || 88,
+          totalReturn: parseFloat(strategy.apy) || 42,
+          drawdown: parseFloat(strategy.maxDrawdown) || 3.8
+        }
       }
     };
     
@@ -85,6 +125,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const [activeTab, setActiveTab] = useState(() => {
     return safeStorage.getItem('aver_dashboard_tab') || 'home';
   });
+  const [supportBackTab, setSupportBackTab] = useState<string>('discover');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
 
@@ -669,9 +710,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* Main content shifted left margin on desktop */}
       <div className={`${isFullScreen ? '' : 'lg:pl-64'} flex-1 flex flex-col`}>
-        <div className={`relative z-10 flex-1 flex flex-col p-0 sm:p-0 ${isFullScreen ? 'w-full max-w-none m-0' : 'lg:max-w-none lg:mx-0'} pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' ? 'pt-[50px]' : ''} ${!isFullScreen && (activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover') ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
+        <div className={`relative z-10 flex-1 flex flex-col p-0 sm:p-0 ${isFullScreen ? 'w-full max-w-none m-0' : 'lg:max-w-none lg:mx-0'} pt-safe ${activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' && activeTab !== 'support' ? 'pt-[50px]' : ''} ${!isFullScreen && (activeTab === 'home' || activeTab === 'profile' || activeTab === 'discover') ? 'p-4 sm:p-6 lg:max-w-5xl lg:mx-auto' : ''}`}>
           
-          {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' && (
+          {activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'portfolio' && activeTab !== 'ai' && activeTab !== 'support' && (
             <header className={`fixed top-0 left-0 lg:left-64 right-0 h-[50px] flex justify-between items-center px-4 lg:px-8 z-40 ${isDark ? 'bg-black/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
             <div className="flex items-center space-x-3">
               <button 
@@ -975,12 +1016,12 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
           {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
           {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => setActiveTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => { setSupportBackTab('discover'); setActiveTab('support'); }} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
           {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { setActiveTab('home'); setShowDepositModal(true); }} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => { setSupportBackTab('profile'); setActiveTab('support'); }} />}
           
           {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={() => setActiveTab('discover')} onNavigateToTrading={() => setActiveTab('home')} />}
-          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={() => setActiveTab('discover')} />}
+          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={() => setActiveTab(supportBackTab || 'discover')} />}
           
           {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
             <motion.div

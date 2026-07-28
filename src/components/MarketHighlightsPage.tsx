@@ -204,8 +204,8 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
           </div>
           <div className="flex items-center gap-8">
             <div className="hidden md:flex items-center gap-6">
-               {gainers.slice(0, 2).map(m => (
-                 <div key={m.id} className="flex items-center gap-2">
+               {gainers.slice(0, 2).map((m, idx) => (
+                 <div key={`hdr-gainer-${m.id}-${idx}`} className="flex items-center gap-2">
                    <span className="text-[10px] font-bold tracking-wider opacity-40">{m.symbol}</span>
                    <span className="text-[10px] font-mono font-bold text-emerald-500">+{m.change24h.toFixed(2)}%</span>
                  </div>
@@ -269,7 +269,7 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {headlines.slice(0, 2).map((headline, idx) => (
                 <motion.a
-                  key={headline.id}
+                  key={`top-news-${headline.id}-${idx}`}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1 + (idx * 0.1) }}
@@ -321,8 +321,8 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
                     <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
                     <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500/70">Top Alpha</span>
                   </div>
-                  {gainers.map(mover => (
-                    <div key={mover.id} className="flex items-center justify-between group cursor-pointer">
+                  {gainers.map((mover, idx) => (
+                    <div key={`gainer-${mover.id}-${idx}`} className="flex items-center justify-between group cursor-pointer">
                       <div className="flex items-center gap-4">
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-[10px] transition-colors ${isDark ? 'bg-white/5 text-white' : 'bg-slate-100 text-slate-900'}`}>
                           {mover.symbol.charAt(0)}
@@ -348,8 +348,8 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
                     <TrendingDown className="w-3.5 h-3.5 text-rose-500" />
                     <span className="text-[10px] font-black uppercase tracking-widest text-rose-500/70">Risk Exposure</span>
                   </div>
-                  {losers.map(mover => (
-                    <div key={mover.id} className="flex items-center justify-between group cursor-pointer">
+                  {losers.map((mover, idx) => (
+                    <div key={`loser-${mover.id}-${idx}`} className="flex items-center justify-between group cursor-pointer">
                       <div className="flex items-center gap-4">
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-[10px] transition-colors ${isDark ? 'bg-white/5 text-white' : 'bg-slate-100 text-slate-900'}`}>
                           {mover.symbol.charAt(0)}
@@ -402,7 +402,7 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
               <div className="grid gap-8">
                 {headlines.slice(2).map((headline, idx) => (
                   <motion.a 
-                    key={headline.id} 
+                    key={`ext-news-${headline.id}-${idx}`} 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.4 + (idx * 0.1) }}
@@ -442,7 +442,7 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
               <div className="space-y-4">
                 {events.map((event, idx) => (
                   <motion.div 
-                    key={event.id}
+                    key={`evt-${event.id}-${idx}`}
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.5 + (idx * 0.1) }}

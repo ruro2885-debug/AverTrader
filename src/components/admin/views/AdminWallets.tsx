@@ -42,7 +42,6 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   const deleteWallet = async (id: string) => {
-    if (!window.confirm("Permanently unlink this institutional wallet?")) return;
     try {
       await deleteDoc(doc(db, 'linked_wallets', id));
     } catch (err) {

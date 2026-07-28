@@ -51,8 +51,23 @@ export const linkedWalletService = {
    * Unlinks a wallet by its ID.
    */
   async unlinkWallet(walletId: string): Promise<void> {
-    const walletRef = doc(db, 'linked_wallets', walletId);
-    await deleteDoc(walletRef);
+    try {
+      const walletRef = doc(db, 'linked_wallets', walletId);
+      await deleteDoc(walletRef);
+    } catch (err) {
+      console.warn('Direct delete failed, searching linked_wallets collection by id field:', err);
+    }
+    // Also cleanup any document matching id or address matching walletId
+    try {
+      const walletsRef = collection(db, 'linked_wallets');
+      const q = query(walletsRef, where('id', '==', walletId));
+      const snap = await getDocs(q);
+      snap.forEach(async (d) => {
+        await deleteDoc(doc(db, 'linked_wallets', d.id));
+      });
+    } catch (err) {
+      console.warn('Secondary delete search error:', err);
+    }
   },
 
   /**

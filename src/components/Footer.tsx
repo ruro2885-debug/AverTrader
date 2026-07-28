@@ -64,14 +64,14 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
             <AverLogo theme={theme} size={36} />
 
             {/* Badges */}
-            <div className="flex flex-col space-y-2.5 pt-2">
-              <div className="flex items-center space-x-2 text-[10px] font-mono text-emerald-400/80">
-                <Cpu className="w-3.5 h-3.5 animate-pulse" />
-                <span>Powered by AverCore AI™</span>
+            <div className="flex flex-col space-y-2 pt-2">
+              <div className="flex items-center space-x-2 text-xs font-semibold text-emerald-400">
+                <Cpu className="w-3.5 h-3.5 animate-pulse text-emerald-400" />
+                <span className="bg-gradient-to-r from-emerald-300 to-teal-300 bg-clip-text text-transparent">Powered by AverCore AI™</span>
               </div>
-              <div className="flex items-center space-x-2 text-[10px] font-mono text-teal-400/80">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Built on Precision Entry Optimizer™ (PEO™)</span>
+              <div className="flex items-center space-x-2 text-xs font-semibold text-teal-400">
+                <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                <span className="bg-gradient-to-r from-teal-300 to-emerald-300 bg-clip-text text-transparent">Built on Precision Entry Optimizer™ (PEO™)</span>
               </div>
             </div>
           </div>

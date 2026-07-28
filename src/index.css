@@ -209,3 +209,70 @@ h1, h2, h3, h4, h5, h6 {
   animation: bgFloat3 12s ease-in-out infinite;
 }
 
+/* Floating Message Support Button */
+.floating-message-btn {
+  position: fixed;
+  bottom: 68px; /* Lowered nicely toward the bottom */
+  right: 20px;
+  width: 42px;
+  height: 42px;
+
+  /* 3D Glass Layering & Gradients */
+  background: linear-gradient(
+    135deg, 
+    rgba(0, 255, 170, 0.25) 0%, 
+    rgba(0, 180, 110, 0.05) 100%
+  );
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+
+  /* Multi-layered borders for 3D bezel edge */
+  border: 1px solid rgba(255, 255, 170, 0.35); /* Top highlight border */
+  border-bottom: 1px solid rgba(0, 120, 70, 0.4); /* Bottom shadow border */
+  
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* 3D Depth Shadows (Deep drop shadow + inner glow) */
+  box-shadow: 
+    0 10px 25px -5px rgba(0, 0, 0, 0.6),        /* Deep canvas shadow */
+    0 4px 12px rgba(0, 229, 153, 0.25),          /* Green ambient glow */
+    inset 0 1px 1px rgba(255, 255, 255, 0.6),    /* Top inner specular highlight */
+    inset 0 -2px 4px rgba(0, 100, 50, 0.3);      /* Bottom inner depth shadow */
+
+  color: #00ffaa;
+  cursor: pointer;
+  z-index: 1000;
+  animation: floatAnimation 3.5s ease-in-out infinite;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Smooth 3D Floating Bob */
+@keyframes floatAnimation {
+  0% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(1deg); /* Tiny natural tilt */
+  }
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+}
+
+.floating-message-btn:hover {
+  background: linear-gradient(
+    135deg, 
+    rgba(0, 255, 170, 0.35) 0%, 
+    rgba(0, 180, 110, 0.15) 100%
+  );
+  transform: scale(1.08) translateY(-4px);
+  box-shadow: 
+    0 14px 30px -4px rgba(0, 0, 0, 0.7),
+    0 6px 16px rgba(0, 229, 153, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.8),
+    inset 0 -2px 4px rgba(0, 100, 50, 0.4);
+}
+
