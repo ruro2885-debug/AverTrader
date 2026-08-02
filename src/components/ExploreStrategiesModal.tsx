@@ -110,7 +110,7 @@ export const ExploreStrategiesModal: React.FC<ExploreStrategiesModalProps> = ({
     onSelectStrategy(featuredStrategy);
 
     // Show subtle toast notification
-    setToastMessage("Your deployed strategy is available in configuration");
+    setToastMessage("Deployed successfully");
 
     setTimeout(() => {
       setIsDeploying(false);

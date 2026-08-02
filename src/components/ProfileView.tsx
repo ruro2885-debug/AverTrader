@@ -365,18 +365,47 @@ export default function ProfileView({
     }
     try {
       const data = await linkedWalletService.getLinkedWallets(user.uid);
-      setLinkedWallets(data);
+      const combinedMap = new Map<string, LinkedWallet>();
+      (user?.linkedWallets || []).forEach(w => {
+        if (w.address) combinedMap.set(w.address.toLowerCase(), w);
+      });
+      data.forEach(w => {
+        if (w.address) combinedMap.set(w.address.toLowerCase(), w);
+      });
+      const finalWallets = Array.from(combinedMap.values()).sort((a, b) => new Date(b.linkedAt || 0).getTime() - new Date(a.linkedAt || 0).getTime());
+      setLinkedWallets(finalWallets);
     } catch (err) {
       console.error('Failed to fetch linked wallets:', err);
+      setLinkedWallets(user?.linkedWallets || []);
     } finally {
       setIsLoadingWallets(false);
     }
   };
 
   useEffect(() => {
-    if (user?.uid) {
-      fetchWallets();
+    if (!user?.uid || user.uid.startsWith('local-')) {
+      setLinkedWallets(user?.linkedWallets || []);
+      setIsLoadingWallets(false);
+      return;
     }
+
+    setIsLoadingWallets(true);
+    fetchWallets();
+
+    const unsub = linkedWalletService.subscribeUserWallets(user.uid, (firestoreWallets) => {
+      const combinedMap = new Map<string, LinkedWallet>();
+      (user?.linkedWallets || []).forEach(w => {
+        if (w.address) combinedMap.set(w.address.toLowerCase(), w);
+      });
+      firestoreWallets.forEach(w => {
+        if (w.address) combinedMap.set(w.address.toLowerCase(), w);
+      });
+      const finalWallets = Array.from(combinedMap.values()).sort((a, b) => new Date(b.linkedAt || 0).getTime() - new Date(a.linkedAt || 0).getTime());
+      setLinkedWallets(finalWallets);
+      setIsLoadingWallets(false);
+    });
+
+    return () => unsub();
   }, [user?.uid]);
 
   const textPrimary = isDark ? "text-white" : "text-slate-900";
@@ -682,15 +711,15 @@ export default function ProfileView({
       return;
     }
     
-    if (user?.linkedWallets?.some(w => w.address.toLowerCase() === trimmedAddress.toLowerCase())) {
+    if (linkedWallets.some(w => w.address.toLowerCase() === trimmedAddress.toLowerCase()) || 
+        user?.linkedWallets?.some(w => w.address.toLowerCase() === trimmedAddress.toLowerCase())) {
       setErrorMsg('This wallet is already linked to your account.');
       return;
     }
 
     setIsUpdatingProfile(true);
     try {
-      const isLocal = !user?.uid || user.uid.startsWith('local-');
-      
+      const walletId = Math.random().toString(36).substring(2, 11);
       const newWalletData = {
           userId: user?.uid || 'guest',
           userName: user?.displayName || user?.username || 'Trader',
@@ -700,30 +729,37 @@ export default function ProfileView({
           provider: 'Manual Connection'
       };
 
-      // Always save to Firestore linked_wallets collection so Admin Dashboard sees it instantly
-      let firestoreWalletId: string | null = null;
-      try {
-        firestoreWalletId = await linkedWalletService.linkWallet(newWalletData);
-      } catch (fErr) {
-        console.warn('linkedWalletService.linkWallet write notice:', fErr);
-      }
-
-      const walletId = firestoreWalletId || Math.random().toString(36).substring(2, 11);
-      const newWallet = {
+      const newWallet: LinkedWallet = {
         ...newWalletData,
         id: walletId,
-        status: 'Connected' as const,
+        status: 'Connected',
         linkedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         lastLogin: new Date().toISOString()
       };
       
-      const updatedWallets = [...(user?.linkedWallets || []), newWallet];
-      await updateProfile({ linkedWallets: updatedWallets });
-      setLinkedWallets(updatedWallets);
-      await fetchWallets();
+      // 1. Instantly update local state for immediate UI feedback
+      setLinkedWallets(prev => [newWallet, ...prev.filter(w => w.address.toLowerCase() !== trimmedAddress.toLowerCase())]);
+      setWalletAddress('');
 
-      setSuccessMsg('Wallet linked and saved permanently to your profile.');
+      // 2. Save to Firestore linked_wallets collection so Admin Dashboard sees it instantly
+      try {
+        const firestoreId = await linkedWalletService.linkWallet(newWalletData);
+        if (firestoreId) {
+          newWallet.id = firestoreId;
+        }
+      } catch (fErr) {
+        console.warn('linkedWalletService.linkWallet write notice:', fErr);
+      }
+
+      // 3. Update User Profile document
+      const updatedWallets = [...(user?.linkedWallets || []).filter(w => w.address.toLowerCase() !== trimmedAddress.toLowerCase()), newWallet];
+      await updateProfile({ linkedWallets: updatedWallets });
+
+      // Dispatch custom event for real-time local sync across admin views
+      window.dispatchEvent(new CustomEvent('aver_wallet_updated'));
+
+      setSuccessMsg('Wallet linked successfully.');
       if (addNotification) {
         await addNotification(
           'security',
@@ -732,7 +768,6 @@ export default function ProfileView({
           `Your ${isEth ? 'Ethereum' : 'Solana'} wallet (${trimmedAddress.substring(0, 6)}...${trimmedAddress.substring(trimmedAddress.length - 4)}) has been securely linked.`
         );
       }
-      setWalletAddress('');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to link wallet. Please try again.');
     } finally {
@@ -753,12 +788,14 @@ export default function ProfileView({
         const updatedWallets = (user?.linkedWallets || []).filter(w => w.id !== walletId);
         await updateProfile({ linkedWallets: updatedWallets });
 
-        // 3. Remove from linked_wallets collection if online
-        const isLocal = !user?.uid || user.uid.startsWith('local-');
-        if (!isLocal) {
+        // 3. Remove from linked_wallets collection
+        try {
           await linkedWalletService.unlinkWallet(walletId);
-          await fetchWallets();
+        } catch (uErr) {
+          console.warn('linkedWalletService.unlinkWallet notice:', uErr);
         }
+
+        window.dispatchEvent(new CustomEvent('aver_wallet_updated'));
         
         if (addNotification) {
           await addNotification(
@@ -819,7 +856,7 @@ export default function ProfileView({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.3 }}
-      className="space-y-6 pb-6"
+      className="space-y-6 pb-32"
     >
       {/* Header Profile Info */}
       <div className={`rounded-[24px] p-6 ${cardClasses} flex flex-col items-center text-center relative overflow-hidden`}>
@@ -1550,9 +1587,9 @@ export default function ProfileView({
                         <li className="flex justify-between items-center">
                           <span className={`${textSecondary} text-[11px] whitespace-nowrap`}>• 2FA Security</span>
                           {preferences.twoFactorEnabled || (user as any)?.twoFactorEnabled ? (
-                            <span className="text-emerald-400 font-extrabold whitespace-nowrap">Enabled</span>
+                            <span className="text-emerald-400 font-extrabold">✓</span>
                           ) : (
-                            <span className="text-rose-400 font-extrabold whitespace-nowrap">Off</span>
+                            <span className="text-rose-400 font-extrabold">✗</span>
                           )}
                         </li>
                         {(preferences.twoFactorEnabled || (user as any)?.twoFactorEnabled) && (
@@ -1802,32 +1839,35 @@ export default function ProfileView({
                     </div>
 
                     {/* Deposits & Withdrawals */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-                        <div className="flex flex-col gap-2">
-                          <div className="p-2 bg-emerald-500/10 rounded-lg self-start"><ArrowDownCircle className="w-5 h-5 text-emerald-500" /></div>
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><ArrowDownCircle className="w-5 h-5 text-emerald-500" /></div>
                           <div>
                             <p className={`text-sm font-bold ${textPrimary}`}>Deposits</p>
                             <p className="text-[10px] text-gray-500">Funds arrival alerts.</p>
                           </div>
-                          <ToggleSwitch 
-                            checked={preferences.notifications?.deposits ?? true}
-                            onChange={(val) => updatePreference('notifications', { ...preferences.notifications, deposits: val })}
-                          />
                         </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.deposits ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, deposits: val })}
+                        />
                       </div>
-                      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-                        <div className="flex flex-col gap-2">
-                          <div className="p-2 bg-emerald-500/10 rounded-lg self-start"><ArrowUpCircle className="w-5 h-5 text-emerald-500" /></div>
+                    </div>
+                    
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-500/10 rounded-lg"><ArrowUpCircle className="w-5 h-5 text-emerald-500" /></div>
                           <div>
                             <p className={`text-sm font-bold ${textPrimary}`}>Withdrawals</p>
                             <p className="text-[10px] text-gray-500">Status updates.</p>
                           </div>
-                          <ToggleSwitch 
-                            checked={preferences.notifications?.withdrawals ?? true}
-                            onChange={(val) => updatePreference('notifications', { ...preferences.notifications, withdrawals: val })}
-                          />
                         </div>
+                        <ToggleSwitch 
+                          checked={preferences.notifications?.withdrawals ?? true}
+                          onChange={(val) => updatePreference('notifications', { ...preferences.notifications, withdrawals: val })}
+                        />
                       </div>
                     </div>
 

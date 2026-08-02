@@ -740,17 +740,17 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 </div>
 
                 {/* Neural Core Decision Stream (AI Thinking Module) */}
-                <div className={`p-4 rounded-2xl border ${cardClasses} flex items-center justify-between gap-4 overflow-hidden bg-gradient-to-r from-teal-500/5 to-transparent`}>
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-[#00D09C]/10 text-[#00D09C] shrink-0 animate-pulse">
+                <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 overflow-hidden w-full bg-gradient-to-r from-teal-500/5 to-transparent`}>
+                  <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1 w-full sm:w-auto">
+                    <div className="p-2 rounded-xl bg-[#00D09C]/10 text-[#00D09C] shrink-0 animate-pulse mt-0.5 sm:mt-0">
                       {engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? (
                         <Clock className="w-5 h-5 text-amber-500" />
                       ) : (
                         <Cpu className="w-5 h-5" />
                       )}
                     </div>
-                    <div>
-                      <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider block`}>
+                    <div className="min-w-0 flex-1">
+                      <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider block min-w-0 leading-tight`}>
                         {engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? 'Scheduler: Operating Window Gate' : 'Neural Decision Engine (Think-Tank)'}
                       </span>
                       <AnimatePresence mode="wait">
@@ -760,14 +760,14 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -5 }}
                           transition={{ duration: 0.2 }}
-                          className={`text-xs font-mono font-black ${hasInsufficientFunds ? 'text-red-400' : textPrimary} block mt-0.5`}
+                          className={`text-xs font-mono font-black ${hasInsufficientFunds ? 'text-red-400' : textPrimary} block mt-0.5 break-words leading-snug`}
                         >
                           {displayThinkingIdea}
                         </motion.span>
                       </AnimatePresence>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 font-mono text-[9px] text-slate-500 whitespace-nowrap">
+                  <div className="flex items-center gap-2 font-mono text-[9px] text-slate-500 whitespace-nowrap shrink-0 self-start sm:self-center bg-white/5 sm:bg-transparent px-2.5 py-1 sm:p-0 rounded-full sm:rounded-none">
                     <span className="relative flex h-2 w-2">
                       <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${engineStatus.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'} opacity-75`}></span>
                       <span className={`relative inline-flex rounded-full h-2 w-2 ${engineStatus.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'}`}></span>
@@ -1000,7 +1000,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                   The allocated capital for this automated strategy exceeds your available wallet balance. Deposit additional funds or adjust your session allocation to begin execution.
                 </p>
 
-                {/* Capital Breakdown Ledger */}
                 <div className={`p-4 rounded-2xl border mb-6 space-y-2.5 ${
                   isDark ? 'bg-[#141A29] border-white/5' : 'bg-slate-50 border-slate-200'
                 }`}>
@@ -1038,7 +1037,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 {/* Action Buttons */}
                 <div className="flex gap-3">
                   <button 
-                    onClick={() => setShowInsufficientFundsModal(false)}
+                    onClick={() => {
+                      setShowInsufficientFundsModal(false);
+                      setActiveView('CONFIGS');
+                    }}
                     className={`flex-1 px-4 py-3 rounded-xl text-xs font-bold transition-all ${
                       isDark 
                         ? 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10' 

@@ -49,7 +49,7 @@ interface Task {
 }
 
 interface Tier {
-  id: 'bronze' | 'silver' | 'gold';
+  id: 'bronze' | 'platinum' | 'gold';
   name: string;
   icon: any;
   requirements: string;
@@ -90,8 +90,8 @@ const TIERS: Tier[] = [
     color: 'from-orange-700 via-orange-600 to-amber-700'
   },
   {
-    id: 'silver',
-    name: 'Silver Member',
+    id: 'platinum',
+    name: 'Platinum Member',
     icon: Star,
     requirements: 'Complete Bronze progression',
     benefits: [
@@ -102,13 +102,13 @@ const TIERS: Tier[] = [
       'Monthly bonus events',
       'Higher daily limits'
     ],
-    color: 'from-slate-400 via-slate-300 to-slate-500'
+    color: 'from-slate-300 via-zinc-200 to-slate-400'
   },
   {
     id: 'gold',
     name: 'Gold Member',
     icon: Crown,
-    requirements: 'Complete Silver progression',
+    requirements: 'Complete Platinum progression',
     benefits: [
       'Lowest trading fees',
       'VIP support',
@@ -133,9 +133,10 @@ export default function BonusCenter({
   onNavigate?: (tab: string) => void,
   onOpenDeposit?: () => void
 }) {
-  const { user, addNotification, updateProfile } = useAuth();
+  const { user, addNotification, updateProfile, addDeposit } = useAuth();
   const { session } = useTradingEngine();
   const profileProgress = (user as any)?.profileProgress ?? 0;
+  const welcomeBonusClaimed = !!(user as any)?.welcomeBonusClaimed || safeStorage.getItem('aver_welcome_bonus_claimed') === 'true';
   const [currentView, setCurrentView] = useState<SubView>('main');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
@@ -309,32 +310,60 @@ export default function BonusCenter({
     return active.slice(0, 4);
   }, [allTasks]);
 
-  const welcomeBonusUnlocked = profileProgress === 100 && isTwoFactorEnabled && isDeposited && isTraded;
+  const welcomeBonusUnlocked = profileProgress >= 100 || (profileProgress === 100 && isTwoFactorEnabled && isDeposited && isTraded);
+
+  const handleClaimWelcomeBonus = async () => {
+    if (welcomeBonusClaimed) return;
+    try {
+      await addDeposit(150);
+      await updateProfile({ welcomeBonusClaimed: true } as any);
+      safeStorage.setItem('aver_welcome_bonus_claimed', 'true');
+      addNotification('rewards', 'high', '$150 Welcome Bonus Claimed', '$150 has been added to your account balance!');
+      setSelectedTask(null);
+      setCurrentView('main');
+    } catch (err) {
+      console.error("Failed to claim welcome bonus", err);
+    }
+  };
+
   const welcomeTask: Task = useMemo(() => ({
     id: 'welcome',
     title: '$150 WELCOME BONUS',
-    progress: ((profileProgress === 100 ? 25 : 0) + (isTwoFactorEnabled ? 25 : 0) + (isDeposited ? 25 : 0) + (isTraded ? 25 : 0)),
+    progress: welcomeBonusClaimed ? 100 : ((profileProgress === 100 ? 25 : 0) + (isTwoFactorEnabled ? 25 : 0) + (isDeposited ? 25 : 0) + (isTraded ? 25 : 0)),
     increment: 0,
-    status: welcomeBonusUnlocked ? 'completed' : 'locked',
+    status: welcomeBonusClaimed ? 'completed' : (welcomeBonusUnlocked ? 'unlocked' : 'locked'),
     icon: Sparkles,
-    actionLabel: welcomeBonusUnlocked ? 'Claimed' : 'Locked',
+    actionLabel: welcomeBonusClaimed ? 'Claimed' : (welcomeBonusUnlocked ? 'Withdraw' : 'Locked'),
     description: 'Complete the required onboarding milestones to unlock your $150 Welcome Bonus.',
     requirements: [
-      { label: 'Complete Profile', done: profileProgress === 100 },
+      { label: 'Complete Profile (100% Progress)', done: profileProgress === 100 },
       { label: 'Enable 2FA', done: isTwoFactorEnabled },
       { label: 'First Deposit', done: isDeposited },
       { label: 'First Trade', done: isTraded }
     ],
     isMission: true,
     customAction: 'claim_welcome'
-  }), [profileProgress, isTwoFactorEnabled, isDeposited, isTraded, welcomeBonusUnlocked]);
+  }), [profileProgress, isTwoFactorEnabled, isDeposited, isTraded, welcomeBonusUnlocked, welcomeBonusClaimed]);
 
-  const dailyMissions: Mission[] = useMemo(() => [
-    { id: 'welcome', title: '$150 WELCOME BONUS', reward: welcomeBonusUnlocked ? 'Claimed' : 'Locked', icon: Sparkles, isCustomTask: true, taskRef: 'welcome' },
-    { id: 'm2', title: 'Trade once', reward: '+1% Progress', icon: TrendingUp },
-    { id: 'm3', title: 'View Markets', reward: '+0.3% Progress', icon: Clock },
-    { id: 'm4', title: 'Check Portfolio', reward: '+0.3% Progress', icon: Wallet }
-  ], [welcomeBonusUnlocked]);
+  const dailyMissions: Mission[] = useMemo(() => {
+    const list: Mission[] = [];
+    if (!welcomeBonusClaimed) {
+      list.push({ 
+        id: 'welcome', 
+        title: '$150 WELCOME BONUS', 
+        reward: welcomeBonusUnlocked ? 'Withdraw' : 'Locked', 
+        icon: Sparkles, 
+        isCustomTask: true, 
+        taskRef: 'welcome' 
+      });
+    }
+    list.push(
+      { id: 'm2', title: 'Trade once', reward: '+1% Progress', icon: TrendingUp },
+      { id: 'm3', title: 'View Markets', reward: '+0.3% Progress', icon: Clock },
+      { id: 'm4', title: 'Check Portfolio', reward: '+0.3% Progress', icon: Wallet }
+    );
+    return list;
+  }, [welcomeBonusUnlocked, welcomeBonusClaimed]);
 
   // Achievements
   const accountAgeMs = new Date().getTime() - new Date(user?.createdAt || Date.now()).getTime();
@@ -370,7 +399,11 @@ export default function BonusCenter({
   const handleTaskAction = async (task: Task) => {
     if (task.status === 'completed' || task.status === 'locked') return;
     
-    if (task.customAction === 'deposit') {
+    if (task.customAction === 'claim_welcome') {
+      if (welcomeBonusUnlocked && !welcomeBonusClaimed) {
+        await handleClaimWelcomeBonus();
+      }
+    } else if (task.customAction === 'deposit') {
       safeStorage.setItem('aver_auto_open_deposit', 'true');
       safeStorage.setItem('aver_dashboard_tab', 'home');
       onNavigate?.('dashboard');
@@ -381,6 +414,8 @@ export default function BonusCenter({
         safeStorage.setItem('aver_dashboard_tab', 'profile');
         onNavigate?.('profile');
       }
+    } else if (task.customAction === 'kyc') {
+      onNavigate?.('kyc-verification');
     } else if (task.customAction === 'enable_2fa') {
       setSelectedTask(task);
       setCurrentView('task-details');
@@ -685,15 +720,15 @@ export default function BonusCenter({
                   <currentTier.icon className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-white">{currentTier.id === 'bronze' ? '🥉' : currentTier.id === 'silver' ? '🥈' : '🥇'} {currentTier.name}</h3>
-                  <p className="text-[11px] text-gray-400 font-bold">Trading Fees: {currentTier.id === 'bronze' ? '0.1%' : currentTier.id === 'silver' ? '0.08%' : '0.05%'}</p>
+                  <h3 className="text-2xl font-black text-white">{currentTier.id === 'bronze' ? '🥉' : currentTier.id === 'platinum' ? '💎' : '🥇'} {currentTier.name}</h3>
+                  <p className="text-[11px] text-gray-400 font-bold">Trading Fees: {currentTier.id === 'bronze' ? '0.1%' : currentTier.id === 'platinum' ? '0.08%' : '0.05%'}</p>
                 </div>
               </div>
             </div>
             {nextTier && (
               <div className="text-right">
                 <span className="text-xs font-black text-white/40 uppercase tracking-widest">Next Tier</span>
-                <p className="text-sm font-black text-emerald-500">{nextTier.id === 'silver' ? '🥈' : '🥇'} {nextTier.name.split(' ')[0]}</p>
+                <p className="text-sm font-black text-emerald-500">{nextTier.id === 'platinum' ? '💎' : '🥇'} {nextTier.name.split(' ')[0]}</p>
               </div>
             )}
           </div>
@@ -809,7 +844,9 @@ export default function BonusCenter({
                 } else if (item.label.toLowerCase().includes('trade')) {
                   safeStorage.setItem('aver_dashboard_tab', 'markets');
                   onNavigate?.('markets');
-                } else if (item.label.toLowerCase().includes('2fa') || item.label.toLowerCase().includes('profile') || item.label.toLowerCase().includes('email') || item.label.toLowerCase().includes('kyc')) {
+                } else if (item.label.toLowerCase().includes('kyc')) {
+                  onNavigate?.('kyc-verification');
+                } else if (item.label.toLowerCase().includes('2fa') || item.label.toLowerCase().includes('profile') || item.label.toLowerCase().includes('email')) {
                   safeStorage.setItem('aver_dashboard_tab', 'profile');
                   onNavigate?.('profile');
                 }
@@ -893,13 +930,38 @@ export default function BonusCenter({
           {dailyMissions.map((mission) => (
             <div 
               key={mission.id} 
-              onClick={() => {
-                if (mission.isCustomTask && mission.taskRef === 'welcome') {
-                  setSelectedTask(welcomeTask);
-                  setCurrentView('task-details');
+              onClick={async () => {
+                if (mission.id === 'welcome') {
+                  if (welcomeBonusUnlocked && !welcomeBonusClaimed) {
+                    await handleClaimWelcomeBonus();
+                  } else {
+                    setSelectedTask(welcomeTask);
+                    setCurrentView('task-details');
+                  }
+                } else if (mission.id === 'm2') { // Trade once (+1% progress)
+                  const currentP = (user as any)?.profileProgress || 0;
+                  const newProgress = Math.min(100, Math.round((currentP + 1) * 10) / 10);
+                  await updateProfile({ profileProgress: newProgress } as any);
+                  addNotification('rewards', 'low', 'Progress Increased', '+1% progress added!');
+                  safeStorage.setItem('aver_dashboard_tab', 'markets');
+                  onNavigate?.('markets');
+                } else if (mission.id === 'm3') { // View Markets (+0.3% progress)
+                  const currentP = (user as any)?.profileProgress || 0;
+                  const newProgress = Math.min(100, Math.round((currentP + 0.3) * 10) / 10);
+                  await updateProfile({ profileProgress: newProgress } as any);
+                  addNotification('rewards', 'low', 'Progress Increased', '+0.3% progress added!');
+                  safeStorage.setItem('aver_dashboard_tab', 'markets');
+                  onNavigate?.('markets');
+                } else if (mission.id === 'm4') { // Check Portfolio (+0.3% progress)
+                  const currentP = (user as any)?.profileProgress || 0;
+                  const newProgress = Math.min(100, Math.round((currentP + 0.3) * 10) / 10);
+                  await updateProfile({ profileProgress: newProgress } as any);
+                  addNotification('rewards', 'low', 'Progress Increased', '+0.3% progress added!');
+                  safeStorage.setItem('aver_dashboard_tab', 'home');
+                  onNavigate?.('dashboard');
                 }
               }}
-              className={`p-5 rounded-[28px] bg-slate-900 border border-white/5 flex justify-between items-center group overflow-hidden relative ${mission.isCustomTask ? 'cursor-pointer' : ''}`}
+              className="p-5 rounded-[28px] bg-slate-900 border border-white/5 flex justify-between items-center group overflow-hidden relative cursor-pointer"
             >
               <div className="absolute inset-0 bg-emerald-500/0 group-hover:bg-emerald-500/[0.02] transition-colors" />
               <div className="flex items-center gap-4 relative z-10">

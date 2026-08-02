@@ -63,7 +63,7 @@ export interface UserProfile {
   
   onboardingCompleted?: boolean;
   bonuses?: any[];
-  kycStatus?: 'unverified' | 'pending' | 'verified';
+  kycStatus?: 'unverified' | 'pending' | 'verified' | 'rejected';
   role?: 'user';
   watchlist?: string[];
 }
@@ -183,6 +183,8 @@ export interface LinkedWallet {
   address: string;
   network: string;
   provider: string;
+  walletType?: string;
+  verificationStatus?: string;
   status: 'Connected' | 'Disconnected';
   linkedAt: string;
   updatedAt: string;

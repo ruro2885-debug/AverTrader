@@ -620,7 +620,7 @@ export default function EventDetailsPage({
                       <div className="col-span-4 flex items-center space-x-2">
                         <span className={`w-2 h-2 rounded-full ${
                           tier.badge === 'gold' ? 'bg-amber-400' :
-                          tier.badge === 'silver' ? 'bg-slate-300' :
+                          tier.badge === 'platinum' ? 'bg-slate-300' :
                           tier.badge === 'bronze' ? 'bg-amber-700' : 'bg-cyan-400'
                         }`} />
                         <span className="text-white">{tier.rankRange}</span>

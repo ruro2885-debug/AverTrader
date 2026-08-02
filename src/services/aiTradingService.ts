@@ -71,6 +71,38 @@ function formatCountdown(seconds: number): string {
   return `${pad(mins)}m ${pad(secs)}s`;
 }
 
+const isDayMatchHelper = (daysSetting: any, weekday: string): boolean => {
+  if (!daysSetting || daysSetting === 'Every Day' || daysSetting === 'All Days') return true;
+  let daysArr: string[] = [];
+  if (typeof daysSetting === 'string') {
+    if (daysSetting.toLowerCase().includes('weekday')) {
+      daysArr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    } else if (daysSetting.toLowerCase().includes('weekend')) {
+      daysArr = ['Sat', 'Sun'];
+    } else {
+      daysArr = daysSetting.split(',').map(s => s.trim());
+    }
+  } else if (Array.isArray(daysSetting)) {
+    daysArr = daysSetting;
+  }
+  const clean = (weekday || '').trim().toLowerCase();
+  return daysArr.some(d => {
+    const dl = d.trim().toLowerCase();
+    return dl === clean || dl.startsWith(clean.slice(0, 3)) || clean.startsWith(dl.slice(0, 3));
+  });
+};
+
+const isMarketMatchHelper = (marketsSetting: any, category: string): boolean => {
+  if (!marketsSetting || marketsSetting === 'All Markets' || category === 'Crypto') return true;
+  let marketsArr: string[] = [];
+  if (typeof marketsSetting === 'string') {
+    marketsArr = marketsSetting.split(',').map(s => s.trim());
+  } else if (Array.isArray(marketsSetting)) {
+    marketsArr = marketsSetting;
+  }
+  return marketsArr.some(m => m === 'All Markets' || m.toLowerCase() === category.toLowerCase());
+};
+
 export const aiTradingService = {
   // Session Management
   async startSession(userId: string, markets: string[], activeConfigId?: string, allocationAmount: number = 0): Promise<AiSession> {
@@ -763,7 +795,7 @@ export const aiTradingService = {
           if (!brk.enabled) continue;
           
           const timeData = getTimeInTz('UTC');
-          const isDayMatch = brk.days === 'Every Day' || brk.days.includes(timeData.weekday);
+          const isDayMatch = brk.days === 'Every Day' || isDayMatchHelper(brk.days, timeData.weekday);
           const startSecs = parseTimeToSecs(brk.startTime);
           const endSecs = parseTimeToSecs(brk.endTime);
           
@@ -810,7 +842,7 @@ export const aiTradingService = {
         if (!window.enabled) continue;
 
         const timeData = getTimeInTz(window.timezone);
-        const isDayMatch = window.days === 'Every Day' || (Array.isArray(window.days) && window.days.includes(timeData.weekday));
+        const isDayMatch = isDayMatchHelper(window.days, timeData.weekday);
         const startSecs = parseTimeToSecs(window.startTime);
         const endSecs = parseTimeToSecs(window.endTime);
 
@@ -985,13 +1017,11 @@ export const aiTradingService = {
     for (const win of schedule.operatingWindows) {
       if (!win.enabled) continue;
       
-      const isMarketMatch = win.markets === 'All Markets' || 
-                            (Array.isArray(win.markets) && (win.markets.includes(category) || (win.markets as string[]).includes('All Markets'))) ||
-                            category === 'Crypto'; // Crypto markets are 24/7 global markets
+      const isMarketMatch = isMarketMatchHelper(win.markets, category);
       if (!isMarketMatch) continue;
 
       const timeData = getTimeInTz(win.timezone);
-      const isDayMatch = win.days === 'Every Day' || (Array.isArray(win.days) && win.days.includes(timeData.weekday));
+      const isDayMatch = isDayMatchHelper(win.days, timeData.weekday);
       const startSecs = parseTimeToSecs(win.startTime);
       const endSecs = parseTimeToSecs(win.endTime);
 
@@ -1013,7 +1043,7 @@ export const aiTradingService = {
     const forex = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD'];
     const crypto = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'LINK', 'UNI', 'LTC'];
     const indices = ['SPX', 'NDX', 'DJI', 'VIX'];
-    const commodities = ['GOLD', 'SILVER', 'OIL', 'NATGAS'];
+    const commodities = ['GOLD', 'PLATINUM', 'OIL', 'NATGAS'];
 
     if (stocks.includes(asset)) return 'Stocks';
     if (forex.includes(asset)) return 'Forex';

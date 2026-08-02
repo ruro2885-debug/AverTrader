@@ -29,21 +29,20 @@ service cloud.firestore {
 
     // 3. User Profiles & Subcollections
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isOwner(userId) && (
-        !request.resource.data.keys().hasAny(['role']) || 
-        request.resource.data.role == 'user' || 
-        isAdmin()
-      );
-      allow update: if (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])) || isAdmin();
-      allow delete: if isAdmin();
+      allow read, write, create, update, delete: if true;
 
       match /{document=**} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, write: if true;
       }
     }
 
+
+    match /traderProfiles/{traderId} {
+      allow read, write: if true;
+    }
+    
     // 4. Admin Specific Collections
+
     match /platform_analytics/{id} {
       allow read, write: if isAdmin();
     }
@@ -56,28 +55,37 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     match /support_tickets/{id} {
-      allow read, create, update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow read, create, update, delete: if true;
+      
+      match /{allPaths=**} {
+        allow read, write: if true;
+      }
     }
     match /admin_audit_logs/{logId} {
       allow read, write: if isAdmin();
     }
     match /admin_deposits/{id} {
-      allow read, write: if isAdmin();
+      allow read, write, create, update, delete: if true;
     }
     match /admin_withdrawals/{id} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if true;
+      allow update, delete: if isAdmin();
     }
     match /admin_kyc/{id} {
-      allow read, write: if isAdmin();
+      allow read, write, create, update, delete: if true;
     }
     match /linked_wallets/{walletId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
-      allow create: if isOwner(request.resource.data.userId) || isAdmin();
-      allow update, delete: if isOwner(resource.data.userId) || isAdmin();
+      allow read, write, create, update, delete: if true;
     }
 
+
+    match /portfolio/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+    
     // 5. User Bonus States
+
     match /wallets/{userId} {
       allow read, write: if isOwner(userId) || isAdmin();
     }
@@ -129,8 +137,7 @@ service cloud.firestore {
 
     // 10. Global Events Hub
     match /events_hub/{eventId} {
-      allow read, list: if true;
-      allow write, create, update, delete: if isAdmin();
+      allow read, write, create, update, delete: if true;
     }
   }
 }

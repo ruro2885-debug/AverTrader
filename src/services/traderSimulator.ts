@@ -61,30 +61,7 @@ export const seedTraders = async () => {
 };
 
 export const startTraderSimulator = () => {
-    const interval = setInterval(async () => {
-        try {
-            const tradersRef = collection(db, 'traderProfiles');
-            const snapshot = await getDocs(tradersRef);
-            if (snapshot.empty) return;
-            
-            // 1. Read all SimulatedTrader documents from Firestore
-            const tradersList = snapshot.docs.map(d => d.data() as SimulatedTrader);
-            
-            // 2. Run simulation tick on the retrieved traders list
-            const { updatedTraders } = runSimulationTick(tradersList);
-            
-            // 3. Save the updated high-fidelity traders back to Firestore with correct mapped fields
-            for (const t of updatedTraders) {
-                const mapped = mapSimulatedTraderToFirestore(t);
-                const traderDocRef = doc(db, 'traderProfiles', t.id);
-                await setDoc(traderDocRef, mapped);
-            }
-            console.log("High-fidelity copy trading simulation tick completed in Firestore.");
-        } catch (error) {
-            console.error("Error in startTraderSimulator tick:", error);
-        }
-    }, 10000); // 10 seconds simulation
-
-    return () => clearInterval(interval);
+    console.log("startTraderSimulator disabled to save Firestore quota.");
+    return () => {};
 };
 

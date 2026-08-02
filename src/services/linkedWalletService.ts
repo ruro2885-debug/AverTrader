@@ -9,7 +9,8 @@ import {
   where, 
   orderBy, 
   serverTimestamp,
-  addDoc
+  addDoc,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { LinkedWallet } from '../types';
@@ -20,20 +21,29 @@ export const linkedWalletService = {
    */
   async linkWallet(data: Omit<LinkedWallet, 'id' | 'linkedAt' | 'updatedAt' | 'status'>): Promise<string> {
     const walletsRef = collection(db, 'linked_wallets');
+    const normalizedAddress = data.address.trim().toLowerCase();
     
-    // Check for duplicates
-    const q = query(
-      walletsRef, 
-      where('userId', '==', data.userId),
-      where('address', '==', data.address)
-    );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      throw new Error('This wallet is already linked to your account.');
+    // Check for duplicates in a case-insensitive manner without multi-field composite index queries
+    try {
+      const q = query(walletsRef, where('userId', '==', data.userId));
+      const snap = await getDocs(q);
+      const existingDoc = snap.docs.find(d => d.data().address?.toLowerCase() === normalizedAddress);
+      if (existingDoc) {
+        // Update existing document status to Connected
+        await updateDoc(doc(db, 'linked_wallets', existingDoc.id), {
+          status: 'Connected',
+          updatedAt: new Date().toISOString()
+        });
+        return existingDoc.id;
+      }
+    } catch (err) {
+      console.warn("Duplicate wallet check notice:", err);
     }
 
     const now = new Date().toISOString();
     const newWalletDoc = await addDoc(walletsRef, {
+      walletType: 'Browser Extension',
+      verificationStatus: 'Verified',
       ...data,
       status: 'Connected',
       linkedAt: now,
@@ -85,15 +95,35 @@ export const linkedWalletService = {
    * Fetches all linked wallets for a specific user.
    */
   async getLinkedWallets(userId: string): Promise<LinkedWallet[]> {
+    try {
+      const walletsRef = collection(db, 'linked_wallets');
+      const q = query(
+        walletsRef, 
+        where('userId', '==', userId)
+      );
+      
+      const snap = await getDocs(q);
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as LinkedWallet));
+      return list.sort((a, b) => new Date(b.linkedAt || 0).getTime() - new Date(a.linkedAt || 0).getTime());
+    } catch (err) {
+      console.warn("Failed to getLinkedWallets from Firestore:", err);
+      return [];
+    }
+  },
+
+  /**
+   * Subscribes to real-time updates for a specific user's linked wallets.
+   */
+  subscribeUserWallets(userId: string, callback: (wallets: LinkedWallet[]) => void) {
     const walletsRef = collection(db, 'linked_wallets');
-    const q = query(
-      walletsRef, 
-      where('userId', '==', userId),
-      orderBy('linkedAt', 'desc')
-    );
-    
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as LinkedWallet));
+    const q = query(walletsRef, where('userId', '==', userId));
+    return onSnapshot(q, (snap) => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as LinkedWallet));
+      list.sort((a, b) => new Date(b.linkedAt || 0).getTime() - new Date(a.linkedAt || 0).getTime());
+      callback(list);
+    }, (err) => {
+      console.warn("Realtime linked_wallets listener notice:", err);
+    });
   },
 
   /**

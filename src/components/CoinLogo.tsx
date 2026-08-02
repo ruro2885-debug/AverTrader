@@ -31,25 +31,26 @@ const fallbacks: Record<string, { char: string; gradient: string }> = {
 
 export default function CoinLogo({ symbol, size = 24, className = '', imgClassName = '' }: CoinLogoProps) {
   const [hasError, setHasError] = useState(false);
-  const normalizedSymbol = symbol.toUpperCase();
+  const normalizedSymbol = (symbol || '').toUpperCase();
 
   // For AVR (Aver Token), render our custom brand 3D logo
   if (normalizedSymbol === 'AVR') {
     return (
-      <div className={`flex-shrink-0 flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
+      <div className={`shrink-0 flex items-center justify-center ${className}`} style={{ width: size, height: size, minWidth: size, minHeight: size }}>
         <AverLogo size={size} showText={false} />
       </div>
     );
   }
 
   const logoUrl = logoUrls[normalizedSymbol];
-  const fallback = fallbacks[normalizedSymbol] || { char: symbol[0], gradient: 'from-slate-400 to-slate-500' };
+  const shortChar = normalizedSymbol.length > 3 ? normalizedSymbol.slice(0, 3) : (normalizedSymbol || '?');
+  const fallback = fallbacks[normalizedSymbol] || { char: shortChar, gradient: 'from-slate-400 to-slate-500' };
 
   if (logoUrl && !hasError) {
     return (
       <div 
-        className={`flex-shrink-0 relative flex items-center justify-center rounded-full bg-slate-900/40 select-none overflow-hidden ${className}`}
-        style={{ width: size, height: size }}
+        className={`shrink-0 relative flex items-center justify-center rounded-full bg-slate-900/40 select-none overflow-hidden ${className}`}
+        style={{ width: size, height: size, minWidth: size, minHeight: size }}
       >
         <img
           src={logoUrl}
@@ -65,14 +66,16 @@ export default function CoinLogo({ symbol, size = 24, className = '', imgClassNa
   // Fallback rendering using clean CSS gradient circle and character
   return (
     <div
-      className={`flex-shrink-0 flex items-center justify-center rounded-full bg-gradient-to-br ${fallback.gradient} text-white font-bold select-none shadow-sm ${className}`}
+      className={`shrink-0 flex items-center justify-center rounded-full bg-gradient-to-br ${fallback.gradient} text-white font-bold select-none shadow-sm ${className}`}
       style={{ 
         width: size, 
         height: size,
-        fontSize: size * 0.5,
+        minWidth: size,
+        minHeight: size,
+        fontSize: Math.min(size * 0.45, 14),
       }}
     >
-      {fallback.char}
+      <span className="notranslate uppercase" translate="no">{fallback.char}</span>
     </div>
   );
 }

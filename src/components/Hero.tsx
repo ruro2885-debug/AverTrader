@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, ArrowRight, Activity, TrendingUp, Cpu, Sparkles, ShieldAlert, TrendingDown } from 'lucide-react';
+import { Play, ArrowRight, Activity, TrendingUp, Cpu, Target, ShieldAlert, TrendingDown } from 'lucide-react';
 import { usePreferences } from '../contexts/PreferencesContext';
 import CoinLogo from './CoinLogo';
 
@@ -129,7 +129,7 @@ export default function Hero({ theme, onShowcase, onGetStarted }: HeroProps) {
                 ? 'border-teal-500/30 bg-teal-950/40 text-teal-300 shadow-teal-950/30 hover:border-teal-400/50' 
                 : 'border-teal-600/30 bg-teal-50/80 text-teal-800 shadow-teal-500/10 hover:border-teal-500/60'
             }`}>
-              <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+              <Target className="w-3.5 h-3.5 text-teal-400" />
               <span className={isDark ? 'bg-gradient-to-r from-teal-200 via-cyan-200 to-emerald-200 bg-clip-text text-transparent font-semibold' : 'text-teal-900 font-semibold'}>
                 {t('hero.badge.peo')}
               </span>

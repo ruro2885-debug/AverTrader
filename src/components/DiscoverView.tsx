@@ -107,19 +107,18 @@ export default function DiscoverView({
                 <Flame className="w-5 h-5 mr-2 text-orange-500" />
                 {t('common.trending_assets')}
               </h3>
-              <button className={`text-xs font-bold text-orange-500 hover:text-orange-400`}>{t('common.view_all')}</button>
             </div>
             <div className={`rounded-[24px] overflow-hidden ${cardClasses} divide-y ${isDark ? 'divide-white/5' : 'divide-slate-100'}`}>
               {trendingAssets.map((asset, i) => (
-                <div key={`${asset.symbol}-${i}`} className="flex items-center justify-between p-4 hover:bg-white/[0.02] transition-colors">
-                  <div className="flex items-center space-x-3">
+                <div key={`${asset.symbol}-${i}`} className="flex items-center justify-between p-4 hover:bg-white/[0.02] transition-colors gap-3">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     <CoinLogo symbol={asset.symbol} size={38} />
-                    <div>
-                      <p className={`font-bold text-sm ${textPrimary}`}>{asset.symbol}</p>
-                      <p className={`text-[11px] ${textSecondary}`}>{asset.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className={`font-bold text-sm truncate ${textPrimary}`}>{asset.symbol}</p>
+                      <p className={`text-[11px] truncate ${textSecondary}`}>{asset.name}</p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <p className={`font-bold text-sm ${textPrimary}`}>{asset.price}</p>
                     <p className={`text-[11px] font-semibold flex items-center justify-end mt-0.5 ${asset.isPositive ? 'text-emerald-500' : 'text-red-500'}`}>
                       {asset.change}

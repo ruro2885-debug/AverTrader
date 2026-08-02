@@ -17,7 +17,7 @@ export interface SimulatedTrader {
   id: string;
   username: string;
   fullName: string;
-  tier: 'Platinum' | 'Gold' | 'Silver';
+  tier: 'Platinum' | 'Gold';
   verified: boolean;
   return30D: number;
   winRate: number;
@@ -186,8 +186,8 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
     const risk = i % 4 === 0 ? 'LOW' : i % 4 === 3 ? 'HIGH' : 'MEDIUM';
 
     // Tier distribution
-    // Let's have top 15% Platinum, next 35% Gold, remaining 50% Silver
-    const tier = i < 6 ? 'Platinum' : i < 20 ? 'Gold' : 'Silver';
+    // Let's have Platinum and Gold tiers
+    const tier = i < 20 ? 'Platinum' : 'Gold';
 
     // Verified boolean (rare, ~15%)
     const verified = (i % 7 === 0);
@@ -818,6 +818,28 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
   return trader;
 }
 
+export function compactTradersForStorage(traders: SimulatedTrader[]): SimulatedTrader[] {
+  if (!Array.isArray(traders)) return [];
+  return traders.map(t => {
+    const item = { ...t } as any;
+    if (Array.isArray(item.trades)) {
+      item.trades = item.trades.slice(-20);
+    }
+    if (Array.isArray(item.chartData)) {
+      item.chartData = item.chartData.slice(-30);
+    }
+    if (Array.isArray(item.performanceHistory)) {
+      item.performanceHistory = item.performanceHistory.slice(-30);
+    }
+    return item as SimulatedTrader;
+  });
+}
+
+export function saveSimulatedTraders(traders: SimulatedTrader[]) {
+  const compacted = compactTradersForStorage(traders);
+  safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(compacted));
+}
+
 /**
  * Executes a subtle ranking update.
  * Traders can only move up/down by at most 2 positions.
@@ -845,8 +867,8 @@ export function runScheduledRankingsUpdate(traders: SimulatedTrader[]): {
   // 2. Sort by current rank to have a stable starting point
   const currentOrderedList = [...updatedTraders].sort((a, b) => a.rank - b.rank);
   
-  // 3. Calculate "Target Rank" based on new performance scores
-  const targetOrderedList = [...updatedTraders].sort((a, b) => b.performanceScore - a.performanceScore);
+  // 3. Calculate "Target Rank" based on new 30D returns
+  const targetOrderedList = [...updatedTraders].sort((a, b) => b.return30D - a.return30D);
   const targetRankMap: Record<string, number> = {};
   targetOrderedList.forEach((t, i) => {
     targetRankMap[t.id] = i + 1;
@@ -879,7 +901,7 @@ export function runScheduledRankingsUpdate(traders: SimulatedTrader[]): {
   });
 
   safeStorage.setItem('aver_last_ranking_update', now.toString());
-  safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(currentOrderedList));
+  saveSimulatedTraders(currentOrderedList);
   
   return { updatedTraders: currentOrderedList, events };
 }
@@ -925,15 +947,15 @@ export function initSimulatedTraders(): SimulatedTrader[] {
           return calculateTraderMetrics(healedTrader);
         });
         
-        // Re-sort to maintain existing ranking order
-        healed.sort((a, b) => a.rank - b.rank);
+        // Re-sort to maintain order based on 30D return
+        healed.sort((a, b) => b.return30D - a.return30D);
         
         // Ensure ranks are clean and sequential
         healed.forEach((t, index) => {
           t.rank = index + 1;
         });
         
-        safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(healed));
+        saveSimulatedTraders(healed);
         return healed;
       }
     } catch (e) {
@@ -950,8 +972,8 @@ export function initSimulatedTraders(): SimulatedTrader[] {
     return calculateTraderMetrics(fullTrader);
   });
 
-  // Initial ranking sort
-  traders.sort((a, b) => b.performanceScore - a.performanceScore);
+  // Initial ranking sort based on 30D returns
+  traders.sort((a, b) => b.return30D - a.return30D);
   
   // Set ranks and desired unique returns
   traders.forEach((t, index) => {
@@ -967,7 +989,7 @@ export function initSimulatedTraders(): SimulatedTrader[] {
     }
   });
 
-  safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(traders));
+  saveSimulatedTraders(traders);
   return traders;
 }
 
@@ -1208,7 +1230,7 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
   });
 
   // Save back to local storage
-  safeStorage.setItem('aver_sim_traders_v7', JSON.stringify(tradersList));
+  saveSimulatedTraders(tradersList);
 
   return {
     updatedTraders: tradersList,

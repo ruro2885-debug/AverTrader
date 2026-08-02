@@ -733,6 +733,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
             setUser(activeLocalUser);
             setNotifications(activeLocalUser.notificationsList || []);
+
+            if (activeLocalUser.uid) {
+              setDoc(doc(db, 'users', activeLocalUser.uid), {
+                ...activeLocalUser,
+                lastLogin: serverTimestamp(),
+                lastUpdated: serverTimestamp()
+              }, { merge: true }).catch(err => {
+                console.warn("Failed sync activeLocalUser to Firestore:", err);
+              });
+            }
           } catch (e) {
             console.error("Error loading active local user:", e);
             setUser(null);
@@ -923,6 +933,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
         saveLocalDB(dbList);
 
+        // Synchronize fallback local user to Firestore 'users' collection
+        const firestoreUser = {
+          ...newUser,
+          createdAt: serverTimestamp(),
+          lastLogin: serverTimestamp(),
+          lastUpdated: serverTimestamp(),
+          holdings: [],
+          trades: [],
+          snapshots: []
+        };
+        await setDoc(doc(db, 'users', targetUid), firestoreUser).catch(err => {
+          console.warn("Failed writing fallback local user to Firestore:", err);
+        });
+
         // Log the user in locally immediately
         safeStorage.setItem('aver_active_user', JSON.stringify(newUser));
         setUser(newUser);
@@ -948,6 +972,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         await signInWithEmailAndPassword(auth, email, password);
       } catch (innerError: any) {
         firebaseError = innerError;
+      }
+
+      if (!firebaseError && auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const uDoc = await getDoc(doc(db, 'users', uid)).catch(() => null);
+        if (uDoc && uDoc.exists()) {
+          const uData = uDoc.data();
+          const st = (uData.accountStatus || uData.status || 'Active').toLowerCase();
+          if (st === 'suspended') {
+            await signOut(auth);
+            throw new Error("Your account has been suspended by an administrator. Please contact support.");
+          }
+          if (st === 'deactivated') {
+            await signOut(auth);
+            throw new Error("Your account has been deactivated by an administrator. Please contact support.");
+          }
+        }
       }
 
       if (firebaseError) {
@@ -1034,6 +1075,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             });
             saveLocalDB(dbList);
 
+            // Sync autoUser to Firestore users collection
+            setDoc(doc(db, 'users', autoUser.uid), {
+              ...autoUser,
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp(),
+              lastUpdated: serverTimestamp()
+            }, { merge: true }).catch(err => {
+              console.warn("Failed sync autoUser to Firestore:", err);
+            });
+
             safeStorage.setItem('aver_active_user', JSON.stringify(autoUser));
             setUser(autoUser);
             setNotifications([]);
@@ -1043,6 +1094,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           
           if (localRecord.password !== password) {
             throw new Error("Password or Email Incorrect.");
+          }
+
+          const localStatus = (localRecord.profile.accountStatus || localRecord.profile.status || 'Active').toLowerCase();
+          if (localStatus === 'suspended') {
+            throw new Error("Your account has been suspended by an administrator. Please contact support.");
+          }
+          if (localStatus === 'deactivated') {
+            throw new Error("Your account has been deactivated by an administrator. Please contact support.");
           }
 
           // Local login success!
@@ -1064,6 +1123,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
           localRecord.profile = userProfile;
           saveLocalDB(dbList);
+
+          // Sync localRecord to Firestore users collection
+          setDoc(doc(db, 'users', userProfile.uid), {
+            ...userProfile,
+            lastLogin: serverTimestamp(),
+            lastUpdated: serverTimestamp()
+          }, { merge: true }).catch(err => {
+            console.warn("Failed sync userProfile to Firestore:", err);
+          });
 
           safeStorage.setItem('aver_active_user', JSON.stringify(userProfile));
           setUser(userProfile);

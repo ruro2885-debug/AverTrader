@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, Users, Wallet, ArrowDownCircle, ArrowUpCircle, 
-  ShieldCheck, MessageSquare, Megaphone, Bell, BarChart3, 
-  History, Bot, Activity, Settings, LogOut, Menu, X, 
+  ShieldCheck, MessageSquare, Megaphone, 
+  LogOut, Menu, X, 
   ChevronRight, Command, Search, Globe, Shield
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,26 +17,19 @@ import AdminWithdrawals from './views/AdminWithdrawals';
 import AdminKYC from './views/AdminKYC';
 import AdminSupport from './views/AdminSupport';
 import AdminCampaigns from './views/AdminCampaigns';
-import AdminNotifications from './views/AdminNotifications';
-import AdminAnalytics from './views/AdminAnalytics';
-import AdminAuditLogs from './views/AdminAuditLogs';
-import AdminAiMonitor from './views/AdminAiMonitor';
-import AdminSystemHealth from './views/AdminSystemHealth';
-import AdminSettings from './views/AdminSettings';
 
-type ViewID = 'dashboard' | 'users' | 'wallets' | 'deposits' | 'withdrawals' | 'kyc' | 'support' | 'campaigns' | 'notifications' | 'analytics' | 'audit' | 'ai' | 'health' | 'settings';
+type ViewID = 'dashboard' | 'users' | 'wallets' | 'deposits' | 'withdrawals' | 'kyc' | 'support' | 'campaigns';
 
 interface SidebarItem {
   id: ViewID;
   label: string;
   icon: any;
-  category: 'core' | 'finance' | 'ops' | 'system';
+  category: 'core' | 'finance' | 'ops';
 }
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, category: 'core' },
   { id: 'users', label: 'Users', icon: Users, category: 'core' },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3, category: 'core' },
   
   { id: 'wallets', label: 'Linked Wallets', icon: Wallet, category: 'finance' },
   { id: 'deposits', label: 'Deposits', icon: ArrowDownCircle, category: 'finance' },
@@ -45,12 +38,6 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'kyc', label: 'KYC Verification', icon: ShieldCheck, category: 'ops' },
   { id: 'support', label: 'Support Tickets', icon: MessageSquare, category: 'ops' },
   { id: 'campaigns', label: 'Campaigns & Events', icon: Megaphone, category: 'ops' },
-  { id: 'notifications', label: 'Notifications', icon: Bell, category: 'ops' },
-  
-  { id: 'ai', label: 'AI Trading Monitor', icon: Bot, category: 'system' },
-  { id: 'audit', label: 'Audit Logs', icon: History, category: 'system' },
-  { id: 'health', label: 'Platform Health', icon: Activity, category: 'system' },
-  { id: 'settings', label: 'System Settings', icon: Settings, category: 'system' },
 ];
 
 export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dark', onLogout: () => void }) {
@@ -71,18 +58,12 @@ export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dar
       case 'kyc': return <AdminKYC theme={theme} />;
       case 'support': return <AdminSupport theme={theme} />;
       case 'campaigns': return <AdminCampaigns theme={theme} />;
-      case 'notifications': return <AdminNotifications theme={theme} />;
-      case 'analytics': return <AdminAnalytics theme={theme} />;
-      case 'audit': return <AdminAuditLogs theme={theme} />;
-      case 'ai': return <AdminAiMonitor theme={theme} />;
-      case 'health': return <AdminSystemHealth theme={theme} />;
-      case 'settings': return <AdminSettings theme={theme} />;
       default: return <AdminDashboard theme={theme} />;
     }
   };
 
   return (
-    <div className={`min-h-screen flex ${isDark ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`notranslate min-h-screen flex ${isDark ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'}`} translate="no">
       {/* Desktop Sidebar */}
       <motion.aside 
         initial={false}
@@ -110,7 +91,7 @@ export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dar
 
         {/* Navigation */}
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6">
-          {(['core', 'finance', 'ops', 'system'] as const).map(category => (
+          {(['core', 'finance', 'ops'] as const).map(category => (
             <div key={category} className="space-y-1">
               {!isSidebarCollapsed && (
                 <h4 className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">

@@ -9,11 +9,15 @@ import {
   Bot, Sparkles, CheckCheck, FileUp, Lock, LifeBuoy, Layers, ArrowUpRight
 } from 'lucide-react';
 import { collection, onSnapshot, query, updateDoc, doc, setDoc } from 'firebase/firestore';
-import { db, storage } from '../../../lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { saveSupportTicket, mergeTicketsWithLocal } from '@/lib/supportStore';
+// Force tsc cache refresh
 
 export interface SupportMessage {
+  isAdmin?: boolean;
+  senderRole?: 'user' | 'admin';
   id: string;
   sender: string;
   text: string;
@@ -126,39 +130,60 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
   // 2. Real-time Support Tickets Sync Listener
   useEffect(() => {
-    const unsubTickets = onSnapshot(collection(db, 'support_tickets'), (snap) => {
-      const data: SupportTicket[] = snap.docs.map(docSnap => {
-        const docData = docSnap.data();
-        return {
-          id: docSnap.id,
-          userId: docData.userId || 'unknown',
-          userEmail: docData.userEmail || '',
-          userName: docData.userName || '',
-          title: docData.title || 'Support Request',
-          category: docData.category || 'General',
-          description: docData.description || '',
-          status: docData.status || 'open',
-          priority: docData.priority || 'medium',
-          createdAt: docData.createdAt || new Date().toISOString(),
-          updatedAt: docData.updatedAt || docData.createdAt || new Date().toISOString(),
-          adminNotes: docData.adminNotes || '',
-          attachmentUrl: docData.attachmentUrl || '',
-          messages: Array.isArray(docData.messages) ? docData.messages : []
-        };
-      });
+    let unsubTickets: (() => void) | null = null;
 
-      // Sort newest updated first
-      data.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    const syncAll = (snapshotDocs?: any[]) => {
+      let fsTickets: SupportTicket[] = [];
+      if (snapshotDocs) {
+        fsTickets = snapshotDocs.map(docSnap => {
+          const docData = typeof docSnap.data === 'function' ? docSnap.data() : docSnap;
+          return {
+            id: docSnap.id || docData.id,
+            userId: docData.userId || 'unknown',
+            userEmail: docData.userEmail || '',
+            userName: docData.userName || '',
+            title: docData.title || 'Support Request',
+            category: docData.category || 'General',
+            description: docData.description || '',
+            status: docData.status || 'open',
+            priority: docData.priority || 'medium',
+            createdAt: docData.createdAt || new Date().toISOString(),
+            updatedAt: docData.updatedAt || docData.createdAt || new Date().toISOString(),
+            adminNotes: docData.adminNotes || '',
+            attachmentUrl: docData.attachmentUrl || '',
+            messages: Array.isArray(docData.messages) ? docData.messages : []
+          };
+        });
+      }
 
-      setTickets(data);
+      const merged = mergeTicketsWithLocal(fsTickets as any);
+      setTickets(merged as any);
       setLoading(false);
+    };
+
+    // Initial load from local store
+    syncAll();
+
+    unsubTickets = onSnapshot(collection(db, 'support_tickets'), (snap) => {
+      syncAll(snap.docs);
     }, (err) => {
       console.warn("Support tickets sync notice:", err);
-      setLoading(false);
+      syncAll();
     });
 
-    return () => unsubTickets();
-  }, []);
+    const handleCustomSync = () => {
+      syncAll();
+    };
+
+    window.addEventListener('support_ticket_updated', handleCustomSync);
+    window.addEventListener('storage', handleCustomSync);
+
+    return () => {
+      if (unsubTickets) unsubTickets();
+      window.removeEventListener('support_ticket_updated', handleCustomSync);
+      window.removeEventListener('storage', handleCustomSync);
+    };
+  }, [authAdmin?.uid]);
 
   // Scroll to bottom when chat messages change
   useEffect(() => {
@@ -375,6 +400,8 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
     }
 
     const adminMsg: SupportMessage = {
+      isAdmin: true,
+      senderRole: 'admin',
       id: "MSG-ADM-" + Math.floor(100000 + Math.random() * 900000),
       sender: "AVER Specialist",
       text: text || "Sent an attachment.",
@@ -391,13 +418,15 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
     setSelectedFile(null);
 
     const updatedMessages = [...(targetTicket.messages || []), adminMsg];
+    const updatedTicket: any = {
+      ...targetTicket,
+      messages: updatedMessages,
+      updatedAt: now,
+      status: targetTicket.status === 'open' ? 'pending' : targetTicket.status
+    };
 
     try {
-      await updateDoc(doc(db, 'support_tickets', ticketId), {
-        messages: updatedMessages,
-        updatedAt: now,
-        status: targetTicket.status === 'open' ? 'pending' : targetTicket.status
-      });
+      await saveSupportTicket(updatedTicket);
     } catch (err) {
       console.error("Error sending admin reply:", err);
       alert("Failed to send message. Please retry.");
@@ -408,11 +437,15 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
   // Update Status
   const handleUpdateStatus = async (ticketId: string, newStatus: 'open' | 'pending' | 'resolved' | 'closed') => {
+    const targetTicket = tickets.find(t => t.id === ticketId);
+    if (!targetTicket) return;
+    const updatedTicket: any = {
+      ...targetTicket,
+      status: newStatus,
+      updatedAt: new Date().toISOString()
+    };
     try {
-      await updateDoc(doc(db, 'support_tickets', ticketId), {
-        status: newStatus,
-        updatedAt: new Date().toISOString()
-      });
+      await saveSupportTicket(updatedTicket);
     } catch (err) {
       console.error("Error updating ticket status:", err);
     }
@@ -420,11 +453,15 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
   // Update Priority
   const handleUpdatePriority = async (ticketId: string, newPriority: 'low' | 'medium' | 'high' | 'critical') => {
+    const targetTicket = tickets.find(t => t.id === ticketId);
+    if (!targetTicket) return;
+    const updatedTicket: any = {
+      ...targetTicket,
+      priority: newPriority,
+      updatedAt: new Date().toISOString()
+    };
     try {
-      await updateDoc(doc(db, 'support_tickets', ticketId), {
-        priority: newPriority,
-        updatedAt: new Date().toISOString()
-      });
+      await saveSupportTicket(updatedTicket);
     } catch (err) {
       console.error("Error updating priority:", err);
     }
@@ -432,12 +469,16 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
   // Save Admin Notes
   const handleSaveNotes = async (ticketId: string) => {
+    const targetTicket = tickets.find(t => t.id === ticketId);
+    if (!targetTicket) return;
+    const updatedTicket: any = {
+      ...targetTicket,
+      adminNotes: adminNotes.trim(),
+      updatedAt: new Date().toISOString()
+    };
     setSavingNotes(true);
     try {
-      await updateDoc(doc(db, 'support_tickets', ticketId), {
-        adminNotes: adminNotes.trim(),
-        updatedAt: new Date().toISOString()
-      });
+      await saveSupportTicket(updatedTicket);
     } catch (err) {
       console.error("Error saving admin notes:", err);
     } finally {
@@ -461,7 +502,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
       case 'critical': return 'bg-rose-500/15 text-rose-400 border-rose-500/30';
       case 'high': return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
       case 'medium': return 'bg-sky-500/15 text-sky-400 border-sky-500/30';
-      default: return 'bg-slate-500/15 text-slate-400 border-slate-500/30';
+      default: return 'bg-slate-500/15 ${isDark ? "text-slate-400" : "text-slate-500"} border-slate-500/30';
     }
   };
 
@@ -470,13 +511,16 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
       case 'open': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
       case 'pending': return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
       case 'resolved': return 'bg-teal-500/15 text-teal-300 border-teal-500/30';
-      case 'closed': return 'bg-slate-500/15 text-slate-400 border-slate-500/30';
-      default: return 'bg-slate-500/15 text-slate-400 border-slate-500/30';
+      case 'closed': return 'bg-slate-500/15 ${isDark ? "text-slate-400" : "text-slate-500"} border-slate-500/30';
+      default: return 'bg-slate-500/15 ${isDark ? "text-slate-400" : "text-slate-500"} border-slate-500/30';
     }
   };
 
+  const isDark = theme === 'dark';
+  const isChatActive = selectedUserId || selectedTicketId;
+
   return (
-    <div className="w-full min-h-screen bg-[#0B0E14] text-slate-100 font-sans flex flex-col overflow-hidden relative selection:bg-emerald-500/30 selection:text-emerald-200">
+    <div className={`font-sans selection:bg-emerald-500/30 selection:text-emerald-200 flex flex-col ${isDark ? "text-slate-100" : "text-slate-900"} ${isChatActive ? `fixed inset-0 z-[100] p-0 ${isDark ? 'bg-slate-950' : 'bg-slate-50'} sm:relative sm:z-auto sm:inset-auto sm:bg-transparent sm:h-[calc(100vh-8rem)] sm:space-y-8` : 'h-[calc(100vh-8rem)] space-y-4 sm:space-y-8'}`}>
       
       {/* Hidden File Input */}
       <input 
@@ -488,69 +532,58 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
       />
 
       {/* Top Header Bar */}
-      <header className="shrink-0 bg-[#0F131C] border-b border-slate-800/80 px-4 sm:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0 ${isChatActive ? 'hidden sm:flex' : ''} ${isChatActive ? '' : 'px-0'}`}>
         <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-              <LifeBuoy className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2">
-                Support Terminal
-                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  Live Hub
-                </span>
-              </h1>
-              <p className="text-xs text-slate-400 font-medium">Institutional Admin Customer Support Workspace</p>
-            </div>
-          </div>
+          <h1 className="text-3xl font-black tracking-tight mb-2">Institutional Admin Customer Support Workspace</h1>
+          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            Support Terminal
+          </p>
         </div>
 
         {/* Tab Selection & Metrics */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => { setActiveTab('live'); setSelectedUserId(null); setSelectedTicketId(null); }}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border ${
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border ${
               activeTab === 'live' 
-                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20 font-black' 
-                : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:bg-slate-800'
+                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 font-black' 
+                : isDark ? 'bg-slate-900/80 text-slate-300 border-white/10 hover:bg-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
             }`}
           >
             <MessageSquare className="w-4 h-4" />
             <span>Messages ({filteredLiveUsers.length})</span>
           </button>
-
           <button
             onClick={() => { setActiveTab('tickets'); setSelectedUserId(null); setSelectedTicketId(null); }}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border ${
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border ${
               activeTab === 'tickets' 
-                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20 font-black' 
-                : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:bg-slate-800'
+                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 font-black' 
+                : isDark ? 'bg-slate-900/80 text-slate-300 border-white/10 hover:bg-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
             }`}
           >
             <Layers className="w-4 h-4" />
             <span>Tickets ({filteredTicketUsers.length})</span>
           </button>
         </div>
-      </header>
+      </div>
 
       {/* Main Terminal Workspace Container */}
-      <main className="flex-1 flex flex-col overflow-hidden bg-[#0B0E14] relative">
+      <main className={`flex-1 flex flex-col overflow-hidden sm:rounded-[2rem] border ${isDark ? "sm:bg-white/5 border-white/5" : "bg-white sm:border-slate-200 sm:shadow-sm"} relative ${isChatActive ? 'rounded-none border-0' : 'rounded-[2rem]'}`}>
 
         {/* Filter & Search Toolbar (Only visible on User List view) */}
         {!selectedUserId && (
-          <div className="shrink-0 bg-[#0F131C]/90 border-b border-slate-800/80 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex-1 min-w-[240px] max-w-md relative">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className={`shrink-0 ${isDark ? "bg-white/5" : "bg-white"} border-b ${isDark ? "border-white/10" : "border-slate-200"} px-4 py-2 flex flex-wrap items-center justify-between gap-2`}>
+            <div className="flex-1 min-w-[200px] max-w-sm relative">
+              <Search className={`w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 ${isDark ? "text-slate-400" : "text-slate-500"}`} />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={activeTab === 'live' ? "Search users, email, UID, messages..." : "Search tickets, user, subject, ID..."}
-                className="w-full pl-10 pr-4 py-2 rounded-xl bg-[#141923] border border-slate-800 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50"
+                placeholder={activeTab === 'live' ? "Search users, messages..." : "Search tickets, subjects..."}
+                className={`w-full pl-9 pr-3 py-1.5 rounded-lg ${isDark ? "bg-white/10" : "bg-slate-50"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs ${isDark ? "text-white" : "text-slate-900"} placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50`}
               />
               {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+                <button onClick={() => setSearch('')} className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:${isDark ? "text-white" : "text-slate-900"}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -561,7 +594,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                 <select
                   value={statusFilter}
                   onChange={(e: any) => setStatusFilter(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-[#141923] border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-emerald-500/50"
+                  className={`px-2.5 py-1.5 rounded-lg ${isDark ? "bg-white/10" : "bg-slate-50"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs ${isDark ? "text-slate-300" : "text-slate-700"} focus:outline-none focus:border-emerald-500/50`}
                 >
                   <option value="all">All Statuses</option>
                   <option value="open">Open</option>
@@ -573,7 +606,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                 <select
                   value={priorityFilter}
                   onChange={(e: any) => setPriorityFilter(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-[#141923] border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-emerald-500/50"
+                  className={`px-2.5 py-1.5 rounded-lg ${isDark ? "bg-white/10" : "bg-slate-50"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs ${isDark ? "text-slate-300" : "text-slate-700"} focus:outline-none focus:border-emerald-500/50`}
                 >
                   <option value="all">All Priorities</option>
                   <option value="critical">Critical</option>
@@ -587,11 +620,11 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
         )}
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#0B0E14]">
+        <div className={`flex-1 overflow-y-auto ${isChatActive ? 'p-0 sm:p-6' : 'p-4 sm:p-6'} ${isDark ? "bg-transparent" : "bg-transparent"}`}>
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center space-y-3 py-16">
               <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Syncing Support Desk...</p>
+              <p className={`text-xs font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider`}>Syncing Support Desk...</p>
             </div>
           ) : activeTab === 'live' ? (
             
@@ -602,9 +635,9 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
               
               /* USER LIST (MESSAGES TAB) */
               filteredLiveUsers.length === 0 ? (
-                <div className="h-full min-h-[350px] flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-slate-800/80 rounded-3xl bg-[#0F131C]/50">
+                <div className={`h-full min-h-[350px] flex flex-col items-center justify-center text-center p-8 border-2 border-dashed ${isDark ? "border-white/10" : "border-slate-200"} rounded-3xl ${isDark ? "bg-white/5" : "bg-white"}/50`}>
                   <MessageSquare className="w-12 h-12 text-slate-600 mb-3" />
-                  <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">No Conversations Found</h3>
+                  <h3 className={`text-sm font-bold ${isDark ? "text-slate-300" : "text-slate-700"} uppercase tracking-wider`}>No Conversations Found</h3>
                   <p className="text-xs text-slate-500 max-w-sm mt-1">Users will appear here as soon as they start a support conversation.</p>
                 </div>
               ) : (
@@ -615,7 +648,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
                       onClick={() => setSelectedUserId(item.user.uid)}
-                      className="cursor-pointer bg-[#121620] hover:bg-[#161B27] border border-slate-800/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all shadow-lg flex flex-col justify-between space-y-3"
+                      className={`cursor-pointer ${isDark ? "bg-white/5" : "bg-white"} hover:${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"}/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all shadow-lg flex flex-col justify-between space-y-3`}
                     >
                       {/* Top Header Row */}
                       <div className="flex items-start justify-between gap-3">
@@ -624,10 +657,10 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                             {(item.user.displayName || item.user.fullName || item.user.email || 'U').charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <h3 className="text-sm font-bold text-white truncate group-hover:text-emerald-400 transition-colors">
+                            <h3 className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"} truncate group-hover:text-emerald-400 transition-colors`}>
                               {item.user.displayName || item.user.fullName}
                             </h3>
-                            <p className="text-xs text-slate-400 truncate">{item.user.email}</p>
+                            <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} truncate`}>{item.user.email}</p>
                             <p className="text-[10px] text-emerald-400/80 font-mono truncate">{item.user.username}</p>
                           </div>
                         </div>
@@ -640,16 +673,16 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       </div>
 
                       {/* Last Message Snippet */}
-                      <div className="bg-[#0B0E14] rounded-xl p-2.5 border border-slate-800/80">
-                        <p className="text-xs text-slate-300 line-clamp-2 italic">
+                      <div className={`${isDark ? "bg-transparent" : "bg-transparent"} rounded-xl p-2.5 border ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                        <p className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"} line-clamp-2 italic`}>
                           "{item.lastMessage?.text || item.latestTicket?.description || 'Support session initiated.'}"
                         </p>
                       </div>
 
                       {/* Bottom Footer Details */}
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800/60 pt-2 font-mono">
+                      <div className={`flex items-center justify-between text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"} border-t ${isDark ? "border-white/10" : "border-slate-200"}/60 pt-2 font-mono`}>
                         <span className="truncate">UID: {item.user.uid.slice(0, 10)}...</span>
-                        <span className="shrink-0 text-slate-400">{formatTimestamp(item.lastMessageTime)}</span>
+                        <span className={`shrink-0 ${isDark ? "text-slate-400" : "text-slate-500"}`}>{formatTimestamp(item.lastMessageTime)}</span>
                       </div>
                     </motion.div>
                   ))}
@@ -660,13 +693,13 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
               /* USER CHAT WORKSPACE (MESSAGES TAB) */
               selectedUserLiveSummary ? (
-                <div className="h-full flex flex-col bg-[#121620] border border-slate-800/90 rounded-3xl overflow-hidden shadow-2xl">
+                <div className={`h-full flex flex-col ${isDark ? "bg-white/5" : "bg-white"} sm:border ${isDark ? "sm:border-white/10" : "sm:border-slate-200"}/90 sm:rounded-3xl overflow-hidden sm:shadow-2xl`}>
                   {/* Chat Header */}
-                  <div className="shrink-0 bg-[#161B27] px-4 sm:px-6 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
+                  <div className={`shrink-0 ${isDark ? "bg-white/5" : "bg-white"} px-4 sm:px-6 py-3 border-b ${isDark ? "border-white/10" : "border-slate-200"} flex items-center justify-between gap-3`}>
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => setSelectedUserId(null)}
-                        className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
+                        className={`p-2 rounded-xl ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-100 hover:bg-slate-200"} ${isDark ? "text-slate-300" : "text-slate-700"} hover:${isDark ? "text-white" : "text-slate-900"} transition-all`}
                       >
                         <ArrowLeft className="w-4 h-4" />
                       </button>
@@ -676,13 +709,13 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       </div>
 
                       <div>
-                        <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                        <h2 className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"} flex items-center gap-2`}>
                           {selectedUserLiveSummary.user.displayName || selectedUserLiveSummary.user.fullName}
                           <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
                             {selectedUserLiveSummary.user.username}
                           </span>
                         </h2>
-                        <p className="text-xs text-slate-400 font-mono">{selectedUserLiveSummary.user.email} • UID: {selectedUserLiveSummary.user.uid}</p>
+                        <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} font-mono`}>{selectedUserLiveSummary.user.email} • UID: {selectedUserLiveSummary.user.uid}</p>
                       </div>
                     </div>
 
@@ -694,17 +727,17 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                   </div>
 
                   {/* Messages Feed */}
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[#0B0E14]">
+                  <div className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 ${isDark ? "bg-transparent" : "bg-transparent"}`}>
                     {activeLiveTicket?.messages && activeLiveTicket.messages.length > 0 ? (
                       activeLiveTicket.messages.map((msg, idx) => {
-                        const isAdmin = msg.sender === 'AVER Specialist' || msg.sender === 'Admin';
+                        const isAdmin = msg.isAdmin || msg.senderRole === 'admin' || msg.sender === 'AVER Specialist' || msg.sender === 'Admin' || msg.sender === 'Support Specialist';
                         return (
                           <div
-                            key={msg.id || idx}
+                            key={msg.id || `msg-${idx}`}
                             className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'}`}
                           >
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              <span className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider`}>
                                 {isAdmin ? 'AVER Specialist (You)' : msg.sender}
                               </span>
                               <span className="text-[10px] text-slate-500 font-mono">
@@ -716,14 +749,14 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                               className={`max-w-[85%] sm:max-w-[70%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                                 isAdmin
                                   ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-slate-950 font-medium rounded-tr-none shadow-md'
-                                  : 'bg-[#181D29] text-white border border-slate-800 rounded-tl-none'
+                                  : '${isDark ? "bg-white/10" : "bg-slate-50"} ${isDark ? "text-white" : "text-slate-900"} border ${isDark ? "border-white/10" : "border-slate-200"} rounded-tl-none'
                               }`}
                             >
                               <p className="whitespace-pre-wrap break-words">{msg.text}</p>
 
                               {msg.attachmentUrl && (
                                 <div className="mt-2 pt-2 border-t border-black/10">
-                                  {msg.attachmentType === 'image' || msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                                  {msg.attachmentType === "image" || msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) || (msg.attachmentUrl.includes("alt=media") && !msg.attachmentUrl.toLowerCase().includes(".pdf")) ? (
                                     <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="block mt-1">
                                       <img src={msg.attachmentUrl} alt="attachment" className="max-h-48 rounded-lg object-cover border border-white/20" />
                                     </a>
@@ -750,12 +783,12 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
                   {/* Reply Composer Bar */}
                   {activeLiveTicket && (
-                    <div className="shrink-0 bg-[#161B27] p-3 sm:p-4 border-t border-slate-800">
+                    <div className={`shrink-0 ${isDark ? "bg-white/5" : "bg-white"} p-3 sm:p-4 border-t ${isDark ? "border-white/10" : "border-slate-200"}`}>
                       {attachment && (
                         <div className="mb-2.5 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 font-mono">
                           <Paperclip className="w-3.5 h-3.5" />
                           <span className="truncate max-w-xs">{attachment.name}</span>
-                          <button onClick={() => { setAttachment(null); setSelectedFile(null); }} className="hover:text-white ml-auto">
+                          <button onClick={() => { setAttachment(null); setSelectedFile(null); }} className={`hover:${isDark ? "text-white" : "text-slate-900"} ml-auto`}>
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -765,7 +798,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
-                          className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all shrink-0"
+                          className={`p-3 rounded-xl ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-100 hover:bg-slate-200"} ${isDark ? "text-slate-300" : "text-slate-700"} hover:${isDark ? "text-white" : "text-slate-900"} transition-all shrink-0`}
                           title="Attach document or image"
                         >
                           <Paperclip className="w-4 h-4 text-emerald-400" />
@@ -777,7 +810,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                           onChange={(e) => setReplyText(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && !sendingReply && handleSendAdminReply(activeLiveTicket.id)}
                           placeholder="Type specialist reply..."
-                          className="flex-1 px-4 py-3 rounded-xl bg-[#0B0E14] border border-slate-800 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50"
+                          className={`flex-1 px-4 py-3 rounded-xl ${isDark ? "bg-transparent" : "bg-transparent"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs sm:text-sm ${isDark ? "text-white" : "text-slate-900"} placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50`}
                         />
 
                         <button
@@ -804,9 +837,9 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
               /* USER CARDS LIST (TICKETS TAB) */
               filteredTicketUsers.length === 0 ? (
-                <div className="h-full min-h-[350px] flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-slate-800/80 rounded-3xl bg-[#0F131C]/50">
+                <div className={`h-full min-h-[350px] flex flex-col items-center justify-center text-center p-8 border-2 border-dashed ${isDark ? "border-white/10" : "border-slate-200"} rounded-3xl ${isDark ? "bg-white/5" : "bg-white"}/50`}>
                   <Layers className="w-12 h-12 text-slate-600 mb-3" />
-                  <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">No Support Tickets Found</h3>
+                  <h3 className={`text-sm font-bold ${isDark ? "text-slate-300" : "text-slate-700"} uppercase tracking-wider`}>No Support Tickets Found</h3>
                   <p className="text-xs text-slate-500 max-w-sm mt-1">Submitted support tickets will appear grouped by user.</p>
                 </div>
               ) : (
@@ -817,7 +850,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
                       onClick={() => { setSelectedUserId(item.user.uid); setSelectedTicketId(null); }}
-                      className="cursor-pointer bg-[#121620] hover:bg-[#161B27] border border-slate-800/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all shadow-lg flex flex-col justify-between space-y-3"
+                      className={`cursor-pointer ${isDark ? "bg-white/5" : "bg-white"} hover:${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"}/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all shadow-lg flex flex-col justify-between space-y-3`}
                     >
                       {/* Top Info */}
                       <div className="flex items-start justify-between gap-3">
@@ -826,24 +859,24 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                             {(item.user.displayName || item.user.fullName || item.user.email || 'U').charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <h3 className="text-sm font-bold text-white truncate group-hover:text-emerald-400 transition-colors">
+                            <h3 className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"} truncate group-hover:text-emerald-400 transition-colors`}>
                               {item.user.displayName || item.user.fullName}
                             </h3>
-                            <p className="text-xs text-slate-400 truncate">{item.user.email}</p>
+                            <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} truncate`}>{item.user.email}</p>
                             <p className="text-[10px] text-emerald-400/80 font-mono truncate">{item.user.username}</p>
                           </div>
                         </div>
 
                         <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
-                          item.openTicketCount > 0 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
+                          item.openTicketCount > 0 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-slate-800 ${isDark ? "text-slate-400" : "text-slate-500"} ${isDark ? "border-white/20" : "border-slate-300"}'
                         }`}>
                           {item.openTicketCount} Open
                         </span>
                       </div>
 
                       {/* Latest Ticket Subject */}
-                      <div className="bg-[#0B0E14] rounded-xl p-2.5 border border-slate-800/80">
-                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                      <div className={`${isDark ? "bg-transparent" : "bg-transparent"} rounded-xl p-2.5 border ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                        <div className={`flex items-center justify-between text-[10px] font-mono ${isDark ? "text-slate-400" : "text-slate-500"} mb-1`}>
                           <span>{item.latestTicket.id}</span>
                           <span className={`px-1.5 py-0.2 rounded border uppercase font-extrabold ${getStatusStyle(item.latestTicket.status)}`}>
                             {item.latestTicket.status}
@@ -853,9 +886,9 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       </div>
 
                       {/* Footer Stats */}
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800/60 pt-2 font-mono">
+                      <div className={`flex items-center justify-between text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"} border-t ${isDark ? "border-white/10" : "border-slate-200"}/60 pt-2 font-mono`}>
                         <span>Total Tickets: {item.totalTicketCount}</span>
-                        <span className="text-slate-400">{formatTimestamp(item.latestTicket.updatedAt)}</span>
+                        <span className={`${isDark ? "text-slate-400" : "text-slate-500"}`}>{formatTimestamp(item.latestTicket.updatedAt)}</span>
                       </div>
                     </motion.div>
                   ))}
@@ -868,11 +901,11 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
               selectedUserTicketSummary ? (
                 <div className="space-y-4">
                   {/* User Banner Header */}
-                  <div className="bg-[#121620] border border-slate-800/90 rounded-2xl p-4 flex items-center justify-between gap-4">
+                  <div className={`${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"}/90 rounded-2xl p-4 flex items-center justify-between gap-4`}>
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => setSelectedUserId(null)}
-                        className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
+                        className={`p-2 rounded-xl ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-100 hover:bg-slate-200"} ${isDark ? "text-slate-300" : "text-slate-700"} hover:${isDark ? "text-white" : "text-slate-900"} transition-all`}
                       >
                         <ArrowLeft className="w-4 h-4" />
                       </button>
@@ -882,16 +915,16 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       </div>
 
                       <div>
-                        <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                        <h2 className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"} flex items-center gap-2`}>
                           {selectedUserTicketSummary.user.displayName || selectedUserTicketSummary.user.fullName}
-                          <span className="text-xs text-slate-400 font-mono">({selectedUserTicketSummary.user.username})</span>
+                          <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} font-mono`}>({selectedUserTicketSummary.user.username})</span>
                         </h2>
-                        <p className="text-xs text-slate-400 font-mono">{selectedUserTicketSummary.user.email} • UID: {selectedUserTicketSummary.user.uid}</p>
+                        <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} font-mono`}>{selectedUserTicketSummary.user.email} • UID: {selectedUserTicketSummary.user.uid}</p>
                       </div>
                     </div>
 
                     <div className="text-right">
-                      <span className="text-xs font-bold text-slate-300">{selectedUserTicketSummary.tickets.length} Total Tickets</span>
+                      <span className={`text-xs font-bold ${isDark ? "text-slate-300" : "text-slate-700"}`}>{selectedUserTicketSummary.tickets.length} Total Tickets</span>
                     </div>
                   </div>
 
@@ -901,7 +934,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       <div
                         key={t.id}
                         onClick={() => setSelectedTicketId(t.id)}
-                        className="cursor-pointer bg-[#121620] hover:bg-[#161B27] border border-slate-800/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                        className={`cursor-pointer ${isDark ? "bg-white/5" : "bg-white"} hover:${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"}/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4`}
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -912,12 +945,12 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${getPriorityStyle(t.priority)}`}>
                               {t.priority}
                             </span>
-                            <span className="text-[10px] text-slate-400 font-mono px-2 py-0.5 bg-slate-800 rounded">
+                            <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"} font-mono px-2 py-0.5 bg-slate-800 rounded`}>
                               {t.category}
                             </span>
                           </div>
-                          <h3 className="text-sm font-bold text-white">{t.title}</h3>
-                          <p className="text-xs text-slate-400 line-clamp-1">{t.description}</p>
+                          <h3 className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{t.title}</h3>
+                          <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} line-clamp-1`}>{t.description}</p>
                         </div>
 
                         <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
@@ -934,13 +967,13 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
               /* SPECIFIC TICKET DETAIL WORKSPACE */
               activeTicketDetail ? (
-                <div className="h-full flex flex-col bg-[#121620] border border-slate-800/90 rounded-3xl overflow-hidden shadow-2xl">
+                <div className={`h-full flex flex-col ${isDark ? "bg-white/5" : "bg-white"} sm:border ${isDark ? "sm:border-white/10" : "sm:border-slate-200"}/90 sm:rounded-3xl overflow-hidden sm:shadow-2xl`}>
                   {/* Top Bar */}
-                  <div className="shrink-0 bg-[#161B27] px-4 sm:px-6 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                  <div className={`shrink-0 ${isDark ? "bg-white/5" : "bg-white"} px-4 sm:px-6 py-4 border-b ${isDark ? "border-white/10" : "border-slate-200"} flex flex-wrap items-center justify-between gap-4`}>
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => setSelectedTicketId(null)}
-                        className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
+                        className={`p-2 rounded-xl ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-100 hover:bg-slate-200"} ${isDark ? "text-slate-300" : "text-slate-700"} hover:${isDark ? "text-white" : "text-slate-900"} transition-all`}
                       >
                         <ArrowLeft className="w-4 h-4" />
                       </button>
@@ -948,20 +981,20 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-mono font-black text-emerald-400">{activeTicketDetail.id}</span>
-                          <span className="text-xs text-slate-400">• {activeTicketDetail.category}</span>
+                          <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>• {activeTicketDetail.category}</span>
                         </div>
-                        <h2 className="text-base font-bold text-white">{activeTicketDetail.title}</h2>
+                        <h2 className={`text-base font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{activeTicketDetail.title}</h2>
                       </div>
                     </div>
 
                     {/* Status & Priority Selectors */}
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Status</label>
+                        <label className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider block mb-1`}>Status</label>
                         <select
                           value={activeTicketDetail.status}
                           onChange={(e: any) => handleUpdateStatus(activeTicketDetail.id, e.target.value)}
-                          className="px-3 py-1.5 rounded-xl bg-[#0B0E14] border border-slate-700 text-xs font-bold text-emerald-400 focus:outline-none"
+                          className={`px-3 py-1.5 rounded-xl ${isDark ? "bg-transparent" : "bg-transparent"} border ${isDark ? "border-white/20" : "border-slate-300"} text-xs font-bold text-emerald-400 focus:outline-none`}
                         >
                           <option value="open">Open</option>
                           <option value="pending">Pending</option>
@@ -971,11 +1004,11 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       </div>
 
                       <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Priority</label>
+                        <label className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider block mb-1`}>Priority</label>
                         <select
                           value={activeTicketDetail.priority}
                           onChange={(e: any) => handleUpdatePriority(activeTicketDetail.id, e.target.value)}
-                          className="px-3 py-1.5 rounded-xl bg-[#0B0E14] border border-slate-700 text-xs font-bold text-amber-400 focus:outline-none"
+                          className={`px-3 py-1.5 rounded-xl ${isDark ? "bg-transparent" : "bg-transparent"} border ${isDark ? "border-white/20" : "border-slate-300"} text-xs font-bold text-amber-400 focus:outline-none`}
                         >
                           <option value="low">Low</option>
                           <option value="medium">Medium</option>
@@ -987,11 +1020,11 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                   </div>
 
                   {/* Body Content */}
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-[#0B0E14]">
+                  <div className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 ${isDark ? "bg-transparent" : "bg-transparent"}`}>
                     {/* Admin Notes Collapsible / Section */}
-                    <div className="bg-[#121620] border border-slate-800 rounded-2xl p-4 space-y-2">
+                    <div className={`${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"} rounded-2xl p-4 space-y-2`}>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                        <span className={`text-xs font-bold ${isDark ? "text-slate-300" : "text-slate-700"} uppercase tracking-wider flex items-center gap-2`}>
                           <Lock className="w-3.5 h-3.5 text-amber-400" />
                           Internal Admin Notes
                         </span>
@@ -1008,7 +1041,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                         value={adminNotes}
                         onChange={(e) => setAdminNotes(e.target.value)}
                         placeholder="Add internal notes visible only to administrators..."
-                        className="w-full p-3 rounded-xl bg-[#0B0E14] border border-slate-800 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50 resize-none h-16"
+                        className={`w-full p-3 rounded-xl ${isDark ? "bg-transparent" : "bg-transparent"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs ${isDark ? "text-white" : "text-slate-900"} placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50 resize-none h-16`}
                       />
                     </div>
 
@@ -1019,11 +1052,11 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                           const isAdmin = msg.sender === 'AVER Specialist' || msg.sender === 'Admin';
                           return (
                             <div
-                              key={msg.id || idx}
+                              key={msg.id || `msg-${idx}`}
                               className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'}`}
                             >
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                <span className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider`}>
                                   {isAdmin ? 'AVER Specialist (You)' : msg.sender}
                                 </span>
                                 <span className="text-[10px] text-slate-500 font-mono">
@@ -1035,14 +1068,14 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                                 className={`max-w-[85%] sm:max-w-[70%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                                   isAdmin
                                     ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-slate-950 font-medium rounded-tr-none shadow-md'
-                                    : 'bg-[#181D29] text-white border border-slate-800 rounded-tl-none'
+                                    : '${isDark ? "bg-white/10" : "bg-slate-50"} ${isDark ? "text-white" : "text-slate-900"} border ${isDark ? "border-white/10" : "border-slate-200"} rounded-tl-none'
                                 }`}
                               >
                                 <p className="whitespace-pre-wrap break-words">{msg.text}</p>
 
                                 {msg.attachmentUrl && (
                                   <div className="mt-2 pt-2 border-t border-black/10">
-                                    {msg.attachmentType === 'image' || msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                                    {msg.attachmentType === "image" || msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) || (msg.attachmentUrl.includes("alt=media") && !msg.attachmentUrl.toLowerCase().includes(".pdf")) ? (
                                       <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="block mt-1">
                                         <img src={msg.attachmentUrl} alt="attachment" className="max-h-48 rounded-lg object-cover border border-white/20" />
                                       </a>
@@ -1059,9 +1092,24 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                           );
                         })
                       ) : (
-                        <div className="p-4 rounded-xl bg-[#121620] border border-slate-800 text-xs text-slate-300">
+                        <div className={`p-4 rounded-xl ${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>
                           <p className="font-bold text-slate-200">Ticket Description:</p>
-                          <p className="mt-1 text-slate-400">{activeTicketDetail.description}</p>
+                          <p className={`mt-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>{activeTicketDetail.description}</p>
+                          {activeTicketDetail.attachmentUrl && (
+                            <div className="mt-4 pt-3 border-t border-white/10">
+                              <p className="font-bold text-slate-200 mb-2">Attached File:</p>
+                              {activeTicketDetail.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) || (activeTicketDetail.attachmentUrl.includes('alt=media') && !activeTicketDetail.attachmentUrl.toLowerCase().includes('.pdf')) ? (
+                                <a href={activeTicketDetail.attachmentUrl} target="_blank" rel="noreferrer" className="block">
+                                  <img src={activeTicketDetail.attachmentUrl} alt="attachment" className="max-h-64 rounded-lg object-cover border border-white/20" />
+                                </a>
+                              ) : (
+                                <a href={activeTicketDetail.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs font-mono underline hover:opacity-80">
+                                  <Paperclip className="w-3.5 h-3.5" />
+                                  <span>View Attached File</span>
+                                </a>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                       <div ref={chatEndRef} />
@@ -1069,12 +1117,12 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                   </div>
 
                   {/* Reply Composer Bar */}
-                  <div className="shrink-0 bg-[#161B27] p-3 sm:p-4 border-t border-slate-800">
+                  <div className={`shrink-0 ${isDark ? "bg-white/5" : "bg-white"} p-3 sm:p-4 border-t ${isDark ? "border-white/10" : "border-slate-200"}`}>
                     {attachment && (
                       <div className="mb-2.5 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 font-mono">
                         <Paperclip className="w-3.5 h-3.5" />
                         <span className="truncate max-w-xs">{attachment.name}</span>
-                        <button onClick={() => { setAttachment(null); setSelectedFile(null); }} className="hover:text-white ml-auto">
+                        <button onClick={() => { setAttachment(null); setSelectedFile(null); }} className={`hover:${isDark ? "text-white" : "text-slate-900"} ml-auto`}>
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1084,7 +1132,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="p-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all shrink-0"
+                        className={`p-3 rounded-xl ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-100 hover:bg-slate-200"} ${isDark ? "text-slate-300" : "text-slate-700"} hover:${isDark ? "text-white" : "text-slate-900"} transition-all shrink-0`}
                         title="Attach document or image"
                       >
                         <Paperclip className="w-4 h-4 text-emerald-400" />
@@ -1096,7 +1144,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                         onChange={(e) => setReplyText(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && !sendingReply && handleSendAdminReply(activeTicketDetail.id)}
                         placeholder="Type ticket response..."
-                        className="flex-1 px-4 py-3 rounded-xl bg-[#0B0E14] border border-slate-800 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50"
+                        className={`flex-1 px-4 py-3 rounded-xl ${isDark ? "bg-transparent" : "bg-transparent"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs sm:text-sm ${isDark ? "text-white" : "text-slate-900"} placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50`}
                       />
 
                       <button

@@ -135,7 +135,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
                   }`} 
                 />
                 <span
-                  className={`text-[9px] font-semibold mt-0.5 tracking-wide transition-colors duration-220 ${
+                  className={`text-[9px] font-semibold mt-0.5 tracking-wide transition-colors duration-220 truncate max-w-[54px] text-center ${
                     isActive 
                       ? 'text-emerald-400 font-bold drop-shadow-[0_0_6px_rgba(16,185,129,0.35)]' 
                       : 'text-white/65 group-hover:text-white/95 group-active:text-white'

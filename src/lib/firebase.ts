@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, memoryLocalCache, doc, getDocFromServer } from "firebase/firestore";
+import { initializeFirestore, memoryLocalCache, doc, getDocFromServer, setDoc, updateDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseAppletConfig from "../../firebase-applet-config.json";
 
@@ -22,6 +22,76 @@ export const db = firebaseAppletConfig.firestoreDatabaseId
   : initializeFirestore(app, { localCache: memoryLocalCache() });
 export const storage = getStorage(app);
 
+let quotaExceeded = false;
+
+export function isQuotaExceeded(): boolean {
+  return quotaExceeded;
+}
+
+export async function safeSetDoc(reference: any, data: any, options?: any) {
+  if (quotaExceeded) return;
+  try {
+    if (options) {
+      await setDoc(reference, data, options);
+    } else {
+      await setDoc(reference, data);
+    }
+  } catch (err: any) {
+    const msg = err?.message?.toLowerCase() || '';
+    if (msg.includes('quota') || msg.includes('resource-exhausted')) {
+      quotaExceeded = true;
+      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function safeUpdateDoc(reference: any, data: any) {
+  if (quotaExceeded) return;
+  try {
+    await updateDoc(reference, data);
+  } catch (err: any) {
+    const msg = err?.message?.toLowerCase() || '';
+    if (msg.includes('quota') || msg.includes('resource-exhausted')) {
+      quotaExceeded = true;
+      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function safeAddDoc(reference: any, data: any) {
+  if (quotaExceeded) return null;
+  try {
+    return await addDoc(reference, data);
+  } catch (err: any) {
+    const msg = err?.message?.toLowerCase() || '';
+    if (msg.includes('quota') || msg.includes('resource-exhausted')) {
+      quotaExceeded = true;
+      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function safeDeleteDoc(reference: any) {
+  if (quotaExceeded) return;
+  try {
+    await deleteDoc(reference);
+  } catch (err: any) {
+    const msg = err?.message?.toLowerCase() || '';
+    if (msg.includes('quota') || msg.includes('resource-exhausted')) {
+      quotaExceeded = true;
+      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      return;
+    }
+    throw err;
+  }
+}
+
 // Validate connection to Firestore on initialization as recommended in skill guidelines
 async function testConnection() {
   try {
@@ -29,8 +99,8 @@ async function testConnection() {
   } catch (error) {
     if (error instanceof Error) {
       const msg = error.message.toLowerCase();
-      if (msg.includes('offline') || msg.includes('could not reach') || msg.includes('unavailable')) {
-        console.warn("[Firebase] Operating in offline/cached mode or backend unavailable.");
+      if (msg.includes('offline') || msg.includes('could not reach') || msg.includes('unavailable') || msg.includes('quota') || msg.includes('resource-exhausted')) {
+        console.warn("[Firebase] Operating in offline/cached mode or backend unavailable/quota exceeded.");
       }
     }
   }
@@ -92,6 +162,9 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     lowerMsg.includes('could not reach') ||
     lowerMsg.includes('backend didn\'t respond')
   ) {
+    if (lowerMsg.includes('quota') || lowerMsg.includes('resource-exhausted')) {
+      quotaExceeded = true;
+    }
     return;
   }
   throw new Error(JSON.stringify(errInfo));

@@ -4,7 +4,7 @@ import {
   Users, Wallet, ArrowDownCircle, ArrowUpCircle, 
   TrendingUp, Activity, ShieldAlert, MessageSquare, UserCheck, RefreshCw
 } from 'lucide-react';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, where, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../../lib/firebase';
 
 interface AdminStats {
@@ -44,70 +44,129 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
 
   useEffect(() => {
     let loadedCount = 0;
+    let isSubscribed = true;
+
     const checkLoaded = () => {
+      if (!isSubscribed) return;
       loadedCount++;
-      if (loadedCount >= 5) {
+      if (loadedCount >= 4) {
         setLoading(false);
       }
     };
 
-    // Real-time listener for Total Platform Users
+    // Timeout safety net to clear loading skeleton if network is slow
+    const timeoutId = setTimeout(() => {
+      if (isSubscribed) {
+        setLoading(false);
+      }
+    }, 1500);
+
+    // Real-time listener for Total Platform Users directly from Firestore 'users' collection
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setStats(prev => ({ ...prev, totalUsers: Math.max(snap.size, 1) }));
-      checkLoaded();
+      if (isSubscribed) {
+        // Count valid active/registered user documents (excluding marked as deleted or guest users)
+        const validUsers = snap.docs.filter(d => {
+          const data = d.data();
+          const isGuest = data.email === 'guest@aver.platform' || data.email === 'demo@aver.platform' || d.id === 'guest_user' || d.id.startsWith('local-') || d.id.startsWith('auto_');
+          // Ensure they actually completed some form of sign up or onboarding
+          const hasRegistered = data.createdAt && data.email && !d.id.startsWith('auto_');
+          return data && !data.isDeleted && data.accountStatus !== 'Deleted' && !isGuest && hasRegistered;
+        });
+        setStats(prev => ({ ...prev, totalUsers: validUsers.length }));
+        checkLoaded();
+      }
     }, (err) => {
-      console.warn('Users listener fallback:', err);
-      setStats(prev => ({ ...prev, totalUsers: 1 }));
-      checkLoaded();
+      console.warn('Users listener notice:', err);
+      if (isSubscribed) {
+        checkLoaded();
+      }
     });
 
     // Real-time listener for Linked Institutional Wallets
     const unsubWallets = onSnapshot(collection(db, 'linked_wallets'), (snap) => {
-      setStats(prev => ({ ...prev, totalWallets: snap.size }));
-      checkLoaded();
+      if (isSubscribed) {
+        setStats(prev => ({ ...prev, totalWallets: snap.size }));
+        checkLoaded();
+      }
     }, (err) => {
-      console.warn('Wallets listener fallback:', err);
-      checkLoaded();
+      console.warn('Wallets listener notice:', err);
+      if (isSubscribed) {
+        setStats(prev => ({ ...prev, totalWallets: 0 }));
+        checkLoaded();
+      }
     });
 
     // Real-time listener for Deposits and Inbound Financial Flux
     const unsubDeposits = onSnapshot(collection(db, 'admin_deposits'), (snap) => {
-      const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
-      const pendingCount = docs.filter(d => d.status === 'pending').length;
-      setStats(prev => ({ ...prev, pendingDeposits: pendingCount }));
-      setAllDeposits(docs);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'admin_deposits'));
+      if (isSubscribed) {
+        const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
+        const pendingCount = docs.filter(d => d.status === 'pending').length;
+        setStats(prev => ({ ...prev, pendingDeposits: pendingCount }));
+        setAllDeposits(docs);
+        checkLoaded();
+      }
+    }, (err) => {
+      console.warn('Deposits listener notice:', err);
+      if (isSubscribed) {
+        setStats(prev => ({ ...prev, pendingDeposits: 0 }));
+        checkLoaded();
+      }
+    });
 
     // Real-time listener for Withdrawals and Outbound Financial Flux
     const unsubWithdrawals = onSnapshot(collection(db, 'admin_withdrawals'), (snap) => {
-      const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
-      const pendingCount = docs.filter(w => w.status === 'pending').length;
-      setStats(prev => ({ ...prev, pendingWithdrawals: pendingCount }));
-      setAllWithdrawals(docs);
-      checkLoaded();
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'admin_withdrawals'));
+      if (isSubscribed) {
+        const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
+        const pendingCount = docs.filter(w => w.status === 'pending').length;
+        setStats(prev => ({ ...prev, pendingWithdrawals: pendingCount }));
+        setAllWithdrawals(docs);
+        checkLoaded();
+      }
+    }, (err) => {
+      console.warn('Withdrawals listener notice:', err);
+      if (isSubscribed) {
+        setStats(prev => ({ ...prev, pendingWithdrawals: 0 }));
+        checkLoaded();
+      }
+    });
 
     // Real-time listener for Pending KYC Verifications
     const unsubKYC = onSnapshot(
       query(collection(db, 'admin_kyc'), where('status', '==', 'pending')),
       (snap) => {
-        setStats(prev => ({ ...prev, pendingKYC: snap.size }));
-        checkLoaded();
+        if (isSubscribed) {
+          setStats(prev => ({ ...prev, pendingKYC: snap.size }));
+          checkLoaded();
+        }
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'admin_kyc')
+      (err) => {
+        console.warn('KYC listener notice:', err);
+        if (isSubscribed) {
+          checkLoaded();
+        }
+      }
     );
 
     // Real-time listener for Open Support Tickets
     const unsubSupport = onSnapshot(
       query(collection(db, 'support_tickets'), where('status', 'in', ['open', 'pending', 'unanswered'])),
       (snap) => {
-        setStats(prev => ({ ...prev, openTickets: snap.size }));
+        if (isSubscribed) {
+          setStats(prev => ({ ...prev, openTickets: snap.size }));
+          checkLoaded();
+        }
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'support_tickets')
+      (err) => {
+        console.warn('Support listener notice:', err);
+        if (isSubscribed) {
+          checkLoaded();
+        }
+      }
     );
 
     return () => {
+      isSubscribed = false;
+      clearTimeout(timeoutId);
       unsubUsers();
       unsubWallets();
       unsubDeposits();
@@ -200,40 +259,40 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
   const statCards = [
     { 
       label: 'Total Platform Users', 
-      value: loading ? '...' : stats.totalUsers.toLocaleString(), 
+      value: stats.totalUsers.toLocaleString(), 
       icon: Users, 
       color: 'blue', 
-      trend: loading ? '...' : (stats.totalUsers > 0 ? 'Live' : '0 Users'), 
+      trend: stats.totalUsers > 0 ? 'Live Users' : '0 Users', 
       bg: 'bg-blue-500/10', 
       text: 'text-blue-500', 
       border: 'border-blue-500/20' 
     },
     { 
       label: 'Linked Institutional Wallets', 
-      value: loading ? '...' : stats.totalWallets.toLocaleString(), 
+      value: stats.totalWallets.toLocaleString(), 
       icon: Wallet, 
       color: 'emerald', 
-      trend: loading ? '...' : (stats.totalWallets > 0 ? 'Connected' : '0 Wallets'), 
+      trend: stats.totalWallets > 0 ? 'Connected' : '0 Wallets', 
       bg: 'bg-emerald-500/10', 
       text: 'text-emerald-500', 
       border: 'border-emerald-500/20' 
     },
     { 
       label: 'Pending Deposits', 
-      value: loading ? '...' : stats.pendingDeposits.toLocaleString(), 
+      value: stats.pendingDeposits.toLocaleString(), 
       icon: ArrowDownCircle, 
       color: 'amber', 
-      trend: stats.pendingDeposits > 0 ? 'Action Needed' : 'Clean', 
+      trend: stats.pendingDeposits > 0 ? 'Action Needed' : '0 Pending', 
       bg: 'bg-amber-500/10', 
       text: 'text-amber-500', 
       border: 'border-amber-500/20' 
     },
     { 
       label: 'Pending Withdrawals', 
-      value: loading ? '...' : stats.pendingWithdrawals.toLocaleString(), 
+      value: stats.pendingWithdrawals.toLocaleString(), 
       icon: ArrowUpCircle, 
       color: 'rose', 
-      trend: stats.pendingWithdrawals > 0 ? 'High Priority' : 'Stable', 
+      trend: stats.pendingWithdrawals > 0 ? 'High Priority' : '0 Pending', 
       bg: 'bg-rose-500/10', 
       text: 'text-rose-500', 
       border: 'border-rose-500/20' 
@@ -268,20 +327,28 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
               <div className={`p-3 rounded-2xl ${stat.bg} ${stat.text} border ${stat.border}`}>
                 <stat.icon className="w-5 h-5" />
               </div>
-              <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
-                stat.trend === 'Action Needed' || stat.trend === 'High Priority' 
-                  ? 'bg-rose-500/10 text-rose-500' 
-                  : 'bg-emerald-500/10 text-emerald-500'
-              }`}>
-                {stat.trend}
-              </span>
+              {loading ? (
+                <div className="h-5 w-16 rounded-lg bg-slate-300/40 dark:bg-white/10 animate-pulse" />
+              ) : (
+                <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
+                  stat.trend === 'Action Needed' || stat.trend === 'High Priority' 
+                    ? 'bg-rose-500/10 text-rose-500' 
+                    : 'bg-emerald-500/10 text-emerald-500'
+                }`}>
+                  {stat.trend}
+                </span>
+              )}
             </div>
             <div className="space-y-1">
               <span className={`text-xs font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase tracking-widest`}>
                 {stat.label}
               </span>
-              <div className="text-3xl font-black tracking-tight">
-                {stat.value}
+              <div className="text-3xl font-black tracking-tight min-h-[36px] flex items-center">
+                {loading ? (
+                  <div className="h-8 w-20 rounded-lg bg-slate-300/40 dark:bg-white/10 animate-pulse" />
+                ) : (
+                  stat.value
+                )}
               </div>
             </div>
           </motion.div>

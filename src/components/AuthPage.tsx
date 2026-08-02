@@ -163,7 +163,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   };
   
   const countries = [
-    "United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Japan", "China", "India", "Brazil", "South Africa", "Nigeria", "United Arab Emirates"
+    "United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Switzerland", "Netherlands", "Sweden", "Spain", "Italy", "Japan", "China", "Brazil", "United Arab Emirates"
   ];
 
   // Handle Register Form Submission

@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
     <meta name="google-site-verification" content="RuYkJPorNZxqPI5I-nKt7dpjeA8v8QKHx7qsZcjaAOc" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
@@ -40,10 +41,42 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon.svg" />
     <link rel="mask-icon" href="/favicon.svg" color="#10b981" />
+    
+    <style>
+      /* Hide all Google Translate elements, tooltips, and prevent body shift */
+      .goog-te-banner-frame.skiptranslate, 
+      .goog-te-gadget-icon, 
+      .goog-te-gadget-simple, 
+      .goog-te-gadget, 
+      .VIpgJd-ZVi9od-aZ2wEe-wOHMyf, 
+      .VIpgJd-ZVi9od-aZ2wEe-OiiCO, 
+      .skiptranslate > iframe.skiptranslate, 
+      iframe.goog-te-banner-frame, 
+      iframe[src*="translate.googleapis.com"],
+      #goog-gt-tt, 
+      .goog-te-balloon-frame { 
+        display: none !important; 
+        visibility: hidden !important; 
+      }
+      .goog-text-highlight { 
+        background-color: transparent !important; 
+        box-shadow: none !important; 
+      }
+      body { top: 0px !important; position: static !important; }
+      html { margin-top: 0px !important; height: 100%; }
+      #google_translate_element { display: none !important; }
+    </style>
   </head>
   <body>
+    <div id="google_translate_element"></div>
+    <script type="text/javascript">
+      function googleTranslateElementInit() {
+        new google.translate.TranslateElement({pageLanguage: 'en', autoDisplay: false}, 'google_translate_element');
+      }
+    </script>
+    <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+    
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

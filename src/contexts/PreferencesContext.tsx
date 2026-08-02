@@ -46,6 +46,30 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
   // Synchronize preferences with currently logged in user or global fallback
   useEffect(() => {
+    const isAdminSession = safeStorage.getItem('admin_session_active') === 'true' || user?.role === 'admin' || user?.role === 'super_admin';
+
+    if (isAdminSession) {
+      setPreferences({
+        language: 'EN',
+        theme: 'dark',
+        currency: 'USD',
+        rememberMeEnabled: false,
+        biometricsEnabled: false,
+      });
+
+      // Clear translation cookies for sovereign Admin view
+      document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${window.location.hostname}; path=/;`;
+      
+      const select = document.querySelector('.goog-te-combo') as HTMLSelectElement;
+      if (select && select.value !== 'en') {
+        select.value = 'en';
+        select.dispatchEvent(new Event('change'));
+      }
+      setIsLoaded(true);
+      return;
+    }
+
     if (user) {
       const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
       const validThemes: Theme[] = ['light', 'dark'];
@@ -79,7 +103,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       }));
     }
     setIsLoaded(true);
-  }, [user?.uid]);
+  }, [user?.uid, user?.role]);
 
   // Keep a local storage listener to synchronize across tabs for global settings
   useEffect(() => {
@@ -108,6 +132,40 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     // Save to user profile persistently if logged in
     if (user && updateUserPreferences) {
       updateUserPreferences({ [key]: value });
+    }
+
+    // Google Translate Integration for Instant Full-App Translation
+    if (key === 'language') {
+      let gtCode = (value as string).toLowerCase();
+      if (value === 'ZH') gtCode = 'zh-CN';
+      
+      const setGoogleCookie = (val: string) => {
+        document.cookie = `googtrans=${val}; path=/`;
+        document.cookie = `googtrans=${val}; domain=${window.location.hostname}; path=/`;
+        if (window.location.hostname !== 'localhost') {
+            const domainParts = window.location.hostname.split('.');
+            if (domainParts.length > 2) {
+                const rootDomain = domainParts.slice(-2).join('.');
+                document.cookie = `googtrans=${val}; domain=${rootDomain}; path=/`;
+            }
+        }
+      };
+
+      if (value === 'EN') {
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${window.location.hostname}; path=/;`;
+      } else {
+        setGoogleCookie(`/en/${gtCode}`);
+      }
+
+      // Automatically trigger translation if widget is loaded
+      const select = document.querySelector('.goog-te-combo') as HTMLSelectElement;
+      if (select) {
+        select.value = value === 'EN' ? 'en' : gtCode;
+        select.dispatchEvent(new Event('change'));
+      } else {
+        window.location.reload();
+      }
     }
   }, [user, updateUserPreferences]);
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { Lock } from 'lucide-react';
 import Loader from './components/Loader';
 import Navbar from './components/Navbar';
 import CryptoTicker from './components/CryptoTicker';
@@ -19,6 +20,7 @@ import ReferralCenter from './components/ReferralCenter';
 import MarketHighlightsPage from './components/MarketHighlightsPage';
 import EventsPromosPage from './components/EventsPromosPage';
 import AdminRoot from './components/admin/AdminRoot';
+import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
@@ -36,10 +38,10 @@ export default function App() {
 }
 
 function AppContent() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOutUser } = useAuth();
   
   // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'preferences' | 'bonus-center' | 'referral-centre' | 'market-highlights' | 'events-promos' | 'admin' | 'not-found'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'preferences' | 'bonus-center' | 'referral-centre' | 'market-highlights' | 'events-promos' | 'kyc-verification' | 'admin' | 'not-found'>('home');
 
 
   const { preferences, updatePreference } = usePreferences();
@@ -165,6 +167,56 @@ function AppContent() {
     return <Loader onComplete={() => {}} />;
   }
 
+  // Account status enforcement
+  const userAccountStatus = (user?.accountStatus || user?.status || 'Active').toLowerCase();
+  const isAccountBlocked = user && (userAccountStatus === 'suspended' || userAccountStatus === 'deactivated');
+
+  if (isAccountBlocked) {
+    const isSuspended = userAccountStatus === 'suspended';
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-radial-gradient-dark opacity-80 pointer-events-none" />
+        <div className="max-w-md w-full p-8 rounded-[2.5rem] border border-rose-500/30 bg-slate-900/90 backdrop-blur-2xl text-center space-y-6 shadow-2xl relative z-10">
+          <div className="w-20 h-20 mx-auto rounded-3xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500 shadow-lg shadow-rose-500/20">
+            <Lock className="w-10 h-10" />
+          </div>
+
+          <div className="space-y-2">
+            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-rose-500/20 text-rose-400 border border-rose-500/30">
+              Access Revoked
+            </span>
+            <h1 className="text-2xl font-black tracking-tight">
+              Account {isSuspended ? 'Suspended' : 'Deactivated'}
+            </h1>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Your platform access has been {isSuspended ? 'suspended' : 'deactivated'} by an administrator. You will not be able to navigate the platform until your account is reactivated.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-left text-xs space-y-2">
+            <div className="flex justify-between text-slate-400">
+              <span>Account UID:</span>
+              <span className="font-mono text-slate-200">{user?.uid}</span>
+            </div>
+            <div className="flex justify-between text-slate-400">
+              <span>Email:</span>
+              <span className="text-slate-200">{user?.email}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 pt-2">
+            <button
+              onClick={() => signOutUser()}
+              className="w-full py-3.5 rounded-2xl bg-rose-500 text-white font-bold text-sm hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const containerBg = theme === 'dark' 
     ? 'bg-[#000000] text-slate-200' 
     : 'bg-slate-50 text-slate-900';
@@ -173,7 +225,7 @@ function AppContent() {
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.5">
       
       {/* Premium fixed trading background image with high-end overlay blending */}
-      {currentView !== 'dashboard' && currentView !== 'strategies' && (
+      {currentView !== 'dashboard' && currentView !== 'strategies' && currentView !== 'kyc-verification' && (
         <div className="fixed inset-0 w-full h-full pointer-events-none overflow-hidden z-0 select-none">
           <img 
             src="https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2000&auto=format&fit=crop" 
@@ -229,7 +281,7 @@ function AppContent() {
       )}
 
       {/* Background visual light leak for premium depth */}
-      {currentView !== 'dashboard' && currentView !== 'strategies' && (
+      {currentView !== 'dashboard' && currentView !== 'strategies' && currentView !== 'kyc-verification' && (
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-screen pointer-events-none overflow-hidden z-0">
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-900/20 rounded-full blur-[120px] pointer-events-none" />
           <div className="absolute bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
@@ -256,6 +308,8 @@ function AppContent() {
                 setCurrentView('events-promos');
               } else if (tab === 'referral-centre') {
                 setCurrentView('referral-centre');
+              } else if (tab === 'kyc-verification') {
+                setCurrentView('kyc-verification');
               } else {
                 if (tab === 'ai') {
                   safeStorage.setItem('aver_dashboard_tab', 'ai');
@@ -263,6 +317,12 @@ function AppContent() {
                 setCurrentView('dashboard');
               }
             }}
+          />
+        ) : currentView === 'kyc-verification' ? (
+          <KycVerificationPage
+            theme={theme}
+            onBack={() => setCurrentView('bonus-center')}
+            onComplete={() => setCurrentView('bonus-center')}
           />
         ) : currentView === 'referral-centre' ? (
           <ReferralCenter

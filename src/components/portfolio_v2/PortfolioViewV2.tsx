@@ -433,6 +433,29 @@ export default function PortfolioViewV2({
   const [isRescanningRadar, setIsRescanningRadar] = useState<boolean>(false);
   const [lastRadarScan, setLastRadarScan] = useState<Date>(new Date());
 
+  const MASTER_ASSET_POOL = useMemo(() => [
+    { symbol: 'BTC', name: 'Bitcoin' },
+    { symbol: 'ETH', name: 'Ethereum' },
+    { symbol: 'SOL', name: 'Solana' },
+    { symbol: 'NVDA', name: 'NVIDIA' },
+    { symbol: 'XRP', name: 'Ripple' },
+    { symbol: 'Gold', name: 'Gold Spot' },
+    { symbol: 'DOGE', name: 'Dogecoin' },
+    { symbol: 'PEPE', name: 'Pepe' },
+    { symbol: 'ADA', name: 'Cardano' },
+    { symbol: 'DOT', name: 'Polkadot' },
+    { symbol: 'LINK', name: 'Chainlink' },
+    { symbol: 'AVAX', name: 'Avalanche' },
+    { symbol: 'SHIB', name: 'Shiba Inu' },
+    { symbol: 'UNI', name: 'Uniswap' },
+    { symbol: 'LTC', name: 'Litecoin' },
+    { symbol: 'NEAR', name: 'Near Protocol' },
+    { symbol: 'SUI', name: 'Sui' },
+    { symbol: 'APT', name: 'Aptos' },
+    { symbol: 'ARB', name: 'Arbitrum' },
+    { symbol: 'OP', name: 'Optimism' }
+  ], []);
+
   const [radarAssets, setRadarAssets] = useState<RadarAsset[]>([
     { symbol: 'BTC', name: 'Bitcoin', baseConfidence: 96, category: 'high_conviction' },
     { symbol: 'ETH', name: 'Ethereum', baseConfidence: 89, category: 'preparing_entry' },
@@ -447,11 +470,32 @@ export default function PortfolioViewV2({
   const handleRescanRadar = () => {
     setIsRescanningRadar(true);
     setTimeout(() => {
-      setRadarAssets(prev => prev.map(asset => {
-        const delta = (Math.random() - 0.5) * 3;
-        const newBase = Math.min(99, Math.max(10, Math.round((asset.baseConfidence + delta) * 10) / 10));
-        return { ...asset, baseConfidence: newBase };
-      }));
+      // Pick 7 to 9 random assets from the pool
+      const shuffled = [...MASTER_ASSET_POOL].sort(() => Math.random() - 0.5);
+      const count = Math.floor(Math.random() * 3) + 7; // 7, 8, or 9
+      const selected = shuffled.slice(0, count);
+
+      const newAssets = selected.map(asset => {
+        const baseConfidence = Math.floor(Math.random() * 85) + 12; // 12 to 97
+        let category = 'watching';
+        if (baseConfidence >= 85) {
+          category = 'high_conviction';
+        } else if (baseConfidence >= 65) {
+          category = 'preparing_entry';
+        } else if (baseConfidence >= 35) {
+          category = 'watching';
+        } else {
+          category = 'avoiding';
+        }
+        return {
+          symbol: asset.symbol,
+          name: asset.name,
+          baseConfidence,
+          category
+        };
+      });
+
+      setRadarAssets(newAssets);
       setLastRadarScan(new Date());
       setIsRescanningRadar(false);
       showNotification('AI Market Radar rescanned 182 signals across 12 exchanges.');
@@ -1355,7 +1399,6 @@ export default function PortfolioViewV2({
         >
           <div className="flex items-center justify-between border-b border-white/[0.05] pb-3">
             <div className="flex items-center space-x-2.5">
-              <div className="w-9 h-9 rounded-full overflow-hidden border border-[#00D09C]/20 bg-[#00D09C]/10 flex items-center justify-center relative"><Sparkles className="w-5 h-5 text-[#00D09C]" /><span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#00D09C] rounded-full border-2 border-[#0E1320]" /></div>
               <div>
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider">Aver AI Engine</h4>
                 <span className="text-[9px] font-medium text-slate-400 uppercase tracking-widest block font-sans">
@@ -1393,7 +1436,6 @@ export default function PortfolioViewV2({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <Sparkles className="w-4 h-4 text-[#00D09C]" />
               <h3 className="text-xs font-bold tracking-wider text-slate-400 font-sans uppercase">
                 AI Market Intelligence
               </h3>
@@ -1462,80 +1504,94 @@ export default function PortfolioViewV2({
                 })}
               </div>
 
-              {/* Render Radar Categories */}
-              <div className="space-y-4 pt-1">
-                {radarCategories
-                  .filter(cat => selectedRadarCategory === 'all' || selectedRadarCategory === cat.key)
-                  .map((cat, i) => (
-                    <div key={`${cat.key}-${i}`} className="space-y-2">
-                      <div className="flex items-center justify-between border-b border-white/[0.03] pb-1.5">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm">{cat.icon}</span>
-                          <span className="text-xs font-bold text-white tracking-wide">{cat.label}</span>
-                          <span className="text-[10px] px-2 py-0.2 rounded-full bg-white/[0.04] text-slate-400 font-mono">
-                            {cat.assets.length}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-medium font-sans uppercase tracking-wider">{cat.subtitle}</span>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 gap-2 pl-1 sm:pl-2">
-                        {cat.assets.map((asset, j) => {
-                          const dynConf = getDynamicConfidence(asset.baseConfidence, asset.symbol);
-                          const livePrice = mergedLivePrices[asset.symbol] || (asset.symbol === 'BTC' ? 89450 : asset.symbol === 'ETH' ? 3420 : asset.symbol === 'SOL' ? 185 : asset.symbol === 'NVDA' ? 128 : asset.symbol === 'Gold' ? 2410 : asset.symbol === 'XRP' ? 2.45 : asset.symbol === 'DOGE' ? 0.38 : 0.000012);
-                          const mockChange = (Math.sin(tickTracker * 0.1 + asset.symbol.charCodeAt(0)) * 2.8).toFixed(2);
-                          const isPositive = Number(mockChange) >= 0;
+              {/* Unified, Beautiful Flat List of Monitored Assets */}
+              <div className="space-y-2 pt-1">
+                {(() => {
+                  const filteredAssets = radarAssets
+                    .filter(asset => selectedRadarCategory === 'all' || asset.category === selectedRadarCategory)
+                    .sort((a, b) => b.baseConfidence - a.baseConfidence);
 
-                          return (
-                            <button 
-                              key={`${asset.symbol}-${i}-${j}`} 
-                              onClick={() => runRadarAnalysis(asset)}
-                              className="w-full flex items-center justify-between p-3 rounded-2xl bg-white/[0.015] border border-white/[0.04] hover:bg-white/[0.05] hover:border-[#00D09C]/30 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 touch-manipulation group"
-                            >
-                              <div className="flex items-center space-x-3">
-                                <CoinLogo symbol={asset.symbol} size={28} className="rounded-full overflow-hidden shadow-md" />
-                                <div>
-                                  <div className="flex items-center space-x-1.5">
-                                    <span className="text-xs font-bold text-white group-hover:text-[#00D09C] transition-colors">{asset.symbol}</span>
-                                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${
-                                      asset.category === 'high_conviction' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                                      asset.category === 'preparing_entry' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                      asset.category === 'watching' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
-                                      'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                                    }`}>
-                                      {asset.category === 'high_conviction' ? 'Strong Buy' :
-                                       asset.category === 'preparing_entry' ? 'Entry Target' :
-                                       asset.category === 'watching' ? 'Monitoring' : 'Avoid'}
-                                    </span>
-                                  </div>
-                                  <div className="text-[10px] text-slate-400 leading-tight mt-0.5">{asset.name}</div>
-                                </div>
-                              </div>
+                  if (filteredAssets.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-slate-500 text-xs">
+                        No assets found in this category.
+                      </div>
+                    );
+                  }
+
+                  return filteredAssets.map((asset, index) => {
+                    const dynConf = getDynamicConfidence(asset.baseConfidence, asset.symbol);
+                    const livePrice = mergedLivePrices[asset.symbol] || (
+                      asset.symbol === 'BTC' ? 89450 : 
+                      asset.symbol === 'ETH' ? 3420 : 
+                      asset.symbol === 'SOL' ? 185 : 
+                      asset.symbol === 'NVDA' ? 128 : 
+                      asset.symbol === 'Gold' ? 2410 : 
+                      asset.symbol === 'XRP' ? 2.45 : 
+                      asset.symbol === 'DOGE' ? 0.38 : 
+                      asset.symbol === 'PEPE' ? 0.000012 : 
+                      asset.symbol === 'ADA' ? 0.65 :
+                      asset.symbol === 'DOT' ? 6.20 :
+                      asset.symbol === 'LINK' ? 18.50 :
+                      asset.symbol === 'AVAX' ? 34.20 :
+                      asset.symbol === 'SHIB' ? 0.000025 :
+                      asset.symbol === 'UNI' ? 7.80 :
+                      asset.symbol === 'LTC' ? 85.00 :
+                      asset.symbol === 'NEAR' ? 5.40 : 1.25
+                    );
+                    const mockChange = (Math.sin(tickTracker * 0.1 + asset.symbol.charCodeAt(0)) * 2.8).toFixed(2);
+                    const isPositive = Number(mockChange) >= 0;
+
+                    return (
+                      <button 
+                        key={`${asset.symbol}-${index}`} 
+                        onClick={() => runRadarAnalysis(asset)}
+                        className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.015] border border-white/[0.04] hover:bg-white/[0.04] hover:border-[#00D09C]/30 transition-all cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-[#00D09C]/30 touch-manipulation group"
+                      >
+                        {/* Left Part: Logo + Asset Name/Symbol */}
+                        <div className="flex items-center space-x-3 min-w-0">
+                          <CoinLogo symbol={asset.symbol} size={32} className="rounded-full overflow-hidden shadow-md flex-shrink-0" />
+                          <div className="min-w-0">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                              <span className="text-sm font-black text-white group-hover:text-[#00D09C] transition-colors">{asset.symbol}</span>
                               
-                              <div className="flex items-center space-x-4">
-                                <div className="text-right">
-                                  <div className="text-xs font-mono font-bold text-slate-200">
-                                    ${typeof livePrice === 'number' ? livePrice.toLocaleString(undefined, { minimumFractionDigits: livePrice < 10 ? 2 : 0, maximumFractionDigits: livePrice < 10 ? 4 : 2 }) : livePrice}
-                                  </div>
-                                  <div className={`text-[10px] font-mono font-semibold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {isPositive ? '+' : ''}{mockChange}%
-                                  </div>
-                                </div>
-
-                                <div className="text-right border-l border-white/[0.06] pl-3">
-                                  <span className="text-[8px] text-slate-500 uppercase tracking-widest block font-sans font-bold">Confidence</span>
-                                  <span className="text-xs font-bold text-[#00D09C] font-mono">
-                                    {dynConf}%
-                                  </span>
-                                </div>
-                                <span className={`w-2.5 h-2.5 rounded-full ${cat.dotColor} animate-pulse`} />
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                              {/* Slick Compact Badge indicating Confidence & Category */}
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider flex items-center gap-1 flex-shrink-0 ${
+                                asset.category === 'high_conviction' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                asset.category === 'preparing_entry' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                asset.category === 'watching' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
+                                'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                              }`}>
+                                <span>
+                                  {asset.category === 'high_conviction' ? '🟢' :
+                                   asset.category === 'preparing_entry' ? '🟡' :
+                                   asset.category === 'watching' ? '👁' : '🔴'}
+                                </span>
+                                <span>{dynConf}%</span>
+                                <span className="opacity-80">
+                                  {asset.category === 'high_conviction' ? 'Buy' :
+                                   asset.category === 'preparing_entry' ? 'Target' :
+                                   asset.category === 'watching' ? 'Watch' : 'Avoid'}
+                                </span>
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 truncate mt-0.5">{asset.name}</div>
+                          </div>
+                        </div>
+                        
+                        {/* Right Part: Price + Percent change */}
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-sm font-mono font-bold text-slate-100">
+                            ${typeof livePrice === 'number' ? livePrice.toLocaleString(undefined, { minimumFractionDigits: livePrice < 10 ? (livePrice < 0.1 ? 6 : 4) : 2, maximumFractionDigits: livePrice < 10 ? (livePrice < 0.1 ? 6 : 4) : 2 }) : livePrice}
+                          </div>
+                          <div className={`text-[11px] font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isPositive ? '+' : ''}{mockChange}%
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>

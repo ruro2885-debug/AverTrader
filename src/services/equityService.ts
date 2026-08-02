@@ -42,15 +42,8 @@ export const equityService = {
       const existing: SessionEquityPoint[] = existingStr ? JSON.parse(existingStr) : [];
       existing.push(point);
       localStorage.setItem(cacheKey, JSON.stringify(existing));
-
-      if (!userId.startsWith('local-')) {
-        const colRef = collection(db, 'users', userId, SESSION_POINTS_COLLECTION);
-        await addDoc(colRef, {
-          ...point,
-          timestampMs: point.timestamp,
-          timestamp: Timestamp.fromMillis(point.timestamp)
-        });
-      }
+      
+      // Removed Firestore addDoc to save quota. State is kept in UI/localStorage.
     } catch (error) {
       console.warn('[equityService] Error recording session point:', error);
     }

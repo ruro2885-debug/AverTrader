@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Search, TrendingUp, TrendingDown, Star, ChevronRight, Newspaper } from 'lucide-react';
 import CoinLogo from './CoinLogo';
@@ -17,6 +17,8 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   const [newsLoading, setNewsLoading] = useState(true);
   const [insights, setInsights] = useState<string | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+
+  const watchlist = user?.watchlist || [];
   
   const fetchAssets = async () => {
     try {
@@ -27,15 +29,16 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
       const data = await res.json();
       const mapped = data.map((d: any) => {
         const symbol = d.symbol.replace('USDT', '');
-        const isPositive = parseFloat(d.priceChangePercent) >= 0;
+        const rawChange = parseFloat(d.priceChangePercent) || 0;
+        const isPositive = rawChange >= 0;
         return {
           symbol,
-          name: symbol === 'BTC' ? 'Bitcoin' : symbol === 'ETH' ? 'Ethereum' : symbol === 'ADA' ? 'Cardano' : symbol === 'XRP' ? 'Ripple' : symbol === 'SOL' ? 'Solana' : symbol === 'DOGE' ? 'Dogecoin' : symbol === 'AVAX' ? 'Avalanche' : symbol === 'BNB' ? 'Binance Coin' : symbol === 'FET' ? 'Artificial Superintelligence Alliance' : 'Chainlink',
+          name: symbol === 'BTC' ? 'Bitcoin' : symbol === 'ETH' ? 'Ethereum' : symbol === 'ADA' ? 'Cardano' : symbol === 'XRP' ? 'Ripple' : symbol === 'SOL' ? 'Solana' : symbol === 'DOGE' ? 'Dogecoin' : symbol === 'AVAX' ? 'Avalanche' : symbol === 'BNB' ? 'Binance Coin' : symbol === 'FET' ? 'Artificial Superintelligence Alliance' : symbol === 'LINK' ? 'Chainlink' : symbol,
           price: parseFloat(d.lastPrice),
-          change: (isPositive ? '+' : '') + parseFloat(d.priceChangePercent).toFixed(2) + '%',
+          change: (isPositive ? '+' : '') + rawChange.toFixed(2) + '%',
           isPositive,
           rawPrice: parseFloat(d.lastPrice),
-          rawChange: parseFloat(d.priceChangePercent) || 0,
+          rawChange,
           quoteVolume: parseFloat(d.quoteVolume) || 0
         };
       });
@@ -50,7 +53,9 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
         { symbol: 'XRP', name: 'Ripple', price: 0.584, change: '-0.85%', isPositive: false, rawPrice: 0.584, rawChange: -0.85, quoteVolume: 180200000 },
         { symbol: 'ADA', name: 'Cardano', price: 0.412, change: '+1.20%', isPositive: true, rawPrice: 0.412, rawChange: 1.20, quoteVolume: 95000000 },
         { symbol: 'DOGE', name: 'Dogecoin', price: 0.128, change: '+3.40%', isPositive: true, rawPrice: 0.128, rawChange: 3.40, quoteVolume: 310000000 },
-        { symbol: 'AVAX', name: 'Avalanche', price: 28.50, change: '-1.10%', isPositive: false, rawPrice: 28.50, rawChange: -1.10, quoteVolume: 88000000 }
+        { symbol: 'AVAX', name: 'Avalanche', price: 28.50, change: '-1.10%', isPositive: false, rawPrice: 28.50, rawChange: -1.10, quoteVolume: 88000000 },
+        { symbol: 'LINK', name: 'Chainlink', price: 14.20, change: '+2.15%', isPositive: true, rawPrice: 14.20, rawChange: 2.15, quoteVolume: 74000000 },
+        { symbol: 'FET', name: 'Artificial Superintelligence Alliance', price: 1.45, change: '+8.60%', isPositive: true, rawPrice: 1.45, rawChange: 8.60, quoteVolume: 120000000 }
       ];
       setAssets(fallbackList);
     } finally {
@@ -111,14 +116,14 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
     if (assets.length > 0) {
       fetchInsights(assets);
     }
-  }, [assets]);
+  }, [assets.length]);
 
   const fetchNews = async () => {
     try {
       setNewsLoading(true);
       const res = await fetch('https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fcointelegraph.com%2Frss');
       const data = await res.json();
-      if (data.items) {
+      if (data.items && data.items.length > 0) {
         const mappedNews = data.items.slice(0, 5).map((item: any) => {
           const diffMs = Date.now() - new Date(item.pubDate).getTime();
           const hours = Math.floor(diffMs / 3600000);
@@ -141,9 +146,17 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
           };
         });
         setNews(mappedNews);
+        return;
       }
+      throw new Error('No items');
     } catch (err) {
-      console.error("Error fetching news:", err);
+      console.warn("Markets news fetch warning (using fallback):", err);
+      setNews([
+        { headline: 'Bitcoin Surges Past Key Resistance Level as Institutional Inflows Accelerate', source: 'Cointelegraph', time: '2h ago', link: 'https://cointelegraph.com', relatedAsset: 'BTC' },
+        { headline: 'Ethereum Layer 2 Total Value Locked Reaches New All-Time High', source: 'CoinDesk', time: '4h ago', link: 'https://coindesk.com', relatedAsset: 'ETH' },
+        { headline: 'Solana DeFi Volume Surpasses Major Competitors in Q3 Trading Surge', source: 'Decrypt', time: '6h ago', link: 'https://decrypt.co', relatedAsset: 'SOL' },
+        { headline: 'Global Regulatory Frameworks Shape Next Phase of Digital Asset Adoption', source: 'Blockworks', time: '8h ago', link: 'https://blockworks.co', relatedAsset: null },
+      ]);
     } finally {
       setNewsLoading(false);
     }
@@ -173,93 +186,163 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
   const categories = ['Favorites', 'Trending', 'Gainers', 'Losers'];
   const [activeCategory, setActiveCategory] = useState('Trending');
 
-  const overviewAssets = React.useMemo(() => {
+  const filteredAssets = useMemo(() => {
+    let list = [...assets];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(a => a.name.toLowerCase().includes(q) || a.symbol.toLowerCase().includes(q));
+    }
+
     if (activeCategory === 'Favorites') {
-      return assets.filter(asset => user?.watchlist?.includes(asset.symbol)).slice(0, 3);
+      return list.filter(asset => watchlist.includes(asset.symbol));
     }
     
     if (activeCategory === 'Trending') {
-      return [...assets].sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0)).slice(0, 3);
+      return list.sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0));
     }
     
     if (activeCategory === 'Gainers') {
-      return [...assets].sort((a, b) => (b.rawChange || 0) - (a.rawChange || 0)).slice(0, 3);
+      // ONLY positive gains (green), sorted highest gain first
+      return list.filter(a => a.rawChange > 0).sort((a, b) => b.rawChange - a.rawChange);
     }
     
     if (activeCategory === 'Losers') {
-      return [...assets].sort((a, b) => (a.rawChange || 0) - (b.rawChange || 0)).slice(0, 3);
+      // ONLY negative losses (red), sorted worst loss first
+      return list.filter(a => a.rawChange < 0).sort((a, b) => a.rawChange - b.rawChange);
     }
     
-    return assets.slice(0, 3);
-  }, [assets, activeCategory, user?.watchlist]);
+    return list;
+  }, [assets, activeCategory, watchlist, searchQuery]);
 
   return (
     <div className="pt-[73px] flex-1 flex flex-col">
       {/* 1. FIXED HEADER */}
       <header className={`fixed top-0 left-0 right-0 w-full z-40 backdrop-blur-xl ${isDark ? 'bg-black/90' : 'bg-white/90'} border-b ${isDark ? 'border-white/5' : 'border-slate-200'} p-4 flex justify-between items-center box-border`}>
-        <div>
+        <div className="w-full flex items-center justify-between gap-4">
           <h1 className={`text-xl font-black ${textPrimary}`}>Markets</h1>
+          <div className="relative flex-1 max-w-xs">
+            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${textSecondary}`} />
+            <input 
+              type="text"
+              placeholder="Search assets..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`w-full pl-9 pr-4 py-1.5 rounded-full text-xs font-bold transition-all focus:outline-none border ${
+                isDark 
+                  ? 'bg-slate-900/80 border-white/10 text-white placeholder-slate-500 focus:border-emerald-500/50' 
+                  : 'bg-slate-100 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/50'
+              }`}
+            />
+          </div>
         </div>
       </header>
 
       {/* 2. CATEGORY TABS */}
-      <div className="flex overflow-x-auto gap-1 px-4 py-4 scrollbar-hide sticky top-[73px] z-30 bg-inherit">
+      <div className="flex overflow-x-auto gap-1.5 px-4 py-4 scrollbar-hide sticky top-[73px] z-30 bg-inherit">
         {categories.map((cat, i) => (
           <button 
             key={`market-cat-${cat}-${i}`} 
             onClick={() => setActiveCategory(cat)}
-            className={`px-5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeCategory === cat ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : isDark ? 'bg-slate-900/50 text-slate-400' : 'bg-white text-slate-500 border border-slate-200'}`}
+            className={`px-5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+              activeCategory === cat 
+                ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' 
+                : isDark 
+                  ? 'bg-slate-900/50 text-slate-400 hover:text-white' 
+                  : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+            }`}
           >
+            {cat === 'Favorites' && <Star size={12} className={activeCategory === cat ? "fill-black" : "text-amber-400 fill-amber-400"} />}
             {cat}
+            {cat === 'Favorites' && watchlist.length > 0 && (
+              <span className={`px-1.5 py-0.2 text-[10px] rounded-full font-black ${
+                activeCategory === cat ? 'bg-black/20 text-black' : 'bg-emerald-500/20 text-emerald-400'
+              }`}>
+                {watchlist.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
       {/* 3. MARKET OVERVIEW */}
       <div className="px-4 py-2">
-        <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary} mb-3`}>Market Overview</h3>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className={`text-sm font-black uppercase tracking-wider ${textSecondary}`}>
+            {activeCategory === 'Favorites' ? 'Your Favorite Assets' : activeCategory === 'Gainers' ? 'Top Gainers (Bullish)' : activeCategory === 'Losers' ? 'Top Losers (Bearish)' : 'Market Overview'}
+          </h3>
+          <span className="text-xs font-bold text-slate-500">
+            {filteredAssets.length} {filteredAssets.length === 1 ? 'asset' : 'assets'}
+          </span>
+        </div>
+
         <div className={`rounded-[24px] overflow-hidden ${cardClasses} shadow-xl`}>
-          {loading && overviewAssets.length === 0 ? (
+          {loading && filteredAssets.length === 0 ? (
             <div className="p-8 text-center text-xs text-gray-500">Retrieving digital assets...</div>
           ) : error ? (
             <div className="p-8 text-center text-xs text-gray-500 flex flex-col items-center gap-3">
               <span>Unable to load market data. Tap to retry.</span>
               <button onClick={fetchAssets} className="px-4 py-2 bg-emerald-500 text-black rounded-xl text-xs font-black shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">Retry</button>
             </div>
-          ) : overviewAssets.length === 0 ? (
-            <div className="p-8 text-center text-xs text-gray-500">No assets available.</div>
+          ) : filteredAssets.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+              <p className="font-bold">
+                {activeCategory === 'Favorites' 
+                  ? 'No favorite assets added yet.' 
+                  : activeCategory === 'Gainers' 
+                  ? 'No positive gainers in this session.' 
+                  : activeCategory === 'Losers' 
+                  ? 'No bearish assets in this session.' 
+                  : 'No matching assets found.'}
+              </p>
+              {activeCategory === 'Favorites' && (
+                <p className="text-[11px] text-slate-500">
+                  Tap the star icon next to any asset to save it to your Favorites list.
+                </p>
+              )}
+            </div>
           ) : (
-            overviewAssets.map((asset, i) => (
-              <motion.div 
-                key={`${asset.symbol}-${i}`} 
-                onClick={() => onSelectAsset(asset)} 
-                whileTap={{ scale: 0.98 }}
-                className={`flex items-center justify-between p-5 cursor-pointer transition-colors ${i !== overviewAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''} ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}
-              >
-                <div className="flex items-center gap-4">
-                  <button 
-                    onClick={(e) => handleToggleWatchlist(e, asset.symbol)}
-                    className="p-1 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <Star className={`w-4 h-4 ${user?.watchlist?.includes(asset.symbol) ? 'fill-amber-500 text-amber-500' : 'text-slate-500'}`} />
-                  </button>
-                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${isDark ? 'bg-slate-800' : 'bg-slate-100 shadow-inner'}`}>
-                    <CoinLogo symbol={asset.symbol} size={28} />
+            filteredAssets.map((asset, i) => {
+              const isFav = watchlist.includes(asset.symbol);
+              return (
+                <motion.div 
+                  key={`${asset.symbol}-${i}`} 
+                  onClick={() => onSelectAsset(asset)} 
+                  whileTap={{ scale: 0.98 }}
+                  className={`flex items-center justify-between p-4 sm:p-5 cursor-pointer transition-colors ${i !== filteredAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''} ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}
+                >
+                  <div className="flex items-center gap-3 sm:gap-4">
+                    {/* Star toggle button */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleWatchlist(e, asset.symbol)}
+                      className="p-1.5 rounded-full hover:bg-slate-800/40 transition-transform active:scale-125"
+                      title={isFav ? "Remove from Favorites" : "Add to Favorites"}
+                    >
+                      <Star 
+                        size={18} 
+                        className={isFav ? "fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "text-slate-600 hover:text-slate-400"} 
+                      />
+                    </button>
+
+                    <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center ${isDark ? 'bg-slate-800' : 'bg-slate-100 shadow-inner'}`}>
+                      <CoinLogo symbol={asset.symbol} size={28} />
+                    </div>
+                    <div>
+                      <p className={`font-black text-sm tracking-tight ${textPrimary}`}>{asset.name}</p>
+                      <p className={`text-[11px] font-bold ${textSecondary} uppercase tracking-wider`}>{asset.symbol}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className={`font-black text-sm tracking-tight ${textPrimary}`}>{asset.name}</p>
-                    <p className={`text-[11px] font-bold ${textSecondary} uppercase tracking-wider`}>{asset.symbol}</p>
+
+                  <div className="text-right">
+                    <p className={`font-black text-sm ${textPrimary}`}>{formatCurrency(asset.price)}</p>
+                    <p className={`text-[11px] font-black ${asset.isPositive ? 'text-emerald-500' : 'text-red-500'} flex items-center justify-end gap-1`}>
+                      {asset.isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                      {asset.change}
+                    </p>
                   </div>
-                </div>
-                <div className="text-right">
-                  <p className={`font-black text-sm ${textPrimary}`}>{formatCurrency(asset.price)}</p>
-                  <p className={`text-[11px] font-black ${asset.isPositive ? 'text-emerald-500' : 'text-red-500'} flex items-center justify-end gap-1`}>
-                    {asset.isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                    {asset.change}
-                  </p>
-                </div>
-              </motion.div>
-            ))
+                </motion.div>
+              );
+            })
           )}
         </div>
       </div>
@@ -271,7 +354,7 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
             {insightsLoading ? (
               <p className="text-sm text-slate-500 animate-pulse">Analyzing market pulse...</p>
             ) : insights ? (
-              <p className="text-sm text-slate-300">{insights}</p>
+              <p className="text-sm text-slate-300 leading-relaxed">{insights}</p>
             ) : (
               <p className="text-sm text-slate-400">No insights currently available.</p>
             )}
@@ -316,4 +399,3 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
     </div>
   );
 }
-

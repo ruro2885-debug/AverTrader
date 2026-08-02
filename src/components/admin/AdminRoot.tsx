@@ -41,15 +41,38 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
   //   }
   // }, []);
 
+  useEffect(() => {
+    // Sovereign Admin setup: purge user translation cookies & force English
+    document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${window.location.hostname}; path=/;`;
+    if (window.location.hostname !== 'localhost') {
+      const domainParts = window.location.hostname.split('.');
+      if (domainParts.length > 2) {
+        const rootDomain = domainParts.slice(-2).join('.');
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${rootDomain}; path=/;`;
+      }
+    }
+
+    const select = document.querySelector('.goog-te-combo') as HTMLSelectElement;
+    if (select && select.value !== 'en') {
+      select.value = 'en';
+      select.dispatchEvent(new Event('change'));
+    }
+  }, []);
+
   if (showAdmin) {
-    return <AdminLayout theme={theme} onLogout={() => {
-      localStorage.removeItem('admin_session_active');
-      setShowAdmin(false);
-    }} />;
+    return (
+      <div className="notranslate" translate="no">
+        <AdminLayout theme={theme} onLogout={() => {
+          localStorage.removeItem('admin_session_active');
+          setShowAdmin(false);
+        }} />
+      </div>
+    );
   }
 
   return (
-    <div className={`min-h-screen flex items-center justify-center p-6 relative overflow-hidden ${isDark ? 'bg-[#05080c] text-white' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`notranslate min-h-screen flex items-center justify-center p-6 relative overflow-hidden ${isDark ? 'bg-[#05080c] text-white' : 'bg-slate-50 text-slate-900'}`} translate="no">
       {/* Background Decorative Elements matching the image's "cube" aesthetic */}
       <div className="absolute inset-0 opacity-20 pointer-events-none">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-[url('https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2000&auto=format&fit=crop')] bg-cover opacity-10 mix-blend-overlay" />

@@ -1407,9 +1407,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           }
         }
       }
-    }, 1500);
+    }, 5000);
 
-    // 3. CONTINUOUS MULTI-ASSET AUTONOMOUS ORDER GENERATOR (Every 1.5s)
+    // 3. CONTINUOUS MULTI-ASSET AUTONOMOUS ORDER GENERATOR (Every 15s)
     
     const runOrderLoop = async () => {
       const currentSession = sessionRefVal.current;
@@ -1429,7 +1429,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
       const currentSessionBalance = currentSession.tradingCapital;
 
-      const selectedAssets = activeConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL'];
+      const selectedAssets = (activeConfig.aiTradingRules?.assetSelection && activeConfig.aiTradingRules.assetSelection.length > 0)
+        ? activeConfig.aiTradingRules.assetSelection
+        : ['BTC', 'ETH', 'SOL'];
       const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
       
       // Find all assets in the selected set that currently do NOT have an open trade
@@ -1527,7 +1529,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         }
       }
 
-      orderTimeout = setTimeout(runOrderLoop, 1500);
+      orderTimeout = setTimeout(runOrderLoop, 3000);
     };
 
     runOrderLoop();

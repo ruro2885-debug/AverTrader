@@ -7,11 +7,14 @@ import {
   Trash2, Settings, Smile, ExternalLink, Search, Filter, Headphones, Sparkles, Volume2, VolumeX
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db, storage } from '../lib/firebase';
+import { db, storage, safeUpdateDoc } from '../lib/firebase';
 import { collection, onSnapshot, updateDoc, doc, setDoc, query, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { saveSupportTicket, mergeTicketsWithLocal, SupportTicket as StoreTicket, SupportMessage as StoreMessage } from '../lib/supportStore';
 
 export interface SupportMessage {
+  isAdmin?: boolean;
+  senderRole?: 'user' | 'admin';
   id: string;
   sender: string;
   text: string;
@@ -101,38 +104,59 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       return;
     }
 
-    const q = query(collection(db, 'support_tickets'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const userTickets: SupportTicket[] = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data() as SupportTicket;
-        if (data.userId === user.uid) {
-          userTickets.push({ id: docSnap.id, ...data });
-        }
-      });
+    const syncUserTickets = (snapshotDocs?: any[]) => {
+      let fsTickets: any[] = [];
+      if (snapshotDocs) {
+        snapshotDocs.forEach(docSnap => {
+          const data = typeof docSnap.data === 'function' ? docSnap.data() : docSnap;
+          if (data.userId === user.uid) {
+            fsTickets.push({ id: docSnap.id || data.id, ...data });
+          }
+        });
+      }
 
-      // Sort newest updated first
-      userTickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      setTickets(userTickets);
+      const mergedAll = mergeTicketsWithLocal(fsTickets);
+      const userTickets = mergedAll.filter(t => t.userId === user.uid);
+      userTickets.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+
+      setTickets(userTickets as any);
       setLoading(false);
 
-      // If active ticket exists, keep it in sync with fresh data
+      // Keep active ticket in sync
       setActiveTicket(prev => {
         if (prev) {
           const fresh = userTickets.find(t => t.id === prev.id);
-          return fresh || prev;
+          return (fresh as any) || prev;
         } else if (userTickets.length > 0) {
-          // Default to the most recent ticket/chat
-          return userTickets[0];
+          return userTickets[0] as any;
         }
         return null;
       });
+    };
+
+    // Initial load from local store
+    syncUserTickets();
+
+    const q = query(collection(db, 'support_tickets'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      syncUserTickets(snapshot.docs);
     }, (error) => {
       console.error("Firestore support tickets sync error:", error);
-      setLoading(false);
+      syncUserTickets();
     });
 
-    return () => unsubscribe();
+    const handleCustomSync = () => {
+      syncUserTickets();
+    };
+
+    window.addEventListener('support_ticket_updated', handleCustomSync);
+    window.addEventListener('storage', handleCustomSync);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('support_ticket_updated', handleCustomSync);
+      window.removeEventListener('storage', handleCustomSync);
+    };
   }, [user?.uid]);
 
   // Auto scroll to bottom when messages change
@@ -158,7 +182,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       status: 'read'
     };
 
-    const newTicket: SupportTicket & { userEmail?: string; userName?: string } = {
+    const newTicket: any = {
       id: ticketId,
       userId: user.uid,
       userEmail: user.email || `${user.uid.slice(0, 8)}@aver.com`,
@@ -174,7 +198,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     };
 
     try {
-      await setDoc(doc(db, 'support_tickets', ticketId), newTicket);
+      await saveSupportTicket(newTicket);
       setActiveTicket(newTicket);
       triggerToast("Live support session initialized", "success");
     } catch (err) {
@@ -195,34 +219,53 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     setSendingMessage(true);
 
     const now = new Date().toISOString();
+
+    let finalAttachmentUrl = attachment?.url || '';
+
+    if (selectedFile) {
+      try {
+        const storageRef = ref(storage, `support_attachments/chat_${user.uid}/${Date.now()}_${selectedFile.name}`);
+        const uploadPromise = uploadBytes(storageRef, selectedFile);
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 15000));
+        const uploadResult: any = await Promise.race([uploadPromise, timeoutPromise]);
+        finalAttachmentUrl = await getDownloadURL(uploadResult.ref);
+      } catch (storageErr) {
+        console.error("Firebase Storage upload failed:", storageErr);
+        triggerToast("Failed to upload attachment. Please try again.", "error");
+        setSendingMessage(false);
+        return;
+      }
+    }
+
     const newMsg: SupportMessage = {
       id: "MSG-" + Math.floor(100000 + Math.random() * 900000),
       sender: user.displayName || user.email || user.uid,
       text: text,
       timestamp: now,
       status: 'delivered',
-      ...(attachment ? {
-        attachmentUrl: attachment.url,
-        attachmentName: attachment.name,
-        attachmentType: attachment.type
+      ...(finalAttachmentUrl ? {
+        attachmentUrl: finalAttachmentUrl,
+        attachmentName: attachment?.name || selectedFile?.name || 'Attachment',
+        attachmentType: attachment?.type || (selectedFile?.type.startsWith('image/') ? 'image' : 'document')
       } : {})
     };
 
     setAttachment(null);
+    setSelectedFile(null);
 
     let targetTicket = activeTicket;
 
     if (!targetTicket) {
       // Auto create new live support ticket in Firestore if user sends first message without active chat
       const ticketId = "TCK-CHAT-" + Math.floor(100000 + Math.random() * 900000);
-      const newTicketData = {
+      const newTicketData: any = {
         id: ticketId,
         userId: user.uid,
         userEmail: user.email || `${user.uid.slice(0, 8)}@aver.com`,
         userName: user.displayName || (user.email ? user.email.split('@')[0] : 'AVER Trader'),
         title: "Live Support Session",
         category: "General Inquiry",
-        description: "Direct live messaging session with AVER specialist team.",
+        description: text || "Direct live messaging session with AVER specialist team.",
         status: 'pending',
         priority: 'medium',
         createdAt: now,
@@ -231,7 +274,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       };
 
       try {
-        await setDoc(doc(db, 'support_tickets', ticketId), newTicketData);
+        await saveSupportTicket(newTicketData);
         setActiveTicket(newTicketData);
       } catch (err) {
         console.error("Error creating initial conversation on send:", err);
@@ -245,7 +288,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     const updatedMessages = [...(targetTicket.messages || []), newMsg];
 
     // Optimistic update
-    const updatedTicket: SupportTicket = {
+    const updatedTicket: any = {
       ...targetTicket,
       updatedAt: now,
       messages: updatedMessages,
@@ -254,11 +297,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     setActiveTicket(updatedTicket);
 
     try {
-      await updateDoc(doc(db, 'support_tickets', targetTicket.id), {
-        messages: updatedMessages,
-        updatedAt: now,
-        status: 'pending'
-      });
+      await saveSupportTicket(updatedTicket);
 
       // Simulate typing indicator
       setTimeout(() => {
@@ -302,6 +341,8 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       triggerToast("Failed to read selected file.", "error");
     };
     reader.readAsDataURL(file);
+
+    e.target.value = '';
   };
 
   // Simulated Voice Note Recording
@@ -333,12 +374,16 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
 
     const updatedMessages = [...(activeTicket.messages || []), voiceMsg];
 
+    const updatedTicket = {
+      ...activeTicket,
+      messages: updatedMessages,
+      updatedAt: now,
+      status: 'pending' as const
+    };
+    setActiveTicket(updatedTicket);
+
     try {
-      await updateDoc(doc(db, 'support_tickets', activeTicket.id), {
-        messages: updatedMessages,
-        updatedAt: now,
-        status: 'pending'
-      });
+      await saveSupportTicket(updatedTicket as any);
       triggerToast("Voice note sent!", "success");
     } catch (err) {
       console.error("Error sending voice note:", err);
@@ -358,12 +403,11 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       return m;
     });
 
-    setActiveTicket({ ...activeTicket, messages: updatedMsgs });
+    const updatedTicket = { ...activeTicket, messages: updatedMsgs };
+    setActiveTicket(updatedTicket);
 
     try {
-      await updateDoc(doc(db, 'support_tickets', activeTicket.id), {
-        messages: updatedMsgs
-      });
+      await saveSupportTicket(updatedTicket as any);
     } catch (err) {
       console.error("Failed to add reaction:", err);
     }
@@ -380,11 +424,17 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
         text: "Conversation transcript cleared. Specialist standing by to assist you.",
         timestamp: now
       };
+      
+      const updatedTicket = {
+        ...activeTicket,
+        messages: [clearedMsg],
+        updatedAt: now
+      };
+      
+      setActiveTicket(updatedTicket);
+
       try {
-        await updateDoc(doc(db, 'support_tickets', activeTicket.id), {
-          messages: [clearedMsg],
-          updatedAt: now
-        });
+        await saveSupportTicket(updatedTicket as any);
         triggerToast("Conversation history cleared.", "info");
       } catch (err) {
         console.error("Error clearing conversation:", err);
@@ -430,11 +480,15 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       if (selectedFile) {
         try {
           const storageRef = ref(storage, `support_attachments/${ticketId}/${Date.now()}_${selectedFile.name}`);
-          const uploadResult = await uploadBytes(storageRef, selectedFile);
+          const uploadPromise = uploadBytes(storageRef, selectedFile);
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 15000));
+          const uploadResult: any = await Promise.race([uploadPromise, timeoutPromise]);
           finalAttachmentUrl = await getDownloadURL(uploadResult.ref);
         } catch (storageErr) {
-          console.warn("Firebase Storage upload fallback to Data URL:", storageErr);
-          finalAttachmentUrl = attachment?.url || '';
+          console.error("Firebase Storage upload failed:", storageErr);
+          triggerToast("Failed to upload attachment. Please try again.", "error");
+          setSubmitting(false);
+          return;
         }
       }
 
@@ -469,7 +523,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
         messages: [initialMsg]
       };
 
-      await setDoc(doc(db, 'support_tickets', ticketId), newTicket);
+      await saveSupportTicket(newTicket as any);
       triggerToast("Support ticket created successfully!", "success");
 
       // Reset form
@@ -481,9 +535,12 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       setSelectedFile(null);
       setShowCreateModal(false);
 
-      // Open new ticket in Chat view
+      // Open new ticket in Chat view immediately
       setActiveTicket(newTicket);
       setViewMode('chat');
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     } catch (err: any) {
       console.error("Error creating ticket:", err);
       triggerToast(`Failed to create ticket: ${err?.message || 'Unknown error'}`, "error");
@@ -720,11 +777,12 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
               /* ACTIVE LIVE MESSAGES STREAM */
               <div className="space-y-4">
                 {activeTicket.messages.map((msg, idx) => {
-                  const isUser = msg.sender !== 'Admin Agent' && msg.sender !== 'Support Specialist' && msg.sender !== 'Support Team';
+                  const isAdmin = msg.isAdmin || msg.senderRole === 'admin' || ['Admin Agent', 'Support Specialist', 'Support Team', 'AVER Specialist', 'Admin'].includes(msg.sender);
+                  const isUser = !isAdmin;
 
                   return (
                     <motion.div
-                      key={msg.id || idx}
+                      key={`msg-${msg.id || 'gen'}-${idx}-${msg.timestamp || Date.now()}`}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2 }}
@@ -795,13 +853,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
 
                       </div>
 
-                      {/* Delivery Status */}
-                      {isUser && (
-                        <div className="flex items-center gap-1 mt-1 px-1 text-[9px] text-emerald-400 font-mono font-bold">
-                          <span>✓✓ Delivered</span>
-                          <span>• Read</span>
-                        </div>
-                      )}
+                      
 
                     </motion.div>
                   );
@@ -830,15 +882,6 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
           <div className={`shrink-0 p-3 sm:p-4 border-t z-20 ${
             isDark ? 'bg-[#090C12] border-white/5' : 'bg-white border-slate-200 shadow-xl'
           }`}>
-            
-            {/* Hidden File Input */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept="image/*,.pdf,.doc,.docx,.txt"
-              className="hidden"
-            />
 
             {/* Pending Attachment Chip */}
             {attachment && (
@@ -875,29 +918,6 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                   isDark ? 'bg-black/40 border-white/10 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                 }`}
               />
-
-              {/* Optional Voice Recording Button */}
-              {isVoiceRecording ? (
-                <button
-                  type="button"
-                  onClick={stopAndSendVoiceNote}
-                  className="px-4 py-3 rounded-xl bg-rose-500 text-white font-black text-xs flex items-center gap-2 animate-pulse"
-                >
-                  <Mic className="w-4 h-4" />
-                  <span>Send ({recordingSeconds}s)</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={startVoiceRecording}
-                  className={`p-3 rounded-xl border transition-all ${
-                    isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-300' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700'
-                  }`}
-                  title="Hold voice note"
-                >
-                  <Mic className="w-4 h-4" />
-                </button>
-              )}
 
               {/* Send Button */}
               <button
@@ -941,10 +961,6 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
             {/* HERO CARD BANNER */}
             <div className="relative overflow-hidden rounded-3xl p-6 sm:p-8 bg-gradient-to-r from-emerald-900/40 via-teal-900/20 to-black border border-emerald-500/30 shadow-2xl">
               <div className="relative z-10 space-y-3 max-w-2xl">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-wider">
-                  <Shield className="w-3.5 h-3.5" />
-                  Structured Engineering & Compliance Escalations
-                </div>
                 <h2 className="text-xl sm:text-2xl font-black tracking-tight">
                   Need a dedicated investigation for deposits, withdrawals, or security?
                 </h2>

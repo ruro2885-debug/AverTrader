@@ -36,7 +36,7 @@ export interface PrizeTier {
   rankRange: string;
   reward: string;
   percentage: string;
-  badge?: 'gold' | 'silver' | 'bronze' | 'diamond' | 'vip';
+  badge?: 'gold' | 'platinum' | 'bronze' | 'diamond' | 'vip';
 }
 
 export interface TimelineStage {

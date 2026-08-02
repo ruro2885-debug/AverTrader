@@ -19,6 +19,7 @@ import {
   SimulatedTrade, 
   SimulationEvent, 
   initSimulatedTraders, 
+  saveSimulatedTraders,
   runSimulationTick, 
   runScheduledRankingsUpdate,
   getTraderEquityCurve 
@@ -62,7 +63,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
     return savedEvts ? JSON.parse(savedEvts) : [];
   });
 
-  const [activeTab, setActiveTab] = useState<'top10' | 'all' | 'gold' | 'silver' | 'platinum'>('top10');
+  const [activeTab, setActiveTab] = useState<'top10' | 'all' | 'gold' | 'platinum'>('top10');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTrader, setSelectedTrader] = useState<Trader | null>(null);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
@@ -88,7 +89,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
 
   // Persist traders state so follow states or dynamic updates are preserved
   useEffect(() => {
-    safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(traders));
+    saveSimulatedTraders(traders);
   }, [traders]);
 
   // Persist events state
@@ -233,8 +234,6 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
       matchesTab = true; 
     } else if (activeTab === 'gold') {
       matchesTab = t.tier === 'Gold';
-    } else if (activeTab === 'silver') {
-      matchesTab = t.tier === 'Silver';
     } else if (activeTab === 'platinum') {
       matchesTab = t.tier === 'Platinum';
     }
@@ -567,13 +566,6 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   </span>
                   <h3 className={`text-sm font-black tracking-wider uppercase text-slate-200`}>Live Leaderboard</h3>
                 </div>
-                <button 
-                  onClick={() => setActiveTab('all')} 
-                  className="text-xs font-black text-emerald-400 hover:text-emerald-300 transition-all flex items-center gap-1 cursor-pointer"
-                >
-                  <span>View All Traders</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
               </div>
 
               {/* THREE HEROES PODIUM COLUMN GRID */}
@@ -708,9 +700,8 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   {[
                     { id: 'top10', name: 'Top 10', icon: Trophy },
                     { id: 'all', name: 'All Traders', icon: Users },
-                    { id: 'platinum', name: 'Platinum', icon: Sparkles },
-                    { id: 'gold', name: 'Gold 👑', icon: null },
-                    { id: 'silver', name: 'Silver 🛡️', icon: null }
+                    { id: 'platinum', name: 'Platinum', icon: Trophy },
+                    { id: 'gold', name: 'Gold', icon: null }
                   ].map((tab) => {
                     const isActive = activeTab === tab.id;
                     const TabIcon = tab.icon;
@@ -1016,11 +1007,6 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                    <img src={selectedTrader.avatarUrl} alt={selectedTrader.username} className="w-full h-full rounded-full object-cover" />
                 ) : (
                    <div className="w-full h-full rounded-full overflow-hidden" dangerouslySetInnerHTML={{ __html: generateAvatarSvg(selectedTrader.avatarSeed) }} />
-                )}
-                {selectedTrader.tier === 'Platinum' && (
-                  <div className="absolute -top-1 -right-1 bg-indigo-500 text-white rounded-full p-1 shadow-md border border-indigo-400">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
                 )}
               </motion.div>
 

@@ -7,10 +7,14 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   
-  const referralCode = user?.referralCode || 'AVR-29VXT';
+  const referralCode = user?.referralCode || (user?.uid ? `AVR-${user.uid.slice(0, 6).toUpperCase()}` : 'AVR-29VXT');
+  const referralLink = (user as any)?.referralLink || `https://aver.app/ref/${referralCode}`;
+  const totalReferralEarnings = (user as any)?.totalReferralEarnings ?? (user as any)?.referralEarnings ?? 0;
+  const totalReferrals = (user as any)?.totalReferrals ?? user?.referralCount ?? 0;
+  const referralLevel = (user as any)?.referralLevel ?? Math.floor(totalReferrals / 5) + 1;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(referralCode);
+    navigator.clipboard.writeText(referralLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -29,19 +33,18 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
       exit="exit"
       className="min-h-screen bg-black text-white flex flex-col relative overflow-y-auto overflow-x-hidden"
     >
-      {/* 1. Hero Section - Full Width Gradient */}
-      <section className="relative w-full bg-gradient-to-br from-[#00e676] to-[#00bcd4] pt-12 pb-20 px-6 rounded-b-[48px] shadow-2xl shadow-emerald-500/10 z-20">
-        <div className="max-w-4xl mx-auto">
-          {/* Navigation Overlay */}
-          <div className="flex justify-start items-center mb-12">
-            <button 
-              onClick={onBack}
-              className="w-12 h-12 rounded-full bg-black/15 backdrop-blur-md flex items-center justify-center text-black hover:bg-black/25 cursor-pointer"
-            >
-              <ArrowLeft className="w-6 h-6" />
-            </button>
-          </div>
+      {/* Fixed Back Button */}
+      <button 
+        onClick={onBack}
+        className="fixed top-6 left-6 z-50 w-12 h-12 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-black/60 cursor-pointer shadow-xl transition-all"
+        title="Back"
+      >
+        <ArrowLeft className="w-6 h-6" />
+      </button>
 
+      {/* 1. Hero Section - Full Width Gradient */}
+      <section className="relative w-full bg-gradient-to-br from-[#00e676] to-[#00bcd4] pt-16 pb-20 px-6 rounded-b-[48px] shadow-2xl shadow-emerald-500/10 z-20">
+        <div className="max-w-4xl mx-auto">
           <div className="flex flex-col items-center text-center">
             {/* Floating Animation */}
             <motion.div 
@@ -77,20 +80,20 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white/[0.03] backdrop-blur-2xl border border-white/10 p-8 rounded-[32px] shadow-2xl">
             <div className="flex flex-col items-center text-center space-y-2 p-4">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.2em]">Total Earnings</span>
-              <span className="text-3xl font-black text-white">$0.00</span>
+              <span className="text-3xl font-black text-white">${totalReferralEarnings.toFixed(2)}</span>
               <div className="flex items-center gap-1.5 text-[#00e676] text-[10px] font-black uppercase">
-                <Zap className="w-3 h-3 fill-[#00e676]" /> 0% Growth
+                <Zap className="w-3 h-3 fill-[#00e676]" /> Active Program
               </div>
             </div>
 
             <div className="flex flex-col items-center text-center space-y-2 p-4 border-y md:border-y-0 md:border-x border-white/5">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.2em]">Referral Level</span>
-              <span className="text-3xl font-black text-white">Level 1</span>
+              <span className="text-3xl font-black text-white">Level {referralLevel}</span>
               {/* Progress Bar */}
               <div className="w-32 h-1.5 bg-white/10 rounded-full mt-2 overflow-hidden">
                 <motion.div 
                   initial={{ width: 0 }}
-                  animate={{ width: '20%' }}
+                  animate={{ width: `${Math.min(100, (totalReferrals % 5) * 20)}%` }}
                   className="h-full bg-[#00e676] rounded-full"
                 />
               </div>
@@ -98,7 +101,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
 
             <div className="flex flex-col items-center text-center space-y-2 p-4">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.2em]">Total Referrals</span>
-              <span className="text-3xl font-black text-white">0</span>
+              <span className="text-3xl font-black text-white">{totalReferrals}</span>
               <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Active Friends</span>
             </div>
           </div>

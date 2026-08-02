@@ -47,7 +47,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     ],
     prizeBreakdown: [
       { rankRange: '1st Place', reward: '$150,000 USDT', percentage: '30%', badge: 'gold' },
-      { rankRange: '2nd Place', reward: '$80,000 USDT', percentage: '16%', badge: 'silver' },
+      { rankRange: '2nd Place', reward: '$80,000 USDT', percentage: '16%', badge: 'platinum' },
       { rankRange: '3rd Place', reward: '$50,000 USDT', percentage: '10%', badge: 'bronze' },
       { rankRange: 'Ranks 4 - 10', reward: '$50,000 USDT (Shared)', percentage: '10%', badge: 'diamond' },
       { rankRange: 'Ranks 11 - 100', reward: '$100,000 USDT (Shared)', percentage: '20%', badge: 'vip' },
@@ -159,7 +159,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     ],
     prizeBreakdown: [
       { rankRange: 'Top Deposit Vaults', reward: '400 SOL', percentage: '40%', badge: 'gold' },
-      { rankRange: 'Volume Sprint Leaders', reward: '350 SOL', percentage: '35%', badge: 'silver' },
+      { rankRange: 'Volume Sprint Leaders', reward: '350 SOL', percentage: '35%', badge: 'platinum' },
       { rankRange: 'Flexible Vault Stakers', reward: '250 SOL', percentage: '25%', badge: 'bronze' }
     ],
     timeline: [
@@ -208,7 +208,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     ],
     prizeBreakdown: [
       { rankRange: '1 - 3 Invites', reward: '$50 USDT / Invite', percentage: 'Fixed', badge: 'bronze' },
-      { rankRange: '4 - 10 Invites', reward: '$75 USDT / Invite + VIP 2', percentage: 'Fixed', badge: 'silver' },
+      { rankRange: '4 - 10 Invites', reward: '$75 USDT / Invite + VIP 2', percentage: 'Fixed', badge: 'platinum' },
       { rankRange: '10+ Invites', reward: '$100 USDT / Invite + VIP 3', percentage: 'Fixed', badge: 'gold' }
     ],
     timeline: [
@@ -253,7 +253,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     ],
     prizeBreakdown: [
       { rankRange: 'Top BTC Trader', reward: '1.0 BTC ($65,000)', percentage: '22%', badge: 'gold' },
-      { rankRange: 'Ranks 2-10', reward: '1.5 BTC (Shared)', percentage: '33%', badge: 'silver' },
+      { rankRange: 'Ranks 2-10', reward: '1.5 BTC (Shared)', percentage: '33%', badge: 'platinum' },
       { rankRange: 'All Pre-Registers', reward: '2.0 BTC (Shared Pool)', percentage: '45%', badge: 'bronze' }
     ],
     timeline: [
@@ -294,7 +294,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     ],
     prizeBreakdown: [
       { rankRange: 'Top Stakers', reward: '20 ETH', percentage: '40%', badge: 'gold' },
-      { rankRange: 'All Qualifiers', reward: '30 ETH', percentage: '60%', badge: 'silver' }
+      { rankRange: 'All Qualifiers', reward: '30 ETH', percentage: '60%', badge: 'platinum' }
     ],
     timeline: [
       { title: 'Pre-Registration', dateRange: 'Jul 24 - Jul 27, 2026', status: 'ACTIVE', description: 'Whitelist open.' },
@@ -329,7 +329,7 @@ export const INITIAL_DYNAMIC_EVENTS: EventItem[] = [
     stepGuide: [],
     prizeBreakdown: [
       { rankRange: '1st Place Winner', reward: '$60,000 USDT', percentage: '30%', badge: 'gold' },
-      { rankRange: 'Top 10 Qualifiers', reward: '$80,000 USDT', percentage: '40%', badge: 'silver' },
+      { rankRange: 'Top 10 Qualifiers', reward: '$80,000 USDT', percentage: '40%', badge: 'platinum' },
       { rankRange: 'Community Pool', reward: '$60,000 USDT', percentage: '30%', badge: 'bronze' }
     ],
     timeline: [
