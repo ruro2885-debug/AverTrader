@@ -129,7 +129,6 @@ const CRYPTO_ASSETS: CryptoAsset[] = [
   { symbol: 'USDT-ERC20', name: 'Tether USD', network: 'Ethereum (ERC-20)', icon: '₮', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '5-10 mins' },
   { symbol: 'USDT-TRC20', name: 'Tether USD', network: 'Tron (TRC-20)', icon: '₮', address: 'TNNeWNf9ijxThGLpdDYu8sQCHZGhh1dXpV', estTime: '2-3 mins' },
   { symbol: 'USDC-ERC20', name: 'USD Coin', network: 'Ethereum (ERC-20)', icon: '💵', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '5-10 mins' },
-  { symbol: 'USDC-TRC20', name: 'USD Coin', network: 'Tron (TRC-20)', icon: '💵', address: 'TNNeWNf9ijxThGLpdDYu8sQCHZGhh1dXpV', estTime: '2-3 mins' },
   { symbol: 'SOL', name: 'Solana', network: 'Solana Mainnet', icon: '🟣', address: '59buTDdJmxbZ2KFuyc264bWzJpsCsaGmEvDg8Mni5DXi', estTime: '1-2 mins (1 confirmation)' },
   { symbol: 'BNB', name: 'BNB Smart Chain', network: 'BNB Chain (BEP-20)', icon: '🟡', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '3-5 mins' },
 ];
