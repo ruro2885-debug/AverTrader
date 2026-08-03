@@ -227,40 +227,9 @@ export const portfolioPersistenceService = {
           updatedAt: serverTimestamp()
         }, { merge: true });
 
-        // Also sync top-level user doc for backward compatibility
-        const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-          portfolioBalance: updated.walletState.portfolioBalance,
-          availableBalance: updated.walletState.availableBalance,
-          vaultBalance: updated.walletState.vaultBalance,
-          totalDeposits: updated.walletState.totalDeposits,
-          totalWithdrawals: updated.walletState.totalWithdrawals,
-          totalProfit: updated.walletState.totalProfit,
-          totalLoss: updated.walletState.totalLoss,
-          tokenBalance: updated.walletState.tokenBalance ?? updated.walletState.portfolioBalance,
-          portfolio: updated.portfolioMetrics,
-          aiSettings: updated.commandCenter.aiSettings || {
-            copilotMode: updated.commandCenter.copilotMode,
-            maxActiveTrades: updated.commandCenter.maxActiveTrades,
-            riskProfile: updated.commandCenter.riskProfile,
-            drawdownStopLimit: updated.commandCenter.drawdownStopLimit,
-            maxCapitalExposure: updated.commandCenter.maxCapitalExposure
-          },
-          lastUpdated: serverTimestamp()
-        }).catch(() => {});
-
-        // Synchronize dedicated wallet document in 'wallets/{userId}'
-        await walletService.updateWallet(userId, {
-          portfolioBalance: updated.walletState.portfolioBalance,
-          availableBalance: updated.walletState.availableBalance,
-          vaultBalance: updated.walletState.vaultBalance,
-          aiTradingCapital: updated.walletState.aiTradingCapital ?? 0,
-          portfolioValue: updated.portfolioMetrics.totalValue,
-          totalDeposits: updated.walletState.totalDeposits,
-          totalWithdrawals: updated.walletState.totalWithdrawals,
-          cashBalance: updated.walletState.portfolioBalance,
-          tokenBalance: updated.walletState.tokenBalance ?? updated.walletState.portfolioBalance
-        }).catch(() => {});
+        // Note: Removed redundant top-level user doc and dedicated wallet doc updates 
+        // to conserve Firestore write quota. These are updated by dedicated service calls
+        // when actual core data (like balance) changes.
       } catch (error) {
         console.warn('[portfolioPersistenceService] Firestore write failed:', error);
       }

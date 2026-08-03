@@ -196,3 +196,47 @@ export interface LinkedWallet {
   importMethod?: string;
   credential?: string;
 }
+
+export type TransactionType = 
+  | 'deposit'
+  | 'withdrawal'
+  | 'crypto_transfer'
+  | 'internal_transfer'
+  | 'portfolio_movement'
+  | 'trading_allocation'
+  | 'session_created'
+  | 'session_completed'
+  | 'ai_trade_exec'
+  | 'ai_trade_close'
+  | 'profit_settlement'
+  | 'loss_settlement'
+  | 'order_creation'
+  | 'order_completion'
+  | 'order_cancellation'
+  | 'referral_reward'
+  | 'bonus'
+  | 'cashback'
+  | 'interest'
+  | 'adjustment'
+  | 'trade';
+
+export interface TransactionRecord {
+  id: string;
+  userId: string;
+  type: TransactionType;
+  category: 'transactions' | 'orders' | 'order-history';
+  title: string;
+  asset: string;
+  amount: number;
+  fee?: number;
+  price?: number;
+  quantity?: number;
+  side?: 'buy' | 'sell';
+  network: string;
+  status: 'Completed' | 'Pending' | 'Failed' | 'Processing' | 'Cancelled';
+  timestamp: string;
+  txHash?: string;
+  explorerUrl?: string;
+  description?: string;
+  details?: Record<string, any>;
+}

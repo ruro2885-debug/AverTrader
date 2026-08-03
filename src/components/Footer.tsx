@@ -39,7 +39,8 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
       links: [
         { label: 'Client Authorization', href: '#dashboard' },
         { label: 'System Preferences', href: '#preview' },
-        { label: 'Help & Knowledge Center', href: '#preview' }
+        { label: 'Help & Knowledge Center', href: '#preview' },
+        { label: 'Admin Terminal', href: '/admin' }
       ]
     }
   ];

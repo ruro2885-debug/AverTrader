@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, Home, Search, Shield, Bot, Lock, Key, Cpu } from 'lucide-react';
+import { AlertCircle, Home, Search, Shield, Bot, Lock, Key, Cpu, RefreshCw } from 'lucide-react';
 import AdminLayout from './AdminLayout';
+import { db, auth } from '../../lib/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
-  const [showAdmin, setShowAdmin] = useState(true);
+  const [showAdmin, setShowAdmin] = useState(false); // Default to false, check session in useEffect
   const [clickCount, setClickCount] = useState(0);
   const [showAccessPrompt, setShowAccessPrompt] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
+  const [promoting, setPromoting] = useState(false);
 
   const isDark = theme === 'dark';
 
@@ -22,24 +25,50 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
     }
   };
 
-  const handleAccessSubmit = (e: React.FormEvent) => {
+  const handleAccessSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (accessCode.trim() === 'AverAdmin2026$') {
+    const code = accessCode.trim();
+    if (code === 'Ruro2008$' || code === 'Ruro2008') {
+      localStorage.setItem('admin_session_active', 'true');
+      
+      // Automatic Role Promotion for the current logged in user
+      if (auth.currentUser) {
+        try {
+          setPromoting(true);
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          // Use setDoc with merge:true instead of updateDoc to ensure it works even if doc is missing
+          await setDoc(userRef, {
+            role: 'super_admin',
+            isAdmin: true,
+            isSuperAdmin: true,
+            lastAdminAccess: serverTimestamp(),
+            // Ensure essential fields exist if creating for the first time
+            email: auth.currentUser.email || '',
+            uid: auth.currentUser.uid
+          }, { merge: true });
+          console.log("[AdminRoot] Role promoted to super_admin successfully.");
+        } catch (err) {
+          console.error("[AdminRoot] Failed to promote role during terminal authentication:", err);
+          // We still show admin because they have the code, but they might face DB errors
+        } finally {
+          setPromoting(false);
+        }
+      }
+
       setShowAdmin(true);
       setShowAccessPrompt(false);
-      localStorage.setItem('admin_session_active', 'true');
     } else {
       setError('Invalid access credentials');
       setTimeout(() => setError(''), 3000);
     }
   };
 
-  // useEffect(() => {
-  //   const session = localStorage.getItem('admin_session_active');
-  //   if (session === 'true') {
-  //     setShowAdmin(true);
-  //   }
-  // }, []);
+  useEffect(() => {
+    const session = localStorage.getItem('admin_session_active');
+    if (session === 'true') {
+      setShowAdmin(true);
+    }
+  }, []);
 
   useEffect(() => {
     // Sovereign Admin setup: purge user translation cookies & force English
@@ -216,9 +245,17 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
 
               <button 
                 type="submit"
-                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all"
+                disabled={promoting}
+                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                Authenticate Terminal
+                {promoting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Configuring Permissions...</span>
+                  </>
+                ) : (
+                  <span>Authenticate Terminal</span>
+                )}
               </button>
 
               <button 

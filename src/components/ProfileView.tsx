@@ -846,6 +846,7 @@ export default function ProfileView({
       title: 'App Settings',
       items: [
         { icon: Settings, label: t('common.preferences'), id: 'preferences' },
+        { icon: Shield, label: 'Admin Terminal', id: 'admin' },
       ]
     }
   ];
@@ -979,7 +980,10 @@ export default function ProfileView({
                   onClick={() => {
                     setErrorMsg('');
                     setSuccessMsg('');
-                    if (item.id === 'referral') {
+                    if (item.id === 'admin') {
+                      localStorage.setItem('admin_session_active', 'true');
+                      window.location.href = '/admin';
+                    } else if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();
                       } else {

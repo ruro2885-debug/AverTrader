@@ -4,7 +4,7 @@ import {
   Search, ShieldCheck, CheckCircle2, XCircle, Clock, FileText, User, 
   AlertTriangle, Eye, Check, X, ArrowLeft, RefreshCcw, MapPin, Calendar, Globe, Phone 
 } from 'lucide-react';
-import { collection, onSnapshot, updateDoc, doc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, updateDoc, doc, serverTimestamp, addDoc, setDoc, query, where, getDocs, increment } from 'firebase/firestore';
 import { db, auth } from '../../../lib/firebase';
 
 interface KYC {
@@ -42,12 +42,21 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
   const [selectedSubmission, setSelectedSubmission] = useState<KYC | null>(null);
   const [actionModal, setActionModal] = useState<'reject' | 'resubmit' | null>(null);
   const [reasonText, setReasonText] = useState('');
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const isDark = theme === 'dark';
 
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'admin_kyc'), (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as KYC));
+      const data = snap.docs.map(d => {
+        const raw = d.data();
+        return { ...raw, id: d.id } as KYC;
+      });
       // Memory sort by submittedAt descending
       data.sort((a, b) => {
         const timeA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
@@ -66,6 +75,12 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
   const handleAction = async (id: string, status: 'verified' | 'rejected' | 'requires_resubmission', reason = '') => {
     try {
       const submission = submissions.find(s => s.id === id);
+      if (!submission) return;
+
+      // Close UI immediately for better responsiveness as requested
+      setSelectedSubmission(null);
+      setActionModal(null);
+
       const updatePayload: any = { 
         status,
         reviewedAt: serverTimestamp(),
@@ -77,7 +92,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
 
       await updateDoc(doc(db, 'admin_kyc', id), updatePayload);
 
-      if (submission?.userId) {
+      if (submission.userId) {
         const userUpdate: any = {
           kycStatus: status === 'verified' ? 'verified' : status === 'rejected' ? 'rejected' : 'requires_resubmission',
           lastUpdated: serverTimestamp()
@@ -87,6 +102,44 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
           userUpdate.kycRewardUnlocked = true;
           userUpdate.kycApprovedAt = new Date().toISOString();
           userUpdate.kycRejectionReason = null;
+          
+          // Auto-fund logic: Find pending deposits and approve them
+          try {
+            const depositsQ = query(
+              collection(db, 'admin_deposits'), 
+              where('userId', '==', submission.userId),
+              where('status', '==', 'pending')
+            );
+            const depositSnap = await getDocs(depositsQ);
+            
+            if (!depositSnap.empty) {
+              for (const dDoc of depositSnap.docs) {
+                const depData = dDoc.data();
+                const amount = Number(depData.amount) || 0;
+                
+                // Approve deposit
+                await updateDoc(doc(db, 'admin_deposits', dDoc.id), {
+                  status: 'completed',
+                  approvedAt: serverTimestamp(),
+                  processedBy: 'Auto-KYC-Approval'
+                });
+
+                // Credit balance
+                await setDoc(doc(db, 'users', submission.userId), {
+                  portfolioBalance: increment(amount),
+                  availableBalance: increment(amount),
+                  totalDeposits: increment(amount),
+                  tokenBalance: increment(amount),
+                  'portfolio.totalValue': increment(amount),
+                  lastUpdated: serverTimestamp()
+                }, { merge: true });
+                
+                console.log(`[KYC-AutoFund] Credited $${amount} to user ${submission.userId}`);
+              }
+            }
+          } catch (fundErr) {
+            console.warn("Auto-funding failed during KYC approval:", fundErr);
+          }
         } else if (status === 'rejected') {
           userUpdate.kycRewardUnlocked = false;
           userUpdate.kycRejectionReason = reason;
@@ -95,20 +148,20 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
           userUpdate.kycResubmissionReason = reason;
         }
 
-        await updateDoc(doc(db, 'users', submission.userId), userUpdate).catch((err) => console.warn("Failed to sync kycStatus to user doc:", err));
+        await setDoc(doc(db, 'users', submission.userId), userUpdate, { merge: true });
 
-        // Create notification for the user
+        // Create notification
         let notifTitle = '';
         let notifBody = '';
         if (status === 'verified') {
-          notifTitle = 'Identity Verification Approved';
-          notifBody = 'Your identity verification application has been approved. High transaction limits and premium features are now active.';
+          notifTitle = 'Verification Complete';
+          notifBody = 'Your identity verification has been approved. Your account is now fully funded and ready for institutional trading.';
         } else if (status === 'rejected') {
-          notifTitle = 'Identity Verification Rejected';
-          notifBody = `Your application was rejected by compliance. Reason: ${reason || 'Document verification failed.'}`;
+          notifTitle = 'Verification Rejected';
+          notifBody = `Your application was rejected. Reason: ${reason || 'Document verification failed.'}`;
         } else {
-          notifTitle = 'KYC Resubmission Required';
-          notifBody = `Please re-upload your identity document. Reason: ${reason || 'Additional clarity required.'}`;
+          notifTitle = 'Resubmission Required';
+          notifBody = `Please re-upload your documents. Reason: ${reason || 'Clarity required.'}`;
         }
 
         await addDoc(collection(db, 'notifications'), {
@@ -122,11 +175,10 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         }).catch(() => {});
       }
 
-      setSelectedSubmission(null);
-      setActionModal(null);
-      setReasonText('');
-    } catch (err) {
+      showToast(status === 'verified' ? 'Verification Complete & Account Funded' : `KYC status updated to ${status}`);
+    } catch (err: any) {
       console.error("Failed to update KYC status:", err);
+      showToast(err.message || 'Error updating KYC status', 'error');
     }
   };
 
@@ -165,6 +217,26 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
           </span>
         </div>
       </div>
+
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-8 right-8 z-[100]"
+          >
+            <div className={`px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border ${
+              toast.type === 'success' 
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+            }`}>
+              {toast.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+              <p className="font-bold text-sm">{toast.message}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {filtered.map((item) => (

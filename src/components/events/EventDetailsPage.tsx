@@ -125,6 +125,8 @@ export default function EventDetailsPage({
     if (!event) return;
     setIsJoining(true);
     try {
+      // Add artificial delay for cinematic effect
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await joinEventService(user?.uid, event.id);
       setToastMsg("Successfully registered for this campaign!");
       setTimeout(() => setToastMsg(null), 3000);
@@ -224,7 +226,7 @@ export default function EventDetailsPage({
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             className="fixed top-6 left-1/2 -translate-x-1/2 z-[150] px-5 py-3 rounded-2xl bg-emerald-500/90 text-white font-black text-xs shadow-2xl backdrop-blur-md border border-emerald-400/40 flex items-center gap-2.5"
           >
-            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+            <Trophy className="w-4 h-4 text-amber-300" />
             <span>{toastMsg}</span>
           </motion.div>
         )}
@@ -293,7 +295,7 @@ export default function EventDetailsPage({
             </span>
             {event.featured && (
               <span className="px-3 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-amber-300" /> Featured Flagship
+                Featured Flagship
               </span>
             )}
           </div>
@@ -400,18 +402,23 @@ export default function EventDetailsPage({
                 <Check className="w-4 h-4" /> Claimed
               </button>
             ) : isJoined ? (
-              <button 
-                onClick={handleClaim}
-                disabled={isClaiming || completionPercentage < 100}
-                className={`w-full sm:w-auto px-6 py-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shadow-lg ${
-                  completionPercentage >= 100
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white shadow-emerald-500/20'
-                    : 'bg-white/10 text-slate-400 cursor-not-allowed border border-white/10'
-                }`}
-              >
-                {isClaiming ? <RotateCw className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
-                <span>{completionPercentage >= 100 ? 'Claim Reward Share' : `Tasks ${completedCount}/${totalTasks} Complete`}</span>
-              </button>
+              completionPercentage >= 100 ? (
+                <button 
+                  onClick={handleClaim}
+                  disabled={isClaiming}
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-extrabold text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+                >
+                  {isClaiming ? <RotateCw className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+                  <span>Claim Reward Share</span>
+                </button>
+              ) : (
+                <button 
+                  disabled
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-emerald-500/20 text-emerald-400 font-extrabold text-xs border border-emerald-500/30 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Already Registered
+                </button>
+              )
             ) : hasEnded ? (
               <button disabled className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 text-slate-500 font-extrabold text-xs border border-white/5 flex items-center justify-center gap-2">
                 Ended
@@ -422,7 +429,7 @@ export default function EventDetailsPage({
                 disabled={isJoining}
                 className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2"
               >
-                {isJoining ? <RotateCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {isJoining ? <RotateCw className="w-4 h-4 animate-spin" /> : null}
                 <span>{event.status === 'UPCOMING' ? 'Pre-Register for Event' : 'Register for Campaign'}</span>
               </button>
             )}
@@ -734,51 +741,6 @@ export default function EventDetailsPage({
         )}
 
       </main>
-
-      {/* STICKY BOTTOM ACTION BAR */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#03060D]/95 backdrop-blur-2xl border-t border-white/10 p-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-          <div className="hidden sm:block">
-            <p className="text-xs font-bold text-slate-400">Total Reward Pool Allocation</p>
-            <p className="text-lg font-black text-emerald-400">${event.totalRewardPool.toLocaleString()} {event.rewardToken}</p>
-          </div>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            {isClaimed ? (
-              <button disabled className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-emerald-500/20 text-emerald-400 font-black text-xs border border-emerald-500/30 flex items-center justify-center gap-2">
-                <Check className="w-4 h-4" /> Reward Claimed & Settled
-              </button>
-            ) : isJoined ? (
-              <button 
-                onClick={handleClaim}
-                disabled={isClaiming || completionPercentage < 100}
-                className={`w-full sm:w-auto px-8 py-3.5 rounded-xl font-black text-xs transition-all shadow-xl flex items-center justify-center gap-2 ${
-                  completionPercentage >= 100
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-emerald-500/20'
-                    : 'bg-white/10 text-slate-400 border border-white/10 cursor-not-allowed'
-                }`}
-              >
-                {isClaiming ? <RotateCw className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
-                <span>{completionPercentage >= 100 ? 'Claim Reward' : `Complete Tasks (${completedCount}/${totalTasks})`}</span>
-              </button>
-            ) : hasEnded ? (
-              <button disabled className="w-full sm:w-auto px-10 py-3.5 rounded-xl bg-slate-800 text-slate-500 font-black text-xs border border-white/5 flex items-center justify-center gap-2">
-                Ended
-              </button>
-            ) : (
-              <button 
-                onClick={handleJoin}
-                disabled={isJoining}
-                className="w-full sm:w-auto px-10 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2"
-              >
-                {isJoining ? <RotateCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                <span>Register for Campaign</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
     </div>
   );
 }

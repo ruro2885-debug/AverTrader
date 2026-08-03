@@ -274,7 +274,7 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
     setAddressError(null);
     setIsSubmitting(true);
     try {
-      await addWithdrawal(numericAmountInUsd);
+      await addWithdrawal(numericAmountInUsd, destinationAddress);
       const hash = '0x' + Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       setTxHash(hash);
       setStep(3);

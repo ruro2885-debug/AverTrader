@@ -64,15 +64,24 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
     // Real-time listener for Total Platform Users directly from Firestore 'users' collection
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       if (isSubscribed) {
-        // Count valid active/registered user documents
-        const validUsers = snap.docs.filter(d => {
+        // Count unique valid users by email to avoid duplication in stats
+        const emailSet = new Set<string>();
+        const uidOnlySet = new Set<string>();
+
+        snap.docs.forEach(d => {
           const data = d.data();
-          if (!data || data.isDeleted || data.accountStatus === 'Deleted') return false;
-          // Only exclude local-storage users and basic auto-generated placeholders that have no email
-          const isLocal = d.id.startsWith('local-') || d.id.startsWith('auto_');
-          return !isLocal || data.email;
+          if (!data || data.isDeleted || data.accountStatus === 'Deleted') return;
+          
+          const email = (data.email || '').toLowerCase().trim();
+          if (email) {
+            emailSet.add(email);
+          } else if (!d.id.startsWith('local-') && !d.id.startsWith('auto_')) {
+            // Also count valid Firebase Auth users who might not have an email field yet
+            uidOnlySet.add(d.id);
+          }
         });
-        setStats(prev => ({ ...prev, totalUsers: validUsers.length }));
+        
+        setStats(prev => ({ ...prev, totalUsers: emailSet.size + uidOnlySet.size }));
         checkLoaded();
       }
     }, (err) => {

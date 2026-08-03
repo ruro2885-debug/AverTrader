@@ -41,26 +41,40 @@ export const progressionService = {
           updates.loginStreak = 1;
           xpGain = 10;
         } else {
-          const diffHours = (now.getTime() - lastLogin.getTime()) / (1000 * 60 * 60);
-          if (diffHours <= 24) {
-            updates.loginStreak = increment(1);
-            xpGain = 10;
+          const lastLoginDateOnly = user.lastLoginDate?.split('T')[0];
+          
+          if (lastLoginDateOnly === todayStr) {
+            // Already logged in today, don't increment streak
+            xpGain = 0; 
           } else {
-            updates.loginStreak = 1;
-            xpGain = 10;
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+            
+            if (lastLoginDateOnly === yesterdayStr) {
+              // Consecutive day!
+              updates.loginStreak = increment(1);
+              xpGain = 10;
+            } else {
+              // Skipped a day or more
+              updates.loginStreak = 1;
+              xpGain = 10;
+            }
           }
         }
         updates.lastLoginDate = now.toISOString();
         break;
     }
 
-    // Leveling logic
+    // Leveling logic matching UI threshold: 1000 + (level - 1) * 250
     let currentXp = (user.xp || 0) + xpGain;
     let currentLevel = user.level || 1;
 
-    while (currentXp >= 1000) {
+    let threshold = 1000 + (currentLevel - 1) * 250;
+    while (currentXp >= threshold) {
       currentLevel += 1;
-      currentXp -= 1000;
+      currentXp -= threshold;
+      threshold = 1000 + (currentLevel - 1) * 250;
     }
 
     updates.xp = currentXp;

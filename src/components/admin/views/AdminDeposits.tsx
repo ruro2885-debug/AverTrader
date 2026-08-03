@@ -26,8 +26,8 @@ import {
   ArrowRight,
   Key
 } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, updateDoc, doc, getDoc, getDocs, where, arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { collection, onSnapshot, query, orderBy, updateDoc, doc, getDoc, getDocs, where, arrayUnion, increment, serverTimestamp, addDoc, setDoc } from 'firebase/firestore';
+import { db, auth } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
 
@@ -64,6 +64,7 @@ const CountdownTimer = ({ timestamp }: { timestamp: string }) => {
 
 export interface DepositRecord {
   id: string;
+  displayId?: string;
   userId: string;
   email: string;
   userName?: string;
@@ -119,7 +120,14 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
   useEffect(() => {
     const q = query(collection(db, 'admin_deposits'), orderBy('timestamp', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as DepositRecord));
+      const data = snap.docs.map(doc => {
+        const d = doc.data();
+        return { 
+          ...d, 
+          id: doc.id, 
+          displayId: d.id || doc.id // Preserve the DEP-XXXX as displayId
+        } as DepositRecord;
+      });
       setDeposits(data);
       setLoading(false);
     }, (err) => {
@@ -153,6 +161,9 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
   const handleApproveDeposit = async (deposit: DepositRecord) => {
     try {
       setProcessingId(deposit.id);
+      
+      // Close detail view immediately as requested for better responsiveness
+      setSelectedDeposit(null);
 
       // 1. Update status in admin_deposits collection
       const depositRef = doc(db, 'admin_deposits', deposit.id);
@@ -160,14 +171,14 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
         status: 'completed',
         approvedAt: serverTimestamp(),
         processedAt: serverTimestamp(),
-        processedBy: 'Super Admin'
+        processedBy: auth.currentUser?.email || 'Super Admin'
       });
 
       const amount = Number(deposit.amount) || 0;
       let targetUid = deposit.userId;
 
       // Fallback: If userId is missing or anonymous, look up user by email in Firestore
-      if ((!targetUid || targetUid === 'anonymous') && deposit.email) {
+      if ((!targetUid || targetUid === 'anonymous' || targetUid.startsWith('local-')) && deposit.email) {
         try {
           const userQ = query(collection(db, 'users'), where('email', '==', deposit.email.toLowerCase().trim()));
           const userSnap = await getDocs(userQ);
@@ -175,108 +186,73 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
             targetUid = userSnap.docs[0].id;
           }
         } catch (err) {
-          console.warn("Could not find user by email fallback:", err);
+          console.warn("[AdminDeposits] Email lookup fallback failed:", err);
         }
       }
 
-      // 2. Credit the user balance if a valid targetUid is found
-      if (targetUid && targetUid !== 'anonymous') {
+      // 2. Credit the user balance
+      if (targetUid && !targetUid.startsWith('local-') && targetUid !== 'anonymous') {
         const userDocRef = doc(db, 'users', targetUid);
-        let userSnap;
-        try {
-          userSnap = await getDoc(userDocRef);
-        } catch (getErr: any) {
-          console.error("Failed to fetch user doc during approval:", getErr);
-          if (getErr.code === 'resource-exhausted') {
-            throw new Error("Firestore quota exceeded. Please wait 24 hours or enable billing to process more transactions.");
-          }
-          throw getErr;
-        }
-
+        
         const notifItem = {
           id: `notif-${Date.now()}`,
           title: 'Deposit Approved & Credited',
-          message: `Your institutional deposit of $${amount.toLocaleString()} (${deposit.currency || 'USD'}) has been approved by administration and credited to your balance.`,
+          message: `Your institutional deposit of $${amount.toLocaleString()} has been approved and credited.`,
           time: 'Just now',
           timestamp: new Date().toISOString(),
           unread: true,
           type: 'success'
         };
 
-        if (userSnap.exists()) {
-          try {
-            await updateDoc(userDocRef, {
-              portfolioBalance: increment(amount),
-              availableBalance: increment(amount),
-              totalDeposits: increment(amount),
-              tokenBalance: increment(amount),
-              'portfolio.totalValue': increment(amount),
-              notificationsList: arrayUnion(notifItem),
-              lastUpdated: serverTimestamp()
-            });
-          } catch (updErr: any) {
-            console.error("Failed to update user balance:", updErr);
-            if (updErr.code === 'resource-exhausted') {
-              throw new Error("Firestore quota exceeded while updating balance.");
-            }
-            throw updErr;
+        await setDoc(userDocRef, {
+          portfolioBalance: increment(amount),
+          availableBalance: increment(amount),
+          totalDeposits: increment(amount),
+          tokenBalance: increment(amount),
+          'portfolio.totalValue': increment(amount),
+          notificationsList: arrayUnion(notifItem),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+
+        // 3. Update persistent portfolio state (non-blocking)
+        portfolioPersistenceService.getPortfolioCurrent(targetUid).then(currentPortfolio => {
+          if (currentPortfolio) {
+            portfolioPersistenceService.savePortfolioCurrent(targetUid, {
+              walletState: {
+                portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
+                availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
+                totalDeposits: (currentPortfolio.walletState?.totalDeposits || 0) + amount,
+                tokenBalance: (currentPortfolio.walletState?.tokenBalance || 0) + amount
+              },
+              portfolioMetrics: {
+                totalValue: (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount
+              }
+            }).catch(e => console.warn("Portfolio sync failed:", e));
           }
-        }
+        }).catch(() => {});
 
-        // 3. Update persistent portfolio state for targetUid
-        try {
-          const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(targetUid);
-          const currentPortBal = currentPortfolio?.walletState?.portfolioBalance || 0;
-          const currentAvail = currentPortfolio?.walletState?.availableBalance || 0;
-          const currentTotDep = currentPortfolio?.walletState?.totalDeposits || 0;
+        // 4. Update dedicated wallet document (non-blocking)
+        walletService.getOrCreateWallet(targetUid).then(wallet => {
+          walletService.updateWallet(targetUid, {
+            portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
+            availableBalance: (Number(wallet.availableBalance) || 0) + amount,
+            totalDeposits: (Number(wallet.totalDeposits) || 0) + amount,
+            tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
+            cashBalance: (Number(wallet.cashBalance) || 0) + amount,
+            portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
+          }).catch(e => console.warn("Wallet sync failed:", e));
+        }).catch(() => {});
 
-          await portfolioPersistenceService.savePortfolioCurrent(targetUid, {
-            walletState: {
-              portfolioBalance: currentPortBal + amount,
-              availableBalance: currentAvail + amount,
-              totalDeposits: currentTotDep + amount,
-              tokenBalance: (currentPortfolio?.walletState?.tokenBalance || 0) + amount
-            },
-            portfolioMetrics: {
-              totalValue: (currentPortfolio?.portfolioMetrics?.totalValue || 0) + amount
-            }
-          });
-        } catch (pErr) {
-          console.warn("Failed portfolio persistence update:", pErr);
-        }
-
-        // 4. Update dedicated wallet document
-        try {
-          const currentWallet = await walletService.getOrCreateWallet(targetUid);
-          const currentPBal = Number(currentWallet.portfolioBalance) || 0;
-          const currentAvail = Number(currentWallet.availableBalance) || 0;
-          const currentTotDep = Number(currentWallet.totalDeposits) || 0;
-          const currentTokenBal = Number(currentWallet.tokenBalance) || 0;
-          const currentCashBal = Number(currentWallet.cashBalance) || 0;
-          const currentVaultBal = Number(currentWallet.vaultBalance) || 0;
-
-          await walletService.updateWallet(targetUid, {
-            portfolioBalance: currentPBal + amount,
-            availableBalance: currentAvail + amount,
-            totalDeposits: currentTotDep + amount,
-            tokenBalance: currentTokenBal + amount,
-            cashBalance: currentCashBal + amount,
-            portfolioValue: (Number(currentWallet.portfolioValue) || 0) + amount
-          });
-        } catch (wErr) {
-          console.warn("Failed walletService update:", wErr);
-        }
-        setActionSuccessMessage(`Successfully approved deposit of $${amount.toLocaleString()} for ${deposit.email}. User balance credited.`);
+        setActionSuccessMessage(`Successfully approved deposit of $${amount.toLocaleString()} for ${deposit.email}.`);
       } else {
-        setActionSuccessMessage(`Deposit approved, but user account was not found (Anonymous/Deleted). Balance not credited.`);
+        setActionSuccessMessage(`Deposit approved. (Account is local-only, balance not credited in Firestore)`);
       }
+
       setTimeout(() => setActionSuccessMessage(null), 4000);
-      if (selectedDeposit?.id === deposit.id) {
-        setSelectedDeposit(prev => prev ? { ...prev, status: 'completed' } : null);
-      }
-    } catch (err) {
-      console.error("Failed to approve deposit:", err);
-      alert("Error approving deposit. Please check database permissions.");
+    } catch (err: any) {
+      console.error("[AdminDeposits] Approval error:", err);
+      setActionSuccessMessage(`Error: ${err.message || 'Failed to approve deposit'}`);
+      setTimeout(() => setActionSuccessMessage(null), 5000);
     } finally {
       setProcessingId(null);
     }
@@ -285,20 +261,24 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
   const handleDeclineDeposit = async (deposit: DepositRecord) => {
     try {
       setProcessingId(deposit.id);
+      console.log(`[AdminDeposits] Starting decline for deposit ${deposit.id}`);
 
       // 1. Update status in admin_deposits collection
       const depositRef = doc(db, 'admin_deposits', deposit.id);
-      await updateDoc(depositRef, { 
+      await setDoc(depositRef, { 
         status: 'rejected',
         declinedAt: serverTimestamp(),
         processedAt: serverTimestamp(),
-        processedBy: 'Super Admin'
+        processedBy: auth.currentUser?.email || 'Super Admin'
+      }, { merge: true }).catch(err => {
+        console.error("[AdminDeposits] Failed to update admin_deposits status for rejection:", err);
+        throw new Error(`Failed to update deposit status: ${err.message}`);
       });
 
       const amount = Number(deposit.amount) || 0;
       let targetUid = deposit.userId;
 
-      if ((!targetUid || targetUid === 'anonymous') && deposit.email) {
+      if ((!targetUid || targetUid === 'anonymous' || targetUid.startsWith('local-')) && deposit.email) {
         try {
           const userQ = query(collection(db, 'users'), where('email', '==', deposit.email.toLowerCase().trim()));
           const userSnap = await getDocs(userQ);
@@ -306,29 +286,25 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
             targetUid = userSnap.docs[0].id;
           }
         } catch (err) {
-          console.warn("Could not find user by email fallback:", err);
+          console.warn("[AdminDeposits] Could not find user by email fallback during rejection:", err);
         }
       }
 
-      if (targetUid && targetUid !== 'anonymous') {
+      if (targetUid && !targetUid.startsWith('local-') && targetUid !== 'anonymous') {
         const userDocRef = doc(db, 'users', targetUid);
-        const userSnap = await getDoc(userDocRef);
+        const notifItem = {
+          id: `notif-${Date.now()}`,
+          title: 'Deposit Request Declined',
+          message: `Your deposit request of $${amount.toLocaleString()} (${deposit.currency || 'USD'}) was declined during audit. Please contact support if you require assistance.`,
+          time: 'Just now',
+          timestamp: new Date().toISOString(),
+          unread: true,
+          type: 'error'
+        };
 
-        if (userSnap.exists()) {
-          const notifItem = {
-            id: `notif-${Date.now()}`,
-            title: 'Deposit Request Declined',
-            message: `Your deposit request of $${amount.toLocaleString()} (${deposit.currency || 'USD'}) was declined during audit. Please contact support if you require assistance.`,
-            time: 'Just now',
-            timestamp: new Date().toISOString(),
-            unread: true,
-            type: 'error'
-          };
-
-          await updateDoc(userDocRef, {
-            notificationsList: arrayUnion(notifItem)
-          }).catch(err => console.warn("Failed user doc notification update:", err));
-        }
+        await updateDoc(userDocRef, {
+          notificationsList: arrayUnion(notifItem)
+        }).catch(err => console.warn("[AdminDeposits] Non-blocking: Failed user doc notification update during rejection:", err));
       }
 
       setActionSuccessMessage(`Deposit of $${amount.toLocaleString()} for ${deposit.email} has been declined.`);
@@ -336,9 +312,10 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
       if (selectedDeposit?.id === deposit.id) {
         setSelectedDeposit(prev => prev ? { ...prev, status: 'rejected' } : null);
       }
-    } catch (err) {
-      console.error("Failed to decline deposit:", err);
-      alert("Error declining deposit.");
+    } catch (err: any) {
+      console.error("[AdminDeposits] Decline crash:", err);
+      const errorMessage = err.message || err.code || 'Unknown database error';
+      alert(`Error declining deposit: ${errorMessage}`);
     } finally {
       setProcessingId(null);
     }
@@ -537,7 +514,7 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
                             <div className="flex items-center gap-1.5">
                               <span className={`text-sm font-black flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                                 {name}
-                                <span className="text-[10px] font-mono opacity-40 font-normal">#{item.userId.slice(0, 4)}</span>
+                                <span className="text-[10px] font-mono opacity-40 font-normal">#{item.displayId || item.userId.slice(0, 4)}</span>
                               </span>
                               {email?.endsWith('@aver.platform') && (
                                 <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[8px] font-black uppercase tracking-widest border border-blue-500/20">

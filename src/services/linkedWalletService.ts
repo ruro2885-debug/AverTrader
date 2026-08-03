@@ -22,39 +22,67 @@ export const linkedWalletService = {
   async linkWallet(data: Omit<LinkedWallet, 'id' | 'linkedAt' | 'updatedAt' | 'status'>): Promise<string> {
     const walletsRef = collection(db, 'linked_wallets');
     const normalizedAddress = data.address.trim().toLowerCase();
-    
-    // Check for duplicates in a case-insensitive manner without multi-field composite index queries
-    try {
-      const q = query(walletsRef, where('userId', '==', data.userId));
-      const snap = await getDocs(q);
-      const existingDoc = snap.docs.find(d => d.data().address?.toLowerCase() === normalizedAddress);
-      if (existingDoc) {
-        // Update existing document status to Connected
-        await updateDoc(doc(db, 'linked_wallets', existingDoc.id), {
-          status: 'Connected',
-          updatedAt: new Date().toISOString()
-        });
-        return existingDoc.id;
-      }
-    } catch (err) {
-      console.warn("Duplicate wallet check notice:", err);
-    }
-
+    const id = `wallet-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
-    const newWalletDoc = await addDoc(walletsRef, {
+
+    const walletRecord: LinkedWallet = {
+      id,
       walletType: 'Browser Extension',
       verificationStatus: 'Verified',
       ...data,
       status: 'Connected',
       linkedAt: now,
       updatedAt: now,
-      serverCreatedAt: serverTimestamp()
-    });
-
-    // Update the ID in the document
-    await updateDoc(newWalletDoc, { id: newWalletDoc.id });
+    };
     
-    return newWalletDoc.id;
+    // 1. Save locally in localStorage for instant offline / quota fallback sync
+    try {
+      const importedStr = localStorage.getItem('aver_imported_wallets');
+      let importedList: any[] = [];
+      if (importedStr) {
+        try { importedList = JSON.parse(importedStr); } catch (e) {}
+      }
+      importedList = [walletRecord, ...importedList.filter(w => (w.address || w.publicWalletAddress)?.toLowerCase() !== normalizedAddress)];
+      localStorage.setItem('aver_imported_wallets', JSON.stringify(importedList));
+
+      const activeUserStr = localStorage.getItem('aver_active_user');
+      if (activeUserStr) {
+        try {
+          const uObj = JSON.parse(activeUserStr);
+          const currentWallets = Array.isArray(uObj.linkedWallets) ? uObj.linkedWallets : [];
+          uObj.linkedWallets = [walletRecord, ...currentWallets.filter((w: any) => (w.address || w.publicWalletAddress)?.toLowerCase() !== normalizedAddress)];
+          localStorage.setItem('aver_active_user', JSON.stringify(uObj));
+          window.dispatchEvent(new Event('aver_user_updated'));
+        } catch (e) {}
+      }
+      window.dispatchEvent(new Event('aver_wallet_updated'));
+    } catch (e) {
+      console.warn("Failed saving linked wallet locally:", e);
+    }
+
+    // 2. Try Firestore write with fallback
+    try {
+      const q = query(walletsRef, where('userId', '==', data.userId));
+      const snap = await getDocs(q);
+      const existingDoc = snap.docs.find(d => d.data().address?.toLowerCase() === normalizedAddress);
+      if (existingDoc) {
+        await updateDoc(doc(db, 'linked_wallets', existingDoc.id), {
+          status: 'Connected',
+          updatedAt: new Date().toISOString()
+        }).catch(() => {});
+        return existingDoc.id;
+      }
+
+      const newWalletDoc = await addDoc(walletsRef, {
+        ...walletRecord,
+        serverCreatedAt: serverTimestamp()
+      });
+      await updateDoc(newWalletDoc, { id: newWalletDoc.id }).catch(() => {});
+      return newWalletDoc.id;
+    } catch (err) {
+      console.warn("Firestore wallet linking notice (operating in local fallback mode):", err);
+      return id;
+    }
   },
 
   /**

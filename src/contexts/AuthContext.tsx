@@ -41,6 +41,7 @@ import { TradingEngineConfig } from '../types/trading';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService } from '../services/walletService';
 import { progressionService } from '../services/progressionService';
+import { transactionService } from '../services/transactionService';
 
 export interface UserPreferences {
   language: string;
@@ -296,38 +297,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
-      if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
-      if (unsubNotifications) { unsubNotifications(); unsubNotifications = null; }
-      if (unsubHoldings) { unsubHoldings(); unsubHoldings = null; }
-      if (unsubTrades) { unsubTrades(); unsubTrades = null; }
-      if (unsubSnapshots) { unsubSnapshots(); unsubSnapshots = null; }
-      if (unsubTradingConfig) { unsubTradingConfig(); unsubTradingConfig = null; }
-      if (unsubPortfolioCurrent) { unsubPortfolioCurrent(); unsubPortfolioCurrent = null; }
-      if (unsubWallet) { unsubWallet(); unsubWallet = null; }
+      
+      // Cleanup existing listeners
+      const cleanup = () => {
+        if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
+        if (unsubNotifications) { unsubNotifications(); unsubNotifications = null; }
+        if (unsubHoldings) { unsubHoldings(); unsubHoldings = null; }
+        if (unsubTrades) { unsubTrades(); unsubTrades = null; }
+        if (unsubSnapshots) { unsubSnapshots(); unsubSnapshots = null; }
+        if (unsubTradingConfig) { unsubTradingConfig(); unsubTradingConfig = null; }
+        if (unsubPortfolioCurrent) { unsubPortfolioCurrent(); unsubPortfolioCurrent = null; }
+        if (unsubWallet) { unsubWallet(); unsubWallet = null; }
+      };
+      cleanup();
 
-      if (firebaseUser) {
-        notificationManagerRef.current = new NotificationManager(firebaseUser.uid);
+      const setupSubscriptions = (uid: string, email: string | null) => {
+        notificationManagerRef.current = new NotificationManager(uid);
         notificationManagerRef.current.subscribe(setNotifications);
 
-        // Fetch or create initial wallet document in 'wallets/{userId}'
-        unsubWallet = walletService.subscribeWallet(firebaseUser.uid, (wData) => {
+        // Wallet subscription
+        unsubWallet = walletService.subscribeWallet(uid, (wData) => {
           if (!wData) return;
           setUser(prev => {
             if (!prev) return null;
             const portVal = wData.portfolioValue || wData.portfolioBalance || prev.portfolio?.totalValue || 0;
-            if (
-              prev.portfolioBalance === wData.portfolioBalance &&
-              prev.availableBalance === wData.availableBalance &&
-              prev.vaultBalance === wData.vaultBalance &&
-              prev.totalDeposits === wData.totalDeposits &&
-              prev.totalWithdrawals === wData.totalWithdrawals &&
-              prev.portfolio?.totalValue === portVal &&
-              prev.tokenBalance === wData.tokenBalance &&
-              prev.aiTradingCapital === wData.aiTradingCapital &&
-              prev.cashBalance === wData.cashBalance
-            ) {
-              return prev;
-            }
             const updated: User = {
               ...prev,
               portfolioBalance: wData.portfolioBalance ?? prev.portfolioBalance,
@@ -343,28 +336,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 totalValue: portVal
               }
             };
-            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
             return updated;
           });
         });
 
-        // Subscribe to dedicated portfolio current persistence document
-        unsubPortfolioCurrent = portfolioPersistenceService.subscribePortfolioCurrent(firebaseUser.uid, (pState) => {
+        // Portfolio current subscription
+        unsubPortfolioCurrent = portfolioPersistenceService.subscribePortfolioCurrent(uid, (pState) => {
           if (!pState) return;
           setUser(prev => {
             if (!prev) return null;
-            if (
-              (pState.walletState.portfolioBalance === undefined || prev.portfolioBalance === pState.walletState.portfolioBalance) &&
-              (pState.walletState.availableBalance === undefined || prev.availableBalance === pState.walletState.availableBalance) &&
-              (pState.walletState.vaultBalance === undefined || prev.vaultBalance === pState.walletState.vaultBalance) &&
-              (pState.walletState.totalDeposits === undefined || prev.totalDeposits === pState.walletState.totalDeposits) &&
-              (pState.walletState.totalWithdrawals === undefined || prev.totalWithdrawals === pState.walletState.totalWithdrawals) &&
-              (pState.walletState.totalProfit === undefined || prev.totalProfit === pState.walletState.totalProfit) &&
-              (pState.walletState.totalLoss === undefined || prev.totalLoss === pState.walletState.totalLoss) &&
-              (pState.walletState.tokenBalance === undefined || prev.tokenBalance === pState.walletState.tokenBalance)
-            ) {
-              return prev;
-            }
             const updated: User = {
               ...prev,
               portfolioBalance: pState.walletState.portfolioBalance ?? prev.portfolioBalance,
@@ -384,354 +364,133 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 ...(pState.commandCenter?.aiSettings || {})
               }
             };
-            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(updated));
             return updated;
           });
         });
 
-        // Retrieve and apply cached user profile immediately to avoid flickering
-        const cachedUserStr = safeStorage.getItem(`user_profile_${firebaseUser.uid}`);
-        if (cachedUserStr) {
-          try {
-            const cachedUser = JSON.parse(cachedUserStr);
-            setUser(cachedUser);
-            const notifs = cachedUser.notificationsList || [];
-            setNotifications(notifs);
-            setLoading(false);
-          } catch (e) {
-            console.error("Error loading cached user:", e);
-          }
-        }
-
-        // User is signed in, fetch their profile from Firestore
-        const userDocRef = doc(db, 'users', firebaseUser.uid);
-        
-        // Listen for real-time updates to the user profile
+        // User profile subscription
+        const userDocRef = doc(db, 'users', uid);
         unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
-          console.log("[AuthContext] User document snapshot received");
-          try {
-            if (docSnap.exists()) {
-              const userData = docSnap.data() as User;
-              console.log("[AuthContext] User data updated from Firestore for uid:", firebaseUser.uid);
+          if (docSnap.exists()) {
+            const userData = docSnap.data() as User;
+            
+            // Auto-initialize profile details if missing
+            const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
+            if (needsSeed && !avatarSetupRef.current) {
+              avatarSetupRef.current = true;
+              const resolvedSeed = userData.avatarSeed || uid;
+              const newDataUrl = getAvatarDataUrl(resolvedSeed);
+              updateDoc(userDocRef, {
+                avatarSeed: resolvedSeed,
+                hasCustomPhoto: false,
+                profilePhotoURL: newDataUrl,
+                avatarUrl: newDataUrl,
+                lastUpdated: serverTimestamp()
+              }).catch(() => { avatarSetupRef.current = false; });
+            }
 
-              // Only initialize if there is no seed AND no custom photo/avatar URL at all
-              const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
+            // Check login streak
+            const todayStr = new Date().toISOString().split('T')[0];
+            const lastLoginDay = userData.lastLoginDate?.split('T')[0];
+            if (lastLoginDay !== todayStr) {
+              progressionService.updateProgress(uid, 'login').catch(() => {});
+            }
 
-              if (needsSeed && !avatarSetupRef.current) {
-                avatarSetupRef.current = true;
-                console.log("[AuthContext] User profile requires initial avatar setup...");
-                (async () => {
-                  try {
-                    const resolvedSeed = userData.avatarSeed || firebaseUser.uid;
-                    const newDataUrl = getAvatarDataUrl(resolvedSeed);
-                    await updateDoc(userDocRef, {
-                      avatarSeed: resolvedSeed,
-                      hasCustomPhoto: false,
-                      profilePhotoURL: newDataUrl,
-                      avatarUrl: newDataUrl,
-                      lastUpdated: new Date().toISOString()
-                    });
-                    console.log("[AuthContext] Successfully initialized profile avatar for user:", firebaseUser.uid);
-                  } catch (assignErr) {
-                    console.error("[AuthContext] Failed to initialize profile avatar:", assignErr);
-                    // Reset so we can try again later if it failed
-                    avatarSetupRef.current = false;
-                  }
-                })();
-              }
+            setUser(prev => {
               const updatedUser = {
                 ...userData,
-                hasCustomPhoto: !!userData.hasCustomPhoto,
-                history: userData.history || [],
-                deposits: userData.deposits || [],
-                withdrawals: userData.withdrawals || [],
-                portfolio: userData.portfolio || {
-                  totalValue: 0,
-                  todayPnL: 0,
-                  todayPnLPercent: 0,
-                  overallReturn: 0,
-                  realizedPnL: 0,
-                  unrealizedPnL: 0,
-                  healthScore: 0,
-                  diversificationScore: 0,
-                  volatility: 0,
-                  sharpeRatio: 0,
-                  winRate: 0,
-                  maxDrawdown: 0,
-                  recoveryFactor: 0,
-                  riskAdjustedReturn: 0
-                },
-                aiSettings: userData.aiSettings || {
-                  copilotMode: 'copilot',
-                  maxActiveTrades: 3,
-                  riskProfile: 'Balanced',
-                  drawdownStopLimit: 2.5,
-                  maxCapitalExposure: 40,
-                  consecutiveLosses: 0
-                }
+                holdings: prev?.holdings || [],
+                trades: prev?.trades || [],
+                snapshots: prev?.snapshots || []
               } as User;
-
-                // Check daily login streak and XP progression
-              const todayStr = new Date().toISOString().split('T')[0];
-              if (updatedUser.lastLoginDate !== todayStr) {
-                progressionService.updateProgress(firebaseUser.uid, 'login').catch(console.error);
-              }
-
-              setUser(prev => {
-                if (
-                  prev &&
-                  prev.portfolioBalance === updatedUser.portfolioBalance &&
-                  prev.availableBalance === updatedUser.availableBalance &&
-                  prev.vaultBalance === updatedUser.vaultBalance &&
-                  prev.totalDeposits === updatedUser.totalDeposits &&
-                  prev.totalWithdrawals === updatedUser.totalWithdrawals &&
-                  prev.tokenBalance === updatedUser.tokenBalance &&
-                  prev.portfolio?.totalValue === updatedUser.portfolio?.totalValue
-                ) {
-                  return prev;
-                }
-                const merged = {
-                  ...updatedUser,
-                  holdings: prev?.holdings || [],
-                  trades: prev?.trades || [],
-                  snapshots: prev?.snapshots || []
-                } as User;
-                
-                // Selective caching to prevent QuotaExceededError
-                const profileToCache = { ...merged };
-                delete (profileToCache as any).trades;
-                delete (profileToCache as any).holdings;
-                delete (profileToCache as any).snapshots;
-                delete (profileToCache as any).history;
-                delete (profileToCache as any).notificationsList;
-                
-                safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
-                return merged;
-              });
               
-              const notifs = userData.notificationsList || [];
-              notifs.sort((a, b) => b.createdAtTimestamp - a.createdAtTimestamp);
-              setNotifications(notifs);
-            } else {
-              console.warn("[AuthContext] User profile document not found in Firestore for uid:", firebaseUser.uid);
+              // Only cache essential profile info
+              const profileToCache = { ...updatedUser };
+              delete (profileToCache as any).trades;
+              delete (profileToCache as any).holdings;
+              delete (profileToCache as any).snapshots;
+              delete (profileToCache as any).history;
+              delete (profileToCache as any).notificationsList;
+              safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(profileToCache));
+              safeStorage.setItem('aver_active_user', JSON.stringify(profileToCache));
               
-              // Initialize profile for first-time login if user doc doesn't exist
-              if (firebaseUser.email) {
-                console.log("[AuthContext] First-time user detected. Initializing profile...");
-                
-                const seed = firebaseUser.email.toLowerCase();
-                const dataUrl = getAvatarDataUrl(seed);
-                
-                const defaultProfile = {
-                  uid: firebaseUser.uid,
-                  email: firebaseUser.email,
-                  username: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-                  role: 'user',
-                  profilePhotoURL: dataUrl,
-                  avatarUrl: dataUrl,
-                  avatarSeed: seed,
-                  hasCustomPhoto: false,
-                  accountType: 'Standard',
-                  accountStatus: 'Active',
-                  portfolioBalance: 0,
-                  availableBalance: 0,
-                  vaultBalance: 0,
-                  tokenBalance: 0,
-                  createdAt: serverTimestamp(),
-                  lastLogin: serverTimestamp(),
-                  lastUpdated: serverTimestamp(),
-                  onboardingCompleted: true,
-                  notificationsList: [],
-                  portfolio: {
-                    totalValue: 0,
-                    todayPnL: 0,
-                    todayPnLPercent: 0,
-                    overallReturn: 0,
-                    realizedPnL: 0,
-                    unrealizedPnL: 0,
-                    healthScore: 100,
-                    diversificationScore: 100,
-                    volatility: 0,
-                    sharpeRatio: 0,
-                    winRate: 0,
-                    maxDrawdown: 0,
-                    recoveryFactor: 0,
-                    riskAdjustedReturn: 0
-                  }
-                };
-
-                setDoc(userDocRef, defaultProfile).catch(err => {
-                  console.error("[AuthContext] Failed to initialize user profile:", err);
-                });
+              return updatedUser;
+            });
+          } else if (email) {
+            // Auto-initialize profile if it doesn't exist
+            const seed = email.toLowerCase();
+            const dataUrl = getAvatarDataUrl(seed);
+            const defaultProfile = {
+              uid,
+              email,
+              username: email.split('@')[0],
+              role: 'user',
+              profilePhotoURL: dataUrl,
+              avatarUrl: dataUrl,
+              avatarSeed: seed,
+              hasCustomPhoto: false,
+              accountType: 'Standard',
+              accountStatus: 'Active',
+              portfolioBalance: 0,
+              availableBalance: 0,
+              vaultBalance: 0,
+              tokenBalance: 0,
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp(),
+              lastUpdated: serverTimestamp(),
+              onboardingCompleted: true,
+              notificationsList: [],
+              portfolio: {
+                totalValue: 0,
+                todayPnL: 0,
+                todayPnLPercent: 0,
+                overallReturn: 0,
+                realizedPnL: 0,
+                unrealizedPnL: 0,
+                healthScore: 100,
+                diversificationScore: 100,
+                volatility: 0,
+                sharpeRatio: 0,
+                winRate: 0,
+                maxDrawdown: 0,
+                recoveryFactor: 0,
+                riskAdjustedReturn: 0
               }
-            }
-          } catch (err) {
-            console.error("[AuthContext] Error processing user document snapshot:", err);
-          } finally {
-            setLoading(false);
+            };
+            setDoc(userDocRef, defaultProfile, { merge: true });
           }
-        }, (error) => {
-          console.error("[AuthContext] Firestore user document snapshot error:", error);
-          if (isPermissionError(error)) {
-            console.warn("[AuthContext] Firestore access denied. Using cached/local profile.");
-            const cachedUserStr = safeStorage.getItem(`user_profile_${firebaseUser.uid}`);
-            if (cachedUserStr) {
-              try {
-                const cachedUser = JSON.parse(cachedUserStr);
-                setUser(cachedUser);
-                const notifs = cachedUser.notificationsList || [];
-                setNotifications(notifs);
-              } catch (e) {
-                console.error("[AuthContext] Error loading cached user in fallback:", e);
-              }
-            }
-          } else {
-            handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
-          }
-          setLoading(false);
         });
 
-        // Subcollection Listeners for Portfolio Intelligence
-        const holdingsRef = collection(db, 'users', firebaseUser.uid, 'holdings');
+        // Holdings, Trades, Snapshots subscriptions
+        const holdingsRef = collection(db, 'users', uid, 'holdings');
         unsubHoldings = onSnapshot(holdingsRef, (snap) => {
           const holdings = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Holding[];
-          setUser(prev => {
-            if (!prev) return null;
-            const updated = { ...prev, holdings };
-            
-            // Selective caching
-            const profileToCache = { ...updated };
-            delete (profileToCache as any).trades;
-            delete (profileToCache as any).holdings;
-            delete (profileToCache as any).snapshots;
-            delete (profileToCache as any).history;
-            delete (profileToCache as any).notificationsList;
-            
-            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
-            return updated;
-          });
-        }, (error) => {
-          if (isPermissionError(error)) {
-            console.warn("Firestore subcollection 'holdings' access denied. Falling back to local/cached profile data.");
-            setUser(prev => {
-              if (!prev) return null;
-              const defaultHoldings: Holding[] = [];
-              const updated = {
-                ...prev,
-                holdings: prev.holdings && prev.holdings.length > 0 ? prev.holdings : defaultHoldings
-              };
-              // Selective caching
-              const profileToCache = { ...updated };
-              delete (profileToCache as any).trades;
-              delete (profileToCache as any).holdings;
-              delete (profileToCache as any).snapshots;
-              delete (profileToCache as any).history;
-              delete (profileToCache as any).notificationsList;
-              
-              safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
-              return updated;
-            });
-          } else {
-            handleFirestoreError(error, OperationType.LIST, `users/${firebaseUser.uid}/holdings`);
-          }
+          setUser(prev => prev ? { ...prev, holdings } : null);
         });
 
-        const tradesRef = collection(db, 'users', firebaseUser.uid, 'trades');
+        const tradesRef = collection(db, 'users', uid, 'trades');
         unsubTrades = onSnapshot(query(tradesRef, orderBy('timestamp', 'desc')), (snap) => {
           const trades = snap.docs.map(d => ({ id: d.id, ...d.data() })) as TradeHistoryItem[];
-          setUser(prev => {
-            if (!prev) return null;
-            const updated = { ...prev, trades };
-            
-            // Selective caching
-            const profileToCache = { ...updated };
-            delete (profileToCache as any).trades;
-            delete (profileToCache as any).holdings;
-            delete (profileToCache as any).snapshots;
-            delete (profileToCache as any).history;
-            delete (profileToCache as any).notificationsList;
-            
-            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
-            return updated;
-          });
-        }, (error) => {
-          if (isPermissionError(error)) {
-            console.warn("Firestore subcollection 'trades' access denied. Falling back to local/cached profile data.");
-            setUser(prev => {
-              if (!prev) return null;
-              const updated = {
-                ...prev,
-                trades: prev.trades && prev.trades.length > 0 ? prev.trades : []
-              };
-              
-              // Selective caching
-              const profileToCache = { ...updated };
-              delete (profileToCache as any).trades;
-              delete (profileToCache as any).holdings;
-              delete (profileToCache as any).snapshots;
-              delete (profileToCache as any).history;
-              delete (profileToCache as any).notificationsList;
-              
-              safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
-              return updated;
-            });
-          } else {
-            handleFirestoreError(error, OperationType.LIST, `users/${firebaseUser.uid}/trades`);
-          }
+          setUser(prev => prev ? { ...prev, trades } : null);
         });
 
-        const snapshotsRef = collection(db, 'users', firebaseUser.uid, 'snapshots');
+        const snapshotsRef = collection(db, 'users', uid, 'snapshots');
         unsubSnapshots = onSnapshot(query(snapshotsRef, orderBy('timestamp', 'desc')), (snap) => {
           const snapshots = snap.docs.map(d => ({ id: d.id, ...d.data() })) as PortfolioSnapshot[];
-          setUser(prev => {
-            if (!prev) return null;
-            const updated = { ...prev, snapshots };
-            
-            // Selective caching
-            const profileToCache = { ...updated };
-            delete (profileToCache as any).trades;
-            delete (profileToCache as any).holdings;
-            delete (profileToCache as any).snapshots;
-            delete (profileToCache as any).history;
-            delete (profileToCache as any).notificationsList;
-            
-            safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
-            return updated;
-          });
-        }, (error) => {
-          if (isPermissionError(error)) {
-            console.warn("Firestore subcollection 'snapshots' access denied. Falling back to local/cached profile data.");
-            setUser(prev => {
-              if (!prev) return null;
-              const updated = {
-                ...prev,
-                snapshots: prev.snapshots && prev.snapshots.length > 0 ? prev.snapshots : []
-              };
-              
-              // Selective caching
-              const profileToCache = { ...updated };
-              delete (profileToCache as any).trades;
-              delete (profileToCache as any).holdings;
-              delete (profileToCache as any).snapshots;
-              delete (profileToCache as any).history;
-              delete (profileToCache as any).notificationsList;
-              
-              safeStorage.setItem(`user_profile_${firebaseUser.uid}`, JSON.stringify(profileToCache));
-              return updated;
-            });
-          } else {
-            handleFirestoreError(error, OperationType.LIST, `users/${firebaseUser.uid}/snapshots`);
-          }
+          setUser(prev => prev ? { ...prev, snapshots } : null);
         });
 
-        // Trading Engine Config Listener
-        const configRef = doc(db, 'users', firebaseUser.uid, 'tradingConfig', 'default');
+        const configRef = doc(db, 'users', uid, 'tradingConfig', 'default');
         unsubTradingConfig = onSnapshot(configRef, (docSnap) => {
           if (docSnap.exists()) {
             const config = docSnap.data() as TradingEngineConfig;
             setUser(prev => prev ? { ...prev, tradingConfig: config } : null);
           }
         });
+      };
+
+      if (firebaseUser) {
+        setupSubscriptions(firebaseUser.uid, firebaseUser.email);
       } else {
         // User is signed out from Firebase, check for active local user
         const activeLocalUserStr = safeStorage.getItem('aver_active_user');
@@ -739,21 +498,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
             setUser(activeLocalUser);
-            setNotifications(activeLocalUser.notificationsList || []);
-
             if (activeLocalUser.uid) {
-              setDoc(doc(db, 'users', activeLocalUser.uid), {
-                ...activeLocalUser,
-                lastLogin: serverTimestamp(),
-                lastUpdated: serverTimestamp()
-              }, { merge: true }).catch(err => {
-                console.warn("Failed sync activeLocalUser to Firestore:", err);
-              });
+              setupSubscriptions(activeLocalUser.uid, activeLocalUser.email);
             }
           } catch (e) {
             console.error("Error loading active local user:", e);
             setUser(null);
-            setNotifications([]);
           }
         } else {
           setUser(null);
@@ -812,24 +562,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
 
-      let assignedUrls: string[] = [];
+      // Check if user already exists in Firestore by email to prevent duplication
+      let existingFirestoreUser: any = null;
+      let existingFirestoreUserUid: string | null = null;
       try {
-        const usersSnap = await getDocs(collection(db, 'users'));
-        usersSnap.forEach(uDoc => {
-          const uData = uDoc.data();
-          if (uData.avatarUrl) assignedUrls.push(uData.avatarUrl);
-          if (uData.profilePhotoURL) assignedUrls.push(uData.profilePhotoURL);
-        });
+        const q = query(collection(db, 'users'), where('email', '==', data.email.toLowerCase().trim()));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          // Sort to find the best candidate (prefer real UIDs over local ones if multiple exist)
+          const docs = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+          docs.sort((a, b) => {
+            const aIsLocal = a.id.startsWith('local-');
+            const bIsLocal = b.id.startsWith('local-');
+            if (aIsLocal && !bIsLocal) return 1;
+            if (!aIsLocal && bIsLocal) return -1;
+            return 0;
+          });
+          existingFirestoreUser = docs[0].data;
+          existingFirestoreUserUid = docs[0].id;
+          console.log("[AuthContext] Found existing user in Firestore by email:", existingFirestoreUserUid);
+        }
       } catch (err) {
-        console.warn("Could not query existing users for signUp uniqueness check:", err);
+        console.warn("Failed to check for existing user in Firestore:", err);
       }
 
-      const targetUid = userCredential?.user.uid || `local-${Math.random().toString(36).substring(2, 11)}`;
+      if (existingFirestoreUserUid && !userCredential && !isFirebaseRestricted) {
+        throw new Error("An account with this email already exists. Please sign in.");
+      }
+
+      const targetUid = userCredential?.user.uid || existingFirestoreUserUid || `local-${Math.random().toString(36).substring(2, 11)}`;
       const avatarSeed = data.email.toLowerCase();
       const dataUrl = getAvatarDataUrl(avatarSeed);
-
       const username = data.username || data.email.split('@')[0];
-      const newUser: User = {
+
+      // Prepare newUser object
+      const newUser: User = existingFirestoreUser ? {
+        ...existingFirestoreUser,
+        uid: targetUid,
+        email: data.email.toLowerCase().trim(),
+        lastLogin: new Date().toISOString(),
+        lastUpdated: new Date().toISOString()
+      } : {
         uid: targetUid,
         username: username,
         email: data.email,
@@ -907,24 +680,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const firebaseUser = userCredential.user;
         const firestoreUser = {
           ...newUser,
-          createdAt: serverTimestamp(),
+          createdAt: existingFirestoreUser?.createdAt || serverTimestamp(),
           lastLogin: serverTimestamp(),
-          lastUpdated: serverTimestamp(),
-          holdings: [],
-          trades: [],
-          snapshots: []
+          lastUpdated: serverTimestamp()
         };
-        await setDoc(doc(db, 'users', firebaseUser.uid), firestoreUser);
+        
+        await setDoc(doc(db, 'users', firebaseUser.uid), firestoreUser, { merge: true });
 
-        // Seed subcollections
-        for (const h of newUser.holdings) {
-          await addDoc(collection(db, 'users', firebaseUser.uid, 'holdings'), h);
-        }
-        for (const t of newUser.trades) {
-          await addDoc(collection(db, 'users', firebaseUser.uid, 'trades'), {
-            ...t,
-            timestamp: serverTimestamp()
-          });
+        // If we migrated from a local doc, delete it
+        if (existingFirestoreUserUid && existingFirestoreUserUid !== firebaseUser.uid) {
+          try {
+            await deleteDoc(doc(db, 'users', existingFirestoreUserUid));
+            console.log(`[AuthContext] Deleted migrated local user doc: ${existingFirestoreUserUid}`);
+          } catch (delErr) {
+            console.warn("Failed to delete migrated user doc:", delErr);
+          }
         }
       } else {
         // Fallback local registration
@@ -945,12 +715,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           ...newUser,
           createdAt: serverTimestamp(),
           lastLogin: serverTimestamp(),
-          lastUpdated: serverTimestamp(),
-          holdings: [],
-          trades: [],
-          snapshots: []
+          lastUpdated: serverTimestamp()
         };
-        await setDoc(doc(db, 'users', targetUid), firestoreUser).catch(err => {
+        await setDoc(doc(db, 'users', targetUid), firestoreUser, { merge: true }).catch(err => {
           console.warn("Failed writing fallback local user to Firestore:", err);
         });
 
@@ -1006,97 +773,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const localRecord = dbList.find(u => u.email.toLowerCase() === email.toLowerCase());
           
           if (!localRecord) {
-            console.warn("Local record not found during restricted sign-in fallback. Auto-creating a local profile on the fly...");
-            const username = email.split('@')[0];
-            const localUid = `local-${Math.random().toString(36).substring(2, 11)}`;
-            const seed = email.toLowerCase();
-            const dataUrl = getAvatarDataUrl(seed);
-            const autoUser: User = {
-              uid: localUid,
-              username: username,
-              email: email,
-              avatarSeed: seed,
-              avatarUrl: dataUrl,
-              profilePhotoURL: dataUrl,
-              hasCustomPhoto: true,
-              country: "US",
-              phoneNumber: '',
-              accountType: 'Standard',
-              accountStatus: 'Active',
-              portfolioBalance: 0,
-              availableBalance: 0,
-              vaultBalance: 0,
-              activeOffset: 0,
-              totalProfit: 0,
-              totalLoss: 0,
-              totalDeposits: 0,
-              totalWithdrawals: 0,
-              referredBy: null,
-              referralCode: `AVR-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
-              referralCount: 0,
-              preferredLanguage: 'EN',
-              theme: 'dark',
-              notificationSettings: {
-                marketing: true,
-                security: true,
-                signals: true,
-                master: true
-              },
-              biometricEnabled: false,
-              aiTradingEnabled: false,
-              riskPreference: 'Moderate',
-              createdAt: new Date().toISOString(),
-              lastLogin: new Date().toISOString(),
-              lastUpdated: new Date().toISOString(),
-              onboardingCompleted: false,
-              notificationsList: [],
-              history: [],
-              deposits: [],
-              withdrawals: [],
-              portfolio: {
-                totalValue: 0,
-                todayPnL: 0,
-                todayPnLPercent: 0,
-                overallReturn: 0,
-                realizedPnL: 0,
-                unrealizedPnL: 0,
-                healthScore: 0,
-                diversificationScore: 0,
-                volatility: 0,
-                sharpeRatio: 0,
-                winRate: 0,
-                maxDrawdown: 0,
-                recoveryFactor: 0,
-                riskAdjustedReturn: 0
-              },
-              holdings: [],
-              trades: [],
-              snapshots: [],
-              watchlist: []
-            };
+            console.warn("Local record not found during restricted sign-in fallback. Checking Firestore before auto-creating...");
+            
+            // Search Firestore for existing user by email
+            let existingUser: User | null = null;
+            try {
+              const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase()));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                existingUser = { uid: snap.docs[0].id, ...snap.docs[0].data() } as User;
+              }
+            } catch (err) {
+              console.warn("Firestore search failed during sign-in fallback:", err);
+            }
 
-            dbList.push({
-              email: email.toLowerCase(),
-              password: password,
-              profile: autoUser
-            });
-            saveLocalDB(dbList);
+            if (existingUser) {
+              console.log("[AuthContext] Found existing user in Firestore, adopting profile:", existingUser.uid);
+              const dbList = getLocalDB();
+              dbList.push({
+                email: email.toLowerCase(),
+                password: password,
+                profile: existingUser
+              });
+              saveLocalDB(dbList);
+              safeStorage.setItem('aver_active_user', JSON.stringify(existingUser));
+              setUser(existingUser);
+              setNotifications(existingUser.notificationsList || []);
+              setLoading(false);
+              return;
+            }
 
-            // Sync autoUser to Firestore users collection
-            setDoc(doc(db, 'users', autoUser.uid), {
-              ...autoUser,
-              createdAt: serverTimestamp(),
-              lastLogin: serverTimestamp(),
-              lastUpdated: serverTimestamp()
-            }, { merge: true }).catch(err => {
-              console.warn("Failed sync autoUser to Firestore:", err);
-            });
-
-            safeStorage.setItem('aver_active_user', JSON.stringify(autoUser));
-            setUser(autoUser);
-            setNotifications([]);
-            setLoading(false);
-            return;
+            throw firebaseError;
           }
           
           if (localRecord.password !== password) {
@@ -1914,10 +1621,13 @@ function dataURLtoBlob(dataurl: string): Blob {
 
       await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} has been submitted for processing.`);
       await addNotification('deposit', 'medium', 'Deposit Approved', `Successfully deposited $${amount.toLocaleString()} to your wallet.`);
+
+      // Automatically record in Transaction History
+      transactionService.recordDeposit(userRef.current.uid, amount, 'USDT', 'TRC20').catch(() => {});
     }
   }, [addNotification]);
 
-  const addWithdrawal = useCallback(async (amount: number) => {
+  const addWithdrawal = useCallback(async (amount: number, destination?: string) => {
     if (userRef.current) {
       if (amount > 9000000) {
         throw new Error("Transaction limit exceeded. Maximum withdrawal limit per transaction is $9,000,000.");
@@ -1928,6 +1638,9 @@ function dataURLtoBlob(dataurl: string): Blob {
 
       const txHash = '0x' + Math.random().toString(16).substr(2, 8) + Math.random().toString(16).substr(2, 8);
       const dateStr = new Date().toISOString();
+      
+      // Automatically record in Transaction History
+      transactionService.recordWithdrawal(userRef.current.uid, amount, 'USDT', 'TRC20', txHash).catch(() => {});
       
       const newWithdrawal: WithdrawalItem = {
         id: 'wth-' + Date.now(),
@@ -2031,6 +1744,21 @@ function dataURLtoBlob(dataurl: string): Blob {
         'portfolio.totalValue': increment(-amount),
         lastUpdated: serverTimestamp()
       });
+
+      // Submit to admin_withdrawals for audit
+      await addDoc(collection(db, 'admin_withdrawals'), {
+        userId: userRef.current.uid,
+        email: userRef.current.email,
+        userName: userRef.current.displayName || userRef.current.fullName || userRef.current.username || 'User',
+        amount,
+        asset: 'USDT', // Default asset
+        status: 'pending',
+        destination: destination || 'Direct to Wallet',
+        riskScore: Math.floor(Math.random() * 40) + 10, // Simulated risk score
+        timestamp: dateStr,
+        createdAt: serverTimestamp(),
+        txHash
+      }).catch(err => console.warn("Failed to submit to admin_withdrawals:", err));
 
       const updatedPort = (userRef.current.portfolioBalance || 0) - amount;
       const updatedAvail = (userRef.current.availableBalance || 0) - amount; // Already has activeSessionCapital subtracted in state

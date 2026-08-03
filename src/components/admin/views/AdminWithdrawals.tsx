@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Search, ShieldAlert, CheckCircle2, XCircle, Clock, ExternalLink, ArrowUpCircle } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { collection, onSnapshot, query, orderBy, updateDoc, doc, serverTimestamp, increment, arrayUnion, addDoc, getDoc } from 'firebase/firestore';
+import { db, auth } from '../../../lib/firebase';
+import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
+import { walletService } from '../../../services/walletService';
 
 interface Withdrawal {
   id: string;
@@ -26,7 +28,10 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
   useEffect(() => {
     const q = query(collection(db, 'admin_withdrawals'), orderBy('timestamp', 'desc'));
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Withdrawal));
+      const data = snap.docs.map(doc => {
+        const d = doc.data();
+        return { ...d, id: doc.id } as Withdrawal;
+      });
       setWithdrawals(data);
       setLoading(false);
     });
@@ -35,12 +40,88 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
 
   const handleAction = async (id: string, status: 'completed' | 'rejected') => {
     try {
-      await updateDoc(doc(db, 'admin_withdrawals', id), { 
+      console.log(`[AdminWithdrawals] Processing ${status} for withdrawal ${id}`);
+      const withdrawalRef = doc(db, 'admin_withdrawals', id);
+      const withdrawalSnap = await getDoc(withdrawalRef);
+      
+      if (!withdrawalSnap.exists()) {
+        throw new Error("Withdrawal record not found in database.");
+      }
+
+      const withdrawalData = withdrawalSnap.data() as Withdrawal;
+      
+      // 1. Update withdrawal record
+      await updateDoc(withdrawalRef, { 
         status,
-        processedAt: serverTimestamp() 
+        processedAt: serverTimestamp(),
+        processedBy: auth.currentUser?.email || 'Super Admin'
+      }).catch(err => {
+        throw new Error(`Failed to update withdrawal record: ${err.message}`);
       });
-    } catch (err) {
-      console.error("Failed to update withdrawal:", err);
+
+      // 2. If rejected, refund balance to user
+      if (status === 'rejected' && withdrawalData.userId && withdrawalData.amount > 0) {
+        console.log(`[AdminWithdrawals] Refunding $${withdrawalData.amount} to user ${withdrawalData.userId}`);
+        const userRef = doc(db, 'users', withdrawalData.userId);
+        const amount = Number(withdrawalData.amount);
+        
+        await updateDoc(userRef, {
+          availableBalance: increment(amount),
+          portfolioBalance: increment(amount),
+          totalWithdrawals: increment(-amount),
+          tokenBalance: increment(amount),
+          'portfolio.totalValue': increment(amount),
+          lastUpdated: serverTimestamp(),
+          notificationsList: arrayUnion({
+            id: `notif-${Date.now()}`,
+            title: 'Withdrawal Rejected',
+            message: `Your withdrawal request of $${amount.toLocaleString()} was rejected. Funds have been returned to your available balance.`,
+            time: 'Just now',
+            timestamp: new Date().toISOString(),
+            unread: true,
+            type: 'error'
+          })
+        }).catch(err => {
+          console.warn("[AdminWithdrawals] Non-blocking warning: Failed to refund user balance or notify:", err);
+        });
+
+        // Sync with portfolioPersistenceService & walletService
+        try {
+          const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(withdrawalData.userId);
+          if (currentPortfolio) {
+            await portfolioPersistenceService.savePortfolioCurrent(withdrawalData.userId, {
+              walletState: {
+                ...currentPortfolio.walletState,
+                portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
+                availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
+                totalWithdrawals: (currentPortfolio.walletState?.totalWithdrawals || 0) - amount,
+                tokenBalance: (currentPortfolio.walletState?.tokenBalance || 0) + amount
+              },
+              portfolioMetrics: {
+                ...currentPortfolio.portfolioMetrics,
+                totalValue: (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount
+              }
+            });
+          }
+          
+          const wallet = await walletService.getOrCreateWallet(withdrawalData.userId);
+          await walletService.updateWallet(withdrawalData.userId, {
+            portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
+            availableBalance: (Number(wallet.availableBalance) || 0) + amount,
+            totalWithdrawals: (Number(wallet.totalWithdrawals) || 0) - amount,
+            tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
+            cashBalance: (Number(wallet.cashBalance) || 0) + amount,
+            portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
+          });
+        } catch (syncErr) {
+          console.warn("[AdminWithdrawals] Sync error during refund:", syncErr);
+        }
+      }
+
+      alert(`Withdrawal ${status === 'completed' ? 'approved' : 'rejected'} successfully.`);
+    } catch (err: any) {
+      console.error("[AdminWithdrawals] Error processing withdrawal:", err);
+      alert(`Error updating withdrawal: ${err.message || 'Unknown database error'}`);
     }
   };
 

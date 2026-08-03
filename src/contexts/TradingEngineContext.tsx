@@ -111,6 +111,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   const lastStateRef = useRef<string | null>(null);
   const peakEquityRef = useRef<number>(1000);
+  const lastSyncRef = useRef<number>(0);
 
   // Helper to load/save state from/to localStorage if Firestore is unavailable/offline
   const getLocalStorageItem = useCallback((key: string, defaultValue: any) => {
@@ -297,7 +298,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     // seedTraders(); // Disabled automatic seeding to conserve Firestore quota
-    const stopSimulator = startTraderSimulator();
+    // const stopSimulator = startTraderSimulator(); // Disabled simulator to conserve Firestore write quota
+    const stopSimulator = () => {};
     
     if (!user) {
       setLoading(false);
@@ -1276,7 +1278,10 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           livePricesRef.current = next;
           setLiveTradePrices(next);
 
-          // Sync total session equity to wallet & portfolio persistence
+          // Sync total session equity to wallet & portfolio persistence - Throttled to conserve quota
+          const lastSyncTime = lastSyncRef.current || 0;
+          const now = Date.now();
+          
           if (userRef.current?.uid && currentSession.status === 'ACTIVE') {
             const currentOpenTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
             const openVal = currentOpenTrades.reduce((sum, trade) => {
@@ -1285,14 +1290,21 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             }, 0);
             const sessionEquity = Math.max(0, currentSession.tradingCapital + openVal);
 
-            walletService.updateWallet(userRef.current.uid, {
-              aiTradingCapital: sessionEquity
-            }).catch(() => {});
+            // Only sync to Firestore every 60 seconds to stay within free tier limits
+            if (now - lastSyncTime > 60000) {
+              lastSyncRef.current = now;
+              console.log("[TradingEngineContext] Throttled sync of session equity to Firestore.");
+              
+              walletService.updateWallet(userRef.current.uid, {
+                aiTradingCapital: sessionEquity
+              }).catch(() => {});
 
-            portfolioPersistenceService.updateWalletState(userRef.current.uid, {
-              aiTradingCapital: sessionEquity
-            }).catch(() => {});
+              portfolioPersistenceService.updateWalletState(userRef.current.uid, {
+                aiTradingCapital: sessionEquity
+              }).catch(() => {});
+            }
 
+            // Always update local state/dispatch for UI responsiveness
             window.dispatchEvent(new CustomEvent('aver_session_updated', {
               detail: {
                 ...currentSession,

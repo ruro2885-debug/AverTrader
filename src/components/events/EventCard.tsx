@@ -90,7 +90,6 @@ export default function EventCard({
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
           {/* Category Pill */}
           <span className="px-3 py-1 rounded-full text-[10px] font-black tracking-wider uppercase bg-black/60 backdrop-blur-md border border-white/10 text-white flex items-center gap-1.5 shadow-lg">
-            <Sparkles className="w-3 h-3 text-amber-400" />
             {event.category}
           </span>
 

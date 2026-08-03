@@ -64,22 +64,62 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
   useEffect(() => {
     // Real-time listener for all platform users in Firestore
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-      const data = snap.docs
-        .filter(d => {
-          const raw = d.data();
-          return raw && !raw.isDeleted && raw.accountStatus !== 'Deleted';
-        })
-        .map(docSnap => {
-          const raw = docSnap.data();
-          return {
-            uid: docSnap.id,
-            ...raw,
-            role: raw.role || 'user',
-            accountStatus: raw.accountStatus || raw.status || 'Active',
-            kycStatus: raw.kycStatus || 'unverified',
-            emailVerified: !!raw.emailVerified
-          } as UserData;
-        });
+      const uniqueUsers = new Map<string, UserData>();
+      snap.docs.forEach(docSnap => {
+        const raw = docSnap.data();
+        if (!raw || raw.isDeleted || raw.accountStatus === 'Deleted') return;
+        
+        const userData = {
+          uid: docSnap.id,
+          ...raw,
+          role: raw.role || 'user',
+          accountStatus: raw.accountStatus || raw.status || 'Active',
+          kycStatus: raw.kycStatus || 'unverified',
+          emailVerified: !!raw.emailVerified
+        } as UserData;
+
+        const email = (userData.email || '').toLowerCase().trim();
+        if (email) {
+          const existing = uniqueUsers.get(email);
+          
+          if (!existing) {
+            uniqueUsers.set(email, userData);
+          } else {
+            // Prioritization logic:
+            // 1. Prefer non-local UIDs (Real Firebase Auth)
+            // 2. Prefer higher roles
+            // 3. Prefer earlier creation date
+            
+            const isLocal = (uid: string) => uid.startsWith('local-');
+            const getWeight = (r: string) => r === 'super_admin' ? 3 : r === 'admin' ? 2 : 1;
+            
+            const newIsLocal = isLocal(userData.uid);
+            const oldIsLocal = isLocal(existing.uid);
+
+            if (oldIsLocal && !newIsLocal) {
+              // Real account found, replace local session
+              uniqueUsers.set(email, userData);
+            } else if (oldIsLocal === newIsLocal) {
+              // Both same type, check role
+              if (getWeight(userData.role || 'user') > getWeight(existing.role || 'user')) {
+                uniqueUsers.set(email, userData);
+              } else if (getWeight(userData.role || 'user') === getWeight(existing.role || 'user')) {
+                // Same role, keep oldest
+                const timeNew = userData.createdAt?.toDate?.()?.getTime() || new Date(userData.createdAt || 0).getTime();
+                const timeOld = existing.createdAt?.toDate?.()?.getTime() || new Date(existing.createdAt || 0).getTime();
+                if (timeNew < timeOld) {
+                  uniqueUsers.set(email, userData);
+                }
+              }
+            }
+          }
+        } else {
+          // If no email, just add by UID
+          uniqueUsers.set(userData.uid, userData);
+        }
+      });
+
+      const data = Array.from(uniqueUsers.values());
 
       // Safe client-side sorting by creation time
       data.sort((a, b) => {
@@ -216,59 +256,70 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
     e.preventDefault();
     if (!fundingUser || !fundAmount || isNaN(Number(fundAmount))) return;
     
-    setActionLoading(fundingUser.uid);
+    const uid = fundingUser.uid;
+    setActionLoading(uid);
     try {
-      const userRef = doc(db, 'users', fundingUser.uid);
       const amount = Number(fundAmount);
+      const email = (fundingUser.email || '').toLowerCase().trim();
+
+      // Find ALL users with this email to ensure funding works regardless of which duplicate they are logged into
+      const q = query(collection(db, 'users'), where('email', '==', email));
+      const snap = await getDocs(q);
       
-      await updateDoc(userRef, {
-        availableBalance: increment(amount),
-        portfolioBalance: increment(amount),
-        totalDeposits: increment(amount),
-        tokenBalance: increment(amount),
-        'portfolio.totalValue': increment(amount),
-        lastUpdated: serverTimestamp()
+      const updatePromises = snap.docs.map(async (d) => {
+        const targetUid = d.id;
+        const userRef = doc(db, 'users', targetUid);
+        
+        // 1. Update user doc
+        await setDoc(userRef, {
+          availableBalance: increment(amount),
+          portfolioBalance: increment(amount),
+          totalDeposits: increment(amount),
+          tokenBalance: increment(amount),
+          cashBalance: increment(amount),
+          portfolioValue: increment(amount),
+          'portfolio.totalValue': increment(amount),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+
+        // 2. Update persistent portfolio state (non-blocking for better UX)
+        portfolioPersistenceService.getPortfolioCurrent(targetUid).then(currentPortfolio => {
+          if (currentPortfolio) {
+            portfolioPersistenceService.savePortfolioCurrent(targetUid, {
+              walletState: {
+                portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
+                availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
+                totalDeposits: (currentPortfolio.walletState?.totalDeposits || 0) + amount,
+                tokenBalance: (currentPortfolio.walletState?.tokenBalance || 0) + amount
+              },
+              portfolioMetrics: {
+                totalValue: (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount
+              }
+            }).catch(pErr => console.warn("Portfolio persistence update failed:", pErr));
+          }
+        }).catch(() => {});
+
+        // 3. Update dedicated wallet document (non-blocking for better UX)
+        walletService.getOrCreateWallet(targetUid).then(wallet => {
+          walletService.updateWallet(targetUid, {
+            portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
+            availableBalance: (Number(wallet.availableBalance) || 0) + amount,
+            totalDeposits: (Number(wallet.totalDeposits) || 0) + amount,
+            tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
+            cashBalance: (Number(wallet.cashBalance) || 0) + amount,
+            portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
+          }).catch(wErr => console.warn("Wallet update failed:", wErr));
+        }).catch(() => {});
       });
 
-      // Update persistent portfolio state
-      try {
-        const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(fundingUser.uid);
-        await portfolioPersistenceService.savePortfolioCurrent(fundingUser.uid, {
-          walletState: {
-            portfolioBalance: (currentPortfolio?.walletState?.portfolioBalance || 0) + amount,
-            availableBalance: (currentPortfolio?.walletState?.availableBalance || 0) + amount,
-            totalDeposits: (currentPortfolio?.walletState?.totalDeposits || 0) + amount,
-            tokenBalance: (currentPortfolio?.walletState?.tokenBalance || 0) + amount
-          },
-          portfolioMetrics: {
-            totalValue: (currentPortfolio?.portfolioMetrics?.totalValue || 0) + amount
-          }
-        });
-      } catch (pErr) {
-        console.warn("Failed portfolio persistence update:", pErr);
-      }
+      await Promise.all(updatePromises);
 
-      // Update dedicated wallet document
-      try {
-        const wallet = await walletService.getOrCreateWallet(fundingUser.uid);
-        await walletService.updateWallet(fundingUser.uid, {
-          portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
-          availableBalance: (Number(wallet.availableBalance) || 0) + amount,
-          totalDeposits: (Number(wallet.totalDeposits) || 0) + amount,
-          tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
-          cashBalance: (Number(wallet.cashBalance) || 0) + amount,
-          portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
-        });
-      } catch (wErr) {
-        console.warn("Failed walletService update:", wErr);
-      }
-
-      // Log admin credit in deposits
+      // Log admin credit in deposits (only once)
       const depositRef = doc(collection(db, 'admin_deposits'));
       await setDoc(depositRef, {
         id: depositRef.id,
-        userId: fundingUser.uid,
-        email: fundingUser.email || '',
+        userId: uid,
+        email: email,
         userName: fundingUser.displayName || fundingUser.username || fundingUser.fullName || 'User',
         amount: amount,
         currency: 'USD',
@@ -279,7 +330,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
         createdAt: serverTimestamp()
       });
 
-      showToast(`Successfully credited $${amount.toLocaleString()} to ${fundingUser.email}`);
+      showToast(`Successfully credited $${amount.toLocaleString()} to ${snap.docs.length} account(s) for ${email}`);
       setFundingUser(null);
       setFundAmount('');
     } catch (err: any) {

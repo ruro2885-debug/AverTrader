@@ -43,7 +43,7 @@ import { safeStorage } from '../utils/storage';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService, WalletData } from '../services/walletService';
 
-export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies') => void }) {
+export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'history') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
   const { activity, trades, liveTradePrices, session, saveConfiguration, config: currentConfig } = useContext(TradingEngineContext);
@@ -513,59 +513,15 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
     const isPlatinumOrHigher = calcXp >= 100 || (user?.level || 1) >= 2 || isKycVerified;
 
-    // 1. Identity verification (Removed once user reaches Platinum tier)
-    if (!isPlatinumOrHigher && (!user?.kycStatus || user.kycStatus === 'unverified' || user.kycStatus === 'rejected' || user.kycStatus === 'pending')) {
-      if (user?.kycStatus === 'pending') {
-        warnings.push({
-          id: 'kyc',
-          title: 'Identity Verification Pending',
-          description: 'Your verification is under review. Click to monitor progress and view submitted documents.',
-          actionText: 'View Status',
-          actionType: 'prop',
-          actionName: 'bonus-center'
-        });
-      } else if (user?.kycStatus === 'rejected') {
-        warnings.push({
-          id: 'kyc',
-          title: 'Identity Verification Rejected',
-          description: 'Your application was rejected by compliance. Click to restart verification and start over.',
-          actionText: 'Restart KYC',
-          actionType: 'prop',
-          actionName: 'bonus-center'
-        });
-      } else {
-        warnings.push({
-          id: 'kyc',
-          title: 'Identity Verification Incomplete',
-          description: 'Complete your tier-1 verification to unlock unlimited asset trades and premium access.',
-          actionText: 'Verify Identity',
-          actionType: 'prop',
-          actionName: 'bonus-center'
-        });
-      }
-    }
-
-    // 2. Biometric protection disabled
-    if (!user?.biometricEnabled) {
+    // 1. Identity verification (Shows whenever user is not verified)
+    if (!user?.kycStatus || user.kycStatus !== 'verified') {
       warnings.push({
-        id: 'biometric',
-        title: 'Biometric Access Disabled',
-        description: 'Enhance your security level by configuring Touch ID / Face ID biometric login.',
-        actionText: 'Configure Security',
-        actionType: 'tab',
-        targetTab: 'profile'
-      });
-    }
-
-    // 3. AI copilot inactive
-    if (!user?.aiTradingEnabled) {
-      warnings.push({
-        id: 'copilot',
-        title: 'Autonomous AI Copilot Inactive',
-        description: 'Your neural automation suite is currently offline. Toggle on AI trading to scan markets.',
-        actionText: 'Activate Copilot',
-        actionType: 'tab',
-        targetTab: 'ai'
+        id: 'kyc',
+        title: 'Identity Verification Incomplete',
+        description: 'Complete your tier-1 verification to unlock unlimited asset trades and premium withdrawals',
+        actionText: 'Verify Identity',
+        actionType: 'prop',
+        actionName: 'bonus-center'
       });
     }
 
@@ -806,7 +762,21 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               <motion.div variants={itemVariants} className={`rounded-[24px] p-6 relative overflow-hidden ${cardClasses}`}>
                 <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[40px] rounded-full" />
                 
-                <p className={`text-sm font-medium ${textSecondary} mb-1`}>Net Balance</p>
+                <div className="flex justify-between items-start mb-1">
+                  <p className={`text-sm font-medium ${textSecondary}`}>Net Balance</p>
+                  <button 
+                    onClick={() => onNavigate('history')}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 relative group active:scale-95 shadow-lg ${
+                      isDark 
+                        ? 'bg-slate-950/60 border border-white/10 hover:border-white/20' 
+                        : 'bg-white/80 border border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="absolute inset-0 rounded-full bg-emerald-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <History className={`w-5 h-5 transition-transform group-hover:rotate-[-12deg] ${isDark ? 'text-slate-300 group-hover:text-white' : 'text-slate-600 group-hover:text-slate-900'}`} />
+                  </button>
+                </div>
+
                 <h2 className={`text-3xl sm:text-4xl font-black tracking-tight ${textPrimary} mb-4`}>
                   {totalValueFormatted}
                 </h2>
@@ -883,7 +853,6 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         }`}
                       >
                         <div className="flex items-start space-x-3">
-                          <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
                           <div className="flex-1">
                             <h4 className={`text-sm font-black tracking-tight ${isDark ? 'text-amber-400' : 'text-amber-800'}`}>
                               {warning.title}

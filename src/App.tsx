@@ -19,6 +19,7 @@ import BonusCenter from './components/BonusCenter';
 import ReferralCenter from './components/ReferralCenter';
 import MarketHighlightsPage from './components/MarketHighlightsPage';
 import EventsPromosPage from './components/EventsPromosPage';
+import TransactionHistory from './components/TransactionHistory';
 import AdminRoot from './components/admin/AdminRoot';
 import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
@@ -41,7 +42,7 @@ function AppContent() {
   const { user, loading: authLoading, signOutUser } = useAuth();
   
   // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'preferences' | 'bonus-center' | 'referral-centre' | 'market-highlights' | 'events-promos' | 'kyc-verification' | 'admin' | 'not-found'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'preferences' | 'bonus-center' | 'referral-centre' | 'market-highlights' | 'events-promos' | 'kyc-verification' | 'admin' | 'history' | 'not-found'>('home');
 
 
   const { preferences, updatePreference } = usePreferences();
@@ -53,7 +54,7 @@ function AppContent() {
   // Route detection
   useEffect(() => {
     if (window.location.pathname === '/admin') {
-      setCurrentView('not-found');
+      setCurrentView('admin');
     } else if (window.location.pathname !== '/' && window.location.pathname !== '') {
       // Basic 404 handling for manual URL entry
       setCurrentView('not-found');
@@ -324,6 +325,8 @@ function AppContent() {
             onBack={() => setCurrentView('bonus-center')}
             onComplete={() => setCurrentView('bonus-center')}
           />
+        ) : currentView === 'history' ? (
+          <TransactionHistory onBack={() => setCurrentView('dashboard')} />
         ) : currentView === 'referral-centre' ? (
           <ReferralCenter
             theme={theme}
