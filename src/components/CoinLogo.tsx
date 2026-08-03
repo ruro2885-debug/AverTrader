@@ -16,6 +16,8 @@ const logoUrls: Record<string, string> = {
   XRP: 'https://assets.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png',
   ADA: 'https://assets.coingecko.com/coins/images/975/large/cardano.png',
   DOGE: 'https://assets.coingecko.com/coins/images/325/large/dogecoin.png',
+  USDT: 'https://assets.coingecko.com/coins/images/325/large/Tether.png',
+  USDC: 'https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
 };
 
 const fallbacks: Record<string, { char: string; gradient: string }> = {
@@ -27,11 +29,20 @@ const fallbacks: Record<string, { char: string; gradient: string }> = {
   ADA: { char: '₳', gradient: 'from-blue-600 to-indigo-700' },
   DOGE: { char: 'Ð', gradient: 'from-yellow-500 to-yellow-600' },
   AVR: { char: 'A', gradient: 'from-emerald-400 to-teal-400' },
+  USDT: { char: '₮', gradient: 'from-teal-400 to-emerald-600' },
+  USDC: { char: 'C', gradient: 'from-blue-400 to-blue-600' },
 };
 
 export default function CoinLogo({ symbol, size = 24, className = '', imgClassName = '' }: CoinLogoProps) {
   const [hasError, setHasError] = useState(false);
-  const normalizedSymbol = (symbol || '').toUpperCase();
+  let normalizedSymbol = (symbol || '').toUpperCase();
+
+  // Normalize network/protocol specific suffix symbols
+  if (normalizedSymbol.startsWith('USDT')) {
+    normalizedSymbol = 'USDT';
+  } else if (normalizedSymbol.startsWith('USDC')) {
+    normalizedSymbol = 'USDC';
+  }
 
   // For AVR (Aver Token), render our custom brand 3D logo
   if (normalizedSymbol === 'AVR') {

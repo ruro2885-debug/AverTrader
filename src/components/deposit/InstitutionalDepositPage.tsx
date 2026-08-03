@@ -128,6 +128,8 @@ const CRYPTO_ASSETS: CryptoAsset[] = [
   { symbol: 'ETH', name: 'Ethereum', network: 'Ethereum (ERC-20)', icon: 'Ξ', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '12-15 mins (12 confirmations)' },
   { symbol: 'USDT-ERC20', name: 'Tether USD', network: 'Ethereum (ERC-20)', icon: '₮', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '5-10 mins' },
   { symbol: 'USDT-TRC20', name: 'Tether USD', network: 'Tron (TRC-20)', icon: '₮', address: 'TNNeWNf9ijxThGLpdDYu8sQCHZGhh1dXpV', estTime: '2-3 mins' },
+  { symbol: 'USDC-ERC20', name: 'USD Coin', network: 'Ethereum (ERC-20)', icon: '💵', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '5-10 mins' },
+  { symbol: 'USDC-TRC20', name: 'USD Coin', network: 'Tron (TRC-20)', icon: '💵', address: 'TNNeWNf9ijxThGLpdDYu8sQCHZGhh1dXpV', estTime: '2-3 mins' },
   { symbol: 'SOL', name: 'Solana', network: 'Solana Mainnet', icon: '🟣', address: '59buTDdJmxbZ2KFuyc264bWzJpsCsaGmEvDg8Mni5DXi', estTime: '1-2 mins (1 confirmation)' },
   { symbol: 'BNB', name: 'BNB Smart Chain', network: 'BNB Chain (BEP-20)', icon: '🟡', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '3-5 mins' },
 ];
@@ -151,6 +153,10 @@ const getCryptoLogoDataUrl = (symbol: string): string => {
     case 'USDT-ERC20':
     case 'USDT-TRC20':
       return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iIzI2QTE3QiIvPjxwYXRoIGQ9Ik0xOC43OCAxMS41M2g0LjQ0VjlIOC43OHYyLjUzaDQuNDR2NS4zOWMtMi4zMS4xNC00IC42LTQgMS4xNXMxLjY5IDEgNCAxLjE1djUuMzhoNC40NHYtNS4zOGMyLjMxLS4xNCA0LS42IDQtMS4xNXMtMS42OS0xLTQtMS4xNXYtNS4zOXptMCA1LjRjMCAuNDgtMS44OS44Ny00LjIyLjg3cy00LjIyLS4zOS00LjIyLS44NyAxLjg5LS44NyA0LjIyLS44NyA0LjIyLjM5IDQuMjIuODd6IiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==';
+    case 'USDC-ERC20':
+    case 'USDC-TRC20':
+    case 'USDC':
+      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iIzI3NzVDQSIvPjxwYXRoIGQ9Ik0xNiA1Yy02LjA3NSAwLTExIDQuOTI1LTExIDExczQuOTI1IDExIDExIDExIDExLTQuOTI1IDExLTExLTQuOTI1LTExLTExLTExem0wIDE4LjljLTQuMzYzIDAtNy45LTMuNTM3LTcuOS03LjkgMC00LjM2MyAzLjUzNy03LjkgNy45LTcuOSA0LjM2MyAwIDcuOSAzLjUzNyA3LjkgNy45IDAgNC4zNjMtMy41MzcgNy45LTcuOSA3Ljl6bTIuNDkyLTkuNjEzYzAtMS41NDctMS4xMDctMi4wNzItMi45MDMtMi4yODdWOS43NWgtMS4yMnYyLjIxNWMtMS4zOTcuMDUtMi40ODMuNzQzLTIuNjU3IDEuNzc3aDEuNDkyYy4xMTQtLjQ5Mi43MzgtLjcyMSAxLjE2NC0uNzg3djIuMWMtLjI0Ni4wNjYtMi41NTguNjQtMi41NTggMi4zNzggMCAxLjQ5MiAxLjExNSAyLjExNSAyLjU1OCAyLjI4N3YyLjI0NmgxLjIyVjE5LjdjMS41NTgtLjA2NiAyLjY1Ni0uNzA1IDIuODItMS44NDRoLTEuNDg0Yy0uMTE0LjU0LS43ODcuNzctMS4zMzYuODQ0VjE2LjVjMS40LS4yMzggMi45MjMtLjYyMyAyLjkyMy0yLjIxM3ptLTMuNDgzIDEuMTljLS40MSAwLS45NjgtLjEzMS0uOTY4LS42OTYgMC0uNDg0LjY0My0uNjMxLjk2OC0uNjh2MS4zNzZ6bTEuMTk2IDIuNDE3YzAgLjU0Mi0uNDgzLjczOC0xLjE5Ni44MTJWMTYuNzNjLjQ2Ny4wNzQgMS4xOTYuMjU0IDEuMTk2Ljc5NWwuMDAxLjAwMnoiIGZpbGw9IndoaXRlIi8+PC9zdmc+';
     case 'SOL':
       return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iIzE0MTQxNCIvPjxnPjxwYXRoIGQ9Ik03LjQgMTEuMjNoMTIuM2MuMyAwIC42LS4yLjgtLjVsMS42LTIuOGMuMi0uMy4xLS43LS4yLS45SDkuNmMtLjMgMC0uNi4yLS44LjVMNy4yIDEwYy0uMi40IDAgLjkuMiAxLjIzeiIgZmlsbD0idXJsKCNzb2xHcmFkMSkiLz48cGF0aCBkPSJNMjQuNiAxNS4yaC0xMi4zYy0uMyAwLS42LjItLjguNWwtMS42IDIuOGMtLjIuMy0uMS43LjIuOWgxMi4zYy4zIDAgLjYtLjIuOC0uNWwxLjYtMi44Yy4yLS40LjEtLjctLjItLjl6IiBmaWxsPSJ3aGl0ZSIvPjxwYXRoIGQ9Ik03LjQgMjIuODRoMTIuM2MuMyAwIC42LS4yLjgtLjVsMS42LTIuOGMuMi0uMy4xLS43LS4yLS45SDkuNmMtLjMgMC0uNi4yLS44LjVsLTEuNiAyLjhjLS4yLjMgMCAuOS4yLjl6IiBmaWxsPSJ1cmwoI3NvbEdyYWQzKSIvPjwvZz48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InNvbEdyYWQxIiB4MT0iMjAiIHkxPSI3IiB4Mj0iNyIgeTI9IjExLjIzIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzAwRkZBMyIvPjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0RDMUZGRiIvPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJzb2xHcmFkMiIgeDE9IjI0Lj6YiIxNS4yIiB4Mj0iOS45IiB5Mj0iMTkuNCIgZ3JhMjllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMwMEZGQTMiLz48c3RvcCBvZmZzZXQ9IjE0MCUiIHN0b3AtY29sb3I9IiNEQzFGRkYiLz48L2xpbmVhckdyYWRpZW50PjxsaW5lYXJHcmFkaWVudCBpZD0ic29sR3JhZDMiIGgxPSIyMCIgeTE9IjE4LjY0IiB4Mj0iNyIgeTI9IjIyLjg0IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzAwRkZBMyIvPjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI0RDMUZGRiIvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjwvc3ZnPg==';
     case 'BNB':
@@ -194,6 +200,8 @@ function CryptoLogo({ symbol, className = "w-5 h-5" }: LogoProps) {
           <path d="M18.78 11.53h4.44V9H8.78v2.53h4.44v5.39c-2.31.14-4 .6-4 1.15s1.69 1 4 1.15v5.38h4.44v-5.38c2.31-.14 4-.6 4-1.15s-1.69-1-4-1.15v-5.39zm0 5.4c0 .48-1.89.87-4.22.87s-4.22-.39-4.22-.87 1.89-.87 4.22-.87 4.22.39 4.22.87z" fill="white" />
         </svg>
       );
+    case 'USDC-ERC20':
+    case 'USDC-TRC20':
     case 'USDC':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
