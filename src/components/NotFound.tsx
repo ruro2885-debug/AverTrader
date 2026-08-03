@@ -28,7 +28,7 @@ export default function NotFound({ theme, onBack, onAdminAccess }: NotFoundProps
 
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.trim() === 'Ruro2008$') {
+    if (password.trim() === 'AverAdmin2026$') {
       localStorage.setItem('admin_session_active', 'true');
       if (onAdminAccess) onAdminAccess();
     } else {

@@ -296,7 +296,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   }, [recommendations, user?.uid, setLocalStorageItem]);
 
   useEffect(() => {
-    seedTraders();
+    // seedTraders(); // Disabled automatic seeding to conserve Firestore quota
     const stopSimulator = startTraderSimulator();
     
     if (!user) {

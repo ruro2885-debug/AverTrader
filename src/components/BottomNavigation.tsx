@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot } from 'lucide-react';
+import { Sliders } from 'lucide-react';
 import { motion } from 'motion/react';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
@@ -20,7 +20,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
   const navItems: NavItem[] = [
     { name: t('common.home'), icon: DashboardIcon, id: 'home' },
     { name: t('common.market'), icon: TradesIcon, id: 'markets' },
-    { name: t('common.ai'), icon: Bot, id: 'ai' },
+    { name: t('common.ai'), icon: Sliders, id: 'ai' },
     { name: t('common.portfolio'), icon: WalletIcon, id: 'portfolio' },
     { name: t('common.discover'), icon: AnalyticsIcon, id: 'discover' },
   ];

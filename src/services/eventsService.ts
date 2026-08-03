@@ -3,6 +3,7 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   collection, 
   doc, 
+  getDoc,
   setDoc, 
   getDocs, 
   deleteDoc, 
@@ -362,12 +363,28 @@ export function saveLocalParticipation(eventId: string, data: any) {
   }
 }
 
+function filterEventsOlderThanThirteenHours(list: EventItem[]): EventItem[] {
+  const now = Date.now();
+  const thirteenHoursInMs = 13 * 60 * 60 * 1000;
+  return list.filter((item) => {
+    if (!item.endTime) return true;
+    const end = new Date(item.endTime).getTime();
+    return (now - end) < thirteenHoursInMs;
+  });
+}
+
 /**
  * Seed initial dataset to Firestore if events_hub collection is empty
  */
 async function seedInitialEventsIfNeeded() {
   const path = 'events_hub';
   try {
+    const seedRef = doc(db, 'system_config', 'events_seed');
+    const seedSnap = await getDoc(seedRef);
+    if (seedSnap.exists() && seedSnap.data()?.seeded) {
+      return;
+    }
+
     const snap = await getDocs(collection(db, path));
     if (snap.empty) {
       console.log("Seeding initial dynamic events to Firestore events_hub...");
@@ -379,6 +396,7 @@ async function seedInitialEventsIfNeeded() {
         }, { merge: true });
       }
     }
+    await setDoc(seedRef, { seeded: true, seededAt: new Date().toISOString() });
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, path);
   }
@@ -400,10 +418,10 @@ export function subscribeToEvents(
     collection(db, path),
     (snapshot) => {
       if (snapshot.empty) {
-        onData(INITIAL_DYNAMIC_EVENTS.map(ev => ({
+        onData(filterEventsOlderThanThirteenHours(INITIAL_DYNAMIC_EVENTS.map(ev => ({
           ...ev,
           status: computeRealtimeEventStatus(ev)
-        })));
+        }))));
         return;
       }
 
@@ -421,15 +439,15 @@ export function subscribeToEvents(
         };
       });
 
-      onData(eventsList);
+      onData(filterEventsOlderThanThirteenHours(eventsList));
     },
     (error) => {
       console.warn("Firestore events stream error, falling back to cached local dataset:", error);
       handleFirestoreError(error, OperationType.LIST, path);
-      onData(INITIAL_DYNAMIC_EVENTS.map(ev => ({
+      onData(filterEventsOlderThanThirteenHours(INITIAL_DYNAMIC_EVENTS.map(ev => ({
         ...ev,
         status: computeRealtimeEventStatus(ev)
-      })));
+      }))));
       if (onError) onError(error);
     }
   );

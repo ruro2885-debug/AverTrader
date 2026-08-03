@@ -777,13 +777,13 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                         {key}
                       </h3>
                       <div className="space-y-2.5">
-                        {list.slice(0, visibleCount).map((not) => {
+                        {list.slice(0, visibleCount).map((not, idx) => {
                           const dateObj = new Date(not.date);
                           const exactTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                           
                           return (
                             <NotificationRow
-                              key={not.id}
+                              key={`${not.id}-${idx}`}
                               not={not}
                               isDark={isDark}
                               textPrimary={textPrimary}

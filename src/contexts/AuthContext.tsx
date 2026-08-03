@@ -242,9 +242,12 @@ const isPermissionError = (error: any): boolean => {
   return (
     code === 'permission-denied' ||
     code === 'auth/unauthorized' ||
+    code === 'resource-exhausted' ||
     msg.includes('permission') ||
     msg.includes('insufficient') ||
-    msg.includes('unauthorized')
+    msg.includes('unauthorized') ||
+    msg.includes('quota') ||
+    msg.includes('exhausted')
   );
 };
 
@@ -319,7 +322,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               prev.totalDeposits === wData.totalDeposits &&
               prev.totalWithdrawals === wData.totalWithdrawals &&
               prev.portfolio?.totalValue === portVal &&
-              prev.tokenBalance === wData.tokenBalance
+              prev.tokenBalance === wData.tokenBalance &&
+              prev.aiTradingCapital === wData.aiTradingCapital &&
+              prev.cashBalance === wData.cashBalance
             ) {
               return prev;
             }
@@ -331,6 +336,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
               totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
               tokenBalance: wData.tokenBalance ?? prev.tokenBalance,
+              aiTradingCapital: wData.aiTradingCapital ?? prev.aiTradingCapital,
+              cashBalance: wData.cashBalance ?? prev.cashBalance,
               portfolio: {
                 ...prev.portfolio,
                 totalValue: portVal
@@ -1167,6 +1174,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       safeStorage.removeItem('aver_active_user');
       safeStorage.removeItem('portfolio_vault_balance');
       safeStorage.removeItem('portfolio_active_offset');
+      safeStorage.removeItem('aver_connected_wallet');
+      safeStorage.removeItem('aver_local_db');
+      safeStorage.removeItem('aver_trading_config');
       setUser(null);
       setNotifications([]);
       setPreviewPhotoURL(null);
@@ -1909,6 +1919,9 @@ function dataURLtoBlob(dataurl: string): Blob {
 
   const addWithdrawal = useCallback(async (amount: number) => {
     if (userRef.current) {
+      if (amount > 9000000) {
+        throw new Error("Transaction limit exceeded. Maximum withdrawal limit per transaction is $9,000,000.");
+      }
       if (userRef.current.availableBalance < amount) {
         throw new Error("Insufficient funds available for withdrawal.");
       }

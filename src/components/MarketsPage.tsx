@@ -173,11 +173,6 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
     };
   }, []);
 
-  const handleToggleWatchlist = async (e: React.MouseEvent, symbol: string) => {
-    e.stopPropagation();
-    await toggleWatchlist(symbol);
-  };
-
   const isDark = theme === 'dark';
   const textPrimary = isDark ? "text-white" : "text-slate-900";
   const textSecondary = isDark ? "text-slate-400" : "text-slate-500";
@@ -296,13 +291,12 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
               </p>
               {activeCategory === 'Favorites' && (
                 <p className="text-[11px] text-slate-500">
-                  Tap the star icon next to any asset to save it to your Favorites list.
+                  Open any asset details and tap the star icon at the top right to save it to your Favorites list.
                 </p>
               )}
             </div>
           ) : (
             filteredAssets.map((asset, i) => {
-              const isFav = watchlist.includes(asset.symbol);
               return (
                 <motion.div 
                   key={`${asset.symbol}-${i}`} 
@@ -311,19 +305,6 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
                   className={`flex items-center justify-between p-4 sm:p-5 cursor-pointer transition-colors ${i !== filteredAssets.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''} ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}
                 >
                   <div className="flex items-center gap-3 sm:gap-4">
-                    {/* Star toggle button */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleToggleWatchlist(e, asset.symbol)}
-                      className="p-1.5 rounded-full hover:bg-slate-800/40 transition-transform active:scale-125"
-                      title={isFav ? "Remove from Favorites" : "Add to Favorites"}
-                    >
-                      <Star 
-                        size={18} 
-                        className={isFav ? "fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "text-slate-600 hover:text-slate-400"} 
-                      />
-                    </button>
-
                     <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center ${isDark ? 'bg-slate-800' : 'bg-slate-100 shadow-inner'}`}>
                       <CoinLogo symbol={asset.symbol} size={28} />
                     </div>

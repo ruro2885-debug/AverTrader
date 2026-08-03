@@ -39,37 +39,35 @@ export const useFinancials = () => {
   const [activeSessionCapital, setActiveSessionCapital] = useState(0);
 
   useEffect(() => {
-    if (user?.uid) {
-      try {
-        const cached = localStorage.getItem(`aver_wallet_${user.uid}`);
-        if (cached) {
-          setWalletData(JSON.parse(cached));
-        }
-      } catch (e) {}
-
-      const unsub = walletService.subscribeWallet(user.uid, (data) => {
-        if (data) {
-          setWalletData(prev => {
-            if (
-              prev &&
-              prev.portfolioBalance === data.portfolioBalance &&
-              prev.availableBalance === data.availableBalance &&
-              prev.vaultBalance === data.vaultBalance &&
-              prev.aiTradingCapital === data.aiTradingCapital &&
-              prev.portfolioValue === data.portfolioValue &&
-              prev.tokenBalance === data.tokenBalance
-            ) {
-              return prev;
-            }
-            return data;
-          });
-        }
-      });
-      return () => unsub();
+    if (user) {
+      setWalletData({
+        userId: user.uid,
+        portfolioBalance: user.portfolioBalance || 0,
+        availableBalance: user.availableBalance || 0,
+        vaultBalance: user.vaultBalance || 0,
+        aiTradingCapital: user.aiTradingCapital || 0,
+        totalDeposits: user.totalDeposits || 0,
+        totalWithdrawals: user.totalWithdrawals || 0,
+        tokenBalance: user.tokenBalance || 0,
+        cashBalance: user.cashBalance || 0,
+        portfolioValue: user.portfolio?.totalValue || 0,
+        lastUpdated: user.lastUpdated
+      } as WalletData);
     } else {
       setWalletData(null);
     }
-  }, [user?.uid]);
+  }, [
+    user?.portfolioBalance,
+    user?.availableBalance,
+    user?.vaultBalance,
+    user?.aiTradingCapital,
+    user?.totalDeposits,
+    user?.totalWithdrawals,
+    user?.tokenBalance,
+    user?.cashBalance,
+    user?.portfolio?.totalValue,
+    user?.lastUpdated
+  ]);
 
   // Listen to active AI session to get isolated capital & session equity
   useEffect(() => {
@@ -143,26 +141,16 @@ export const useFinancials = () => {
 
     // 2. Active trading capital (This is the isolated funds being managed by AI)
     // Prioritize active session dynamic capital when active, falling back to wallet value or 0
-    const aiTradingCapital = activeSessionCapital > 0 ? activeSessionCapital : (walletData?.aiTradingCapital || 0);
+    const aiTradingCapital = activeSessionCapital > 0 ? activeSessionCapital : (walletData?.aiTradingCapital || user?.aiTradingCapital || 0);
 
     // 3. Base Cash Balance (Wallet Balance)
     // tokenBalance represents the funds available in the wallet (not locked in a session)
     // We strictly subtract aiTradingCapital if the source values are undeducted to prevent double-counting.
     let tokenBalance = 0;
     if (walletData) {
-      if (walletData.tokenBalance !== undefined) {
-        tokenBalance = walletData.tokenBalance;
-      } else if (walletData.portfolioBalance !== undefined) {
-        tokenBalance = walletData.portfolioBalance - aiTradingCapital;
-      }
+      tokenBalance = walletData.tokenBalance ?? walletData.cashBalance ?? (walletData.portfolioBalance !== undefined ? walletData.portfolioBalance - aiTradingCapital : 0);
     } else if (user) {
-      if (user.tokenBalance !== undefined) {
-        tokenBalance = user.tokenBalance;
-      } else if (user.portfolioBalance !== undefined) {
-        tokenBalance = user.portfolioBalance - aiTradingCapital;
-      } else if (user.portfolio?.totalValue !== undefined) {
-        tokenBalance = user.portfolio.totalValue - aiTradingCapital;
-      }
+      tokenBalance = user.tokenBalance ?? user.cashBalance ?? (user.portfolioBalance !== undefined ? user.portfolioBalance - aiTradingCapital : (user.portfolio?.totalValue !== undefined ? user.portfolio.totalValue - aiTradingCapital : 0));
     }
     tokenBalance = Math.max(0, tokenBalance);
 
@@ -172,12 +160,12 @@ export const useFinancials = () => {
     const vaultBalance = wVault > 0 ? wVault : uVault;
 
     // 5. Separate Calculations for Home (Available Funds) and Portfolio (Total Funds)
-    // Home Net Balance represents liquid available funds (Cash in Wallet + Vault Savings)
-    const homeNetBalance = tokenBalance + vaultBalance;
-
     // Portfolio Total Net Balance is Wallet + Vault + Holdings + AI Trading Capital
     // Active session allocated capital is transferred out but is still part of user's total net balance!
     const portfolioTotalNetBalance = tokenBalance + vaultBalance + totalHoldingsValue + aiTradingCapital;
+
+    // Home Net Balance represents the primary display balance (Total Net Value)
+    const homeNetBalance = portfolioTotalNetBalance;
 
     // 6. Portfolio Value (Same as portfolio total net balance but often used for ROI calcs)
     const portfolioValue = portfolioTotalNetBalance;
@@ -192,7 +180,8 @@ export const useFinancials = () => {
       aiTradingCapital,
       portfolioValue,
       cashBalance: tokenBalance,
-      tokenBalance
+      tokenBalance,
+      walletData
     };
   }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.vaultBalance, user?.holdings, walletData, activeSessionCapital]);
 

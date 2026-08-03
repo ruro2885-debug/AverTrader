@@ -738,7 +738,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                           >
                             <div className="flex items-center gap-2 mb-1">
                               <span className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider`}>
-                                {isAdmin ? 'AVER Specialist (You)' : msg.sender}
+                                {isAdmin ? (msg.sender === authAdmin?.displayName || msg.sender === 'Admin' || msg.sender === 'AVER Specialist' ? 'AVER Specialist (You)' : msg.sender) : msg.sender}
                               </span>
                               <span className="text-[10px] text-slate-500 font-mono">
                                 {formatTimestamp(msg.timestamp)}
@@ -1049,7 +1049,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                     <div className="space-y-4">
                       {activeTicketDetail.messages && activeTicketDetail.messages.length > 0 ? (
                         activeTicketDetail.messages.map((msg, idx) => {
-                          const isAdmin = msg.sender === 'AVER Specialist' || msg.sender === 'Admin';
+                          const isAdmin = msg.isAdmin || msg.senderRole === 'admin' || msg.sender === 'AVER Specialist' || msg.sender === 'Admin' || msg.sender === 'Support Specialist';
                           return (
                             <div
                               key={msg.id || `msg-${idx}`}
@@ -1057,7 +1057,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                             >
                               <div className="flex items-center gap-2 mb-1">
                                 <span className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider`}>
-                                  {isAdmin ? 'AVER Specialist (You)' : msg.sender}
+                                  {isAdmin ? (msg.sender === authAdmin?.displayName || msg.sender === 'Admin' || msg.sender === 'AVER Specialist' ? 'AVER Specialist (You)' : msg.sender) : msg.sender}
                                 </span>
                                 <span className="text-[10px] text-slate-500 font-mono">
                                   {formatTimestamp(msg.timestamp)}

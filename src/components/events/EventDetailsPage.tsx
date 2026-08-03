@@ -205,6 +205,7 @@ export default function EventDetailsPage({
   const isJoined = event.userProgress?.joined || event.userProgress?.status === 'REGISTERED' || event.userProgress?.status === 'IN_PROGRESS';
   const isClaimed = event.userProgress?.status === 'CLAIMED';
   const userStatus = event.userProgress?.status || 'NOT_JOINED';
+  const hasEnded = event.status === 'COMPLETED' || (event.endTime && new Date(event.endTime).getTime() <= Date.now());
 
   // Calculate requirement completion stats
   const totalTasks = event.eligibilityRequirements?.length || 0;
@@ -387,6 +388,7 @@ export default function EventDetailsPage({
               <p className="text-sm font-black text-white mt-0.5">
                 {isClaimed ? `Received ${event.userProgress?.claimedAmount || 250} ${event.rewardToken}` :
                  isJoined ? 'Task verification active. Complete requirements below.' :
+                 hasEnded ? 'This campaign has ended. Registration is closed.' :
                  'Join this campaign to reserve your prize pool allocation.'}
               </p>
             </div>
@@ -409,6 +411,10 @@ export default function EventDetailsPage({
               >
                 {isClaiming ? <RotateCw className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
                 <span>{completionPercentage >= 100 ? 'Claim Reward Share' : `Tasks ${completedCount}/${totalTasks} Complete`}</span>
+              </button>
+            ) : hasEnded ? (
+              <button disabled className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 text-slate-500 font-extrabold text-xs border border-white/5 flex items-center justify-center gap-2">
+                Ended
               </button>
             ) : (
               <button 
@@ -754,6 +760,10 @@ export default function EventDetailsPage({
               >
                 {isClaiming ? <RotateCw className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
                 <span>{completionPercentage >= 100 ? 'Claim Reward' : `Complete Tasks (${completedCount}/${totalTasks})`}</span>
+              </button>
+            ) : hasEnded ? (
+              <button disabled className="w-full sm:w-auto px-10 py-3.5 rounded-xl bg-slate-800 text-slate-500 font-black text-xs border border-white/5 flex items-center justify-center gap-2">
+                Ended
               </button>
             ) : (
               <button 

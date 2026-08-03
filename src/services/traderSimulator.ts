@@ -29,27 +29,15 @@ export const seedTraders = async () => {
         const tradersRef = collection(db, 'traderProfiles');
         const snapshot = await getDocs(tradersRef);
         
-        // Check if we need to re-seed (if empty, or if we have old style traders lacking strategyName)
-        let needsReseed = snapshot.empty;
-        if (!snapshot.empty) {
-            const firstDoc = snapshot.docs[0].data();
-            if (!firstDoc.strategyName) {
-                needsReseed = true;
-            }
-        }
-        
-        if (needsReseed) {
+        // Only seed if collection is completely empty to save quota
+        if (snapshot.empty) {
             console.log("Seeding high-fidelity procedurally-generated copy traders to Firestore...");
-            
-            // Delete all existing documents to ensure clean seed
-            for (const d of snapshot.docs) {
-                await deleteDoc(d.ref);
-            }
             
             // Generate high-fidelity traders from traderSimulation
             const simulatedTraders = initSimulatedTraders();
             
-            for (const t of simulatedTraders) {
+            // Limit to 10 traders to save quota during seeding
+            for (const t of simulatedTraders.slice(0, 10)) {
                 const mapped = mapSimulatedTraderToFirestore(t);
                 await setDoc(doc(tradersRef, t.id), mapped);
             }

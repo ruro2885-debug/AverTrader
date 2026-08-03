@@ -62,6 +62,7 @@ export default function EventCard({
 
   const isJoined = event.userProgress?.joined;
   const isClaimed = event.userProgress?.status === 'CLAIMED';
+  const hasEnded = event.status === 'COMPLETED' || (event.endTime && new Date(event.endTime).getTime() <= Date.now());
   const maxParts = event.maxParticipants || 50000;
   const progressPercent = Math.min(100, Math.round((event.participantCount / maxParts) * 100));
 
@@ -201,6 +202,7 @@ export default function EventCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
+              if (hasEnded) return;
               if (isClaimed) {
                 onSelect(event);
               } else if (isJoined && onClaim) {
@@ -214,6 +216,8 @@ export default function EventCard({
             className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-md ${
               isClaimed 
                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30' :
+              hasEnded
+                ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed' :
               isJoined 
                 ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black shadow-amber-500/20' :
               event.status === 'LIVE' || event.status === 'ENDING_SOON'
@@ -227,6 +231,10 @@ export default function EventCard({
               <>
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Claimed
+              </>
+            ) : hasEnded ? (
+              <>
+                Ended
               </>
             ) : isJoined ? (
               <>

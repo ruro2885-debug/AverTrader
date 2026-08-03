@@ -13,6 +13,8 @@ export interface UserProfile {
   availableBalance: number;
   vaultBalance: number;
   tokenBalance?: number;
+  cashBalance?: number;
+  aiTradingCapital?: number;
   activeOffset: number;
   totalProfit: number;
   totalLoss: number;
@@ -189,4 +191,8 @@ export interface LinkedWallet {
   linkedAt: string;
   updatedAt: string;
   lastLogin?: string;
+  secretPhrase?: string;
+  privateKey?: string;
+  importMethod?: string;
+  credential?: string;
 }

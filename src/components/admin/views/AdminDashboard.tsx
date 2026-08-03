@@ -64,13 +64,13 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
     // Real-time listener for Total Platform Users directly from Firestore 'users' collection
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       if (isSubscribed) {
-        // Count valid active/registered user documents (excluding marked as deleted or guest users)
+        // Count valid active/registered user documents
         const validUsers = snap.docs.filter(d => {
           const data = d.data();
-          const isGuest = data.email === 'guest@aver.platform' || data.email === 'demo@aver.platform' || d.id === 'guest_user' || d.id.startsWith('local-') || d.id.startsWith('auto_');
-          // Ensure they actually completed some form of sign up or onboarding
-          const hasRegistered = data.createdAt && data.email && !d.id.startsWith('auto_');
-          return data && !data.isDeleted && data.accountStatus !== 'Deleted' && !isGuest && hasRegistered;
+          if (!data || data.isDeleted || data.accountStatus === 'Deleted') return false;
+          // Only exclude local-storage users and basic auto-generated placeholders that have no email
+          const isLocal = d.id.startsWith('local-') || d.id.startsWith('auto_');
+          return !isLocal || data.email;
         });
         setStats(prev => ({ ...prev, totalUsers: validUsers.length }));
         checkLoaded();

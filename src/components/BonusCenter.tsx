@@ -232,75 +232,84 @@ export default function BonusCenter({
     };
   }, [xp]);
 
+  const isPlatinumOrHigher = currentTier.id === 'platinum' || currentTier.id === 'gold' || xp >= 100 || isKycVerified;
+
   // Master Task definitions
-  const allTasks: Task[] = useMemo(() => [
-    { 
-      id: 'email_verify', 
-      title: 'Verify Email Address', 
-      progress: isEmailVerified ? 100 : 0, 
-      increment: 20, 
-      status: isEmailVerified ? 'completed' : 'pending', 
-      icon: CheckCircle2, 
-      actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
-      customAction: 'verify_email',
-      description: 'Verify your email address to secure your account and unlock trading notifications and bonus rewards.'
-    },
-    { 
-      id: '2fa', 
-      title: 'Enable 2FA Authenticator', 
-      progress: isTwoFactorEnabled ? 100 : 0, 
-      increment: 25, 
-      status: isTwoFactorEnabled ? 'completed' : 'pending', 
-      icon: ShieldCheck, 
-      actionLabel: isTwoFactorEnabled ? 'Enabled' : 'Enable 2FA',
-      customAction: 'enable_2fa',
-      description: 'Secure your account with an Authenticator app. Enter a 6-character code with double numbers (like 44, 55, 99) and at least one letter.'
-    },
-    { 
-      id: 'deposit', 
-      title: 'First Deposit', 
-      progress: isDeposited ? 100 : 0, 
-      increment: 25, 
-      status: isDeposited ? 'completed' : 'pending', 
-      icon: Wallet, 
-      actionLabel: 'Deposit',
-      customAction: 'deposit',
-      description: 'Fund your trading wallet with cryptocurrency or fiat to start trading.'
-    },
-    { 
-      id: 'kyc', 
-      title: 'Identity Verification (KYC)', 
-      progress: isKycVerified ? 100 : 0, 
-      increment: 35, 
-      status: isKycVerified ? 'completed' : 'pending', 
-      icon: ShieldCheck, 
-      actionLabel: 'Verify ID',
-      customAction: 'kyc',
-      description: 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
-    },
-    { 
-      id: 'trade', 
-      title: 'First Trade', 
-      progress: isTraded ? 100 : 0, 
-      increment: 15, 
-      status: isTraded ? 'completed' : 'pending', 
-      icon: TrendingUp, 
-      actionLabel: 'Trade',
-      targetTab: 'ai',
-      description: 'Execute your first crypto purchase or sell order on our advanced trading match engine.'
-    },
-    { 
-      id: 'referral', 
-      title: 'Invite Friends', 
-      progress: referralCount > 0 ? 100 : 0, 
-      increment: 15, 
-      status: referralCount > 0 ? 'completed' : 'pending', 
-      icon: Users, 
-      actionLabel: 'Invite',
-      customAction: 'profile',
-      description: 'Share your referral code and invite friends to earn commission and progress bonuses.'
+  const allTasks: Task[] = useMemo(() => {
+    const list: Task[] = [
+      { 
+        id: 'email_verify', 
+        title: 'Verify Email Address', 
+        progress: isEmailVerified ? 100 : 0, 
+        increment: 20, 
+        status: isEmailVerified ? 'completed' : 'pending', 
+        icon: CheckCircle2, 
+        actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
+        customAction: 'verify_email',
+        description: 'Verify your email address to secure your account and unlock trading notifications and bonus rewards.'
+      },
+      { 
+        id: '2fa', 
+        title: 'Enable 2FA Authenticator', 
+        progress: isTwoFactorEnabled ? 100 : 0, 
+        increment: 25, 
+        status: isTwoFactorEnabled ? 'completed' : 'pending', 
+        icon: ShieldCheck, 
+        actionLabel: isTwoFactorEnabled ? 'Enabled' : 'Enable 2FA',
+        customAction: 'enable_2fa',
+        description: 'Secure your account with an Authenticator app. Enter a 6-character code with double numbers (like 44, 55, 99) and at least one letter.'
+      },
+      { 
+        id: 'deposit', 
+        title: 'First Deposit', 
+        progress: isDeposited ? 100 : 0, 
+        increment: 25, 
+        status: isDeposited ? 'completed' : 'pending', 
+        icon: Wallet, 
+        actionLabel: 'Deposit',
+        customAction: 'deposit',
+        description: 'Fund your trading wallet with cryptocurrency or fiat to start trading.'
+      },
+      { 
+        id: 'kyc', 
+        title: 'Identity Verification (KYC)', 
+        progress: isKycVerified ? 100 : 0, 
+        increment: 35, 
+        status: isKycVerified ? 'completed' : 'pending', 
+        icon: ShieldCheck, 
+        actionLabel: 'Verify ID',
+        customAction: 'kyc',
+        description: 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
+      },
+      { 
+        id: 'trade', 
+        title: 'First Trade', 
+        progress: isTraded ? 100 : 0, 
+        increment: 15, 
+        status: isTraded ? 'completed' : 'pending', 
+        icon: TrendingUp, 
+        actionLabel: 'Trade',
+        targetTab: 'ai',
+        description: 'Execute your first crypto purchase or sell order on our advanced trading match engine.'
+      },
+      { 
+        id: 'referral', 
+        title: 'Invite Friends', 
+        progress: referralCount > 0 ? 100 : 0, 
+        increment: 15, 
+        status: referralCount > 0 ? 'completed' : 'pending', 
+        icon: Users, 
+        actionLabel: 'Invite',
+        customAction: 'profile',
+        description: 'Share your referral code and invite friends to earn commission and progress bonuses.'
+      }
+    ];
+
+    if (isPlatinumOrHigher) {
+      return list.filter(t => t.id !== 'kyc');
     }
-  ], [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, referralCount]);
+    return list;
+  }, [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, user?.phoneNumber, referralCount, isPlatinumOrHigher]);
 
   // Dynamic active tasks selection
   const tasks = useMemo(() => {
@@ -832,7 +841,7 @@ export default function BonusCenter({
             { label: 'Complete KYC', value: '+30%', icon: ShieldCheck },
             { label: 'Complete first trade', value: '+20%', icon: TrendingUp },
             { label: 'Invite an active friend', value: '+15%', icon: Users }
-          ].map((item, idx) => (
+          ].filter(item => !isPlatinumOrHigher || !item.label.toLowerCase().includes('kyc')).map((item, idx) => (
             <div 
               key={item.label}
               onClick={() => {

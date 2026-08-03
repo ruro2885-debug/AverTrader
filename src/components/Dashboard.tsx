@@ -16,7 +16,9 @@ import PortfolioViewV2 from './portfolio_v2/PortfolioViewV2';
 import AiTradingModule from './AiTradingModule';
 import CopyTrading from './CopyTrading/CopyTrading';
 import InstitutionalDepositPage from './deposit/InstitutionalDepositPage';
+import InstitutionalWithdrawalPage from './withdrawal/InstitutionalWithdrawalPage';
 
+import { saveSupportTicket } from '../lib/supportStore';
 import { NotificationCenter } from './NotificationCenter';
 import { ExploreStrategiesModal } from './ExploreStrategiesModal';
 import EventsPromosPage from './EventsPromosPage';
@@ -269,36 +271,6 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return () => clearInterval(interval);
   }, []);
 
-  const [walletData, setWalletData] = useState<WalletData | null>(null);
-
-  React.useEffect(() => {
-    if (user?.uid) {
-      portfolioPersistenceService.getPortfolioCurrent(user.uid).then(pState => {
-        console.log("[Dashboard] Hydrated state from portfolioPersistenceService:", pState?.lastUpdated);
-      });
-
-      const unsubWallet = walletService.subscribeWallet(user.uid, (wDoc) => {
-        if (wDoc) {
-          setWalletData(prev => {
-            if (
-              prev &&
-              prev.portfolioBalance === wDoc.portfolioBalance &&
-              prev.availableBalance === wDoc.availableBalance &&
-              prev.vaultBalance === wDoc.vaultBalance &&
-              prev.aiTradingCapital === wDoc.aiTradingCapital &&
-              prev.portfolioValue === wDoc.portfolioValue
-            ) {
-              return prev;
-            }
-            return wDoc;
-          });
-        }
-      });
-
-      return () => unsubWallet();
-    }
-  }, [user?.uid]);
-
   const [showDepositModal, setShowDepositModal] = useState(false);
 
   useEffect(() => {
@@ -320,7 +292,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const [txLoading, setTxLoading] = useState(false);
 
   // Fallback defaults if user profile isn't fully loaded or is null
-  const { totalNetBalance, activeTradingBalance, aiTradingCapital, homeNetBalance } = useFinancials();
+  const { totalNetBalance, activeTradingBalance, aiTradingCapital, homeNetBalance, walletData } = useFinancials();
   
   // Active AI Session Profit/Loss
   const activeSessionPnL = useMemo(() => {
@@ -522,8 +494,27 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const getAssistantWarnings = () => {
     const warnings: any[] = [];
 
-    // 1. Identity verification
-    if (!user?.kycStatus || user.kycStatus === 'unverified' || user.kycStatus === 'rejected' || user.kycStatus === 'pending') {
+    // Calculate XP / Tier (Platinum tier is reached at XP >= 100 or level >= 2 or verified status)
+    const isEmailVerified = !!user?.emailVerified;
+    const isTwoFactorEnabled = !!user?.twoFactorEnabled;
+    const isDeposited = (user?.totalDeposits || 0) > 0 || (user?.portfolioBalance || 0) > 0;
+    const isKycVerified = user?.kycStatus === 'verified';
+    const isTraded = (user?.aiTradesCount || 0) > 0 || (user?.totalProfit || 0) !== 0;
+    const referralCount = user?.referralCount || 0;
+
+    let calcXp = user?.xp || 0;
+    if (isEmailVerified) calcXp += 20;
+    if (isTwoFactorEnabled) calcXp += 25;
+    if (isDeposited) calcXp += 25;
+    if (isKycVerified) calcXp += 35;
+    if (isTraded) calcXp += 15;
+    if (user?.phoneNumber) calcXp += 15;
+    if (referralCount > 0) calcXp += Math.min(referralCount * 15, 60);
+
+    const isPlatinumOrHigher = calcXp >= 100 || (user?.level || 1) >= 2 || isKycVerified;
+
+    // 1. Identity verification (Removed once user reaches Platinum tier)
+    if (!isPlatinumOrHigher && (!user?.kycStatus || user.kycStatus === 'unverified' || user.kycStatus === 'rejected' || user.kycStatus === 'pending')) {
       if (user?.kycStatus === 'pending') {
         warnings.push({
           id: 'kyc',
@@ -733,7 +724,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             </div>
             <div className="truncate max-w-[120px]">
               <p className={`text-xs font-bold ${textPrimary} truncate`}>
-                {user?.username || user?.email?.split('@')[0] || 'User'}
+                {user?.displayName || user?.fullName || user?.username || user?.email || 'User'}
               </p>
               <p className="text-[10px] text-emerald-500 font-medium">Pro Account</p>
             </div>
@@ -776,7 +767,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   <div className="w-20 h-4 rounded animate-pulse bg-slate-700" />
                 ) : (
                   <h1 className={`text-sm font-bold tracking-tight ${textPrimary}`}>
-                    {user?.username || user?.email?.split('@')[0] || 'User'}
+                    {user?.displayName || user?.fullName || user?.username || user?.email || 'User'}
                   </h1>
                 )}
               </div>
@@ -1118,87 +1109,24 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               onSuccessDeposit={async (amountValue, method) => {
                 await addDeposit(amountValue);
               }}
+              onOpenSupport={async (ticketData) => {
+                await saveSupportTicket(ticketData);
+                setShowDepositModal(false);
+                setSupportBackTab('discover');
+                setActiveTab('support');
+              }}
             />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 2. WITHDRAWAL MODAL */}
+      {/* 2. DEDICATED FULL-SCREEN WITHDRAWAL EXPERIENCE */}
       <AnimatePresence>
         {showWithdrawModal && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }} 
-            className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
-          >
-            <motion.div 
-              initial={{ scale: 0.95, y: 20 }} 
-              animate={{ scale: 1, y: 0 }} 
-              exit={{ scale: 0.95, y: 20 }}
-              className={`w-full max-w-md rounded-[28px] p-6 ${modalBgClasses}`}
-            >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className={`text-lg font-black tracking-tight ${textPrimary}`}>{t('common.withdrawal')}</h3>
-                <button 
-                  onClick={() => setShowWithdrawModal(false)}
-                  className={`p-1.5 rounded-full hover:bg-white/5 ${textSecondary} cursor-pointer`}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <form onSubmit={handleWithdrawalSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold font-mono tracking-wider uppercase text-gray-400">{t('common.amount_withdrawal')}</label>
-                    <span className="text-[10px] text-gray-500 font-semibold font-mono">Max: {totalValueFormatted}</span>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
-                    <input 
-                      type="number"
-                      required
-                      min="10"
-                      step="any"
-                      placeholder="2,500.00"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      className={`w-full pl-8 pr-4 py-3 rounded-xl text-sm font-sans font-medium border focus:outline-none transition-all ${
-                        isDark 
-                          ? 'bg-[#08090e]/90 border-white/10 text-white placeholder-gray-600 focus:border-emerald-500/40' 
-                          : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-emerald-500/40'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {txError && (
-                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-sans font-medium text-center">
-                    {txError}
-                  </div>
-                )}
-
-                {txSuccess && (
-                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-sans font-medium text-center">
-                    {txSuccess}
-                  </div>
-                )}
-
-                <button 
-                  type="submit"
-                  disabled={txLoading}
-                  className="w-full py-3.5 bg-[#ef4444] hover:bg-red-400 text-white font-bold rounded-xl text-sm transition-all shadow-lg cursor-pointer flex items-center justify-center space-x-2"
-                >
-                  {txLoading ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <span>{t('common.confirm_withdrawal')}</span>
-                  )}
-                </button>
-              </form>
-            </motion.div>
-          </motion.div>
+          <InstitutionalWithdrawalPage 
+            onClose={() => setShowWithdrawModal(false)}
+            theme={theme}
+          />
         )}
       </AnimatePresence>
 

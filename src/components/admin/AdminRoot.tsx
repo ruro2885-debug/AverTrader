@@ -24,7 +24,7 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
 
   const handleAccessSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (accessCode.trim() === 'Ruro2008$') {
+    if (accessCode.trim() === 'AverAdmin2026$') {
       setShowAdmin(true);
       setShowAccessPrompt(false);
       localStorage.setItem('admin_session_active', 'true');
