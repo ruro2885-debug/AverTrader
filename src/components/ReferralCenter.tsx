@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Copy, Lock, ShieldCheck, Zap } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { copyToClipboard } from '../lib/clipboard';
 
 export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'dark', onBack: () => void }) {
   const { user } = useAuth();
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [showAllReferrals, setShowAllReferrals] = useState(false);
   
   const referredUsersList = Array.isArray((user as any)?.referredUsers) ? (user as any).referredUsers : [];
@@ -16,10 +18,20 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
   const totalReferrals = (user as any)?.totalReferrals ?? user?.referralCount ?? 0;
   const referralLevel = (user as any)?.referralLevel ?? Math.floor(totalReferrals / 5) + 1;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(referralLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyLink = async () => {
+    const success = await copyToClipboard(referralLink);
+    if (success) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
+
+  const handleCopyCode = async () => {
+    const success = await copyToClipboard(referralCode);
+    if (success) {
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
   };
 
   const pageVariants = {
@@ -67,11 +79,11 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
             </p>
 
             <button 
-              onClick={handleCopy}
+              onClick={handleCopyLink}
               className="bg-black text-[#00e676] px-10 py-5 rounded-full font-black text-lg transition-all hover:scale-105 active:scale-95 shadow-2xl shadow-black/40 flex items-center gap-3 cursor-pointer group"
             >
               <Copy className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-              {copied ? 'Copied Link!' : 'Copy Your Unique Referral Link'}
+              {copiedLink ? 'Copied Link!' : 'Copy Your Unique Referral Link'}
             </button>
           </div>
         </div>
@@ -117,12 +129,14 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
           <div className="bg-[#0a0a0a] border border-white/5 p-6 rounded-[24px] space-y-4 text-center">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-[0.3em]">Personal Invitation Code</h3>
             <div 
-              onClick={handleCopy}
-              className="flex items-center justify-between bg-black/50 border border-dashed border-[#00e676]/30 px-6 py-4 rounded-2xl group cursor-pointer hover:bg-[#00e676]/5 transition-all"
+              onClick={handleCopyCode}
+              className={`flex items-center justify-between bg-black/50 border border-dashed px-6 py-4 rounded-2xl group cursor-pointer transition-all ${copiedCode ? 'border-emerald-500 bg-emerald-500/10' : 'border-[#00e676]/30 hover:bg-[#00e676]/5'}`}
             >
-              <span className="text-2xl font-black font-mono text-white tracking-widest">{referralCode}</span>
-              <div className="p-2 rounded-xl bg-white/5 group-hover:bg-[#00e676] group-hover:text-black transition-all">
-                <Copy className="w-5 h-5" />
+              <span className="text-2xl font-bold font-sans text-white tracking-wider">
+                {copiedCode ? 'Copied' : referralCode}
+              </span>
+              <div className={`p-2 rounded-xl transition-all ${copiedCode ? 'bg-emerald-500 text-black' : 'bg-white/5 group-hover:bg-[#00e676] group-hover:text-black'}`}>
+                {copiedCode ? <span className="text-xs font-black font-mono">✓</span> : <Copy className="w-5 h-5" />}
               </div>
             </div>
           </div>

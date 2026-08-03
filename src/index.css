@@ -54,9 +54,11 @@
   }
 }
 
-/* Smooth scroll behavior */
-html {
+/* Smooth scroll behavior and overscroll prevention */
+html, body {
   scroll-behavior: smooth;
+  overscroll-behavior-y: none; /* Prevents pull-to-refresh and rubber-band bounce */
+  overscroll-behavior-x: none; /* Prevents history swipe back/forward gestures */
 }
 
 /* Hide scrollbar but keep functionality */

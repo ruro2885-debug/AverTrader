@@ -1064,7 +1064,7 @@ export default function PortfolioViewV2({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className={`pt-[73px] text-slate-200 font-sans antialiased relative flex flex-col justify-start flex-1 min-h-screen`}
+          className={`pt-[73px] text-slate-200 font-sans antialiased relative flex flex-col justify-start flex-1 pb-6`}
         >
       {/* Toast HUD */}
       <AnimatePresence>

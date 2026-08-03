@@ -1,4 +1,4 @@
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, updateDoc, arrayUnion, onSnapshot, getDoc, runTransaction, Timestamp, arrayRemove } from 'firebase/firestore';
 import { NotificationItem, NotificationCategory, NotificationPriority } from '../types/notifications';
 import { safeStorage } from '../utils/storage';
@@ -12,12 +12,14 @@ export class NotificationManager {
   }
 
   public subscribe(onUpdate: (notifications: NotificationItem[]) => void) {
-    if (!this.userId) {
-      // Local storage fallback for anonymous
+    if (!this.userId || this.userId.startsWith('local-')) {
+      // Local storage fallback for anonymous/local
       const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {
         const activeLocalUser = JSON.parse(activeLocalUserStr);
         onUpdate(activeLocalUser.notificationsList || []);
+      } else {
+        onUpdate([]);
       }
       return;
     }
@@ -32,6 +34,7 @@ export class NotificationManager {
       }
     }, (error) => {
       console.error("[NotificationManager] Snapshot error:", error);
+      handleFirestoreError(error, OperationType.GET, `users/${this.userId}`);
     });
   }
 
@@ -67,7 +70,7 @@ export class NotificationManager {
       archived: false,
     };
 
-    if (!this.userId) {
+    if (!this.userId || this.userId.startsWith('local-')) {
       // Local storage fallback
       const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {
@@ -102,7 +105,7 @@ export class NotificationManager {
   }
 
   public async markAsRead(id: string, readState?: boolean) {
-    if (!this.userId) {
+    if (!this.userId || this.userId.startsWith('local-')) {
       // Local storage fallback
       const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {

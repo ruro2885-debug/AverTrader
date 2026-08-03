@@ -22,7 +22,7 @@ export interface UnifiedFinancials {
 }
 
 export const useFinancials = () => {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const [walletData, setWalletData] = useState<WalletData | null>(() => {
     if (typeof window !== 'undefined' && user?.uid) {
       try {
@@ -187,6 +187,12 @@ export const useFinancials = () => {
 
   const updateVaultBalance = useCallback(async (newBalance: number) => {
     const uid = user?.uid || auth.currentUser?.uid || 'local-user';
+    
+    // Optimistically write to profile state & localStorage
+    if (updateProfile) {
+      updateProfile({ vaultBalance: newBalance }, undefined, undefined, true).catch(() => {});
+    }
+
     if (auth.currentUser) {
       try {
         await updateDoc(doc(db, 'users', auth.currentUser.uid), {
@@ -224,7 +230,7 @@ export const useFinancials = () => {
       totalNetBalance: portfolio.portfolioMetrics.totalValue,
       trigger: 'MANUAL_ADJUSTMENT' // Or more specific if we knew if it was vault move
     });
-  }, [auth.currentUser, user?.uid]);
+  }, [auth.currentUser, user?.uid, updateProfile]);
 
   const updateActiveBalanceOffset = useCallback(async (newOffset: number | ((prev: number) => number)) => {
     let finalOffset: number;
@@ -237,6 +243,11 @@ export const useFinancials = () => {
     }
     const uid = user?.uid || auth.currentUser?.uid || 'local-user';
     
+    // Optimistically write to profile state & localStorage
+    if (updateProfile) {
+      updateProfile({ activeOffset: finalOffset }, undefined, undefined, true).catch(() => {});
+    }
+
     if (auth.currentUser) {
       try {
         await updateDoc(doc(db, 'users', auth.currentUser.uid), {
@@ -263,11 +274,26 @@ export const useFinancials = () => {
     await portfolioPersistenceService.updateWalletState(uid, {
       activeOffset: finalOffset
     });
-  }, [auth.currentUser, user?.activeOffset, user?.uid]);
+  }, [auth.currentUser, user?.activeOffset, user?.uid, updateProfile]);
 
   // Helper to process a trade PnL or deposit
   const addFundsToActiveBalance = useCallback(async (amount: number, skipSync: boolean = false) => {
     const uid = user?.uid || auth.currentUser?.uid || 'local-user';
+    const currentPort = user?.portfolioBalance || 0;
+    const currentAvail = user?.availableBalance || 0;
+    const currentToken = user?.tokenBalance || 0;
+    const currentCash = user?.cashBalance || 0;
+
+    // Optimistically write to profile state & localStorage
+    if (updateProfile) {
+      updateProfile({
+        portfolioBalance: currentPort + amount,
+        availableBalance: currentAvail + amount,
+        tokenBalance: currentToken + amount,
+        cashBalance: currentCash + amount,
+      }, undefined, undefined, true).catch(() => {});
+    }
+
     if (!skipSync && auth.currentUser) {
       try {
         await updateDoc(doc(db, 'users', auth.currentUser.uid), {
@@ -282,8 +308,6 @@ export const useFinancials = () => {
       }
     }
 
-    const currentPort = user?.portfolioBalance || 0;
-    const currentAvail = user?.availableBalance || 0;
     await portfolioPersistenceService.updateWalletState(uid, {
       portfolioBalance: currentPort + amount,
       availableBalance: currentAvail + amount
@@ -297,7 +321,7 @@ export const useFinancials = () => {
       totalNetBalance: portfolio.portfolioMetrics.totalValue,
       trigger: amount >= 0 ? 'DEPOSIT' : 'WITHDRAW'
     });
-  }, [auth.currentUser, user?.uid, user?.portfolioBalance, user?.availableBalance]);
+  }, [auth.currentUser, user?.uid, user?.portfolioBalance, user?.availableBalance, user?.tokenBalance, user?.cashBalance, updateProfile]);
 
   return {
     ...financials,

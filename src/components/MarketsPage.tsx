@@ -343,7 +343,7 @@ export default function MarketsPage({ theme, onSelectAsset }: { theme: 'light' |
       </div>
 
       {/* 5. MARKET NEWS */}
-      <div className="px-4 py-6 pb-24">
+      <div className="px-4 py-6 pb-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className={`text-lg font-black tracking-tight ${textPrimary} flex items-center gap-2`}>
             <Newspaper className="w-5 h-5 text-indigo-500" />

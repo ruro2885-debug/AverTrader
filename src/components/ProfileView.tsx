@@ -10,6 +10,7 @@ import UserAvatar from './UserAvatar';
 import { getAvatarDataUrl } from '../utils/avatarGenerator';
 import { linkedWalletService } from '../services/linkedWalletService';
 import { LinkedWallet } from '../types';
+import { copyToClipboard } from '../lib/clipboard';
 import { 
   User, Mail, Edit3, Key, ShieldCheck, 
   Bell, Share2, Wallet, Settings, HelpCircle, 
@@ -819,10 +820,12 @@ export default function ProfileView({
     }
   };
 
-  const handleCopyReferral = () => {
-    navigator.clipboard.writeText(user?.referralCode || '');
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyReferral = async () => {
+    const success = await copyToClipboard(user?.referralCode || '');
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const menuSections = [
@@ -856,7 +859,7 @@ export default function ProfileView({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.3 }}
-      className="space-y-6 pb-32"
+      className="space-y-6 pb-6"
     >
       {/* Header Profile Info */}
       <div className={`rounded-[24px] p-6 ${cardClasses} flex flex-col items-center text-center relative overflow-hidden`}>

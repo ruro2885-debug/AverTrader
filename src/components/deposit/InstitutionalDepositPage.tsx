@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
+import { copyToClipboard } from '../../lib/clipboard';
 import { 
   ShieldCheck, 
   CreditCard, 
@@ -41,6 +42,7 @@ import {
 import { db, auth, safeAddDoc } from '../../lib/firebase';
 import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
+import CoinLogo from '../CoinLogo';
 
 interface InstitutionalDepositPageProps {
   theme: 'light' | 'dark';
@@ -144,6 +146,20 @@ const WALLETS = [
 ];
 
 const getCryptoLogoDataUrl = (symbol: string): string => {
+  let s = (symbol || '').toUpperCase();
+  if (s.startsWith('USDT')) s = 'USDT';
+  if (s.startsWith('USDC')) s = 'USDC';
+  
+  const logoUrls: Record<string, string> = {
+    BTC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1.png',
+    ETH: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1027.png',
+    SOL: 'https://s2.coinmarketcap.com/static/img/coins/64x64/5426.png',
+    BNB: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1839.png',
+    USDT: 'https://s2.coinmarketcap.com/static/img/coins/64x64/825.png',
+    USDC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3408.png',
+  };
+  return logoUrls[s] || '';
+
   switch (symbol) {
     case 'BTC':
       return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iI0Y3OTMxQSIvPjxwYXRoIGQ9Ik0yMi4zMSAxNC4wNWMuMjQtMS42My0uOTktMi41MS0yLjY4LTMuMWwuNTUtMi4yaC0xLjM0bC0uNTMgMi4xNGMtLjM1LS4wOS0uNzEtLjE3LTEuMDctLjI1bC41NC0yLjE1aC0xLjM0bC0uNTUgMi4yYy0uMjktLjA3LS41OC0uMTMtLjg2LS4ybC4wMS0uMDMtMS44NS0uNDYtLjM2IDEuNDNzMS4wMC4yMy45Ny4yNGMuNTQuMTQuNjQuNS42Mi43OGwtLjYyIDIuNWMuMDQuMDEuMDkuMDIuMTQuMDRsLS4xNC0uMDQtLjg3IDMuNTFjLS4wNy4xNy0uMjQuNDMtLjYzLjMzLjAyLjAyLS45Ny0uMjQtLjk3LS4yNGwtLjY3IDEuNTQgMS43NS40NGMuMzIuMDguNjQuMTcuOTYuMjRsLS41NiAyLjI0aDEuMzRsLjU2LTIuMjRjLjM3LjEuNzIuMTkgMS4wNy4yN2wtLjU1IDIuMjFoMS4zNGwuNTYtMi4yNGMyLjI5LjQzIDQuMDIuMjYgNC43NC0xLjgxLjU4LTEuNjctLjAzLTIuNjMtMS4yNC0zLjI2Ljg4LS4yIDEuNTQtLjc4IDEuNzItMS45N3ptLTMuMDggNC4zMWMtLjQyIDEuNjctMy4yMy43Ny00LjE0LjU0bC43NC0yLjk2Yy45MS4yMyAzLjg0LjY4IDMuNCAyLjQyem0uNDItNC4zMmMtLjM4IDEuNTMtMi43My43NS0zLjQ5LjU2bC42Ny0yLjdjLjc2LjE5IDMuMjEuNTUgMi44MiAyLjE0eiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=';
@@ -170,6 +186,8 @@ interface LogoProps {
 }
 
 function CryptoLogo({ symbol, className = "w-5 h-5" }: LogoProps) {
+  return <CoinLogo symbol={symbol} className={className} />;
+
   switch (symbol) {
     case 'BTC':
       return (
@@ -1218,10 +1236,12 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     "Waiting for administrator approval…"
   ];
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedAddress(true);
-    setTimeout(() => setCopiedAddress(false), 2000);
+  const handleCopy = async (text: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopiedAddress(true);
+      setTimeout(() => setCopiedAddress(false), 2000);
+    }
   };
 
   const abbreviateAddress = (addr: string): string => {
@@ -2228,10 +2248,12 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                               <button
                                 type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(formatExactAmount(exactCryptoAmount, selectedCrypto.symbol));
-                                  setCopiedExactAmount(true);
-                                  setTimeout(() => setCopiedExactAmount(false), 2000);
+                                onClick={async () => {
+                                  const success = await copyToClipboard(formatExactAmount(exactCryptoAmount, selectedCrypto.symbol));
+                                  if (success) {
+                                    setCopiedExactAmount(true);
+                                    setTimeout(() => setCopiedExactAmount(false), 2000);
+                                  }
                                 }}
                                 className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 flex-shrink-0"
                                 title="Copy Exact Amount"
@@ -2260,7 +2282,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                               bgColor="#ffffff"
                               fgColor="#000000"
                               imageSettings={{
-                                src: (selectedCrypto.symbol === 'BTC' || selectedCrypto.symbol === 'BNB') ? getCryptoLogoDataUrl('BNB') : getCryptoLogoDataUrl(selectedCrypto.symbol),
+                                src: getCryptoLogoDataUrl(selectedCrypto.symbol),
                                 x: undefined,
                                 y: undefined,
                                 height: 28,
@@ -3369,10 +3391,12 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                           </span>
                           <button
                             type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(formatExactAmount(exactCryptoAmount, selectedCrypto?.symbol || 'USDT'));
-                              setCopiedExactAmount(true);
-                              setTimeout(() => setCopiedExactAmount(false), 2000);
+                            onClick={async () => {
+                              const success = await copyToClipboard(formatExactAmount(exactCryptoAmount, selectedCrypto?.symbol || 'USDT'));
+                              if (success) {
+                                setCopiedExactAmount(true);
+                                setTimeout(() => setCopiedExactAmount(false), 2000);
+                              }
                             }}
                             className="text-[#A1A1AA] hover:text-white transition-colors p-1"
                             title="Copy Exact Amount"

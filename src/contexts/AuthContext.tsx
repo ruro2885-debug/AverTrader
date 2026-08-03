@@ -369,6 +369,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         // User profile subscription
+        if (uid.startsWith('local-')) {
+          return;
+        }
+
         const userDocRef = doc(db, 'users', uid);
         unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -459,6 +463,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             };
             setDoc(userDocRef, defaultProfile, { merge: true });
           }
+        }, (err) => {
+          console.error("[AuthContext] unsubUserDoc error:", err);
+          handleFirestoreError(err, OperationType.GET, `users/${uid}`);
         });
 
         // Holdings, Trades, Snapshots subscriptions
@@ -466,18 +473,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         unsubHoldings = onSnapshot(holdingsRef, (snap) => {
           const holdings = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Holding[];
           setUser(prev => prev ? { ...prev, holdings } : null);
+        }, (err) => {
+          console.error("[AuthContext] unsubHoldings error:", err);
+          handleFirestoreError(err, OperationType.GET, `users/${uid}/holdings`);
         });
 
         const tradesRef = collection(db, 'users', uid, 'trades');
         unsubTrades = onSnapshot(query(tradesRef, orderBy('timestamp', 'desc')), (snap) => {
           const trades = snap.docs.map(d => ({ id: d.id, ...d.data() })) as TradeHistoryItem[];
           setUser(prev => prev ? { ...prev, trades } : null);
+        }, (err) => {
+          console.error("[AuthContext] unsubTrades error:", err);
+          handleFirestoreError(err, OperationType.GET, `users/${uid}/trades`);
         });
 
         const snapshotsRef = collection(db, 'users', uid, 'snapshots');
         unsubSnapshots = onSnapshot(query(snapshotsRef, orderBy('timestamp', 'desc')), (snap) => {
           const snapshots = snap.docs.map(d => ({ id: d.id, ...d.data() })) as PortfolioSnapshot[];
           setUser(prev => prev ? { ...prev, snapshots } : null);
+        }, (err) => {
+          console.error("[AuthContext] unsubSnapshots error:", err);
+          handleFirestoreError(err, OperationType.GET, `users/${uid}/snapshots`);
         });
 
         const configRef = doc(db, 'users', uid, 'tradingConfig', 'default');
@@ -486,6 +502,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const config = docSnap.data() as TradingEngineConfig;
             setUser(prev => prev ? { ...prev, tradingConfig: config } : null);
           }
+        }, (err) => {
+          console.error("[AuthContext] unsubTradingConfig error:", err);
+          handleFirestoreError(err, OperationType.GET, `users/${uid}/tradingConfig/default`);
         });
       };
 
@@ -1821,60 +1840,47 @@ function dataURLtoBlob(dataurl: string): Blob {
 
   const updateProfile = useCallback(async (dataOrDisplayName: Partial<User> | string, username?: string, email?: string, silent?: boolean) => {
     if (userRef.current) {
-      if (!auth.currentUser) {
-        setUser(prev => {
-          if (!prev) return null;
-          let updates: any = {};
-          if (typeof dataOrDisplayName === 'string') {
-            updates.displayName = dataOrDisplayName;
-            if (username) updates.username = username;
-            if (email) updates.email = email;
-          } else {
-            updates = { ...dataOrDisplayName };
-          }
-          const updated = { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
-
-          const dbList = getLocalDB();
-          const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
-          if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
-          return updated;
-        });
-
-        if (!silent) {
-          let body = 'Your profile information has been successfully updated.';
-          if (email && email !== userRef.current.email) {
-            body = 'Your email address has been successfully updated.';
-          }
-
-          await addNotification(
-            'account',
-            'medium',
-            'Profile Updated',
-            body
-          );
-        }
-        return;
-      }
-
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      let updates: any = {
-        lastUpdated: serverTimestamp()
-      };
-
+      let updates: any = {};
       if (typeof dataOrDisplayName === 'string') {
         updates.displayName = dataOrDisplayName;
         if (username) updates.username = username;
         if (email) updates.email = email;
       } else {
-        updates = {
-          ...updates,
-          ...dataOrDisplayName
-        };
+        updates = { ...dataOrDisplayName };
       }
 
       const oldProfile = userRef.current;
-      await updateDoc(userDocRef, updates);
+      const updatedUser = {
+        ...oldProfile,
+        ...updates,
+        lastUpdated: new Date().toISOString()
+      } as User;
+
+      // 1. Optimistically update local React state and cache storage
+      setUser(updatedUser);
+      safeStorage.setItem(`user_profile_${oldProfile.uid}`, JSON.stringify(updatedUser));
+      safeStorage.setItem('aver_active_user', JSON.stringify(updatedUser));
+
+      if (!auth.currentUser) {
+        const dbList = getLocalDB();
+        const idx = dbList.findIndex(u => u.email.toLowerCase() === oldProfile.email.toLowerCase());
+        if (idx !== -1) { 
+          dbList[idx].profile = updatedUser; 
+          saveLocalDB(dbList); 
+        }
+      } else {
+        // 2. Try updating Firestore, but catch write quota errors/exceptions to allow local persistence
+        const userDocRef = doc(db, 'users', oldProfile.uid);
+        try {
+          const firestoreUpdates = {
+            ...updates,
+            lastUpdated: serverTimestamp()
+          };
+          await updateDoc(userDocRef, firestoreUpdates);
+        } catch (err) {
+          console.warn("[AuthContext] Firestore update failed (using local fallback):", err);
+        }
+      }
 
       if (!silent) {
         let body = 'Your profile information has been successfully updated.';
@@ -1887,7 +1893,7 @@ function dataURLtoBlob(dataurl: string): Blob {
           'medium',
           'Profile Updated',
           body
-        );
+        ).catch(() => {});
       }
     }
   }, [addNotification]);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { safeStorage } from '../../utils/storage';
 import { 
@@ -6,6 +6,9 @@ import {
   ArrowDownRight, History, Sliders, Settings, KeyRound, AlertCircle,
   TrendingUp, Sparkles, CheckCircle2, ChevronRight
 } from 'lucide-react';
+import CoinLogo from '../CoinLogo';
+import { useAuth } from '../../contexts/AuthContext';
+import { transactionService } from '../../services/transactionService';
 
 interface VaultScreenProps {
   key?: React.Key;
@@ -74,14 +77,40 @@ export default function VaultScreen({
     { ticker: 'USDT', name: 'Tether USD', qty: `$${(vaultBalance * 0.2).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDT`, value: vaultBalance * 0.2, color: '#10b981', share: 20 },
   ];
 
-  // Simulated Protection History
-  const [vaultHistory, setVaultHistory] = useState([
-    { id: '1', type: 'Deposit', asset: 'USDT', amount: 15000, date: 'Today, 10:24 AM', status: 'Completed' },
-    { id: '2', type: 'AI Auto-Sweep', asset: 'BTC', amount: 3450, date: 'Yesterday, 11:15 PM', status: 'Auto' },
-    { id: '3', type: 'Deposit', asset: 'ETH', amount: 25000, date: 'Jul 10, 2026', status: 'Completed' },
-    { id: '4', type: 'Withdrawal', asset: 'USDT', amount: 10000, date: 'Jul 04, 2026', status: 'Completed' },
-    { id: '5', type: 'AI Auto-Sweep', asset: 'USDT', amount: 1250, date: 'Jun 30, 2026', status: 'Auto' },
-  ]);
+  const { user } = useAuth();
+
+  // Simulated Protection History OR real database-backed logs
+  const [vaultHistory, setVaultHistory] = useState<{ id: string; type: string; asset: string; amount: number; date: string; status: string }[]>([]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = transactionService.subscribeUserTransactions(user.uid, (txs) => {
+      // Filter for vault-related transactions
+      const vaultTxs = txs.filter(tx => 
+        tx.network === 'Secure Vault' || 
+        tx.title?.toLowerCase().includes('vault') ||
+        tx.description?.toLowerCase().includes('vault')
+      ).map(tx => {
+        let dateStr = 'Just now';
+        if (tx.timestamp) {
+          try {
+            const dateObj = new Date(tx.timestamp);
+            dateStr = dateObj.toLocaleDateString(undefined, { month: 'short', day: '2-digit', year: 'numeric' }) + ', ' + dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
+          } catch (e) {}
+        }
+        return {
+          id: tx.id,
+          type: tx.title?.toLowerCase().includes('withdrawal') ? 'Withdrawal' : 'Deposit',
+          asset: tx.asset || 'USDT',
+          amount: tx.amount,
+          date: dateStr,
+          status: tx.status || 'Completed'
+        };
+      });
+      setVaultHistory(vaultTxs);
+    });
+    return unsub;
+  }, [user?.uid]);
 
   // Handle number click on PIN Pad
   const handlePinClick = (num: number) => {
@@ -182,18 +211,20 @@ export default function VaultScreen({
     setActiveBalanceOffset(nextOffset);
     safeStorage.setItem('portfolio_active_offset', nextOffset.toString());
 
-    // Add to history
-    setVaultHistory(prev => [
-      {
-        id: Date.now().toString(),
-        type: 'Deposit',
-        asset: actionAsset,
+    // Record real transaction in Firestore & local storage
+    if (user?.uid) {
+      transactionService.recordTransaction({
+        userId: user.uid,
+        type: 'internal_transfer',
+        category: 'transactions',
+        title: `Vault Deposit`,
         amount: amt,
-        date: 'Just now',
-        status: 'Completed'
-      },
-      ...prev
-    ]);
+        asset: actionAsset,
+        network: 'Secure Vault',
+        status: 'Completed',
+        description: `Protected capital in private vault for goal: ${goalName}`
+      }).catch(err => console.error("Error recording vault deposit:", err));
+    }
 
     setActionAmount('');
     setActiveSubScreen('dashboard');
@@ -226,18 +257,20 @@ export default function VaultScreen({
     setActiveBalanceOffset(nextOffset);
     safeStorage.setItem('portfolio_active_offset', nextOffset.toString());
 
-    // Add to history
-    setVaultHistory(prev => [
-      {
-        id: Date.now().toString(),
-        type: 'Withdrawal',
-        asset: actionAsset,
+    // Record real transaction in Firestore & local storage
+    if (user?.uid) {
+      transactionService.recordTransaction({
+        userId: user.uid,
+        type: 'internal_transfer',
+        category: 'transactions',
+        title: `Vault Withdrawal`,
         amount: amt,
-        date: 'Just now',
-        status: 'Completed'
-      },
-      ...prev
-    ]);
+        asset: actionAsset,
+        network: 'Secure Vault',
+        status: 'Completed',
+        description: `Unlocked capital back to active trading pool`
+      }).catch(err => console.error("Error recording vault withdrawal:", err));
+    }
 
     setActionAmount('');
     setWithdrawPINInput('');
@@ -611,10 +644,7 @@ export default function VaultScreen({
                         className={`p-3.5 border ${isDark ? 'bg-slate-900/60 border-white/[0.04]' : 'bg-white/70 border-slate-200'} rounded-2xl flex justify-between items-center`}
                       >
                         <div className="flex items-center space-x-3">
-                          <div 
-                            className="w-2.5 h-6 rounded-md" 
-                            style={{ backgroundColor: asset.color }}
-                          />
+                          <CoinLogo symbol={asset.ticker} size={32} className="rounded-full border border-white/10" />
                           <div>
                             <h4 className="text-xs font-bold text-white leading-tight">{asset.name}</h4>
                             <span className="text-[10px] text-slate-400 font-mono">
@@ -696,25 +726,31 @@ export default function VaultScreen({
                     <h4 className="text-xs font-bold text-white uppercase tracking-wider">Vault Protection Logs</h4>
                   </div>
                   <div className="space-y-3 pr-1">
-                    {vaultHistory.map(log => (
-                      <div key={log.id} className="flex justify-between items-center text-xs font-medium">
-                        <div className="flex items-center space-x-2.5">
-                          <div className={`p-1.5 rounded-lg ${log.type === 'Withdrawal' ? 'bg-[#FF6B6B]/10 text-[#FF6B6B]' : 'bg-[#00D09C]/10 text-[#00D09C]'}`}>
-                            {log.type === 'Withdrawal' ? <ArrowDownRight className="w-3.5 h-3.5" /> : <ArrowUpRight className="w-3.5 h-3.5" />}
-                          </div>
-                          <div>
-                            <span className="text-slate-200 block font-semibold">{log.type} ({log.asset})</span>
-                            <span className="text-[9px] text-slate-500 font-sans block leading-tight">{log.date}</span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className={`font-mono font-bold ${log.type === 'Withdrawal' ? 'text-[#FF6B6B]' : 'text-[#00D09C]'}`}>
-                            {log.type === 'Withdrawal' ? '-' : '+'}${log.amount.toLocaleString()}
-                          </span>
-                          <span className="text-[8px] uppercase tracking-wider text-slate-500 font-semibold block leading-none">{log.status}</span>
-                        </div>
+                    {vaultHistory.length === 0 ? (
+                      <div className="text-center py-6 text-slate-500 text-xs">
+                        No vault protection logs yet. Secure your capital above.
                       </div>
-                    ))}
+                    ) : (
+                      vaultHistory.map(log => (
+                        <div key={log.id} className="flex justify-between items-center text-xs font-medium">
+                          <div className="flex items-center space-x-2.5">
+                            <div className={`p-1.5 rounded-lg ${log.type === 'Withdrawal' ? 'bg-[#FF6B6B]/10 text-[#FF6B6B]' : 'bg-[#00D09C]/10 text-[#00D09C]'}`}>
+                              {log.type === 'Withdrawal' ? <ArrowDownRight className="w-3.5 h-3.5" /> : <ArrowUpRight className="w-3.5 h-3.5" />}
+                            </div>
+                            <div>
+                              <span className="text-slate-200 block font-semibold">{log.type} ({log.asset})</span>
+                              <span className="text-[9px] text-slate-500 font-sans block leading-tight">{log.date}</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className={`font-mono font-bold ${log.type === 'Withdrawal' ? 'text-[#FF6B6B]' : 'text-[#00D09C]'}`}>
+                              {log.type === 'Withdrawal' ? '-' : '+'}${log.amount.toLocaleString()}
+                            </span>
+                            <span className="text-[8px] uppercase tracking-wider text-slate-500 font-semibold block leading-none">{log.status}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
 

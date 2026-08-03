@@ -9,15 +9,15 @@ interface CoinLogoProps {
 }
 
 const logoUrls: Record<string, string> = {
-  BTC: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png',
-  ETH: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
-  SOL: 'https://assets.coingecko.com/coins/images/4128/large/solana.png',
-  BNB: 'https://assets.coingecko.com/coins/images/825/large/binance-coin-logo.png',
-  XRP: 'https://assets.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png',
-  ADA: 'https://assets.coingecko.com/coins/images/975/large/cardano.png',
-  DOGE: 'https://assets.coingecko.com/coins/images/325/large/dogecoin.png',
-  USDT: 'https://assets.coingecko.com/coins/images/325/large/Tether.png',
-  USDC: 'https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
+  BTC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1.png',
+  ETH: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1027.png',
+  SOL: 'https://s2.coinmarketcap.com/static/img/coins/64x64/5426.png',
+  BNB: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1839.png',
+  XRP: 'https://s2.coinmarketcap.com/static/img/coins/64x64/52.png',
+  ADA: 'https://s2.coinmarketcap.com/static/img/coins/64x64/2010.png',
+  DOGE: 'https://s2.coinmarketcap.com/static/img/coins/64x64/74.png',
+  USDT: 'https://s2.coinmarketcap.com/static/img/coins/64x64/825.png',
+  USDC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3408.png',
 };
 
 const fallbacks: Record<string, { char: string; gradient: string }> = {
