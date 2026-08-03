@@ -2092,7 +2092,7 @@ export default function PortfolioViewV2({
                           {[
                             { name: 'Bitcoin Stable Reserves', ticker: 'BTC', qty: `${(vaultBalance * 0.5 / 64000).toFixed(4)} BTC`, value: vaultBalance * 0.5, color: '#f59e0b' },
                             { name: 'Ethereum Gas locked', ticker: 'ETH', qty: `${(vaultBalance * 0.35 / 3400).toFixed(4)} ETH`, value: vaultBalance * 0.35, color: '#6366f1' },
-                            { name: 'USDC Reserve', ticker: 'USDC', qty: `$${(vaultBalance * 0.15).toLocaleString()} USDC`, value: vaultBalance * 0.15, color: '#10b981' },
+                            { name: 'USDT Reserve', ticker: 'USDT', qty: `$${(vaultBalance * 0.15).toLocaleString()} USDT`, value: vaultBalance * 0.15, color: '#10b981' },
                           ].map(asset => (
                             <div key={asset.ticker} className="flex justify-between items-center bg-[#080B11]/40 border border-white/[0.03] p-2 rounded-xl text-[10px]">
                               <div className="flex items-center space-x-2">
@@ -2397,7 +2397,7 @@ export default function PortfolioViewV2({
                       <div className="space-y-1.5">
                         <label className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Select Asset to Unlock</label>
                         <div className="grid grid-cols-3 gap-1.5 font-mono">
-                          {['BTC', 'ETH', 'USDC'].map((a, i) => (
+                          {['BTC', 'ETH', 'USDT'].map((a, i) => (
                             <button
                               key={`vault-unlock-${a}-${i}`}
                               type="button"

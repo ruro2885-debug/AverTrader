@@ -137,6 +137,9 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
       setLoading(false);
     };
 
+    // Immediate sync from local cache
+    syncDeposits();
+
     const unsub = onSnapshot(q, (snap) => {
       syncDeposits(snap.docs);
     }, (err) => {
@@ -146,6 +149,7 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
 
     const handleStorage = () => syncDeposits();
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('deposit_updated', handleStorage);
 
     const qUsers = query(collection(db, 'users'));
     const unsubUsers = onSnapshot(qUsers, (snap) => {
@@ -162,6 +166,7 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
       unsub();
       unsubUsers();
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('deposit_updated', handleStorage);
     };
   }, []);
 

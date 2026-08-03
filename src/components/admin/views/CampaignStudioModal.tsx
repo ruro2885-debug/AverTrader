@@ -435,7 +435,7 @@ export default function CampaignStudioModal({ initialCampaign, theme, onClose, o
                       isDark ? 'border-white/10 bg-slate-900' : 'border-slate-300 bg-white'
                     }`}
                   >
-                    {['USDT', 'AVR', 'BTC', 'ETH', 'SOL', 'USDC'].map(t => (
+                    {['USDT', 'AVR', 'BTC', 'ETH', 'SOL'].map(t => (
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>

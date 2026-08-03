@@ -33,7 +33,7 @@ export interface SupportTicket {
   title: string;
   category: string;
   description: string;
-  status: 'open' | 'pending' | 'in_progress' | 'resolved' | 'closed';
+  status: 'pending' | 'answered' | 'open' | 'in_progress' | 'resolved' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'critical';
   transactionId?: string;
   tradingSessionId?: string;

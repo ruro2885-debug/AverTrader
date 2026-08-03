@@ -24,7 +24,7 @@ export interface SupportTicket {
   title: string;
   category: string;
   description: string;
-  status: 'open' | 'pending' | 'resolved' | 'closed';
+  status: 'pending' | 'answered' | 'open' | 'resolved' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'critical';
   createdAt: string;
   updatedAt: string;
@@ -47,10 +47,43 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      localTickets = Array.isArray(parsed) ? parsed.filter(t => t.id !== 'TCK-892104' && t.id !== 'TCK-401982') : [];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        localTickets = parsed;
+      }
     }
   } catch (e) {
     console.warn("Failed to parse local support tickets:", e);
+  }
+
+  if (!localTickets || localTickets.length === 0) {
+    localTickets = [
+      {
+        id: 'TCK-SUPPORT-01',
+        userId: 'user_institutional_01',
+        userEmail: 'ruro2885@gmail.com',
+        userName: 'Ruro Trader',
+        title: 'USDT Deposit Verification Support',
+        category: 'Deposits & Wallet',
+        description: 'My $4,754.00 USDT ERC-20 deposit transaction is currently in verification. Please assist with audit confirmation.',
+        status: 'pending',
+        priority: 'high',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        messages: [
+          {
+            id: 'MSG-01',
+            sender: 'Ruro Trader',
+            senderRole: 'user',
+            text: 'Hello, I deposited $4,754.00 USDT via ERC-20. Reference ID: DEP-USDT-ERC20. Please verify.',
+            timestamp: new Date().toISOString(),
+            status: 'sent'
+          }
+        ]
+      }
+    ];
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localTickets));
+    } catch (e) {}
   }
 
   const map = new Map<string, SupportTicket>();

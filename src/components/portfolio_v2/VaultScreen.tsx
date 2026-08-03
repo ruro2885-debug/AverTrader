@@ -54,7 +54,7 @@ export default function VaultScreen({
   const [activeSubScreen, setActiveSubScreen] = useState<'dashboard' | 'deposit' | 'withdraw' | 'settings'>('dashboard');
   
   // Deposit/Withdraw form state
-  const [actionAsset, setActionAsset] = useState<'BTC' | 'ETH' | 'USDC'>('USDC');
+  const [actionAsset, setActionAsset] = useState<'BTC' | 'ETH' | 'USDT'>('USDT');
   const [actionAmount, setActionAmount] = useState<string>('');
   const [goalName, setGoalName] = useState<string>('Emergency Reserve');
   const [withdrawPINInput, setWithdrawPINInput] = useState<string>('');
@@ -71,16 +71,16 @@ export default function VaultScreen({
   const protectedAssets = [
     { ticker: 'BTC', name: 'Bitcoin Reserves', qty: `${(vaultBalance * 0.45 / 64000).toFixed(5)} BTC`, value: vaultBalance * 0.45, color: '#f59e0b', share: 45 },
     { ticker: 'ETH', name: 'Ethereum Collateral', qty: `${(vaultBalance * 0.35 / 3450).toFixed(4)} ETH`, value: vaultBalance * 0.35, color: '#6366f1', share: 35 },
-    { ticker: 'USDC', name: 'USDC Stablecoin', qty: `$${(vaultBalance * 0.2).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDC`, value: vaultBalance * 0.2, color: '#10b981', share: 20 },
+    { ticker: 'USDT', name: 'Tether USD', qty: `$${(vaultBalance * 0.2).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDT`, value: vaultBalance * 0.2, color: '#10b981', share: 20 },
   ];
 
   // Simulated Protection History
   const [vaultHistory, setVaultHistory] = useState([
-    { id: '1', type: 'Deposit', asset: 'USDC', amount: 15000, date: 'Today, 10:24 AM', status: 'Completed' },
+    { id: '1', type: 'Deposit', asset: 'USDT', amount: 15000, date: 'Today, 10:24 AM', status: 'Completed' },
     { id: '2', type: 'AI Auto-Sweep', asset: 'BTC', amount: 3450, date: 'Yesterday, 11:15 PM', status: 'Auto' },
     { id: '3', type: 'Deposit', asset: 'ETH', amount: 25000, date: 'Jul 10, 2026', status: 'Completed' },
-    { id: '4', type: 'Withdrawal', asset: 'USDC', amount: 10000, date: 'Jul 04, 2026', status: 'Completed' },
-    { id: '5', type: 'AI Auto-Sweep', asset: 'USDC', amount: 1250, date: 'Jun 30, 2026', status: 'Auto' },
+    { id: '4', type: 'Withdrawal', asset: 'USDT', amount: 10000, date: 'Jul 04, 2026', status: 'Completed' },
+    { id: '5', type: 'AI Auto-Sweep', asset: 'USDT', amount: 1250, date: 'Jun 30, 2026', status: 'Auto' },
   ]);
 
   // Handle number click on PIN Pad
@@ -762,7 +762,7 @@ export default function VaultScreen({
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Select Reserve Asset</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {(['USDC', 'BTC', 'ETH'] as const).map(a => (
+                      {(['USDT', 'BTC', 'ETH'] as const).map(a => (
                         <button 
                           key={a}
                           onClick={() => setActionAsset(a)}
@@ -861,7 +861,7 @@ export default function VaultScreen({
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Select Reserve Asset</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {(['USDC', 'BTC', 'ETH'] as const).map(a => (
+                      {(['USDT', 'BTC', 'ETH'] as const).map(a => (
                         <button 
                           key={a}
                           onClick={() => setActionAsset(a)}

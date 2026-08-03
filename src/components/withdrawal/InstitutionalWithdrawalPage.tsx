@@ -3,19 +3,19 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ArrowRight, CheckCircle2, Send, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinancials } from '../../hooks/useFinancials';
+import CoinLogo from '../CoinLogo';
 
 interface InstitutionalWithdrawalPageProps {
   onClose: () => void;
   theme?: 'light' | 'dark';
 }
 
-export type CryptoAsset = 'BTC' | 'ETH' | 'USDT' | 'USDC' | 'SOL' | 'AVR';
+export type CryptoAsset = 'BTC' | 'ETH' | 'USDT' | 'SOL' | 'AVR';
 export type FiatCurrency = 'USD' | 'GBP' | 'EUR';
 
 interface CryptoInfo {
   symbol: CryptoAsset;
   name: string;
-  iconChar: string;
   decimals: number;
   defaultPriceUsd: number;
 }
@@ -35,12 +35,11 @@ const SUPPORTED_FIAT: FiatInfo[] = [
 ];
 
 const SUPPORTED_CRYPTO: CryptoInfo[] = [
-  { symbol: 'BTC', name: 'Bitcoin', iconChar: '₿', decimals: 8, defaultPriceUsd: 67420.50 },
-  { symbol: 'ETH', name: 'Ethereum', iconChar: '◈', decimals: 6, defaultPriceUsd: 3450.20 },
-  { symbol: 'USDT', name: 'Tether USD', iconChar: '₮', decimals: 2, defaultPriceUsd: 1.00 },
-  { symbol: 'USDC', name: 'USD Coin', iconChar: '💵', decimals: 2, defaultPriceUsd: 1.00 },
-  { symbol: 'SOL', name: 'Solana', iconChar: '🆂', decimals: 4, defaultPriceUsd: 145.60 },
-  { symbol: 'AVR', name: 'Aver Token', iconChar: 'A', decimals: 4, defaultPriceUsd: 12.40 }
+  { symbol: 'BTC', name: 'Bitcoin', decimals: 8, defaultPriceUsd: 67420.50 },
+  { symbol: 'ETH', name: 'Ethereum', decimals: 6, defaultPriceUsd: 3450.20 },
+  { symbol: 'USDT', name: 'Tether USD', decimals: 2, defaultPriceUsd: 1.00 },
+  { symbol: 'SOL', name: 'Solana', decimals: 4, defaultPriceUsd: 145.60 },
+  { symbol: 'AVR', name: 'Aver Token', decimals: 4, defaultPriceUsd: 12.40 }
 ];
 
 const MIN_WITHDRAWAL_USD = 10.00;
@@ -393,9 +392,10 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
               {/* CRYPTO EQUIVALENT */}
               <div className="space-y-2 flex flex-col items-center">
                 <div className="flex items-center gap-2">
-                  <span className="text-base sm:text-lg font-normal text-neutral-300 tracking-wide">
-                    {currentAssetInfo.iconChar} {cryptoEquivalent} ({selectedAsset})
-                  </span>
+                  <div className="flex items-center gap-1.5 text-base sm:text-lg font-normal text-neutral-300 tracking-wide">
+                    <CoinLogo symbol={selectedAsset} size={22} />
+                    <span>{cryptoEquivalent} ({selectedAsset})</span>
+                  </div>
 
                   {/* ASSET SELECTOR */}
                   <div className="relative">
@@ -410,7 +410,7 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
                     </button>
 
                     {showAssetSelector && (
-                      <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-neutral-900 border border-neutral-800 rounded-2xl py-2 w-36 shadow-2xl z-30">
+                      <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 bg-neutral-900 border border-neutral-800 rounded-2xl py-2 w-40 shadow-2xl z-30">
                         {SUPPORTED_CRYPTO.map((c) => (
                           <button
                             key={c.symbol}
@@ -423,7 +423,10 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
                               selectedAsset === c.symbol ? 'text-emerald-400 font-semibold' : 'text-neutral-300'
                             }`}
                           >
-                            <span>{c.iconChar} ({c.symbol})</span>
+                            <span className="flex items-center gap-2">
+                              <CoinLogo symbol={c.symbol} size={16} />
+                              <span>({c.symbol})</span>
+                            </span>
                             <span className="text-[10px] text-neutral-500">{c.name}</span>
                           </button>
                         ))}

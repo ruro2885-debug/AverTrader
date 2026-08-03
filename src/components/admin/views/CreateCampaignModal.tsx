@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
+import { saveLocalCampaign } from '../../../lib/campaignStore';
 
 export default function CreateCampaignModal({ onClose, theme }: { onClose: () => void, theme: 'light' | 'dark' }) {
   const [formData, setFormData] = useState({
@@ -12,12 +13,25 @@ export default function CreateCampaignModal({ onClose, theme }: { onClose: () =>
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addDoc(collection(db, 'events_hub'), {
+    const newId = 'CMP-' + Math.random().toString(36).substr(2, 9);
+    const newCamp = {
+      id: newId,
       ...formData,
-      status: 'upcoming',
+      status: 'active' as const,
       participantCount: 0,
-      createdAt: serverTimestamp()
-    });
+      createdAt: new Date().toISOString()
+    };
+    saveLocalCampaign(newCamp);
+    try {
+      await addDoc(collection(db, 'events_hub'), {
+        ...formData,
+        status: 'active',
+        participantCount: 0,
+        createdAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.warn("Firestore campaign add notice:", err);
+    }
     onClose();
   };
 

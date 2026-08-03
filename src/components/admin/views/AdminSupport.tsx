@@ -36,7 +36,7 @@ export interface SupportTicket {
   title: string;
   category: string;
   description: string;
-  status: 'open' | 'pending' | 'resolved' | 'closed';
+  status: 'pending' | 'answered' | 'open' | 'resolved' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'critical';
   createdAt: string;
   updatedAt: string;
@@ -442,7 +442,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
       ...targetTicket,
       messages: updatedMessages,
       updatedAt: now,
-      status: targetTicket.status === 'open' ? 'pending' : targetTicket.status
+      status: 'answered'
     };
 
     try {
