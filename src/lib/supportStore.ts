@@ -55,6 +55,41 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
 
   const map = new Map<string, SupportTicket>();
 
+  const mergeTwoTickets = (t1: SupportTicket, t2: SupportTicket): SupportTicket => {
+    const combinedMsgsMap = new Map<string, SupportMessage>();
+    (t1.messages || []).forEach(m => {
+      if (m && (m.id || m.text)) {
+        const key = m.id || `${m.timestamp}-${m.text}`;
+        combinedMsgsMap.set(key, m);
+      }
+    });
+    (t2.messages || []).forEach(m => {
+      if (m && (m.id || m.text)) {
+        const key = m.id || `${m.timestamp}-${m.text}`;
+        combinedMsgsMap.set(key, m);
+      }
+    });
+
+    const mergedMsgs = Array.from(combinedMsgsMap.values()).sort(
+      (a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
+    );
+
+    const t1Time = new Date(t1.updatedAt || t1.createdAt || 0).getTime();
+    const t2Time = new Date(t2.updatedAt || t2.createdAt || 0).getTime();
+    const newest = t2Time >= t1Time ? t2 : t1;
+
+    return {
+      ...t1,
+      ...t2,
+      ...newest,
+      messages: mergedMsgs,
+      userId: t1.userId || t2.userId || 'guest',
+      userEmail: t1.userEmail || t2.userEmail || '',
+      userName: t1.userName || t2.userName || 'Trader',
+      updatedAt: new Date(Math.max(t1Time, t2Time, Date.now())).toISOString()
+    };
+  };
+
   // 1. Seed with local tickets
   if (Array.isArray(localTickets)) {
     localTickets.forEach(t => {
@@ -67,25 +102,10 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
     firestoreTickets.forEach(t => {
       if (t && t.id) {
         const existing = map.get(t.id);
-        const tTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
-        const eTime = existing ? new Date(existing.updatedAt || existing.createdAt || 0).getTime() : -1;
-
-        if (!existing || tTime >= eTime) {
+        if (existing) {
+          map.set(t.id, mergeTwoTickets(existing, t));
+        } else {
           map.set(t.id, t);
-        } else if (existing) {
-          // Merge messages if local has optimistic messages
-          const combinedMsgsMap = new Map<string, SupportMessage>();
-          (t.messages || []).forEach(m => combinedMsgsMap.set(m.id, m));
-          (existing.messages || []).forEach(m => combinedMsgsMap.set(m.id, m));
-          const mergedMsgs = Array.from(combinedMsgsMap.values()).sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-          );
-          map.set(t.id, {
-            ...existing,
-            ...t,
-            messages: mergedMsgs,
-            updatedAt: new Date(Math.max(tTime, eTime)).toISOString()
-          });
         }
       }
     });

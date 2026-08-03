@@ -845,8 +845,7 @@ export default function ProfileView({
     {
       title: 'App Settings',
       items: [
-        { icon: Settings, label: t('common.preferences'), id: 'preferences' },
-        { icon: Shield, label: 'Admin Terminal', id: 'admin' },
+        { icon: Settings, label: t('common.preferences'), id: 'preferences' }
       ]
     }
   ];

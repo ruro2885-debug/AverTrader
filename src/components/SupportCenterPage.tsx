@@ -47,7 +47,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
   const { user } = useAuth();
 
   // Navigation State
-  const [viewMode, setViewMode] = useState<'chat' | 'tickets'>('chat');
+  const [viewMode, setViewMode] = useState<'chat' | 'tickets'>('tickets');
 
   // Real-time Firestore Tickets & Active Chat State
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -104,19 +104,38 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       return;
     }
 
+    let currentFsTickets: any[] = [];
+
     const syncUserTickets = (snapshotDocs?: any[]) => {
-      let fsTickets: any[] = [];
       if (snapshotDocs) {
+        currentFsTickets = [];
         snapshotDocs.forEach(docSnap => {
           const data = typeof docSnap.data === 'function' ? docSnap.data() : docSnap;
-          if (data.userId === user.uid) {
-            fsTickets.push({ id: docSnap.id || data.id, ...data });
+          const userEmailMatch = user.email && data.userEmail && data.userEmail.toLowerCase() === user.email.toLowerCase();
+          if (data.userId === user.uid || userEmailMatch || !data.userId || data.userId === 'guest' || data.userId === 'anonymous') {
+            currentFsTickets.push({ id: docSnap.id || data.id, ...data });
           }
         });
       }
 
-      const mergedAll = mergeTicketsWithLocal(fsTickets);
-      const userTickets = mergedAll.filter(t => t.userId === user.uid);
+      let localTicketIds = new Set<string>();
+      try {
+        const raw = localStorage.getItem('aver_support_tickets_v2');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((lt: any) => lt?.id && localTicketIds.add(lt.id));
+          }
+        }
+      } catch (e) {}
+
+      const mergedAll = mergeTicketsWithLocal(currentFsTickets);
+      const userTickets = mergedAll.filter(t => 
+        t.userId === user.uid || 
+        (user.email && t.userEmail && t.userEmail.toLowerCase() === user.email.toLowerCase()) ||
+        (!t.userId || t.userId === 'guest' || t.userId === 'anonymous') ||
+        localTicketIds.has(t.id)
+      );
       userTickets.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
 
       setTickets(userTickets as any);
@@ -298,15 +317,6 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
 
     try {
       await saveSupportTicket(updatedTicket);
-
-      // Simulate typing indicator
-      setTimeout(() => {
-        setIsTyping(true);
-        setTimeout(() => {
-          setIsTyping(false);
-        }, 2500);
-      }, 1000);
-
     } catch (err) {
       console.error("Failed to send message:", err);
       triggerToast("Failed to send message. Please retry.", "error");
@@ -416,31 +426,23 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
   // Handle Clear Conversation
   const handleClearConversation = async () => {
     if (!activeTicket) return;
-    if (window.confirm("Are you sure you want to clear this conversation view?")) {
-      const now = new Date().toISOString();
-      const clearedMsg: SupportMessage = {
-        id: "MSG-CLR-" + Math.floor(100000 + Math.random() * 900000),
-        sender: "Support Specialist",
-        text: "Conversation transcript cleared. Specialist standing by to assist you.",
-        timestamp: now
-      };
-      
-      const updatedTicket = {
-        ...activeTicket,
-        messages: [clearedMsg],
-        updatedAt: now
-      };
-      
-      setActiveTicket(updatedTicket);
-
-      try {
-        await saveSupportTicket(updatedTicket as any);
-        triggerToast("Conversation history cleared.", "info");
-      } catch (err) {
-        console.error("Error clearing conversation:", err);
-      }
-    }
+    const now = new Date().toISOString();
+    
+    const updatedTicket = {
+      ...activeTicket,
+      messages: [],
+      updatedAt: now
+    };
+    
+    setActiveTicket(updatedTicket);
     setShowMoreMenu(false);
+
+    try {
+      await saveSupportTicket(updatedTicket as any);
+      triggerToast("Conversation history cleared.", "info");
+    } catch (err) {
+      console.error("Error clearing conversation:", err);
+    }
   };
 
   // Export Chat Transcript
@@ -535,9 +537,9 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       setSelectedFile(null);
       setShowCreateModal(false);
 
-      // Open new ticket in Chat view immediately
+      // Open new ticket in Tickets view
       setActiveTicket(newTicket);
-      setViewMode('chat');
+      setViewMode('tickets');
       setTimeout(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
@@ -621,7 +623,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
             <div className="flex items-center gap-2.5 sm:gap-3">
               {/* Back Button */}
               <button 
-                onClick={onBack}
+                onClick={() => setViewMode('tickets')}
                 className={`p-1.5 sm:p-2 rounded-full transition-colors ${
                   isDark ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
                 }`}
@@ -944,7 +946,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
           }`}>
             <div className="flex items-center gap-3">
               <button 
-                onClick={() => setViewMode('chat')}
+                onClick={onBack}
                 className={`p-2 rounded-xl transition-all ${isDark ? 'hover:bg-white/5 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600'}`}
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -1069,7 +1071,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                           }}
                           className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5"
                         >
-                          <span>Open Chat</span>
+                          <span>Open Ticket</span>
                           <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
                         </button>
                       </div>
@@ -1260,7 +1262,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
                     disabled={submitting}
                     className="w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 hover:scale-[1.01] disabled:opacity-40 text-black font-black text-xs py-4 rounded-xl transition-all shadow-xl shadow-emerald-500/20"
                   >
-                    {submitting ? "Submitting Ticket..." : "Submit Ticket & Open Live Chat"}
+                    {submitting ? "Submitting Ticket..." : "Submit Ticket"}
                   </button>
                 </div>
 

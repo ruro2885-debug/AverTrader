@@ -189,7 +189,16 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       };
 
       // Save to admin_kyc collection for real-time admin review
-      await addDoc(collection(db, 'admin_kyc'), submissionPayload);
+      const { safeAddDoc } = await import('../lib/firebase');
+      await safeAddDoc(collection(db, 'admin_kyc'), submissionPayload);
+
+      // Local storage fallback so Admin can see it if Firestore is dead
+      try {
+        const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
+        locals.push({ ...submissionPayload, id: `localkyc-${Date.now()}` });
+        localStorage.setItem('aver_admin_kyc_local', JSON.stringify(locals));
+        window.dispatchEvent(new Event('storage'));
+      } catch (e) {}
 
       // Also update user kycStatus to pending
       if (user?.uid) {

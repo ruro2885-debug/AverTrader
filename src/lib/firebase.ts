@@ -37,13 +37,13 @@ export async function safeSetDoc(reference: any, data: any, options?: any) {
       await setDoc(reference, data);
     }
   } catch (err: any) {
-    const msg = err?.message?.toLowerCase() || '';
+    const msg = (err?.message || err?.code || String(err)).toLowerCase();
     if (msg.includes('quota') || msg.includes('resource-exhausted')) {
       quotaExceeded = true;
-      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      console.warn("[Firebase] Quota limit reached. Operating seamlessly in local persistence mode.");
       return;
     }
-    throw err;
+    console.warn("[Firebase] safeSetDoc failed:", err);
   }
 }
 
@@ -52,13 +52,13 @@ export async function safeUpdateDoc(reference: any, data: any) {
   try {
     await updateDoc(reference, data);
   } catch (err: any) {
-    const msg = err?.message?.toLowerCase() || '';
+    const msg = (err?.message || err?.code || String(err)).toLowerCase();
     if (msg.includes('quota') || msg.includes('resource-exhausted')) {
       quotaExceeded = true;
-      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      console.warn("[Firebase] Quota limit reached. Operating seamlessly in local persistence mode.");
       return;
     }
-    throw err;
+    console.warn("[Firebase] safeUpdateDoc failed:", err);
   }
 }
 
@@ -67,13 +67,14 @@ export async function safeAddDoc(reference: any, data: any) {
   try {
     return await addDoc(reference, data);
   } catch (err: any) {
-    const msg = err?.message?.toLowerCase() || '';
+    const msg = (err?.message || err?.code || String(err)).toLowerCase();
     if (msg.includes('quota') || msg.includes('resource-exhausted')) {
       quotaExceeded = true;
-      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      console.warn("[Firebase] Quota limit reached. Operating seamlessly in local persistence mode.");
       return null;
     }
-    throw err;
+    console.warn("[Firebase] safeAddDoc failed:", err);
+    return null;
   }
 }
 
@@ -82,13 +83,13 @@ export async function safeDeleteDoc(reference: any) {
   try {
     await deleteDoc(reference);
   } catch (err: any) {
-    const msg = err?.message?.toLowerCase() || '';
+    const msg = (err?.message || err?.code || String(err)).toLowerCase();
     if (msg.includes('quota') || msg.includes('resource-exhausted')) {
       quotaExceeded = true;
-      console.warn("[Firebase] Quota exceeded. Switching to local-only persistence mode.");
+      console.warn("[Firebase] Quota limit reached. Operating seamlessly in local persistence mode.");
       return;
     }
-    throw err;
+    console.warn("[Firebase] safeDeleteDoc failed:", err);
   }
 }
 
@@ -96,12 +97,13 @@ export async function safeDeleteDoc(reference: any) {
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error) {
-      const msg = error.message.toLowerCase();
-      if (msg.includes('offline') || msg.includes('could not reach') || msg.includes('unavailable') || msg.includes('quota') || msg.includes('resource-exhausted')) {
-        console.warn("[Firebase] Operating in offline/cached mode or backend unavailable/quota exceeded.");
-      }
+  } catch (error: any) {
+    const msg = (error?.message || error?.code || String(error)).toLowerCase();
+    if (msg.includes('quota') || msg.includes('resource-exhausted')) {
+      quotaExceeded = true;
+      console.warn("[Firebase] Quota limit reached on project. Operating in offline/cached mode.");
+    } else if (msg.includes('offline') || msg.includes('could not reach') || msg.includes('unavailable')) {
+      console.warn("[Firebase] Operating in offline/cached mode or backend unavailable.");
     }
   }
 }

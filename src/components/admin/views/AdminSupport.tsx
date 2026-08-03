@@ -131,11 +131,11 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
   // 2. Real-time Support Tickets Sync Listener
   useEffect(() => {
     let unsubTickets: (() => void) | null = null;
+    let currentFsTickets: SupportTicket[] = [];
 
     const syncAll = (snapshotDocs?: any[]) => {
-      let fsTickets: SupportTicket[] = [];
       if (snapshotDocs) {
-        fsTickets = snapshotDocs.map(docSnap => {
+        currentFsTickets = snapshotDocs.map(docSnap => {
           const docData = typeof docSnap.data === 'function' ? docSnap.data() : docSnap;
           return {
             id: docSnap.id || docData.id,
@@ -156,7 +156,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
         });
       }
 
-      const merged = mergeTicketsWithLocal(fsTickets as any);
+      const merged = mergeTicketsWithLocal(currentFsTickets as any);
       setTickets(merged as any);
       setLoading(false);
     };
@@ -379,13 +379,33 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
     const text = replyText.trim();
     setReplyText('');
 
-    const targetTicket = tickets.find(t => t.id === ticketId);
+    const now = new Date().toISOString();
+    let targetTicket = tickets.find(t => t.id === ticketId);
+
+    if (!targetTicket && selectedUserId) {
+      const userDoc = usersMap[selectedUserId];
+      const newId = "TCK-CHAT-" + Math.floor(100000 + Math.random() * 900000);
+      targetTicket = {
+        id: newId,
+        userId: selectedUserId,
+        userEmail: userDoc?.email || `${selectedUserId.slice(0, 8)}@aver.com`,
+        userName: userDoc?.displayName || userDoc?.fullName || 'Trader',
+        title: "Live Support Session",
+        category: "General Inquiry",
+        description: "Direct live messaging session with AVER specialist team.",
+        status: 'pending',
+        priority: 'medium',
+        createdAt: now,
+        updatedAt: now,
+        messages: []
+      };
+    }
+
     if (!targetTicket) {
       setSendingReply(false);
       return;
     }
 
-    const now = new Date().toISOString();
     let finalAttachmentUrl = attachment?.url || '';
 
     if (selectedFile) {

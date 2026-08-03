@@ -6,8 +6,8 @@ import {
   X, Check, ChevronDown, User as UserIcon, RefreshCw, ShieldAlert,
   Edit3, Trash2, DollarSign, Key, CreditCard
 } from 'lucide-react';
-import { collection, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp, setDoc, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { collection, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp, setDoc, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { db, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
 import { increment, arrayUnion } from 'firebase/firestore';
@@ -262,64 +262,23 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
       const amount = Number(fundAmount);
       const email = (fundingUser.email || '').toLowerCase().trim();
 
-      // Find ALL users with this email to ensure funding works regardless of which duplicate they are logged into
-      const q = query(collection(db, 'users'), where('email', '==', email));
-      const snap = await getDocs(q);
-      
-      const updatePromises = snap.docs.map(async (d) => {
-        const targetUid = d.id;
-        const userRef = doc(db, 'users', targetUid);
-        
-        // 1. Update user doc
-        await setDoc(userRef, {
-          availableBalance: increment(amount),
-          portfolioBalance: increment(amount),
-          totalDeposits: increment(amount),
-          tokenBalance: increment(amount),
-          cashBalance: increment(amount),
-          portfolioValue: increment(amount),
-          'portfolio.totalValue': increment(amount),
-          lastUpdated: serverTimestamp()
-        }, { merge: true });
+      const targetUids = new Set<string>();
+      if (uid) targetUids.add(uid);
 
-        // 2. Update persistent portfolio state (non-blocking for better UX)
-        portfolioPersistenceService.getPortfolioCurrent(targetUid).then(currentPortfolio => {
-          if (currentPortfolio) {
-            portfolioPersistenceService.savePortfolioCurrent(targetUid, {
-              walletState: {
-                portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
-                availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
-                totalDeposits: (currentPortfolio.walletState?.totalDeposits || 0) + amount,
-                tokenBalance: (currentPortfolio.walletState?.tokenBalance || 0) + amount
-              },
-              portfolioMetrics: {
-                totalValue: (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount
-              }
-            }).catch(pErr => console.warn("Portfolio persistence update failed:", pErr));
-          }
-        }).catch(() => {});
+      if (email) {
+        try {
+          const q = query(collection(db, 'users'), where('email', '==', email));
+          const snap = await getDocs(q);
+          snap.docs.forEach(d => targetUids.add(d.id));
+        } catch (e) {
+          console.warn("[AdminUsers] Query email error:", e);
+        }
+      }
 
-        // 3. Update dedicated wallet document (non-blocking for better UX)
-        walletService.getOrCreateWallet(targetUid).then(wallet => {
-          walletService.updateWallet(targetUid, {
-            portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
-            availableBalance: (Number(wallet.availableBalance) || 0) + amount,
-            totalDeposits: (Number(wallet.totalDeposits) || 0) + amount,
-            tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
-            cashBalance: (Number(wallet.cashBalance) || 0) + amount,
-            portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
-          }).catch(wErr => console.warn("Wallet update failed:", wErr));
-        }).catch(() => {});
-      });
-
-      await Promise.all(updatePromises);
-
-      // Log admin credit in deposits (only once)
-      const depositRef = doc(collection(db, 'admin_deposits'));
-      await setDoc(depositRef, {
-        id: depositRef.id,
-        userId: uid,
-        email: email,
+      // Log admin credit in deposits
+      await safeAddDoc(collection(db, 'admin_deposits'), {
+        userId: uid || 'admin',
+        email: email || 'user@aver.com',
         userName: fundingUser.displayName || fundingUser.username || fundingUser.fullName || 'User',
         amount: amount,
         currency: 'USD',
@@ -329,8 +288,56 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
         timestamp: new Date().toISOString(),
         createdAt: serverTimestamp()
       });
+      
+      const updatePromises = Array.from(targetUids).map(async (targetUid) => {
+        try {
+          const userRef = doc(db, 'users', targetUid);
+          
+          await safeSetDoc(userRef, {
+            availableBalance: increment(amount),
+            portfolioBalance: increment(amount),
+            totalDeposits: increment(amount),
+            tokenBalance: increment(amount),
+            cashBalance: increment(amount),
+            portfolioValue: increment(amount),
+            'portfolio.totalValue': increment(amount),
+            lastUpdated: serverTimestamp()
+          }, { merge: true });
 
-      showToast(`Successfully credited $${amount.toLocaleString()} to ${snap.docs.length} account(s) for ${email}`);
+          portfolioPersistenceService.getPortfolioCurrent(targetUid).then(currentPortfolio => {
+            if (currentPortfolio) {
+              portfolioPersistenceService.savePortfolioCurrent(targetUid, {
+                walletState: {
+                  portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
+                  availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
+                  totalDeposits: (currentPortfolio.walletState?.totalDeposits || 0) + amount,
+                  tokenBalance: (currentPortfolio.walletState?.tokenBalance || 0) + amount
+                },
+                portfolioMetrics: {
+                  totalValue: (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount
+                }
+              }).catch(() => {});
+            }
+          }).catch(() => {});
+
+          walletService.getOrCreateWallet(targetUid).then(wallet => {
+            walletService.updateWallet(targetUid, {
+              portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
+              availableBalance: (Number(wallet.availableBalance) || 0) + amount,
+              totalDeposits: (Number(wallet.totalDeposits) || 0) + amount,
+              tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
+              cashBalance: (Number(wallet.cashBalance) || 0) + amount,
+              portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
+            }).catch(() => {});
+          }).catch(() => {});
+        } catch (e) {
+          console.warn("Firestore credit sync notice:", e);
+        }
+      });
+
+      await Promise.all(updatePromises);
+
+      showToast(`Successfully credited $${amount.toLocaleString()} to ${email || uid}`);
       setFundingUser(null);
       setFundAmount('');
     } catch (err: any) {

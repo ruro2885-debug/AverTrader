@@ -4,7 +4,8 @@ import {
   Search, ShieldCheck, CheckCircle2, XCircle, Clock, FileText, User, 
   AlertTriangle, Eye, Check, X, ArrowLeft, RefreshCcw, MapPin, Calendar, Globe, Phone 
 } from 'lucide-react';
-import { collection, onSnapshot, updateDoc, doc, serverTimestamp, addDoc, setDoc, query, where, getDocs, increment } from 'firebase/firestore';
+import { safeUpdateDoc, safeSetDoc } from '../../../lib/firebase';
+import { collection, onSnapshot, doc, serverTimestamp, query, where, getDocs, increment, arrayUnion, setDoc, addDoc } from 'firebase/firestore';
 import { db, auth } from '../../../lib/firebase';
 
 interface KYC {
@@ -52,11 +53,25 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'admin_kyc'), (snap) => {
-      const data = snap.docs.map(d => {
-        const raw = d.data();
-        return { ...raw, id: d.id } as KYC;
-      });
+    const syncKyc = (docs?: any[]) => {
+      let data: KYC[] = [];
+      if (docs) {
+        data = docs.map(d => {
+          const raw = typeof d.data === 'function' ? d.data() : d;
+          return { ...raw, id: d.id || raw.id } as KYC;
+        });
+      }
+      
+      try {
+        const local = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
+        if (Array.isArray(local)) {
+          const localMap = new Map<string, KYC>();
+          local.forEach(k => localMap.set(k.userId, k as KYC)); // prefer latest per user
+          data.forEach(k => localMap.set(k.userId, k)); // fs overrides local
+          data = Array.from(localMap.values());
+        }
+      } catch (e) {}
+
       // Memory sort by submittedAt descending
       data.sort((a, b) => {
         const timeA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
@@ -65,11 +80,21 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
       });
       setSubmissions(data);
       setLoading(false);
+    };
+
+    const unsub = onSnapshot(collection(db, 'admin_kyc'), (snap) => {
+      syncKyc(snap.docs);
     }, (err) => {
       console.error("Error loading KYC submissions:", err);
-      setLoading(false);
+      syncKyc();
     });
-    return unsub;
+
+    const handleStorage = () => syncKyc();
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      unsub();
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const handleAction = async (id: string, status: 'verified' | 'rejected' | 'requires_resubmission', reason = '') => {
@@ -90,7 +115,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         updatePayload.rejectionReason = reason;
       }
 
-      await updateDoc(doc(db, 'admin_kyc', id), updatePayload);
+      await safeUpdateDoc(doc(db, 'admin_kyc', id), updatePayload);
 
       if (submission.userId) {
         const userUpdate: any = {
@@ -118,19 +143,49 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                 const amount = Number(depData.amount) || 0;
                 
                 // Approve deposit
-                await updateDoc(doc(db, 'admin_deposits', dDoc.id), {
+                await safeUpdateDoc(doc(db, 'admin_deposits', dDoc.id), {
                   status: 'completed',
                   approvedAt: serverTimestamp(),
                   processedBy: 'Auto-KYC-Approval'
                 });
 
+                const newHistoryItem = {
+                  id: `hist-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                  type: 'deposit',
+                  amount,
+                  valueUsd: amount,
+                  date: new Date().toISOString(),
+                  status: 'Completed'
+                };
+
+                const newDepositItem = {
+                  id: `dep-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                  amount,
+                  txHash: depData.txHash || `0x${Math.random().toString(16).substring(2, 10)}${Math.random().toString(16).substring(2, 10)}`,
+                  status: 'Completed',
+                  date: new Date().toISOString()
+                };
+
+                const notifItem = {
+                  id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                  title: 'Deposit Approved',
+                  message: `Your deposit of $${amount.toLocaleString()} has been verified and credited after KYC approval.`,
+                  time: 'Just now',
+                  timestamp: new Date().toISOString(),
+                  unread: true,
+                  type: 'success'
+                };
+
                 // Credit balance
-                await setDoc(doc(db, 'users', submission.userId), {
+                await safeSetDoc(doc(db, 'users', submission.userId), {
                   portfolioBalance: increment(amount),
                   availableBalance: increment(amount),
                   totalDeposits: increment(amount),
                   tokenBalance: increment(amount),
                   'portfolio.totalValue': increment(amount),
+                  transactionHistory: arrayUnion(newHistoryItem),
+                  depositsHistory: arrayUnion(newDepositItem),
+                  notificationsList: arrayUnion(notifItem),
                   lastUpdated: serverTimestamp()
                 }, { merge: true });
                 

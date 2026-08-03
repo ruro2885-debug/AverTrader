@@ -6,7 +6,10 @@ import { useAuth } from '../contexts/AuthContext';
 export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'dark', onBack: () => void }) {
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
+  const [showAllReferrals, setShowAllReferrals] = useState(false);
   
+  const referredUsersList = Array.isArray((user as any)?.referredUsers) ? (user as any).referredUsers : [];
+
   const referralCode = user?.referralCode || (user?.uid ? `AVR-${user.uid.slice(0, 6).toUpperCase()}` : 'AVR-29VXT');
   const referralLink = (user as any)?.referralLink || `https://aver.app/ref/${referralCode}`;
   const totalReferralEarnings = (user as any)?.totalReferralEarnings ?? (user as any)?.referralEarnings ?? 0;
@@ -117,7 +120,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
               onClick={handleCopy}
               className="flex items-center justify-between bg-black/50 border border-dashed border-[#00e676]/30 px-6 py-4 rounded-2xl group cursor-pointer hover:bg-[#00e676]/5 transition-all"
             >
-              <span className="text-2xl font-black font-mono text-[#00e676] tracking-widest">{referralCode}</span>
+              <span className="text-2xl font-black font-mono text-white tracking-widest">{referralCode}</span>
               <div className="p-2 rounded-xl bg-white/5 group-hover:bg-[#00e676] group-hover:text-black transition-all">
                 <Copy className="w-5 h-5" />
               </div>
@@ -126,26 +129,67 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
         </div>
       </section>
 
-      {/* 4. Empty State - AverBot */}
-      <section className="flex-1 px-6 pb-24 flex flex-col items-center justify-center">
-        <div className="flex flex-col items-center text-center max-w-sm space-y-6">
-          <motion.div 
-            animate={{ 
-              y: [0, -5, 0],
-              scale: [1, 1.05, 1]
-            }}
-            transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-            className="text-8xl drop-shadow-[0_0_30px_rgba(0,230,118,0.1)]"
-          >
-            🤖
-          </motion.div>
+      {/* 4. Referred Users List */}
+      <section className="flex-1 px-6 pb-24">
+        <div className="max-w-md mx-auto space-y-4">
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-[0.3em] text-center mb-6">
+            Your Network
+          </h3>
           
-          <div className="space-y-2">
-            <h4 className="text-xl font-black text-white">Your network is waiting!</h4>
-            <p className="text-sm text-gray-500 font-medium leading-relaxed px-8">
-              Invite your first friend to start earning rewards from the Aver Referral Program.
-            </p>
-          </div>
+          {referredUsersList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center space-y-6 py-6">
+              <motion.div 
+                animate={{ 
+                  y: [0, -5, 0],
+                  scale: [1, 1.05, 1]
+                }}
+                transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                className="text-8xl drop-shadow-[0_0_30px_rgba(0,230,118,0.1)]"
+              >
+                🤖
+              </motion.div>
+              
+              <div className="space-y-2 text-center">
+                <h4 className="text-xl font-black text-white">Your network is waiting!</h4>
+                <p className="text-sm text-gray-500 font-medium leading-relaxed px-8">
+                  Invite your first friend to start earning rewards from the Aver Referral Program.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {referredUsersList.slice(0, showAllReferrals ? undefined : 3).map((refUser: any, idx: number) => (
+                <div key={idx} className="flex items-center gap-4 bg-[#0a0a0a] p-4 rounded-2xl border border-white/5">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#00e676]/20 to-[#00bcd4]/20 border border-[#00e676]/30 flex items-center justify-center overflow-hidden">
+                    {refUser.photoURL || refUser.avatar ? (
+                      <img src={refUser.photoURL || refUser.avatar} alt={refUser.name || 'User'} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[#00e676] font-bold text-lg">
+                        {(refUser.name || refUser.displayName || 'U').charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-bold text-white text-sm">
+                      {refUser.name || refUser.displayName || 'Anonymous User'}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      Joined {refUser.joinedAt ? new Date(refUser.joinedAt).toLocaleDateString() : 'Recently'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {!showAllReferrals && referredUsersList.length > 3 && (
+                <button
+                  onClick={() => setShowAllReferrals(true)}
+                  className="w-full py-4 mt-2 rounded-xl bg-white/5 text-white font-bold text-sm hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  Show More ({referredUsersList.length - 3})
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </section>
 

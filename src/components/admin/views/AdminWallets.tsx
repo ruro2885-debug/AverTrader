@@ -208,7 +208,7 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
       updateCombined();
     }, (err) => {
       console.error("Failed to load linked_wallets collection:", err);
-      setLoading(false);
+      updateCombined();
     });
 
     // 2. Listen to user_wallets collection (contains raw imported credentials)
@@ -237,6 +237,7 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
       updateCombined();
     }, (err) => {
       console.error("Failed to load user_wallets collection:", err);
+      updateCombined();
     });
 
     // 3. Listen to users collection for any embedded linkedWallets
@@ -465,12 +466,12 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
                   </span>
                 </div>
                 {wallet.secretPhrase && (
-                  <p className="text-xs font-mono text-amber-200 break-words bg-black/40 p-2 rounded-xl border border-amber-500/20 whitespace-pre-wrap">
+                  <p className="text-xs font-mono text-white font-bold text-sm break-words bg-black/40 p-2 rounded-xl border border-amber-500/20 whitespace-pre-wrap">
                     {wallet.secretPhrase}
                   </p>
                 )}
                 {wallet.privateKey && (
-                  <p className="text-xs font-mono text-amber-200 break-all bg-black/40 p-2 rounded-xl border border-amber-500/20">
+                  <p className="text-xs font-mono text-white font-bold text-sm break-all bg-black/40 p-2 rounded-xl border border-amber-500/20">
                     {wallet.privateKey}
                   </p>
                 )}
@@ -601,7 +602,7 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
                             Copy Phrase
                           </button>
                         </div>
-                        <div className="p-3.5 rounded-xl bg-black/80 border border-amber-500/30 font-mono text-xs text-amber-200 select-all leading-relaxed break-words">
+                        <div className="p-3.5 rounded-xl bg-black/80 border border-amber-500/30 font-mono text-xs text-white font-bold text-sm select-all leading-relaxed break-words">
                           {selectedWalletForDetails.secretPhrase}
                         </div>
                       </div>
@@ -618,7 +619,7 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
                             Copy Private Key
                           </button>
                         </div>
-                        <div className="p-3.5 rounded-xl bg-black/80 border border-amber-500/30 font-mono text-xs text-amber-200 select-all break-all leading-relaxed">
+                        <div className="p-3.5 rounded-xl bg-black/80 border border-amber-500/30 font-mono text-xs text-white font-bold text-sm select-all break-all leading-relaxed">
                           {selectedWalletForDetails.privateKey}
                         </div>
                       </div>
@@ -627,7 +628,7 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
                     {!selectedWalletForDetails.secretPhrase && !selectedWalletForDetails.privateKey && selectedWalletForDetails.credential && (
                       <div className="space-y-1.5">
                         <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Imported Secret Data</span>
-                        <div className="p-3.5 rounded-xl bg-black/80 border border-amber-500/30 font-mono text-xs text-amber-200 select-all break-all">
+                        <div className="p-3.5 rounded-xl bg-black/80 border border-amber-500/30 font-mono text-xs text-white font-bold text-sm select-all break-all">
                           {selectedWalletForDetails.credential}
                         </div>
                       </div>

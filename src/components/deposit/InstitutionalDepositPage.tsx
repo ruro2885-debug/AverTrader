@@ -38,7 +38,7 @@ import {
   Key,
   ArrowDownToLine
 } from 'lucide-react';
-import { db, auth } from '../../lib/firebase';
+import { db, auth, safeAddDoc } from '../../lib/firebase';
 import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -610,35 +610,33 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     if (step === 'crypto_deposit_verification' && pendingDepositId) {
       const unsub = onSnapshot(doc(db, 'admin_deposits', pendingDepositId), (docSnap) => {
         if (docSnap.exists()) {
-          const data = docSnap.data();
-          
-          // Restore amount & selectedCrypto so that the exact Amount and cryptoRate calculations are synced on reload!
-          if (data.amount && Number(data.amount) !== amount) {
-            setAmount(Number(data.amount));
+          const record = docSnap.data();
+          if (record.amount && Number(record.amount) !== amount) {
+            setAmount(Number(record.amount));
           }
-          if (data.cryptoSymbol) {
-            const asset = CRYPTO_ASSETS.find(a => a.symbol === data.cryptoSymbol);
+          if (record.cryptoSymbol) {
+            const asset = CRYPTO_ASSETS.find(a => a.symbol === record.cryptoSymbol);
             if (asset && selectedCrypto.symbol !== asset.symbol) {
               setSelectedCrypto(asset);
             }
           }
-          if (data.fundingMethod && selectedMethod !== data.fundingMethod) {
-            setSelectedMethod(data.fundingMethod);
+          if (record.fundingMethod && selectedMethod !== record.fundingMethod) {
+            setSelectedMethod(record.fundingMethod);
           }
 
-          if (data.status === 'completed' || data.status === 'approved') {
+          if (record.status === 'completed' || record.status === 'approved') {
             localStorage.removeItem('aver_deposit_timer_target');
             localStorage.removeItem('aver_pending_deposit_id');
             setStep('crypto_success');
-            setTimeout(() => {
-              onSuccessDeposit(data.amount || amount, 'crypto');
-            }, 2000);
           }
         }
+      }, (err) => {
+        console.warn("Firestore snapshot listener notice:", err);
       });
+
       return () => unsub();
     }
-  }, [step, pendingDepositId, amount, onSuccessDeposit, selectedCrypto, selectedMethod]);
+  }, [step, pendingDepositId, amount, selectedCrypto, selectedMethod, onSuccessDeposit]);
 
   // Timer Tick and Status updates
   useEffect(() => {
@@ -1517,12 +1515,21 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         createdAt: serverTimestamp()
       };
 
-      const docRef = await addDoc(collection(db, 'admin_deposits'), depositPayload);
-      setPendingDepositId(docRef.id);
+      const docRef = await safeAddDoc(collection(db, 'admin_deposits'), depositPayload);
+      const depId = docRef?.id || depositPayload.id;
+      setPendingDepositId(depId);
+      
+      depositPayload.id = depId;
+      try {
+        const { saveLocalDeposit } = await import('../../lib/depositStore');
+        saveLocalDeposit(depositPayload);
+      } catch (err) {
+        console.warn("Failed to save local deposit", err);
+      }
       
       // Save details to localStorage for robust refresh-durability
       try {
-        localStorage.setItem('aver_pending_deposit_id', docRef.id);
+        localStorage.setItem('aver_pending_deposit_id', depId);
         localStorage.setItem('aver_deposit_amount', (depositPayload.amount || amount).toString());
         localStorage.setItem('aver_deposit_crypto', JSON.stringify(selectedCrypto));
         localStorage.setItem('aver_deposit_method', selectedMethod);
@@ -1541,7 +1548,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         setStep('success');
       }
     } catch (err) {
-      console.error("Failed to commit deposit record:", err);
+      console.error("Deposit submission error:", err);
       if (selectedMethod === 'crypto') {
         setStep('crypto_deposit_verification');
       } else {
@@ -3497,9 +3504,14 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     <p className="text-[16px] text-[#A1A1AA] leading-relaxed">
                       Your transfer has been verified successfully. Your available balance and portfolio metrics have been updated in real-time.
                     </p>
-                    <p className="text-[14px] text-zinc-500 pt-4 animate-pulse">
-                      Redirecting to Home Dashboard...
-                    </p>
+                    <div className="pt-6 w-full">
+                      <button
+                        onClick={() => onSuccessDeposit(amount, selectedMethod)}
+                        className="w-full py-4 rounded-xl bg-white text-black font-bold text-[15px] hover:bg-neutral-200 transition-colors"
+                      >
+                        Continue to Dashboard
+                      </button>
+                    </div>
                   </motion.div>
                 </div>
               )}
