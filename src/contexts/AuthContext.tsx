@@ -42,6 +42,7 @@ import { portfolioPersistenceService } from '../services/portfolioPersistenceSer
 import { walletService } from '../services/walletService';
 import { progressionService } from '../services/progressionService';
 import { transactionService } from '../services/transactionService';
+import { sanitizeAndResetUserData } from '../services/dataSanitizer';
 
 export interface UserPreferences {
   language: string;
@@ -325,7 +326,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ...prev,
               portfolioBalance: wData.portfolioBalance ?? prev.portfolioBalance,
               availableBalance: wData.availableBalance ?? prev.availableBalance,
-              vaultBalance: wData.vaultBalance ?? prev.vaultBalance,
+              vaultBalance: 0, // Enforce 0 vault balance (no fake $310k reserves)
               totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
               totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
               tokenBalance: wData.tokenBalance ?? prev.tokenBalance,
@@ -349,7 +350,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ...prev,
               portfolioBalance: pState.walletState.portfolioBalance ?? prev.portfolioBalance,
               availableBalance: pState.walletState.availableBalance ?? prev.availableBalance,
-              vaultBalance: pState.walletState.vaultBalance ?? prev.vaultBalance,
+              vaultBalance: 0, // Enforce 0 vault balance
               totalDeposits: pState.walletState.totalDeposits ?? prev.totalDeposits,
               totalWithdrawals: pState.walletState.totalWithdrawals ?? prev.totalWithdrawals,
               totalProfit: pState.walletState.totalProfit ?? prev.totalProfit,
@@ -378,6 +379,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (docSnap.exists()) {
             const userData = docSnap.data() as User;
             
+            // Auto-sanitize if legacy fake vault balance ($310,179) or fake progress exists
+            if (userData.vaultBalance && userData.vaultBalance > 0) {
+              sanitizeAndResetUserData(uid, userData.portfolioBalance || userData.availableBalance || 0).catch(() => {});
+            }
+
             // Auto-initialize profile details if missing
             const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
             if (needsSeed && !avatarSetupRef.current) {
@@ -403,9 +409,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setUser(prev => {
               const updatedUser = {
                 ...userData,
-                holdings: prev?.holdings || [],
-                trades: prev?.trades || [],
-                snapshots: prev?.snapshots || []
+                portfolioBalance: userData.portfolioBalance ?? prev?.portfolioBalance ?? 0,
+                availableBalance: userData.availableBalance ?? prev?.availableBalance ?? 0,
+                vaultBalance: 0, // Always enforce 0 vault balance unless user specifically transfers
+                holdings: prev?.holdings || userData.holdings || [],
+                trades: prev?.trades || userData.trades || [],
+                snapshots: prev?.snapshots || userData.snapshots || []
               } as User;
               
               // Only cache essential profile info
@@ -510,18 +519,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (firebaseUser) {
         setupSubscriptions(firebaseUser.uid, firebaseUser.email);
+        setLoading(false);
       } else {
-        // User is signed out from Firebase, check for active local user
+        // User is signed out from Firebase
         const activeLocalUserStr = safeStorage.getItem('aver_active_user');
         if (activeLocalUserStr) {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
-            setUser(activeLocalUser);
-            if (activeLocalUser.uid) {
-              setupSubscriptions(activeLocalUser.uid, activeLocalUser.email);
+            // Clear auto-generated dummy profiles so user lands on Login/Register
+            if (!activeLocalUser?.uid || activeLocalUser.uid.startsWith('local-')) {
+              safeStorage.removeItem('aver_active_user');
+              setUser(null);
+            } else {
+              // Valid signed-in local user
+              setUser(activeLocalUser);
+              if (activeLocalUser.uid) {
+                setupSubscriptions(activeLocalUser.uid, activeLocalUser.email);
+              }
             }
           } catch (e) {
-            console.error("Error loading active local user:", e);
+            safeStorage.removeItem('aver_active_user');
             setUser(null);
           }
         } else {
@@ -782,49 +799,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             throw new Error("Your account has been deactivated by an administrator. Please contact support.");
           }
         }
+        return;
       }
 
       if (firebaseError) {
-        // If Firebase Auth is restricted/disabled, or if it failed with network/restricted operation, try logging in locally
-        if (isRestrictedAuthError(firebaseError)) {
-          console.warn("Firebase Auth unavailable or restricted, authenticating via local database...");
-          const dbList = getLocalDB();
-          const localRecord = dbList.find(u => u.email.toLowerCase() === email.toLowerCase());
-          
-          if (!localRecord) {
-            console.warn("Local record not found during restricted sign-in fallback. Checking Firestore before auto-creating...");
-            
-            // Search Firestore for existing user by email
-            let existingUser: User | null = null;
-            try {
-              const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase()));
-              const snap = await getDocs(q);
-              if (!snap.empty) {
-                existingUser = { uid: snap.docs[0].id, ...snap.docs[0].data() } as User;
-              }
-            } catch (err) {
-              console.warn("Firestore search failed during sign-in fallback:", err);
-            }
-
-            if (existingUser) {
-              console.log("[AuthContext] Found existing user in Firestore, adopting profile:", existingUser.uid);
-              const dbList = getLocalDB();
-              dbList.push({
-                email: email.toLowerCase(),
-                password: password,
-                profile: existingUser
-              });
-              saveLocalDB(dbList);
-              safeStorage.setItem('aver_active_user', JSON.stringify(existingUser));
-              setUser(existingUser);
-              setNotifications(existingUser.notificationsList || []);
-              setLoading(false);
-              return;
-            }
-
-            throw firebaseError;
-          }
-          
+        // If local user record exists, verify password
+        const dbList = getLocalDB();
+        const localRecord = dbList.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+        
+        if (localRecord) {
           if (localRecord.password !== password) {
             throw new Error("Password or Email Incorrect.");
           }
@@ -837,8 +820,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             throw new Error("Your account has been deactivated by an administrator. Please contact support.");
           }
 
-          // Local login success!
-          // Auto-heal local avatar if missing or if no avatarUrl
           let updatedProfile = { ...localRecord.profile };
           if (!updatedProfile.avatarSeed || !updatedProfile.avatarUrl) {
             updatedProfile.avatarSeed = updatedProfile.avatarSeed || updatedProfile.uid;
@@ -857,7 +838,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           localRecord.profile = userProfile;
           saveLocalDB(dbList);
 
-          // Sync localRecord to Firestore users collection
           setDoc(doc(db, 'users', userProfile.uid), {
             ...userProfile,
             lastLogin: serverTimestamp(),
@@ -870,28 +850,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUser(userProfile);
           setNotifications(userProfile.notificationsList || []);
           setLoading(false);
-        } else {
-          throw firebaseError;
+          return;
         }
+
+        // If no user record exists, handle Firebase Auth error codes clearly
+        const errCode = getFirebaseErrorCode(firebaseError);
+        if (errCode === 'auth/wrong-password' || errCode === 'auth/user-not-found' || errCode === 'auth/invalid-credential') {
+          throw new Error("Incorrect email or password. Please check your details or create a new account.");
+        } else if (errCode === 'auth/user-disabled') {
+          throw new Error("This account has been disabled. Please contact support.");
+        } else if (errCode === 'auth/too-many-requests') {
+          throw new Error("Too many failed login attempts. Please try again later.");
+        }
+        
+        throw new Error("Incorrect email or password. Please check your credentials or create an account.");
       }
     } catch (error: any) {
       console.error("Auth signIn error:", error);
-      const errCode = getFirebaseErrorCode(error);
-      const errMsg = error.message || '';
-      
-      // If it's a custom user-facing error from the fallback block, bubble it up directly!
-      if (errMsg && !errMsg.includes('auth/') && !errMsg.includes('Firebase:')) {
-        throw error;
-      }
-      
-      if (errCode === 'auth/wrong-password' || errCode === 'auth/user-not-found' || errCode === 'auth/invalid-credential' || errCode === 'auth/invalid-email') {
-        throw new Error("Password or Email Incorrect.");
-      } else if (errCode === 'auth/network-request-failed') {
-        throw new Error("Network connection unavailable. Please try again.");
-      } else if (isRestrictedAuthError(error)) {
-        throw new Error("Firebase Authentication is restricted in this project. Please sign up to create a local demo profile.");
-      }
-      throw new Error(errMsg || "Something went wrong. Please try again.");
+      throw error;
     }
   }, []);
 
@@ -1328,32 +1304,31 @@ function dataURLtoBlob(dataurl: string): Blob {
             return;
           }
 
-          const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
-          console.log("[AuthContext] updateProfilePhoto: Converting data string to Blob for upload");
-          
           try {
-            // Synchronous, iframe-safe conversion avoiding any network hang in fetch()
+            const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
             const blob = dataURLtoBlob(file);
-            console.log("[AuthContext] updateProfilePhoto: Blob created synchronously, size:", blob.size);
-            
-            console.log("[AuthContext] updateProfilePhoto: Uploading Blob to storage");
-            await uploadBytes(storageRef, blob);
-            console.log("[AuthContext] updateProfilePhoto: Storage upload successful");
+            const uploadPromise = uploadBytes(storageRef, blob).then(() => getDownloadURL(storageRef));
+            const timeoutPromise = new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Storage upload timeout")), 4000));
+            photoURL = await Promise.race([uploadPromise, timeoutPromise]);
           } catch (uploadErr) {
-            console.warn("[AuthContext] uploadBytes failed, falling back to uploadString:", uploadErr);
-            await uploadString(storageRef, file, 'data_url');
-            console.log("[AuthContext] updateProfilePhoto: uploadString fallback successful");
+            console.warn("[AuthContext] Storage upload failed or timed out, using data URL fallback:", uploadErr);
+            photoURL = file;
           }
-          
-          photoURL = await getDownloadURL(storageRef);
-          console.log("[AuthContext] updateProfilePhoto: Download URL received:", photoURL);
         } else {
-          const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
-          console.log("[AuthContext] updateProfilePhoto: Uploading bytes to storage");
-          await uploadBytes(storageRef, file);
-          console.log("[AuthContext] updateProfilePhoto: Storage upload successful");
-          photoURL = await getDownloadURL(storageRef);
-          console.log("[AuthContext] updateProfilePhoto: Download URL received:", photoURL);
+          try {
+            const storageRef = ref(storage, `avatars/${uid}/profile.jpg`);
+            const uploadPromise = uploadBytes(storageRef, file).then(() => getDownloadURL(storageRef));
+            const timeoutPromise = new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Storage upload timeout")), 4000));
+            photoURL = await Promise.race([uploadPromise, timeoutPromise]);
+          } catch (uploadErr) {
+            console.warn("[AuthContext] File upload failed or timed out:", uploadErr);
+            const reader = new FileReader();
+            photoURL = await new Promise<string>((resolve) => {
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = () => resolve('');
+              reader.readAsDataURL(file);
+            });
+          }
         }
 
         if (photoURL) {
@@ -1478,12 +1453,13 @@ function dataURLtoBlob(dataurl: string): Blob {
     if (userRef.current) {
       const txHash = '0x' + Math.random().toString(16).substr(2, 8) + Math.random().toString(16).substr(2, 8);
       const dateStr = new Date().toISOString();
+      const depositId = 'dep-' + Date.now();
       
       const newDeposit: DepositItem = {
-        id: 'dep-' + Date.now(),
+        id: depositId,
         amount,
         txHash,
-        status: 'Completed',
+        status: 'Pending',
         date: dateStr,
       };
 
@@ -1493,39 +1469,16 @@ function dataURLtoBlob(dataurl: string): Blob {
         amount,
         valueUsd: amount,
         date: dateStr,
-        status: 'Completed',
+        status: 'Pending',
       };
-
-      let activeSessionCapital = 0;
-      try {
-        const sessionStr = safeStorage.getItem(`aver_session_${userRef.current.uid}`);
-        if (sessionStr) {
-          const s = JSON.parse(sessionStr);
-          if (s && s.status === 'ACTIVE') {
-            activeSessionCapital = s.tradingCapital || 0;
-          }
-        }
-      } catch (e) {}
 
       if (!auth.currentUser) {
         setUser(prev => {
           if (!prev) return null;
-          const nextPort = (prev.portfolioBalance || 0) + amount;
-          const nextAvail = (prev.availableBalance || 0) + amount; // Already has activeSessionCapital subtracted in state
-          const nextDep = (prev.totalDeposits || 0) + amount;
-          const nextTokenBal = nextPort - activeSessionCapital;
           const updated = {
             ...prev,
-            portfolioBalance: nextPort,
-            availableBalance: nextAvail,
-            tokenBalance: nextTokenBal,
-            totalDeposits: nextDep,
             deposits: [newDeposit, ...(prev.deposits || [])],
             history: [newHistoryItem, ...(prev.history || [])],
-            portfolio: {
-              ...prev.portfolio,
-              totalValue: nextPort + (prev.vaultBalance || 0)
-            },
             lastUpdated: new Date().toISOString()
           } as User;
           safeStorage.setItem('aver_active_user', JSON.stringify(updated));
@@ -1533,75 +1486,43 @@ function dataURLtoBlob(dataurl: string): Blob {
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
           if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
-          
-          portfolioPersistenceService.savePortfolioCurrent(prev.uid, {
-            walletState: {
-              portfolioBalance: nextPort,
-              availableBalance: nextAvail,
-              vaultBalance: prev.vaultBalance || 0,
-              activeOffset: prev.activeOffset || 0,
-              totalDeposits: nextDep,
-              totalWithdrawals: prev.totalWithdrawals || 0,
-              totalProfit: prev.totalProfit || 0,
-              totalLoss: prev.totalLoss || 0,
-              tokenBalance: nextTokenBal,
-              aiTradingCapital: activeSessionCapital
-            },
-            portfolioMetrics: {
-              ...prev.portfolio,
-              totalValue: nextPort + (prev.vaultBalance || 0)
-            }
-          });
-
-          walletService.updateWallet(prev.uid, {
-            portfolioBalance: nextPort,
-            availableBalance: nextAvail,
-            totalDeposits: nextDep,
-            portfolioValue: nextPort + (prev.vaultBalance || 0),
-            cashBalance: nextPort,
-            tokenBalance: nextTokenBal,
-            aiTradingCapital: activeSessionCapital
-          });
 
           return updated;
         });
 
-        await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} has been submitted for processing.`);
-        await addNotification('deposit', 'medium', 'Deposit Approved', `Successfully deposited $${amount.toLocaleString()} to your wallet.`);
+        await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} is pending approval.`);
         return;
       }
 
       const userDocRef = doc(db, 'users', userRef.current.uid);
       await updateDoc(userDocRef, {
-        portfolioBalance: increment(amount),
-        availableBalance: increment(amount),
-        tokenBalance: increment(amount),
-        totalDeposits: increment(amount),
         deposits: arrayUnion(newDeposit),
         history: arrayUnion(newHistoryItem),
-        'portfolio.totalValue': increment(amount),
         lastUpdated: serverTimestamp()
       });
 
-      const updatedPort = (userRef.current.portfolioBalance || 0) + amount;
-      const updatedAvail = (userRef.current.availableBalance || 0) + amount; // Already has activeSessionCapital subtracted in state
-      const updatedTotalDep = (userRef.current.totalDeposits || 0) + amount;
-      const updatedTokenBal = updatedPort - activeSessionCapital;
+      try {
+        const adminDepositRef = doc(collection(db, 'admin_deposits'), depositId);
+        await setDoc(adminDepositRef, {
+          id: depositId,
+          userId: userRef.current.uid,
+          email: userRef.current.email,
+          amount: amount,
+          txHash: txHash,
+          status: 'pending',
+          createdAt: serverTimestamp(),
+          fundingMethod: 'crypto',
+        });
+      } catch (err) {
+        console.warn("Failed to create admin deposit:", err);
+      }
 
       setUser(prev => {
         if (!prev) return null;
         const updated = {
           ...prev,
-          portfolioBalance: updatedPort,
-          availableBalance: updatedAvail,
-          tokenBalance: updatedTokenBal,
-          totalDeposits: updatedTotalDep,
           deposits: [newDeposit, ...(prev.deposits || [])],
           history: [newHistoryItem, ...(prev.history || [])],
-          portfolio: {
-            ...prev.portfolio,
-            totalValue: updatedPort + (prev.vaultBalance || 0)
-          },
           lastUpdated: new Date().toISOString()
         } as User;
         safeStorage.setItem(`user_profile_${prev.uid}`, JSON.stringify(updated));
@@ -1609,40 +1530,7 @@ function dataURLtoBlob(dataurl: string): Blob {
         return updated;
       });
 
-      await portfolioPersistenceService.savePortfolioCurrent(userRef.current.uid, {
-        walletState: {
-          portfolioBalance: updatedPort,
-          availableBalance: updatedAvail,
-          vaultBalance: userRef.current.vaultBalance || 0,
-          activeOffset: userRef.current.activeOffset || 0,
-          totalDeposits: updatedTotalDep,
-          totalWithdrawals: userRef.current.totalWithdrawals || 0,
-          totalProfit: userRef.current.totalProfit || 0,
-          totalLoss: userRef.current.totalLoss || 0,
-          tokenBalance: updatedTokenBal,
-          aiTradingCapital: activeSessionCapital
-        },
-        portfolioMetrics: {
-          ...(userRef.current.portfolio || {}),
-          totalValue: updatedPort + (userRef.current.vaultBalance || 0)
-        }
-      });
-
-      await walletService.updateWallet(userRef.current.uid, {
-        portfolioBalance: updatedPort,
-        availableBalance: updatedAvail,
-        totalDeposits: updatedTotalDep,
-        portfolioValue: updatedPort + (userRef.current.vaultBalance || 0),
-        cashBalance: updatedPort,
-        tokenBalance: updatedTokenBal,
-        aiTradingCapital: activeSessionCapital
-      });
-
-      await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} has been submitted for processing.`);
-      await addNotification('deposit', 'medium', 'Deposit Approved', `Successfully deposited $${amount.toLocaleString()} to your wallet.`);
-
-      // Automatically record in Transaction History
-      transactionService.recordDeposit(userRef.current.uid, amount, 'USDT', 'TRC20').catch(() => {});
+      await addNotification('deposit', 'medium', 'Deposit Submitted', `Your deposit of $${amount.toLocaleString()} has been submitted and is pending admin approval.`);
     }
   }, [addNotification]);
 

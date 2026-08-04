@@ -315,7 +315,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     }
 
     const allocationAmount = targetConfig.sessionSetup?.amountToAllocate || 0;
-    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 25000);
+    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0);
 
     // Compare allocated amount with available wallet balance
     if (allocationAmount > currentTokenBalance) {
@@ -1009,7 +1009,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                       Allocated Capital
                     </span>
                     <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      {formatCurrency(config?.sessionSetup?.amountToAllocate || 25000)}
+                      {formatCurrency(config?.sessionSetup?.amountToAllocate || 0)}
                     </span>
                   </div>
 
@@ -1029,7 +1029,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                       Capital Shortfall
                     </span>
                     <span className="font-mono font-bold text-amber-400">
-                      -{formatCurrency(Math.max(0, (config?.sessionSetup?.amountToAllocate || 25000) - (tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0))))}
+                      -{formatCurrency(Math.max(0, (config?.sessionSetup?.amountToAllocate || 0) - (tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0))))}
                     </span>
                   </div>
                 </div>

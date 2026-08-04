@@ -81,41 +81,49 @@ export default function QuickHub({
       {/* Floating Action Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-8 right-8 z-50 p-4 rounded-full shadow-2xl transition-all duration-300 hover:scale-110 cursor-pointer focus:outline-none flex items-center justify-center ${
+        className={`fixed bottom-4 right-4 z-50 p-3 rounded-full shadow-xl transition-all duration-300 hover:scale-105 cursor-pointer focus:outline-none flex items-center justify-center ${
           isDark 
-            ? 'bg-slate-900 border border-white/10 text-white hover:border-emerald-500/50' 
-            : 'bg-white border border-slate-200 text-slate-900 hover:border-emerald-500/50'
+            ? 'bg-slate-900 border border-white/10 text-white hover:border-emerald-500/50 shadow-black/40' 
+            : 'bg-white border border-slate-200 text-slate-900 hover:border-emerald-500/50 shadow-slate-200'
         }`}
       >
-        {isOpen ? <X className="w-6 h-6" /> : <Settings className="w-6 h-6" />}
+        {isOpen ? <X className="w-5 h-5" /> : <Settings className="w-5 h-5" />}
       </button>
 
       {/* Slide-out Panel */}
       {isOpen && (
         <div 
-          className={`fixed bottom-24 right-8 w-[92vw] sm:w-[420px] max-h-[80vh] md:max-h-[600px] rounded-2xl border shadow-3xl z-50 flex flex-col overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 ${
-            isDark ? 'bg-slate-950 border-white/10' : 'bg-white border-slate-200'
+          className={`fixed bottom-16 right-4 sm:right-5 w-[94vw] sm:w-[440px] max-h-[82vh] md:max-h-[620px] rounded-2xl border shadow-2xl z-50 flex flex-col overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 backdrop-blur-2xl ${
+            isDark ? 'bg-slate-950/95 border-white/10 text-slate-100' : 'bg-white/95 border-slate-200/80 text-slate-900'
           }`}
-          style={{ boxShadow: isDark ? '0 25px 50px -12px rgba(0, 0, 0, 0.7)' : '0 25px 50px -12px rgba(0, 0, 0, 0.15)' }}
+          style={{ boxShadow: isDark ? '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05)' : '0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)' }}
         >
           {/* Header */}
-          <div className={`p-5 border-b flex items-center space-x-3 ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
-            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500">
-              <Layers className="w-5 h-5" />
+          <div className={`p-6 border-b flex items-center justify-between ${isDark ? 'border-white/5 bg-slate-900/40' : 'border-slate-100 bg-slate-50/50'}`}>
+            <div className="flex items-center space-x-3.5">
+              <div className="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-500 border border-emerald-500/20">
+                <Layers className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className={`font-bold tracking-tight text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Aver Command Center
+                </h3>
+                <p className={`text-xs font-mono mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  System Settings & Support
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className={`font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                Aver Command Center
-              </h3>
-              <p className={`text-xs font-mono ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                System Settings & Support
-              </p>
-            </div>
+            <button
+              onClick={() => setIsOpen(false)}
+              className={`p-2 rounded-lg transition-colors cursor-pointer ${isDark ? 'hover:bg-white/5 text-gray-400 hover:text-white' : 'hover:bg-slate-100 text-gray-500 hover:text-slate-900'}`}
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Tabs */}
           <div className={`grid grid-cols-2 border-b text-xs font-mono ${
-            isDark ? 'border-white/5 text-gray-400' : 'border-slate-100 text-gray-500'
+            isDark ? 'border-white/5 text-gray-400 bg-slate-900/20' : 'border-slate-100 text-gray-500 bg-slate-50/30'
           }`}>
             <button
               onClick={() => setActiveTab('preferences')}
@@ -125,7 +133,7 @@ export default function QuickHub({
                   : 'border-transparent hover:text-emerald-400 hover:bg-black/5'
               }`}
             >
-              <div className="flex items-center justify-center space-x-1.5">
+              <div className="flex items-center justify-center space-x-2">
                 <Globe className="w-4 h-4" />
                 <span>{t('qh.pref')}</span>
               </div>
@@ -138,7 +146,7 @@ export default function QuickHub({
                   : 'border-transparent hover:text-emerald-400 hover:bg-black/5'
               }`}
             >
-              <div className="flex items-center justify-center space-x-1.5">
+              <div className="flex items-center justify-center space-x-2">
                 <HelpCircle className="w-4 h-4" />
                 <span>{t('qh.faq')}</span>
               </div>
@@ -146,26 +154,26 @@ export default function QuickHub({
           </div>
 
           {/* Content Area */}
-          <div className={`flex-1 overflow-y-auto overflow-x-hidden p-5 ${
-            isDark ? 'bg-slate-950/50' : 'bg-slate-50/50'
+          <div className={`flex-1 overflow-y-auto overflow-x-hidden p-5 space-y-8 ${
+            isDark ? 'bg-slate-950/40' : 'bg-slate-50/40'
           } no-scrollbar`}>
             
             {/* Preferences Tab Content */}
             {activeTab === 'preferences' && (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 
                 {/* Theme Selection */}
                 <div className="space-y-3">
-                  <label className={`text-xs font-mono font-bold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <label className={`text-[10px] font-mono font-bold uppercase tracking-widest ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                     {t('qh.theme')}
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => handleUpdate('theme', 'dark')}
-                      className={`py-2 rounded-lg text-xs font-mono font-medium border cursor-pointer transition-all ${
+                      className={`py-2.5 rounded-xl text-xs font-mono font-medium border cursor-pointer transition-all ${
                         theme === 'dark'
                           ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                          : isDark ? 'border-white/10 hover:border-white/20 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
+                          : isDark ? 'border-white/5 hover:border-white/10 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
                       }`}
                     >
                       <div className="flex items-center justify-center space-x-2">
@@ -175,10 +183,10 @@ export default function QuickHub({
                     </button>
                     <button
                       onClick={() => handleUpdate('theme', 'light')}
-                      className={`py-2 rounded-lg text-xs font-mono font-medium border cursor-pointer transition-all ${
+                      className={`py-2.5 rounded-xl text-xs font-mono font-medium border cursor-pointer transition-all ${
                         theme === 'light'
                           ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
-                          : isDark ? 'border-white/10 hover:border-white/20 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
+                          : isDark ? 'border-white/5 hover:border-white/10 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
                       }`}
                     >
                       <div className="flex items-center justify-center space-x-2">
@@ -191,18 +199,18 @@ export default function QuickHub({
 
                 {/* Language Selection */}
                 <div className="space-y-3">
-                  <label className={`text-xs font-mono font-bold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <label className={`text-[10px] font-mono font-bold uppercase tracking-widest ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                     {t('qh.lang')}
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     {(['EN', 'ES', 'FR', 'DE', 'ZH', 'PT'] as Language[]).map((lang) => (
                       <button
                         key={lang}
                         onClick={() => handleUpdate('language', lang)}
-                        className={`py-2 rounded-lg text-xs font-mono font-medium border cursor-pointer transition-all ${
+                        className={`py-2 rounded-lg text-[11px] font-mono font-medium border cursor-pointer transition-all ${
                           language === lang
                             ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                            : isDark ? 'border-white/10 hover:border-white/20 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
+                            : isDark ? 'border-white/5 hover:border-white/10 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
                         }`}
                       >
                         {lang === 'EN' && 'English'}
@@ -218,7 +226,7 @@ export default function QuickHub({
 
                 {/* Currency Selection */}
                 <div className="space-y-3">
-                  <label className={`text-xs font-mono font-bold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <label className={`text-[10px] font-mono font-bold uppercase tracking-widest ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                     {t('qh.curr')}
                   </label>
                   <div className="grid grid-cols-3 gap-2">
@@ -226,10 +234,10 @@ export default function QuickHub({
                       <button
                         key={curr}
                         onClick={() => handleUpdate('currency', curr)}
-                        className={`py-2 rounded-lg text-xs font-mono font-medium border cursor-pointer transition-all ${
+                        className={`py-2 rounded-lg text-[11px] font-mono font-medium border cursor-pointer transition-all ${
                           currency === curr
                             ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                            : isDark ? 'border-white/10 hover:border-white/20 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
+                            : isDark ? 'border-white/5 hover:border-white/10 text-gray-400' : 'border-slate-200 hover:border-slate-300 text-gray-500'
                         }`}
                       >
                         {curr}
@@ -239,13 +247,13 @@ export default function QuickHub({
                 </div>
 
                 {/* Save Button (Visual) */}
-                <div className="pt-2">
+                <div className="pt-4">
                   <button
                     onClick={() => setIsOpen(false)}
-                    className="inline-flex w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-mono font-bold tracking-wider justify-center items-center space-x-2 shadow-lg shadow-emerald-500/10 cursor-pointer hover:scale-[1.01] transition-all"
+                    className="inline-flex w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-mono font-bold tracking-widest justify-center items-center space-x-2 shadow-lg shadow-emerald-500/20 cursor-pointer hover:scale-[1.01] transition-all"
                   >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>{t('qh.save')}</span>
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>{t('qh.save').toUpperCase()}</span>
                   </button>
                 </div>
               </div>

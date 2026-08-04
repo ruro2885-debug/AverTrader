@@ -23,6 +23,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isDark = theme === 'dark';
   const { signUp, signIn, forgotPassword } = useAuth();
   const { t } = usePreferences();
+
   const [view, setView] = useState<'choice' | 'register' | 'login' | 'forgot-password' | 'forgot-password-success'>('choice');
   const [showPassword, setShowPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -975,8 +976,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     {t('auth.welcome_back')}
                   </h2>
                 </div>
-
-
 
                 {/* Email Login Form */}
                 <form onSubmit={handleLoginSubmit} className="space-y-4">

@@ -137,7 +137,7 @@ service cloud.firestore {
     }
 
     // 10. Global Events Hub
-    match /events_hub/{eventId} {
+    match /events_hub/{eventId=**} {
       allow read, write, create, update, delete: if true;
     }
   }

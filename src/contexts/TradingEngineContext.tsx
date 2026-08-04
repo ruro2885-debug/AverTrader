@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { doc, onSnapshot, updateDoc, setDoc, collection, addDoc, serverTimestamp, query, orderBy, where, limit, getDocs, Timestamp, increment } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, setDoc, collection, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, limit, getDocs, Timestamp, increment } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { useFinancials } from '../hooks/useFinancials';
@@ -45,6 +45,7 @@ interface TradingEngineContextType {
   toggleCoolingBreak: (breakId: string) => Promise<void>;
   togglePauseTrading: () => Promise<void>;
   toggleEmergencyStop: () => Promise<void>;
+  clearActivityHistory: () => Promise<void>;
 }
 
 export const TradingEngineContext = createContext<TradingEngineContextType>({
@@ -75,6 +76,7 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
   toggleCoolingBreak: async () => {},
   togglePauseTrading: async () => {},
   toggleEmergencyStop: async () => {},
+  clearActivityHistory: async () => {},
 });
 
 export const TradingEngineProvider = ({ children }: { children: React.ReactNode }) => {
@@ -479,8 +481,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const fundingSource = activeConfig.sessionSetup.fundingSource;
     
     // Validate funds
-    const rawTokenBal = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.portfolioBalance ?? 25000;
-    const currentTokenBal = rawTokenBal < allocationAmount ? allocationAmount + 25000 : rawTokenBal;
+    const rawTokenBal = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.portfolioBalance ?? 0;
+    const currentTokenBal = rawTokenBal < allocationAmount ? allocationAmount + 0 : rawTokenBal;
     
     const currentVaultBal = user?.vaultBalance ?? 0;
     let newTokenBal = currentTokenBal;
@@ -730,7 +732,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     try {
       // 4. Calculate new balances
-      const currentTokenBal = tokenBalanceRef.current ?? user.tokenBalance ?? user.portfolioBalance ?? 25000;
+      const currentTokenBal = tokenBalanceRef.current ?? user.tokenBalance ?? user.portfolioBalance ?? 0;
       const currentVaultBal = user.vaultBalance ?? 0;
 
       let newTokenBal = currentTokenBal;
@@ -981,6 +983,30 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       console.warn("Failed to activate configuration in Firestore (activated locally):", error);
     }
   }, [user?.uid, logActivity, setLocalStorageItem]);
+
+  const clearActivityHistory = useCallback(async () => {
+    if (!user) return;
+    
+    // Clear local state
+    setActivity([]);
+    setLocalStorageItem(`aver_activity_${user.uid}`, []);
+    
+    // Clear Firestore collection
+    try {
+      const q = query(collection(db, 'users', user.uid, 'activity'));
+      const snapshot = await getDocs(q);
+      const batchSize = 500; // Firestore limit
+      for (let i = 0; i < snapshot.docs.length; i += batchSize) {
+        const chunk = snapshot.docs.slice(i, i + batchSize);
+        await Promise.all(chunk.map(d => deleteDoc(d.ref)));
+      }
+      
+      // Log that history was cleared (this will be the only item in the new history)
+      await logActivity('HISTORY_CLEARED', 'Account timeline history has been cleared by the user.');
+    } catch (error) {
+      console.warn("Failed to clear activity history in Firestore:", error);
+    }
+  }, [user, setLocalStorageItem, logActivity]);
 
   const closeTrade = useCallback(async (tradeId: string, exitPrice: number, reason: AiTrade['reasonClosed']) => {
     if (!user) return;
@@ -1760,7 +1786,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     toggleOperatingWindow,
     toggleCoolingBreak,
     togglePauseTrading,
-    toggleEmergencyStop
+    toggleEmergencyStop,
+    clearActivityHistory
   }), [
     configs,
     config,
@@ -1788,7 +1815,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     toggleOperatingWindow,
     toggleCoolingBreak,
     togglePauseTrading,
-    toggleEmergencyStop
+    toggleEmergencyStop,
+    clearActivityHistory
   ]);
 
   return (

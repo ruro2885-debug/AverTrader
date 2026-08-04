@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
   Brain, Activity, Star, Newspaper, Zap, ArrowRightLeft, 
   Copy, History, CreditCard, ChevronRight, Bell, X, ShieldCheck,
-  Award, AlertCircle, CheckCircle2, Lock, Flame
+  Award, AlertCircle, CheckCircle2, Lock, Flame, Trash2
 } from 'lucide-react';
 import BottomNavigation from './BottomNavigation';
 import CoinLogo from './CoinLogo';
@@ -46,7 +46,7 @@ import { walletService, WalletData } from '../services/walletService';
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'history') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
-  const { activity, trades, liveTradePrices, session, saveConfiguration, config: currentConfig } = useContext(TradingEngineContext);
+  const { activity, trades, liveTradePrices, session, saveConfiguration, config: currentConfig, clearActivityHistory } = useContext(TradingEngineContext);
 
   const handleSelectStrategy = async (strategy: any) => {
     let tradingStrategy: 'NEURAL_MOMENTUM' | 'VOLATILITY_BREAKOUT' | 'MEAN_REVERSION' | 'QUANT_GRID' = 'NEURAL_MOMENTUM';
@@ -146,6 +146,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const [supportBackTab, setSupportBackTab] = useState<string>('discover');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
+  const [showClearTimelineModal, setShowClearTimelineModal] = useState(false);
 
   React.useEffect(() => {
     const checkTab = () => {
@@ -327,45 +328,38 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return homeNetBalance;
   }, [homeNetBalance]);
 
-  // Account baseline before session allocation deduction or net deposit capital
+  // Account baseline for trading return calculations (independent of cash deposits/withdrawals)
   const baselineAccountBalance = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      return totalValue + session.initialCapital;
+      return (session.tradingCapital || session.initialCapital || 1000);
     }
-    // Inactive session: baseline is net deposits if available, otherwise totalValue minus net profit
-    const netDeposits = user?.totalDeposits && user.totalDeposits > 0 ? user.totalDeposits : 0;
-    if (netDeposits > 0) return netDeposits;
-
     const computedBase = totalValue - (closedTradesPnL + totalFloatingPnl);
     return computedBase > 0 ? computedBase : 1000;
-  }, [session, totalValue, closedTradesPnL, totalFloatingPnl, user?.totalDeposits]);
+  }, [session, totalValue, closedTradesPnL, totalFloatingPnl]);
 
-  // Total PnL dollar change for performance indicator beneath Net Balance
-  // Immediately reflects the negative deduction on launch (-session.initialCapital + activeSessionPnL)
-  // And when session is inactive, calculates actual gain/loss relative to net baseline or cumulative trades/profits
+  // Total PnL dollar change for performance indicator strictly driven by trading activity
   const totalPlAmount = useMemo(() => {
+    // If account is zero or near zero, force 0 returns to prevent ghost increments
+    if (totalValue <= 0.01) return 0;
+
     if (session?.status === 'ACTIVE') {
-      return -session.initialCapital + totalFloatingPnl + ((session.tradingCapital || session.initialCapital) - session.initialCapital);
+      return totalFloatingPnl + (session.currentPnL || 0);
     }
-    const netDeposits = user?.totalDeposits && user.totalDeposits > 0 ? user.totalDeposits : 0;
-    if (netDeposits > 0) {
-      return totalValue - netDeposits;
-    }
-    if (closedTradesPnL !== 0) {
+    if (closedTradesPnL !== 0 || totalFloatingPnl !== 0) {
       return closedTradesPnL + totalFloatingPnl;
     }
     if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
       return user.portfolio.overallReturn;
     }
     return 0;
-  }, [session, closedTradesPnL, totalFloatingPnl, totalValue, user?.totalDeposits, user?.portfolio?.overallReturn]);
+  }, [totalValue, session, closedTradesPnL, totalFloatingPnl, user?.portfolio?.overallReturn]);
 
   // Performance indicator percentage beneath Net Balance
   const totalPlPercent = useMemo(() => {
-    return (totalPlAmount / (baselineAccountBalance || 1)) * 100;
+    return (totalPlAmount / (baselineAccountBalance || 1000)) * 100;
   }, [totalPlAmount, baselineAccountBalance]);
 
-  // Overall Return Amount & Overall Return %
+  // Overall Return Amount & Overall Return % (strictly trading return, unaffected by deposits/withdrawals)
   const overallReturnAmount = useMemo(() => {
     return totalPlAmount;
   }, [totalPlAmount]);
@@ -891,6 +885,13 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         <Activity className="w-4 h-4 text-emerald-500" />
                         Account Timeline
                       </h3>
+                      <button 
+                        onClick={() => setShowClearTimelineModal(true)}
+                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isDark ? 'hover:bg-white/5 text-neutral-500 hover:text-rose-500' : 'hover:bg-slate-100 text-slate-400 hover:text-rose-600'}`}
+                        title="Clear Timeline"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
 
                     <div className={`rounded-[24px] p-5 space-y-4 ${cardClasses} max-h-[350px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pr-2`}>
@@ -1094,6 +1095,10 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         {showWithdrawModal && (
           <InstitutionalWithdrawalPage 
             onClose={() => setShowWithdrawModal(false)}
+            onOpenHistory={() => {
+              setShowWithdrawModal(false);
+              setShowHistoryModal(true);
+            }}
             theme={theme}
           />
         )}
@@ -1186,6 +1191,61 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         onSelectStrategy={handleSelectStrategy}
       />
 
+      {/* Clear Timeline Confirmation Modal */}
+      <AnimatePresence>
+        {showClearTimelineModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 sm:p-0">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowClearTimelineModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className={`relative w-full max-w-sm rounded-[32px] overflow-hidden border p-8 ${
+                isDark ? 'bg-[#0a0b10] border-white/10' : 'bg-white border-slate-200'
+              } shadow-2xl`}
+            >
+              <div className="flex flex-col items-center text-center">
+                <div className="w-16 h-16 rounded-3xl bg-rose-500/10 flex items-center justify-center mb-6 border border-rose-500/20">
+                  <Trash2 className="w-8 h-8 text-rose-500" />
+                </div>
+                
+                <h3 className={`text-xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} mb-2`}>
+                  Clear Timeline?
+                </h3>
+                <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'} mb-8 leading-relaxed px-2`}>
+                  Completing this action will clear your current timeline history. Are you sure you want to continue?
+                </p>
+                
+                <div className="flex flex-col w-full gap-3">
+                  <button
+                    onClick={async () => {
+                      await clearActivityHistory();
+                      setShowClearTimelineModal(false);
+                    }}
+                    className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => setShowClearTimelineModal(false)}
+                    className={`w-full py-4 font-black rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer ${
+                      isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+                    }`}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

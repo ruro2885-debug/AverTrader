@@ -4,6 +4,7 @@ import {
   getDocs, 
   setDoc, 
   addDoc, 
+  deleteDoc,
   query, 
   where, 
   onSnapshot, 
@@ -295,7 +296,77 @@ export const transactionService = {
     }
 
     const list = Array.from(map.values());
-    return list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    // Deduplicate duplicate entries created during legacy deposit/history sync
+    const deduplicated: TransactionRecord[] = [];
+    const seenKeys = new Set<string>();
+
+    list.forEach(tx => {
+      // Priority 1: Unique ID
+      if (seenKeys.has(`id-${tx.id}`)) return;
+      seenKeys.add(`id-${tx.id}`);
+
+      // Priority 2: Transaction Hash (Bulletproof unique)
+      if (tx.txHash) {
+        if (seenKeys.has(`hash-${tx.txHash}`)) return;
+        seenKeys.add(`hash-${tx.txHash}`);
+      }
+
+      // Priority 3: Fuzzy matching for legacy records without IDs/Hashes
+      // (amount + asset + type + 5-minute time window)
+      if (tx.amount && tx.timestamp) {
+        const timeBucket = Math.floor(new Date(tx.timestamp).getTime() / (5 * 60 * 1000)); 
+        const fuzzyKey = `fuzzy-${tx.amount}-${tx.asset}-${tx.type}-${timeBucket}`;
+        if (seenKeys.has(fuzzyKey)) return;
+        seenKeys.add(fuzzyKey);
+      }
+
+      deduplicated.push(tx);
+    });
+
+    const filteredList = deduplicated.filter(tx => {
+      try {
+        const deletedStr = localStorage.getItem(`aver_deleted_txs_${userId}`);
+        if (deletedStr) {
+          const deletedSet: string[] = JSON.parse(deletedStr);
+          if (deletedSet.includes(tx.id)) return false;
+        }
+      } catch (e) {}
+      return true;
+    });
+
+    return filteredList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  },
+
+  /**
+   * Delete a transaction record
+   */
+  async deleteTransaction(txId: string, userId: string) {
+    try {
+      const storageKey = `aver_txs_${userId}`;
+      const existingStr = localStorage.getItem(storageKey);
+      if (existingStr) {
+        let list: TransactionRecord[] = JSON.parse(existingStr);
+        list = list.filter(t => t.id !== txId);
+        localStorage.setItem(storageKey, JSON.stringify(list));
+      }
+    } catch (e) {}
+
+    try {
+      const deletedKey = `aver_deleted_txs_${userId}`;
+      const deletedStr = localStorage.getItem(deletedKey);
+      const deletedSet: string[] = deletedStr ? JSON.parse(deletedStr) : [];
+      if (!deletedSet.includes(txId)) {
+        deletedSet.push(txId);
+        localStorage.setItem(deletedKey, JSON.stringify(deletedSet));
+      }
+    } catch (e) {}
+
+    try {
+      await deleteDoc(doc(db, 'transactions', txId));
+    } catch (e) {}
+
+    window.dispatchEvent(new CustomEvent('aver_transaction_created'));
   },
 
   /**

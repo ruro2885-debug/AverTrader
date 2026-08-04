@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ArrowRight, CheckCircle2, Send, ChevronDown } from 'lucide-react';
+import { X, ArrowRight, CheckCircle2, Send, ChevronDown, Clock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinancials } from '../../hooks/useFinancials';
 import CoinLogo from '../CoinLogo';
 
 interface InstitutionalWithdrawalPageProps {
   onClose: () => void;
+  onOpenHistory?: () => void;
   theme?: 'light' | 'dark';
 }
 
@@ -45,11 +46,11 @@ const SUPPORTED_CRYPTO: CryptoInfo[] = [
 const MIN_WITHDRAWAL_USD = 10.00;
 const MAX_WITHDRAWAL_USD = 9000000.00;
 
-export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWithdrawalPageProps) {
+export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: InstitutionalWithdrawalPageProps) {
   const { user, addWithdrawal } = useAuth();
   const { homeNetBalance, tokenBalance } = useFinancials();
 
-  // Step state: 1 = Amount Entry, 2 = Destination Address, 3 = Complete
+  // Step state: 1 = Amount Entry, 2 = Destination Address, 3 = Complete Receipt
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Active Fiat Currency
@@ -83,14 +84,13 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
   const [txHash, setTxHash] = useState<string>('');
 
   // 1. REAL-TIME AVAILABLE BALANCE FROM FIRESTORE / FINANCIALS
-  // Strictly no hardcoded fallback! Defaults to 0 if account has 0 funds.
+  // Strictly synced to total Net balance in portfolio
   const rawUsdBalance = useMemo(() => {
+    if (typeof homeNetBalance === 'number') return homeNetBalance;
+    if (typeof user?.portfolioBalance === 'number') return user.portfolioBalance;
     if (typeof user?.availableBalance === 'number') return user.availableBalance;
-    if (typeof homeNetBalance === 'number' && homeNetBalance > 0) return homeNetBalance;
-    if (typeof user?.portfolioBalance === 'number' && user.portfolioBalance > 0) return user.portfolioBalance;
-    if (typeof tokenBalance === 'number' && tokenBalance > 0) return tokenBalance;
     return 0;
-  }, [user?.availableBalance, user?.portfolioBalance, homeNetBalance, tokenBalance]);
+  }, [homeNetBalance, user?.portfolioBalance, user?.availableBalance]);
 
   // Active Fiat Details
   const activeFiatInfo = useMemo(() => {
@@ -266,10 +266,28 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
 
   // Submit action in Firestore (converts to USD for database record)
   const handleAuthorize = async () => {
-    if (!destinationAddress.trim()) {
-      setAddressError(`Please enter a valid ${selectedAsset} payout address.`);
+    const addr = destinationAddress.trim();
+    if (!addr) {
+      setAddressError("Invalid address");
       return;
     }
+    if (selectedAsset === 'BTC' && !(/^(1|3|bc1)[a-km-zA-HJ-NP-Z1-9]{25,39}$/.test(addr) || addr.length >= 26)) {
+      setAddressError("Invalid address");
+      return;
+    }
+    if ((selectedAsset === 'USDT' || selectedAsset === 'SOL') && addr.length < 20) {
+      setAddressError("Invalid address");
+      return;
+    }
+    if ((selectedAsset === 'ETH' || selectedAsset === 'BNB') && !(addr.startsWith('0x') && addr.length === 42)) {
+      setAddressError("Invalid address");
+      return;
+    }
+    if (addr.length < 10) {
+      setAddressError("Invalid address");
+      return;
+    }
+
     setAddressError(null);
     setIsSubmitting(true);
     try {
@@ -278,7 +296,7 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
       setTxHash(hash);
       setStep(3);
     } catch (err: any) {
-      setAddressError(err?.message || 'Withdrawal failed. Please check network.');
+      setAddressError(err?.message || 'Invalid address');
     } finally {
       setIsSubmitting(false);
     }
@@ -489,11 +507,13 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
                 <div className="text-sm text-neutral-400">≈ {cryptoEquivalent} {selectedAsset}</div>
               </div>
 
-              <div className="w-full space-y-2 max-w-md pt-4">
+              <div className="w-full space-y-2 max-w-md pt-4" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                 <input
                   type="text"
                   placeholder={`Paste ${selectedAsset} Destination Address`}
                   value={destinationAddress}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
                   onChange={(e) => {
                     setDestinationAddress(e.target.value);
                     if (addressError) setAddressError(null);
@@ -510,30 +530,44 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
             </motion.div>
           )}
 
-          {/* STEP 3: SUCCESS */}
+          {/* STEP 3: SUCCESS / RECEIPT */}
           {step === 3 && (
             <motion.div
               key="step3"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.3 }}
-              className="space-y-6 flex flex-col items-center text-center"
+              className="space-y-6 flex flex-col items-center text-center max-w-md mx-auto w-full px-4"
             >
-              <div className="w-16 h-16 rounded-full border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                <CheckCircle2 className="w-8 h-8 stroke-[1.5]" />
+              <div className="w-16 h-16 rounded-full border border-amber-500/40 flex items-center justify-center text-amber-400 animate-pulse bg-amber-500/10">
+                <Clock className="w-8 h-8 stroke-[1.5]" />
               </div>
 
               <div className="space-y-2">
+                <div className="inline-block px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest">
+                  Status: Pending Admin Review
+                </div>
                 <h2 className="text-2xl font-light tracking-tight text-white uppercase">
-                  Withdrawal Initiated
+                  Withdrawal Information Receipt
                 </h2>
-                <p className="text-xs text-neutral-400 max-w-xs mx-auto leading-relaxed">
-                  Your payout of <span className="text-white font-medium">{activeFiatInfo.symbol}{numericAmountInActiveFiat.toFixed(2)} {activeFiat}</span> ({cryptoEquivalent} {selectedAsset}) has been broadcast.
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Your request of <span className="text-white font-medium">{activeFiatInfo.symbol}{numericAmountInActiveFiat.toFixed(2)} {activeFiat}</span> ({cryptoEquivalent} {selectedAsset}) has been sent for administrative confirmation.
                 </p>
               </div>
 
-              <div className="text-xs text-neutral-500 pt-2 font-mono">
-                Ref: {txHash.slice(0, 18)}...
+              <div className="w-full bg-neutral-900/80 border border-neutral-800 rounded-2xl p-4 text-left space-y-2 font-mono text-xs">
+                <div className="flex justify-between text-neutral-400">
+                  <span>Destination:</span>
+                  <span className="text-white truncate max-w-[200px]">{destinationAddress}</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Network:</span>
+                  <span className="text-white">{selectedAsset} Mainnet</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Reference ID:</span>
+                  <span className="text-white">{txHash.slice(0, 16)}...</span>
+                </div>
               </div>
             </motion.div>
           )}
@@ -542,7 +576,7 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
       </main>
 
       {/* CONTINUATION BUTTON PINNED AT BOTTOM */}
-      <footer className="relative z-20 w-full max-w-xl mx-auto px-6 pb-10 pt-4">
+      <footer className="relative z-20 w-full max-w-xl mx-auto px-6 pb-10 pt-4 flex flex-col items-center gap-3">
         {step === 1 && (
           <button
             onClick={() => isValid && setStep(2)}
@@ -572,10 +606,7 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
               {isSubmitting ? (
                 <span className="animate-pulse">Authorizing...</span>
               ) : (
-                <>
-                  <Send className="w-4 h-4 stroke-[1.5]" />
-                  <span>Authorize Withdrawal</span>
-                </>
+                <span>Authorize Withdrawal</span>
               )}
             </button>
 
@@ -589,12 +620,21 @@ export default function InstitutionalWithdrawalPage({ onClose }: InstitutionalWi
         )}
 
         {step === 3 && (
-          <button
-            onClick={onClose}
-            className="w-full py-5 rounded-full bg-white text-black text-xs font-semibold uppercase tracking-[0.25em] transition hover:bg-neutral-200 cursor-pointer active:scale-[0.98]"
-          >
-            Done
-          </button>
+          <div className="w-full space-y-3 flex flex-col items-center">
+            <button
+              onClick={onClose}
+              className="w-full py-5 rounded-full bg-white text-black text-xs font-semibold uppercase tracking-[0.25em] transition hover:bg-neutral-200 cursor-pointer active:scale-[0.98]"
+            >
+              Return to Dashboard
+            </button>
+
+            <button
+              onClick={onOpenHistory}
+              className="text-xs text-neutral-400 hover:text-white transition underline underline-offset-4 tracking-wider py-1 cursor-pointer font-medium"
+            >
+              View all your transactions history here
+            </button>
+          </div>
         )}
       </footer>
     </motion.div>

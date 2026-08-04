@@ -1,15 +1,17 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import { motion, AnimatePresence, useAnimation } from 'motion/react';
 import { 
   ArrowLeft, Search, Filter, ArrowUpRight, ArrowDownRight, 
-  ExternalLink, RefreshCcw, Clock, Wallet, History,
+  ExternalLink, Clock, Wallet, History,
   ArrowRightLeft, AlertCircle, CheckCircle2, XCircle, ChevronRight, X,
-  Sparkles, Layers, Shield, Calendar, DollarSign
+  Sparkles, Layers, Shield, Calendar, DollarSign, Trash2, FileText,
+  Copy, Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { transactionService, getExplorerUrl } from '../services/transactionService';
 import { TransactionRecord } from '../types';
+import CoinLogo from './CoinLogo';
 
 type TabType = 'transactions' | 'orders' | 'order-history';
 
@@ -52,15 +54,39 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
   });
 
   const [activeFilterModal, setActiveFilterModal] = useState<'type' | 'asset' | 'network' | 'time' | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<TransactionRecord | null>(null);
+  const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [toast, setToast] = useState<string | null>(null);
   
   // Custom Explorer Lookup Modal
   const [showExplorerModal, setShowExplorerModal] = useState(false);
   const [explorerInputHash, setExplorerInputHash] = useState('');
   const [explorerInputNetwork, setExplorerInputNetwork] = useState('TRC20');
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2000);
+  };
+
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    showToast(`Copied ${label}`);
+  };
+
+  const handleDelete = async (txId: string) => {
+    if (!user) return;
+    try {
+      await transactionService.deleteTransaction(txId, user.uid);
+      setTransactions(prev => prev.filter(t => t.id !== txId));
+    } catch (e) {
+      console.warn("Failed to delete transaction:", e);
+    }
+  };
 
   // Real-time synchronization
   const fetchTransactions = useCallback(async () => {
@@ -189,57 +215,22 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
   }, [filteredItems]);
 
   const renderItemIcon = (item: TransactionRecord) => {
-    const type = item.type.toLowerCase();
-    if (type.includes('deposit')) {
-      return (
-        <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 shadow-sm">
-          <ArrowDownRight className="w-5 h-5" />
-        </div>
-      );
-    }
-    if (type.includes('withdrawal')) {
-      return (
-        <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0 shadow-sm">
-          <ArrowUpRight className="w-5 h-5" />
-        </div>
-      );
-    }
-    if (type.includes('profit') || type.includes('reward') || type.includes('bonus') || type.includes('cashback') || type.includes('interest')) {
-      return (
-        <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 shadow-sm">
-          <Sparkles className="w-5 h-5" />
-        </div>
-      );
-    }
-    if (type.includes('trade') || type.includes('order')) {
-      const isBuy = item.side === 'buy' || item.amount > 0;
-      return (
-        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center border shrink-0 shadow-sm ${
-          isBuy ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-        }`}>
-          {isBuy ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
-        </div>
-      );
-    }
-    return (
-      <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 shadow-sm">
-        <ArrowRightLeft className="w-5 h-5" />
-      </div>
-    );
+    const symbol = (item.asset || 'USDT').toUpperCase();
+    return <CoinLogo symbol={symbol} size={36} className="shadow-sm" />;
   };
 
   const getStatusBadge = (status: string) => {
     const s = (status || '').toLowerCase();
     if (s === 'completed' || s === 'success' || s === 'approved' || s === 'filled') {
-      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+      return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
     }
     if (s === 'pending' || s === 'processing') {
-      return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+      return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
     }
     if (s === 'failed' || s === 'rejected' || s === 'cancelled') {
-      return 'bg-rose-500/10 text-rose-400 border-rose-500/30';
+      return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
     }
-    return 'bg-slate-500/10 text-slate-400 border-slate-500/30';
+    return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
   };
 
   const openExplorer = (txHash: string, network: string, customUrl?: string) => {
@@ -282,20 +273,6 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
             <p className="text-[11px] text-neutral-400 hidden sm:block">Live ledger of all platform activities and trade executions</p>
           </div>
         </div>
-
-        <button 
-          type="button"
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-            isRefreshing ? 'animate-spin opacity-80' : ''
-          } ${
-            isDark ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
-          }`}
-          title="Refresh Ledger"
-        >
-          <RefreshCcw className="w-4 h-4" />
-        </button>
       </header>
 
       {/* Spaced Tabs with Animated Indicator */}
@@ -481,79 +458,23 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
                       <div className="flex-1 h-[1px] bg-white/5" />
                     </div>
 
-                    <div className="space-y-2">
-                      {items.map((item, idx) => {
-                        const isDeposit = item.type.includes('deposit');
-                        const isWithdrawal = item.type.includes('withdrawal');
-                        const isProfit = item.type.includes('profit');
-                        const hasExplorer = !!item.txHash && item.network !== 'Internal';
-
-                        return (
-                          <motion.div
+                    <div className="space-y-1.5 min-h-[100px]">
+                      <AnimatePresence mode="popLayout">
+                        {items.map((item, idx) => (
+                          <TransactionItem 
                             key={item.id || idx}
-                            initial={{ opacity: 0, y: 4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: Math.min(idx * 0.03, 0.3) }}
-                            className={`p-3.5 sm:p-4 rounded-2xl flex items-center justify-between group border transition-all ${
-                              isDark 
-                                ? 'bg-neutral-900/60 hover:bg-neutral-900 border-white/5 hover:border-white/10 shadow-lg' 
-                                : 'bg-white hover:bg-slate-50 border-slate-200/80 shadow-sm'
-                            }`}
-                          >
-                            <div className="flex items-center space-x-3.5 min-w-0">
-                              {renderItemIcon(item)}
-
-                              <div className="min-w-0">
-                                <h4 className="text-xs sm:text-sm font-bold tracking-tight text-white truncate flex items-center gap-2">
-                                  <span>{item.title || `${item.type} ${item.asset}`}</span>
-                                </h4>
-
-                                <div className="flex items-center space-x-2 text-[10px] font-medium text-neutral-400 mt-0.5 flex-wrap gap-y-0.5">
-                                  <span>{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                  <span className="opacity-30">•</span>
-                                  <span className="font-mono text-neutral-300">{item.network || 'Mainnet'}</span>
-                                  {item.quantity && item.price && (
-                                    <>
-                                      <span className="opacity-30">•</span>
-                                      <span>{item.quantity} @ {formatCurrency(item.price)}</span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0 ml-3">
-                              <p className={`text-xs sm:text-sm font-black ${
-                                isDeposit || isProfit ? 'text-emerald-400' : 
-                                isWithdrawal ? 'text-rose-400' : 
-                                (isDark ? 'text-white' : 'text-slate-900')
-                              }`}>
-                                {isDeposit || isProfit ? '+' : isWithdrawal ? '-' : ''}
-                                {typeof item.amount === 'number' ? item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : item.amount} {item.asset}
-                              </p>
-
-                              <div className="flex items-center justify-end space-x-2 mt-1">
-                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${getStatusBadge(item.status)}`}>
-                                  {item.status}
-                                </span>
-
-                                {/* Check Explorer Action (Only for blockchain transactions with txHash) */}
-                                {hasExplorer && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openExplorer(item.txHash!, item.network, item.explorerUrl)}
-                                    className="p-1 rounded-lg bg-white/5 hover:bg-white/15 text-neutral-400 hover:text-white transition cursor-pointer border border-white/10 flex items-center gap-1 text-[9px] font-bold"
-                                    title="Check Blockchain Explorer"
-                                  >
-                                    <span>Explorer</span>
-                                    <ExternalLink className="w-2.5 h-2.5 text-emerald-400" />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
+                            item={item}
+                            idx={idx}
+                            isDark={isDark}
+                            swipedItemId={swipedItemId}
+                            setSwipedItemId={setSwipedItemId}
+                            setSelectedReceipt={setSelectedReceipt}
+                            setConfirmDeleteId={setConfirmDeleteId}
+                            renderItemIcon={renderItemIcon}
+                            getStatusBadge={getStatusBadge}
+                          />
+                        ))}
+                      </AnimatePresence>
                     </div>
                   </div>
                 ))}
@@ -629,6 +550,54 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
                     </button>
                   );
                 })}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {confirmDeleteId && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={`w-full max-w-xs rounded-[28px] p-6 text-center shadow-2xl border ${
+                isDark ? 'bg-neutral-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto mb-4 text-rose-500">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-lg font-bold mb-2">Delete Receipt?</h3>
+              <p className="text-xs text-neutral-500 leading-relaxed mb-6">
+                This transaction record will be permanently removed from your history. This action cannot be undone.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={async () => {
+                    await handleDelete(confirmDeleteId);
+                    setConfirmDeleteId(null);
+                    setSwipedItemId(null);
+                    if (window.navigator.vibrate) window.navigator.vibrate([30, 50, 30]);
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm transition-all shadow-lg shadow-rose-600/20"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => {
+                    setConfirmDeleteId(null);
+                    setSwipedItemId(null);
+                  }}
+                  className={`w-full py-3.5 rounded-2xl font-bold text-sm transition-all ${
+                    isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+                  }`}
+                >
+                  Cancel
+                </button>
               </div>
             </motion.div>
           </div>
@@ -714,6 +683,252 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
         )}
       </AnimatePresence>
 
+      {/* Transaction Full Receipt Modal Overhaul */}
+      <AnimatePresence>
+        {selectedReceipt && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.18 }}
+              className={`w-full max-w-sm rounded-[24px] border overflow-hidden shadow-2xl ${
+                isDark ? 'bg-neutral-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              {/* Receipt Header */}
+              <div className="p-6 text-center border-b border-white/5 relative">
+                <button
+                  onClick={() => setSelectedReceipt(null)}
+                  className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-white/10 text-neutral-500 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                
+                <div className="flex justify-center mb-3">
+                  <CoinLogo symbol={selectedReceipt.asset} size={56} className="shadow-lg border-4 border-white/5" />
+                </div>
+                
+                <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-1">{selectedReceipt.asset}</h3>
+                <h2 className="text-2xl font-black tracking-tight mb-2">
+                  {selectedReceipt.type.includes('deposit') || selectedReceipt.type.includes('profit') ? '+' : '-'}
+                  {Math.abs(Number(selectedReceipt.amount)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                </h2>
+                
+                <div className="flex justify-center">
+                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(selectedReceipt.status)}`}>
+                    {selectedReceipt.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Receipt Information Card */}
+              <div className="p-5 space-y-3">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-neutral-500 font-medium">Type</span>
+                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{selectedReceipt.type.replace('_', ' ').toUpperCase()}</span>
+                </div>
+                
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-neutral-500 font-medium">Network</span>
+                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{selectedReceipt.network || 'Mainnet'}</span>
+                </div>
+
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-neutral-500 font-medium">Date & Time</span>
+                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{new Date(selectedReceipt.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                </div>
+
+                {selectedReceipt.txHash && (
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="text-neutral-500 font-medium">Transaction Hash</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-mono text-[10px] ${isDark ? 'text-emerald-400' : 'text-emerald-600'} truncate max-w-[120px]`}>{selectedReceipt.txHash}</span>
+                      <button onClick={() => handleCopy(selectedReceipt.txHash!, 'Hash')} className="p-1 hover:bg-emerald-500/10 rounded transition-colors text-emerald-500">
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-neutral-500 font-medium">Reference ID</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`font-mono text-[10px] ${isDark ? 'text-white/60' : 'text-slate-500'} truncate max-w-[120px]`}>{selectedReceipt.id}</span>
+                    <button onClick={() => handleCopy(selectedReceipt.id, 'Reference ID')} className="p-1 hover:bg-white/10 rounded transition-colors text-neutral-400">
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+
+                {selectedReceipt.txHash && selectedReceipt.network !== 'Internal' && (
+                  <div className="pt-2">
+                    <button
+                      onClick={() => openExplorer(selectedReceipt.txHash!, selectedReceipt.network!, selectedReceipt.explorerUrl)}
+                      className={`w-full py-2.5 rounded-xl text-[11px] font-bold border flex items-center justify-center gap-2 transition-all ${
+                        isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-white' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-900'
+                      }`}
+                    >
+                      <span>View on Blockchain Explorer</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-5 pt-0">
+                <button
+                  onClick={() => setSelectedReceipt(null)}
+                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest transition shadow-lg shadow-emerald-500/20"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Global Toast for Copy Actions */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] px-4 py-2 rounded-full bg-emerald-500 text-slate-950 text-xs font-black shadow-xl shadow-emerald-500/30 flex items-center gap-2"
+          >
+            <Check className="w-3.5 h-3.5" />
+            <span>{toast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
+
+// High-performance Transaction Item with Native-Quality Swipe
+const TransactionItem = memo(({ 
+  item, 
+  idx, 
+  isDark, 
+  swipedItemId, 
+  setSwipedItemId, 
+  setSelectedReceipt, 
+  setConfirmDeleteId,
+  renderItemIcon,
+  getStatusBadge
+}: any) => {
+  const controls = useAnimation();
+
+  const isDeposit = item.type.toLowerCase().includes('deposit');
+  const isWithdrawal = item.type.toLowerCase().includes('withdrawal');
+  const isProfit = item.type.toLowerCase().includes('profit') || item.type.toLowerCase().includes('reward');
+
+  // Sync animation with external state if needed
+  useEffect(() => {
+    if (swipedItemId !== item.id) {
+      controls.start({ 
+        x: 0,
+        transition: { type: 'spring', stiffness: 600, damping: 40, mass: 0.6 }
+      });
+    }
+  }, [swipedItemId, item.id, controls]);
+
+  return (
+    <motion.div 
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ 
+        type: 'spring', 
+        damping: 28, 
+        stiffness: 400,
+        layout: { duration: 0.3 }
+      }}
+      className="relative overflow-hidden rounded-xl select-none group h-[72px] bg-rose-600"
+    >
+      {/* Revealed Delete Action (Fixed behind) */}
+      <div 
+        className="absolute inset-0 flex items-center justify-end px-7"
+        style={{ borderRadius: '12px' }}
+      >
+        <Trash2 className="w-6 h-6 text-white" />
+      </div>
+
+      <motion.div
+        drag="x"
+        dragDirectionLock
+        dragConstraints={{ left: -100, right: 0 }}
+        dragElastic={0.15}
+        animate={controls}
+        onDragStart={() => {
+          setSwipedItemId(item.id);
+        }}
+        onDragEnd={async (_e, info) => {
+          const threshold = -60;
+          const velocityThreshold = -400;
+          
+          if (info.offset.x < threshold || info.velocity.x < velocityThreshold) {
+            // Trigger confirmation modal
+            setConfirmDeleteId(item.id);
+            if (window.navigator.vibrate) window.navigator.vibrate(10);
+          }
+          
+          // Always snap back to 0 immediately on release
+          await controls.start({ 
+            x: 0, 
+            transition: { type: 'spring', stiffness: 600, damping: 40, mass: 0.6 } 
+          });
+          setSwipedItemId(null);
+        }}
+        onClick={() => {
+          if (swipedItemId) {
+            setSwipedItemId(null);
+          } else {
+            setSelectedReceipt(item);
+          }
+        }}
+        className={`relative z-10 h-full p-3 flex items-center justify-between border cursor-pointer ${
+          isDark 
+            ? 'bg-neutral-900 border-white/5' 
+            : 'bg-white border-slate-200 shadow-sm'
+        }`}
+        style={{ borderRadius: '12px' }}
+      >
+        <div className="flex items-center space-x-3 min-w-0">
+          {renderItemIcon(item)}
+
+          <div className="min-w-0">
+            <h4 className={`text-[13px] font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} truncate`}>
+              {item.title || `${item.type.charAt(0).toUpperCase() + item.type.slice(1).replace('_', ' ')}`}
+            </h4>
+
+            <div className="flex items-center space-x-1.5 text-[10px] font-medium text-neutral-500 mt-0.5">
+              <span className="uppercase text-neutral-400 font-bold">{item.network || 'Network'}</span>
+              <span className="opacity-30">•</span>
+              <span>{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-right shrink-0 ml-3">
+          <p className={`text-[13px] font-black ${
+            isDeposit || isProfit || (item.amount > 0 && !isWithdrawal) ? 'text-emerald-500' : 
+            isWithdrawal || (item.amount < 0) ? 'text-rose-500' : 
+            (isDark ? 'text-white' : 'text-slate-900')
+          }`}>
+            {isDeposit || isProfit ? '+' : isWithdrawal ? '-' : ''}
+            {Math.abs(Number(item.amount)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {item.asset}
+          </p>
+
+          <span className={`mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border inline-block ${getStatusBadge(item.status)}`}>
+            {item.status}
+          </span>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+});

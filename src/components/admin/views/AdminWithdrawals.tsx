@@ -38,9 +38,8 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
     return unsub;
   }, []);
 
-  const handleAction = async (id: string, status: 'completed' | 'rejected') => {
+  const handleAction = async (id: string, status: 'completed' | 'failed' | 'reversed', reversalReason?: string) => {
     try {
-      console.log(`[AdminWithdrawals] Processing ${status} for withdrawal ${id}`);
       const withdrawalRef = doc(db, 'admin_withdrawals', id);
       const withdrawalSnap = await getDoc(withdrawalRef);
       
@@ -48,77 +47,66 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         throw new Error("Withdrawal record not found in database.");
       }
 
-      const withdrawalData = withdrawalSnap.data() as Withdrawal;
-      
+      const withdrawalData = withdrawalSnap.data() as any;
+      const currentStatus = withdrawalData.status;
+      const userId = withdrawalData.userId;
+      const amount = Number(withdrawalData.amount) || 0;
+
       // 1. Update withdrawal record
       await updateDoc(withdrawalRef, { 
         status,
+        reversalReason: reversalReason || withdrawalData.reversalReason || null,
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || 'Super Admin'
-      }).catch(err => {
-        throw new Error(`Failed to update withdrawal record: ${err.message}`);
       });
 
-      // 2. If rejected, refund balance to user
-      if (status === 'rejected' && withdrawalData.userId && withdrawalData.amount > 0) {
-        console.log(`[AdminWithdrawals] Refunding $${withdrawalData.amount} to user ${withdrawalData.userId}`);
-        const userRef = doc(db, 'users', withdrawalData.userId);
-        const amount = Number(withdrawalData.amount);
-        
+      // 2. If approved (completed) and not already completed, deduct from user
+      if (status === 'completed' && currentStatus !== 'completed' && userId && amount > 0) {
+        const userRef = doc(db, 'users', userId);
+        await updateDoc(userRef, {
+          availableBalance: increment(-amount),
+          portfolioBalance: increment(-amount),
+          tokenBalance: increment(-amount),
+          cashBalance: increment(-amount),
+          totalWithdrawals: increment(amount),
+          lastUpdated: serverTimestamp()
+        }).catch(() => {});
+
+        try {
+          const wallet = await walletService.getOrCreateWallet(userId);
+          await walletService.updateWallet(userId, {
+            portfolioBalance: Math.max(0, (Number(wallet.portfolioBalance) || 0) - amount),
+            availableBalance: Math.max(0, (Number(wallet.availableBalance) || 0) - amount),
+            cashBalance: Math.max(0, (Number(wallet.cashBalance) || 0) - amount),
+            totalWithdrawals: (Number(wallet.totalWithdrawals) || 0) + amount
+          });
+        } catch (e) {}
+      }
+
+      // 3. If reversed (works after approval), refund money back to user
+      if (status === 'reversed' && userId && amount > 0) {
+        const userRef = doc(db, 'users', userId);
         await updateDoc(userRef, {
           availableBalance: increment(amount),
           portfolioBalance: increment(amount),
-          totalWithdrawals: increment(-amount),
           tokenBalance: increment(amount),
-          'portfolio.totalValue': increment(amount),
-          lastUpdated: serverTimestamp(),
-          notificationsList: arrayUnion({
-            id: `notif-${Date.now()}`,
-            title: 'Withdrawal Rejected',
-            message: `Your withdrawal request of $${amount.toLocaleString()} was rejected. Funds have been returned to your available balance.`,
-            time: 'Just now',
-            timestamp: new Date().toISOString(),
-            unread: true,
-            type: 'error'
-          })
-        }).catch(err => {
-          console.warn("[AdminWithdrawals] Non-blocking warning: Failed to refund user balance or notify:", err);
-        });
+          cashBalance: increment(amount),
+          totalWithdrawals: increment(-amount),
+          lastUpdated: serverTimestamp()
+        }).catch(() => {});
 
-        // Sync with portfolioPersistenceService & walletService
         try {
-          const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(withdrawalData.userId);
-          if (currentPortfolio) {
-            await portfolioPersistenceService.savePortfolioCurrent(withdrawalData.userId, {
-              walletState: {
-                ...currentPortfolio.walletState,
-                portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
-                availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
-                totalWithdrawals: (currentPortfolio.walletState?.totalWithdrawals || 0) - amount,
-                tokenBalance: (currentPortfolio.walletState?.tokenBalance || 0) + amount
-              },
-              portfolioMetrics: {
-                ...currentPortfolio.portfolioMetrics,
-                totalValue: (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount
-              }
-            });
-          }
-          
-          const wallet = await walletService.getOrCreateWallet(withdrawalData.userId);
-          await walletService.updateWallet(withdrawalData.userId, {
+          const wallet = await walletService.getOrCreateWallet(userId);
+          await walletService.updateWallet(userId, {
             portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
             availableBalance: (Number(wallet.availableBalance) || 0) + amount,
-            totalWithdrawals: (Number(wallet.totalWithdrawals) || 0) - amount,
-            tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
             cashBalance: (Number(wallet.cashBalance) || 0) + amount,
-            portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
+            totalWithdrawals: Math.max(0, (Number(wallet.totalWithdrawals) || 0) - amount)
           });
-        } catch (syncErr) {
-          console.warn("[AdminWithdrawals] Sync error during refund:", syncErr);
-        }
+        } catch (e) {}
       }
 
-      alert(`Withdrawal ${status === 'completed' ? 'approved' : 'rejected'} successfully.`);
+      alert(`Withdrawal marked as ${status}${reversalReason ? ` (Reason: ${reversalReason})` : ''}.`);
     } catch (err: any) {
       console.error("[AdminWithdrawals] Error processing withdrawal:", err);
       alert(`Error updating withdrawal: ${err.message || 'Unknown database error'}`);
@@ -221,26 +209,29 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
-                      {item.status === 'pending' && (
-                        <>
-                          <button 
-                            onClick={() => handleAction(item.id, 'completed')}
-                            className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-slate-950 transition-all"
-                            title="Approve & Send"
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleAction(item.id, 'rejected')}
-                            className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
-                            title="Reject & Freeze"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                      <button className={`p-2 rounded-lg transition-all ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}>
-                        <ShieldAlert className="w-4 h-4 text-slate-500" />
+                      <button 
+                        onClick={() => handleAction(item.id, 'completed')}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 transition font-bold text-[10px]"
+                        title="Approve"
+                      >
+                        Approve
+                      </button>
+                      <button 
+                        onClick={() => handleAction(item.id, 'failed')}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition font-bold text-[10px]"
+                        title="Fail"
+                      >
+                        Fail
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const reason = prompt("Enter reason for transaction reversal:");
+                          if (reason) handleAction(item.id, 'reversed', reason);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500 hover:text-slate-950 transition font-bold text-[10px]"
+                        title="Reverse"
+                      >
+                        Reverse
                       </button>
                     </div>
                   </td>

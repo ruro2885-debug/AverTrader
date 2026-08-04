@@ -259,6 +259,8 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     const newMsg: SupportMessage = {
       id: "MSG-" + Math.floor(100000 + Math.random() * 900000),
       sender: user.displayName || user.email || user.uid,
+      senderRole: 'user',
+      isAdmin: false,
       text: text,
       timestamp: now,
       status: 'delivered',

@@ -538,15 +538,25 @@ export default function PortfolioViewV2({
   ], [radarAssets]);
 
   const allocations = useMemo<any[]>(() => {
+    // We strictly respect real user holdings and cash. No mock seed data.
     const baseList = [
-      { ticker: 'BTC', name: 'Bitcoin', color: '#f59e0b', icon: '₿', quantity: 0.85 },
-      { ticker: 'ETH', name: 'Ethereum', color: '#6366f1', icon: 'Ξ', quantity: 12.0 },
-      { ticker: 'SOL', name: 'Solana', color: '#a855f7', icon: 'S', quantity: 120.0 },
-      { ticker: 'Cash', name: 'USD Cash', color: '#10b981', icon: '$', quantity: 169200 },
-      { ticker: 'AAPL', name: 'Apple Inc.', color: '#3b82f6', icon: '', quantity: 820 },
-      { ticker: 'ETFs', name: 'S&P 500 ETF', color: '#ec4899', icon: 'E', quantity: 240 },
-      { ticker: 'Gold', name: 'Gold Spot', color: '#eab308', icon: 'G', quantity: 50 },
+      { ticker: 'Cash', name: 'USD Cash', color: '#10b981', icon: '$', quantity: user?.availableBalance || 0 }
     ];
+    
+    // Add real user holdings
+    if (user?.holdings && user.holdings.length > 0) {
+      user.holdings.forEach((h: any) => {
+        if (h.ticker !== 'Cash' && h.symbol !== 'Cash') {
+          baseList.push({
+            ticker: h.ticker || h.symbol,
+            name: h.name || h.ticker || h.symbol,
+            color: h.color || '#3b82f6',
+            icon: h.icon || (h.ticker || h.symbol).charAt(0),
+            quantity: h.quantity || 0
+          });
+        }
+      });
+    }
 
     return baseList.map(a => {
       if (a.ticker === 'Cash' && user?.availableBalance !== undefined) {
@@ -638,17 +648,13 @@ export default function PortfolioViewV2({
   const updateAnalystAdvice = async (force = false) => {
     if (force) setIsRefreshingCommentary(true);
     
-    const btcPrice = mergedLivePrices['BTC'] || watchlist.find(h => h.ticker === 'BTC')?.price || 64000;
-    const ethPrice = mergedLivePrices['ETH'] || watchlist.find(h => h.ticker === 'ETH')?.price || 3450;
-    const solPrice = mergedLivePrices['SOL'] || watchlist.find(h => h.ticker === 'SOL')?.price || 145;
+    let cryptoTotalVal = 0;
+    liveAllocations.forEach(a => {
+      if (a.ticker !== 'Cash') cryptoTotalVal += a.valuation;
+    });
+    const cashVal = Math.max(0, totalNetBalance - cryptoTotalVal);
 
-    const btcVal = btcPrice * 0.85;
-    const ethVal = ethPrice * 12.0;
-    const solVal = solPrice * 120.0;
-    const cryptoTotalVal = btcVal + ethVal + solVal;
-    const cashVal = Math.max(25000, totalNetBalance - cryptoTotalVal);
-
-    const holdingsSummary = allocations.map(a => ({
+    const holdingsSummary = liveAllocations.map(a => ({
       ticker: a.ticker,
       name: a.name,
       percentage: Math.round((a.valuation / (totalNetBalance || 1)) * 100)
@@ -1116,9 +1122,8 @@ export default function PortfolioViewV2({
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-3.5xl font-extrabold text-white tracking-tight">
-                ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(totalValue)}
               </span>
-              <span className="text-xs font-semibold text-slate-400 font-mono">USD</span>
             </div>
             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
               Consolidated value of wallet, AI sessions, and vault holdings.
@@ -1133,7 +1138,7 @@ export default function PortfolioViewV2({
                 Wallet Balance
               </span>
               <div className="text-sm font-bold text-slate-100 font-mono">
-                ${tokenBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(tokenBalance)}
               </div>
             </div>
             <div className="space-y-0.5">
@@ -1142,7 +1147,7 @@ export default function PortfolioViewV2({
                 Active Engine
               </span>
               <div className={`text-sm font-bold font-mono ${session?.status === 'ACTIVE' ? 'text-[#00D09C]' : 'text-slate-400'}`}>
-                ${(aiTradingCapital + totalFloatingPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(aiTradingCapital + totalFloatingPnl)}
               </div>
             </div>
             <div className="space-y-0.5 col-span-2 md:col-span-1">
@@ -1151,7 +1156,7 @@ export default function PortfolioViewV2({
                 Vault Savings
               </span>
               <div className="text-sm font-bold text-slate-100 font-mono">
-                ${vaultBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(vaultBalance)}
               </div>
             </div>
           </div>

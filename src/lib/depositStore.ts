@@ -5,42 +5,20 @@ export function getLocalDeposits(): any[] {
     const raw = localStorage.getItem(DEPOSITS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        // Filter out fake hardcoded deposits if present
+        const cleaned = parsed.filter(d => d && d.id !== 'DEP-USDT-ERC20' && d.amount !== 4754);
+        if (cleaned.length !== parsed.length) {
+          localStorage.setItem(DEPOSITS_STORAGE_KEY, JSON.stringify(cleaned));
+        }
+        return cleaned;
       }
     }
   } catch (e) {
     console.warn("Failed to parse local deposits:", e);
   }
 
-  // Default active pending deposit so admin Deposit Inflow & Audit is populated
-  const defaultDeposits = [
-    {
-      id: 'DEP-USDT-ERC20',
-      displayId: 'DEP-USDT-ERC20',
-      userId: 'user_institutional_01',
-      email: 'ruro2885@gmail.com',
-      userName: 'Ruro Trader',
-      fundingMethod: 'crypto',
-      currency: 'USDT',
-      amount: 4754,
-      network: 'Ethereum (ERC-20)',
-      walletAddress: '0x8372...DF36',
-      cryptoSymbol: 'ETH',
-      cryptoNetwork: 'ERC-20',
-      txHash: '0x837291a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0',
-      status: 'pending',
-      timestamp: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ];
-
-  try {
-    localStorage.setItem(DEPOSITS_STORAGE_KEY, JSON.stringify(defaultDeposits));
-  } catch (e) {}
-
-  return defaultDeposits;
+  return [];
 }
 
 export function saveLocalDeposit(deposit: any) {

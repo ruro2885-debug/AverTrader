@@ -53,10 +53,15 @@ function AppContent() {
 
   // Route detection
   useEffect(() => {
-    if (window.location.pathname === '/admin') {
-      setCurrentView('admin');
-    } else if (window.location.pathname !== '/' && window.location.pathname !== '') {
-      // Basic 404 handling for manual URL entry
+    const path = window.location.pathname;
+    const search = window.location.search;
+    
+    // Strict admin protection: Never auto-route to admin view based on URL.
+    // Admin access must be triggered via the secret handshake in the NotFound view.
+    if (path === '/admin' || search.includes('admin=true')) {
+      // Force unauthorized admin attempts to the NotFound view for verification
+      setCurrentView('not-found');
+    } else if (path === '/404' || search.includes('404=true') || (path !== '/' && path !== '')) {
       setCurrentView('not-found');
     }
   }, []);

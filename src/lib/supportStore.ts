@@ -47,43 +47,13 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        localTickets = parsed;
+      if (Array.isArray(parsed)) {
+        // Clean out hardcoded fake ticket TCK-SUPPORT-01
+        localTickets = parsed.filter(t => t && t.id !== 'TCK-SUPPORT-01');
       }
     }
   } catch (e) {
     console.warn("Failed to parse local support tickets:", e);
-  }
-
-  if (!localTickets || localTickets.length === 0) {
-    localTickets = [
-      {
-        id: 'TCK-SUPPORT-01',
-        userId: 'user_institutional_01',
-        userEmail: 'ruro2885@gmail.com',
-        userName: 'Ruro Trader',
-        title: 'USDT Deposit Verification Support',
-        category: 'Deposits & Wallet',
-        description: 'My $4,754.00 USDT ERC-20 deposit transaction is currently in verification. Please assist with audit confirmation.',
-        status: 'pending',
-        priority: 'high',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        messages: [
-          {
-            id: 'MSG-01',
-            sender: 'Ruro Trader',
-            senderRole: 'user',
-            text: 'Hello, I deposited $4,754.00 USDT via ERC-20. Reference ID: DEP-USDT-ERC20. Please verify.',
-            timestamp: new Date().toISOString(),
-            status: 'sent'
-          }
-        ]
-      }
-    ];
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(localTickets));
-    } catch (e) {}
   }
 
   const map = new Map<string, SupportTicket>();
@@ -110,16 +80,16 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
     const t1Time = new Date(t1.updatedAt || t1.createdAt || 0).getTime();
     const t2Time = new Date(t2.updatedAt || t2.createdAt || 0).getTime();
     const newest = t2Time >= t1Time ? t2 : t1;
+    const base = t2Time >= t1Time ? t1 : t2;
 
     return {
-      ...t1,
-      ...t2,
+      ...base,
       ...newest,
       messages: mergedMsgs,
-      userId: t1.userId || t2.userId || 'guest',
-      userEmail: t1.userEmail || t2.userEmail || '',
-      userName: t1.userName || t2.userName || 'Trader',
-      updatedAt: new Date(Math.max(t1Time, t2Time, Date.now())).toISOString()
+      userId: newest.userId || base.userId || 'guest',
+      userEmail: newest.userEmail || base.userEmail || '',
+      userName: newest.userName || base.userName || 'Trader',
+      updatedAt: newest.updatedAt || base.updatedAt || new Date().toISOString()
     };
   };
 

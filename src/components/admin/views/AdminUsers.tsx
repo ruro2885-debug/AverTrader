@@ -11,6 +11,7 @@ import { db, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../../
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
 import { increment, arrayUnion } from 'firebase/firestore';
+import { transactionService } from '../../../services/transactionService';
 
 interface UserData {
   uid: string;
@@ -52,12 +53,24 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
 
   // Modals & Active Actions
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
+  const [selectedUserWallet, setSelectedUserWallet] = useState<any>(null);
   const [userWallets, setUserWallets] = useState<any[]>([]);
   const [editingRoleUser, setEditingRoleUser] = useState<UserData | null>(null);
   const [fundingUser, setFundingUser] = useState<UserData | null>(null);
+  const [fundingWallet, setFundingWallet] = useState<any>(null);
   const [fundAmount, setFundAmount] = useState('');
+  const [fundActionType, setFundActionType] = useState<'add' | 'remove'>('add');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Fetch wallet for funding user when modal opens
+  useEffect(() => {
+    if (fundingUser) {
+      walletService.getOrCreateWallet(fundingUser.uid).then(setFundingWallet);
+    } else {
+      setFundingWallet(null);
+    }
+  }, [fundingUser]);
 
   const isDark = theme === 'dark';
 
@@ -175,9 +188,16 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
     }
   };
 
-  const handleSelectUser = async (user: UserData) => {
+    const handleSelectUser = async (user: UserData) => {
     setSelectedUser(user);
     setUserWallets([]);
+    setSelectedUserWallet(null);
+    try {
+      const wallet = await walletService.getOrCreateWallet(user.uid);
+      setSelectedUserWallet(wallet);
+    } catch (e) {
+      console.warn("Failed to fetch wallet for admin UI", e);
+    }
     
     // Fetch wallets from multiple potential locations
     try {
@@ -259,9 +279,19 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
     const uid = fundingUser.uid;
     setActionLoading(uid);
     try {
-      const amount = Number(fundAmount);
+      const rawAmount = Number(fundAmount);
       const email = (fundingUser.email || '').toLowerCase().trim();
 
+      // Check for insufficient funds if removing
+      if (fundActionType === 'remove') {
+        const wallet = await walletService.getOrCreateWallet(uid);
+        const currentBalance = Number(wallet.availableBalance || 0);
+        if (currentBalance < rawAmount) {
+          throw new Error(`Insufficient funds: User only has $${currentBalance.toLocaleString()}. Requested removal: $${rawAmount.toLocaleString()}.`);
+        }
+      }
+
+      const amount = fundActionType === 'remove' ? -rawAmount : rawAmount;
       const targetUids = new Set<string>();
       if (uid) targetUids.add(uid);
 
@@ -275,16 +305,29 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
         }
       }
 
-      // Log admin credit in deposits
+      // Log admin adjustment in transaction history
+      await transactionService.recordTransaction({
+        userId: uid,
+        type: fundActionType === 'add' ? 'deposit' : 'withdrawal',
+        category: 'transactions',
+        title: fundActionType === 'add' ? 'Admin Credit' : 'Admin Deduction',
+        amount: Math.abs(amount),
+        asset: 'USD',
+        network: 'Internal',
+        status: 'Completed',
+        timestamp: new Date().toISOString()
+      });
+
+      // Log admin adjustment in admin_deposits for internal tracking
       await safeAddDoc(collection(db, 'admin_deposits'), {
         userId: uid || 'admin',
         email: email || 'user@aver.com',
         userName: fundingUser.displayName || fundingUser.username || fundingUser.fullName || 'User',
-        amount: amount,
+        amount: Math.abs(amount),
         currency: 'USD',
-        fundingMethod: 'admin_funding',
+        fundingMethod: fundActionType === 'add' ? 'admin_funding' : 'admin_deduction',
         status: 'completed',
-        network: 'Admin Credit',
+        network: fundActionType === 'add' ? 'Admin Credit' : 'Admin Deduction',
         timestamp: new Date().toISOString(),
         createdAt: serverTimestamp()
       });
@@ -296,7 +339,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
           await safeSetDoc(userRef, {
             availableBalance: increment(amount),
             portfolioBalance: increment(amount),
-            totalDeposits: increment(amount),
+            totalDeposits: fundActionType === 'add' ? increment(amount) : increment(0),
             tokenBalance: increment(amount),
             cashBalance: increment(amount),
             portfolioValue: increment(amount),
@@ -304,45 +347,47 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
             lastUpdated: serverTimestamp()
           }, { merge: true });
 
-          portfolioPersistenceService.getPortfolioCurrent(targetUid).then(currentPortfolio => {
-            if (currentPortfolio) {
-              portfolioPersistenceService.savePortfolioCurrent(targetUid, {
-                walletState: {
-                  portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
-                  availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
-                  totalDeposits: (currentPortfolio.walletState?.totalDeposits || 0) + amount,
-                  tokenBalance: (currentPortfolio.walletState?.tokenBalance || 0) + amount
-                },
-                portfolioMetrics: {
-                  totalValue: (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount
-                }
-              }).catch(() => {});
-            }
-          }).catch(() => {});
+          // Force update local and cloud state via services
+          const wallet = await walletService.getOrCreateWallet(targetUid);
+          await walletService.updateWallet(targetUid, {
+            portfolioBalance: Math.max(0, (Number(wallet.portfolioBalance) || 0) + amount),
+            availableBalance: Math.max(0, (Number(wallet.availableBalance) || 0) + amount),
+            tokenBalance: Math.max(0, (Number(wallet.tokenBalance) || 0) + amount),
+            cashBalance: Math.max(0, (Number(wallet.cashBalance) || 0) + amount),
+            portfolioValue: Math.max(0, (Number(wallet.portfolioValue) || 0) + amount)
+          });
 
-          walletService.getOrCreateWallet(targetUid).then(wallet => {
-            walletService.updateWallet(targetUid, {
-              portfolioBalance: (Number(wallet.portfolioBalance) || 0) + amount,
-              availableBalance: (Number(wallet.availableBalance) || 0) + amount,
-              totalDeposits: (Number(wallet.totalDeposits) || 0) + amount,
-              tokenBalance: (Number(wallet.tokenBalance) || 0) + amount,
-              cashBalance: (Number(wallet.cashBalance) || 0) + amount,
-              portfolioValue: (Number(wallet.portfolioValue) || 0) + amount
-            }).catch(() => {});
-          }).catch(() => {});
+          // Also update portfolio persistence
+          const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(targetUid);
+          if (currentPortfolio) {
+            await portfolioPersistenceService.savePortfolioCurrent(targetUid, {
+              walletState: {
+                portfolioBalance: Math.max(0, (currentPortfolio.walletState?.portfolioBalance || 0) + amount),
+                availableBalance: Math.max(0, (currentPortfolio.walletState?.availableBalance || 0) + amount),
+                tokenBalance: Math.max(0, (currentPortfolio.walletState?.tokenBalance || 0) + amount)
+              },
+              portfolioMetrics: {
+                totalValue: Math.max(0, (currentPortfolio.portfolioMetrics?.totalValue || 0) + amount)
+              }
+            });
+          }
         } catch (e) {
-          console.warn("Firestore credit sync notice:", e);
+          console.error(`Error updating user ${targetUid}:`, e);
         }
       });
 
       await Promise.all(updatePromises);
 
-      showToast(`Successfully credited $${amount.toLocaleString()} to ${email || uid}`);
+      // Refresh the selected user's wallet in UI
+      const updatedWallet = await walletService.getOrCreateWallet(uid);
+      setSelectedUserWallet(updatedWallet);
+
+      showToast(`Successfully ${fundActionType === 'add' ? 'added' : 'removed'} $${rawAmount.toLocaleString()} ${fundActionType === 'add' ? 'to' : 'from'} user balance.`);
       setFundingUser(null);
       setFundAmount('');
     } catch (err: any) {
-      console.error(err);
-      showToast(err.message || 'Failed to fund user', 'error');
+      console.error("Funding error:", err);
+      showToast(err.message || "Failed to process fund action", 'error');
     } finally {
       setActionLoading(null);
     }
@@ -874,12 +919,12 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
                   <span className="text-slate-500 font-bold block font-mono">Portfolio Balance</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">${(selectedUser.portfolioBalance ?? (selectedUser as any).portfolio?.totalValue ?? 0).toLocaleString()}</span>
+                  <span className="font-mono text-emerald-400 font-black text-sm">${(selectedUserWallet?.portfolioBalance ?? 0).toLocaleString()}</span>
                 </div>
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
                   <span className="text-slate-500 font-bold block font-mono">Available Balance</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">${(selectedUser.availableBalance ?? selectedUser.vaultBalance ?? 0).toLocaleString()}</span>
+                  <span className="font-mono text-emerald-400 font-black text-sm">${(selectedUserWallet?.availableBalance ?? 0).toLocaleString()}</span>
                 </div>
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
@@ -1084,17 +1129,55 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-emerald-400" />
-                  <h3 className="font-bold text-lg">Add Funds</h3>
+                  <DollarSign className={`w-5 h-5 ${fundActionType === 'add' ? 'text-emerald-400' : 'text-rose-400'}`} />
+                  <h3 className="font-bold text-lg">{fundActionType === 'add' ? 'Add Funds to User' : 'Remove Funds from User'}</h3>
                 </div>
-                <button onClick={() => { setFundingUser(null); setFundAmount(''); }} className="p-1 rounded-lg hover:bg-white/10">
+                <button onClick={() => { setFundingUser(null); setFundAmount(''); setFundActionType('add'); }} className="p-1 rounded-lg hover:bg-white/10">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
+              <div className="flex bg-black/20 p-1 rounded-xl border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setFundActionType('add')}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                    fundActionType === 'add' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Add Funds
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFundActionType('remove')}
+                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                    fundActionType === 'remove' ? 'bg-rose-500 text-white shadow' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Remove Funds
+                </button>
+              </div>
+
               <p className="text-xs text-slate-400">
-                Credit funds to <strong className={isDark ? "text-white" : "text-black"}>{fundingUser.email}</strong>. This will instantly increase their available balance.
+                {fundActionType === 'add' ? 'Credit' : 'Deduct'} funds {fundActionType === 'add' ? 'to' : 'from'} <strong className={isDark ? "text-white" : "text-black"}>{fundingUser.email}</strong>.
               </p>
+
+              {fundingWallet && (
+                <div className={`p-4 rounded-2xl border ${isDark ? "bg-white/5 border-white/5" : "bg-slate-50 border-slate-200"} flex justify-between items-center`}>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Current Available</span>
+                    <span className={`text-sm font-mono font-black ${fundingWallet.availableBalance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      ${Number(fundingWallet.availableBalance || 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5 text-right">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Portfolio Total</span>
+                    <span className="text-sm font-mono font-black text-white">
+                      ${Number(fundingWallet.portfolioBalance || 0).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <form onSubmit={handleFundUser} className="space-y-4">
                 <div className="space-y-1">
@@ -1119,7 +1202,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => { setFundingUser(null); setFundAmount(''); }}
+                    onClick={() => { setFundingUser(null); setFundAmount(''); setFundActionType('add'); }}
                     className={`px-4 py-2 rounded-xl text-sm font-bold border transition-colors ${
                       isDark ? 'border-white/10 hover:bg-white/10 text-white' : 'border-slate-200 hover:bg-slate-100 text-slate-900'
                     }`}
@@ -1129,9 +1212,11 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                   <button
                     type="submit"
                     disabled={actionLoading === fundingUser.uid || !fundAmount}
-                    className="px-6 py-2 rounded-xl text-sm font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition-colors"
+                    className={`px-6 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 ${
+                      fundActionType === 'add' ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-rose-500 text-white hover:bg-rose-400'
+                    }`}
                   >
-                    {actionLoading === fundingUser.uid ? 'Crediting...' : 'Credit Funds'}
+                    {actionLoading === fundingUser.uid ? 'Processing...' : (fundActionType === 'add' ? 'Credit Funds' : 'Remove Funds')}
                   </button>
                 </div>
               </form>

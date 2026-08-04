@@ -66,7 +66,7 @@ export interface UserProfile {
   onboardingCompleted?: boolean;
   bonuses?: any[];
   kycStatus?: 'unverified' | 'pending' | 'verified' | 'rejected';
-  role?: 'user';
+  role?: 'user' | 'super_admin' | 'admin';
   watchlist?: string[];
 }
 

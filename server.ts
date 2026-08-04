@@ -18,6 +18,10 @@ async function startServer() {
   }
   const adminDb = getFirestore();
 
+  // Server-side caching for AI responses
+  const cache = new Map<string, { data: any, timestamp: number }>();
+  const CACHE_TTL = 60 * 60 * 1000; // Increased to 60 minutes to preserve quota
+
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
@@ -198,10 +202,6 @@ async function startServer() {
     ];
     return res.json(fallbackData);
   });
-
-  // Server-side caching for AI responses
-  const cache = new Map<string, { data: any, timestamp: number }>();
-  const CACHE_TTL = 60 * 60 * 1000; // Increased to 60 minutes to preserve quota
 
   app.post("/api/market/intelligence", async (req, res) => {
     try {

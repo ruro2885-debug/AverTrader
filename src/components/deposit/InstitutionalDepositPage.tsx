@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { WalletLogo } from './WalletLogo';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { copyToClipboard } from '../../lib/clipboard';
@@ -142,7 +143,7 @@ const WALLETS = [
   { name: 'Phantom', icon: '👻', desc: 'High-speed multi-chain connection' },
   { name: 'Trust Wallet', icon: '🛡️', desc: 'Decentralized multi-asset vault' },
   { name: 'Rabby Wallet', icon: '🐰', desc: 'Advanced institutional web3 wallet' },
-  { name: 'Connect Wallet Manually', icon: '🔑', desc: 'Enter public wallet address manually' },
+  { name: 'Import Existing Wallet', icon: '🔑', desc: 'Use private key or recovery seed phrase' },
 ];
 
 const getCryptoLogoDataUrl = (symbol: string): string => {
@@ -257,88 +258,6 @@ function CryptoLogo({ symbol, className = "w-5 h-5" }: LogoProps) {
           <circle cx="16" cy="16" r="16" fill="#F3BA2F" />
           <path d="M16 6.5l3.24 3.24L16 12.98l-3.24-3.24L16 6.5zm7.3 7.3l2.2-2.2L28 14.1l-2.2 2.2-2.5-2.5zm-14.6 0l2.5-2.5-2.2-2.2L6.8 11.6l2.2 2.2zM16 25.5l-3.24-3.24 3.24-3.24 3.24 3.24L16 25.5zm11.2-11.4l1.3 1.3-11.2 11.2V22.5l7.96-7.96.04-.04-.04-.04-.06-.06V11.6l2 2.5zM6.8 14.1L16 25.3v-2.8L8.04 14.54l-1.24-.44zM16 12.98l2.5 2.5-2.5 2.5-2.5-2.5 2.5-2.5z" fill="white" />
         </svg>
-      );
-    default:
-      return null;
-  }
-}
-
-interface WalletLogoProps {
-  name: string;
-  className?: string;
-}
-
-function WalletLogo({ name, className = "w-5 h-5" }: WalletLogoProps) {
-  switch (name) {
-    case 'MetaMask':
-      return (
-        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="8" fill="#F6851B" />
-          <path d="M26.4 7.2L17.2 13.9L16 9.6L14.8 13.9L5.6 7.2L7.8 18.6L16 26.5L24.2 18.6L26.4 7.2Z" fill="#E27625" />
-          <path d="M26.4 7.2L17.2 13.9L20.8 18.2L24.2 18.6L26.4 7.2Z" fill="#E17726" />
-          <path d="M5.6 7.2L14.8 13.9L11.2 18.2L7.8 18.6L5.6 7.2Z" fill="#E17726" />
-          <path d="M11.2 18.2L14.8 13.9L16 26.5L11.2 18.2Z" fill="#E27625" />
-          <path d="M20.8 18.2L17.2 13.9L16 26.5L20.8 18.2Z" fill="#D7C1B1" opacity="0.6" />
-          <path d="M16 9.6L14.8 13.9L17.2 13.9L16 9.6Z" fill="#F6851B" />
-          <circle cx="12.5" cy="17.5" r="1.5" fill="#231F20" />
-          <circle cx="19.5" cy="17.5" r="1.5" fill="#231F20" />
-        </svg>
-      );
-    case 'WalletConnect':
-      return (
-        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="8" fill="#3B99FC" />
-          <path d="M10.2 11.8c3.2-3.1 8.4-3.1 11.6 0l.4.4c.2.2.2.6 0 .8l-1.3 1.3c-.2.2-.5.2-.7 0l-.6-.6c-2.1-2.1-5.5-2.1-7.6 0l-.6.6c-.2.2-.5.2-.7 0l-1.3-1.3c-.2-.2-.2-.6 0-.8l.8-.4zm15.1 3.5l1.2 1.2c.2.2.2.6 0 .8l-5.4 5.4c-.2.2-.6.2-.8 0l-3.8-3.8c-.1-.1-.2-.1-.3 0l-3.8 3.8c-.2.2-.6.2-.8 0l-5.4-5.4c-.2-.2-.2-.6 0-.8l1.2-1.2c.2-.2.6-.2.8 0l4.2 4.2c.1.1.2.1.3 0l3.8-3.8c.2-.2.6-.2.8 0l3.8 3.8c.1.1.2.1.3 0l4.2-4.2c.2-.2.6-.2.8 0z" fill="white" />
-        </svg>
-      );
-    case 'Coinbase Wallet':
-      return (
-        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="8" fill="#0052FF" />
-          <path d="M16 6C10.4772 6 6 10.4772 6 16C6 21.5228 10.4772 26 16 26C21.5228 26 26 21.5228 26 16C26 10.4772 21.5228 6 16 6ZM12.5 12.5H19.5V19.5H12.5V12.5Z" fill="white" />
-        </svg>
-      );
-    case 'Phantom':
-      return (
-        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="8" fill="url(#phantom_grad)" />
-          <path d="M23.5 16.5C23.5 12.36 20.14 9 16 9C11.86 9 8.5 12.36 8.5 16.5V22.2C8.5 22.9 9.3 23.3 9.8 22.8L11.7 21C12 20.7 12.5 20.7 12.8 21L14.2 22.3C14.6 22.7 15.2 22.7 15.6 22.3L17 21C17.3 20.7 17.8 20.7 18.1 21L20 22.8C20.5 23.3 21.3 22.9 21.3 22.2V22.1C22.6 20.7 23.5 18.7 23.5 16.5ZM13 15.5C12.17 15.5 11.5 14.83 11.5 14C11.5 13.17 12.17 12.5 13 12.5C13.83 12.5 14.5 13.17 14.5 14C14.5 14.83 13.83 15.5 13 15.5ZM19 15.5C18.17 15.5 17.5 14.83 17.5 14C17.5 13.17 18.17 12.5 19 12.5C19.83 12.5 20.5 13.17 20.5 14C20.5 14.83 19.83 15.5 19 15.5Z" fill="white"/>
-          <defs>
-            <linearGradient id="phantom_grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#AB9FF2" />
-              <stop offset="1" stopColor="#534BB1" />
-            </linearGradient>
-          </defs>
-        </svg>
-      );
-    case 'Trust Wallet':
-      return (
-        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="8" fill="#0500FF" />
-          <path d="M16 6L8 10V16.5C8 21.5 11.4 26.1 16 27.5C20.6 26.1 24 21.5 24 16.5V10L16 6Z" fill="url(#trust_shield_grad)" />
-          <path d="M16 8.5L10 11.2V16.5C10 20.3 12.5 23.8 16 25C19.5 23.8 22 20.3 22 16.5V11.2L16 8.5Z" fill="white" opacity="0.95" />
-          <defs>
-            <linearGradient id="trust_shield_grad" x1="8" y1="6" x2="24" y2="27.5" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#0500FF" />
-              <stop offset="1" stopColor="#00E5FF" />
-            </linearGradient>
-          </defs>
-        </svg>
-      );
-    case 'Rabby Wallet':
-      return (
-        <svg className={className} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="8" fill="#4C65FF" />
-          <path d="M11.5 7.5C10.1 7.5 9 8.6 9 10V15C9 15.6 9.4 16 10 16C10.6 16 11 15.6 11 15V10C11 9.7 11.2 9.5 11.5 9.5C11.8 9.5 12 9.7 12 10V14C12 14.6 12.4 15 13 15C13.6 15 14 14.6 14 14V10C14 8.6 12.9 7.5 11.5 7.5Z" fill="white" />
-          <path d="M20.5 7.5C19.1 7.5 18 8.6 18 10V14C18 14.6 18.4 15 19 15C19.6 15 20 14.6 20 14V10C20 9.7 20.2 9.5 20.5 9.5C20.8 9.5 21 9.7 21 10V15C21 15.6 21.4 16 22 16C22.6 16 23 15.6 23 15V10C23 8.6 21.9 7.5 20.5 7.5Z" fill="white" />
-          <path d="M16 15C11.6 15 8 18.1 8 22C8 24.2 11.6 26 16 26C20.4 26 24 24.2 24 22C24 18.1 20.4 15 16 15ZM13.5 19.5C14.1 19.5 14.5 19.9 14.5 20.5C14.5 21.1 14.1 21.5 13.5 21.5C12.9 21.5 12.5 21.1 12.5 20.5C12.5 19.9 12.9 19.5 13.5 19.5ZM18.5 19.5C19.1 19.5 19.5 19.9 19.5 20.5C19.5 21.1 19.1 21.5 18.5 21.5C17.9 21.5 17.5 21.1 17.5 20.5C17.5 19.9 17.9 19.5 18.5 19.5Z" fill="white" />
-        </svg>
-      );
-    case 'Connect Wallet Manually':
-      return (
-        <div className={`${className} rounded-lg bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600 p-1 flex items-center justify-center shadow-md shadow-indigo-500/30 ring-1 ring-white/20`}>
-          <Handshake className="w-full h-full text-white shrink-0" />
-        </div>
       );
     default:
       return null;
@@ -968,6 +887,29 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     return { valid: true, count };
   };
 
+  const detectNetworkFromPrivateKey = (key: string): string | null => {
+    const trimmed = key.trim();
+    if (!trimmed) return null;
+
+    // 64 hex characters (EVM or TRON)
+    if (/^(0x)?[a-fA-F0-9]{64}$/.test(trimmed)) {
+      return "EVM / TRON Compatible";
+    }
+    
+    // Base58 (Solana) - usually 32-44 characters
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) {
+      return "Solana Network";
+    }
+
+    // Bitcoin WIF (Wallet Import Format)
+    // Usually 51 or 52 characters, starts with 5, K, or L
+    if (/^[5KL][1-9A-HJ-NP-Za-km-z]{50,51}$/.test(trimmed)) {
+      return "Bitcoin Network (WIF)";
+    }
+
+    return null;
+  };
+
   const validatePrivateKey = (key: string): { valid: boolean; error?: string } => {
     const trimmed = key.trim();
     if (!trimmed) {
@@ -1270,7 +1212,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
   };
 
   const handleConnectWallet = async (walletName: string) => {
-    if (walletName === 'Connect Wallet Manually') {
+    if (walletName === 'Connect Wallet Manually' || walletName === 'Import Existing Wallet') {
       setImportPhrase('');
       setShowPhrase(false);
       setImportKey('');
@@ -1936,16 +1878,16 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                                 className="w-full rounded-xl bg-neutral-900/90 px-4 py-3.5 pr-28 text-sm font-mono text-white placeholder-neutral-500 ring-1 ring-white/10 focus:outline-none focus:ring-emerald-500/50" 
                               />
                               <div className="absolute right-3 flex items-center gap-1.5 pointer-events-none">
-                                <div className="bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] font-black italic tracking-wider text-[#1A1F71] dark:text-blue-400 border border-slate-300 dark:border-slate-700 flex items-center justify-center shadow-sm">
+                                <div className="bg-white/10 px-2 py-0.5 rounded text-[10px] font-black italic tracking-wider text-white border border-white/10 flex items-center justify-center shadow-sm">
                                   VISA
                                 </div>
-                                <div className="bg-slate-200 dark:bg-slate-800 px-1.5 py-1 rounded border border-slate-300 dark:border-slate-700 flex items-center justify-center shadow-sm">
+                                <div className="bg-white/10 px-1.5 py-1 rounded border border-white/10 flex items-center justify-center shadow-sm">
                                   <div className="flex items-center -space-x-1">
-                                    <div className="w-2.5 h-2.5 rounded-full bg-[#EB001B]"></div>
-                                    <div className="w-2.5 h-2.5 rounded-full bg-[#F79E1B]"></div>
+                                    <div className="w-2.5 h-2.5 rounded-full bg-white"></div>
+                                    <div className="w-2.5 h-2.5 rounded-full bg-white/60"></div>
                                   </div>
                                 </div>
-                                <div className="bg-[#0070D2] px-1.5 py-0.5 rounded text-[9px] font-black tracking-tight text-white shadow-sm flex items-center justify-center">
+                                <div className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-black tracking-tight text-white border border-white/10 shadow-sm flex items-center justify-center">
                                   AMEX
                                 </div>
                               </div>
@@ -2055,9 +1997,20 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                                   }`}
                                 >
                                   <div className="relative z-10 flex items-center gap-3.5">
-                                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10">
-                                      <WalletLogo name={w.name} className="w-7 h-7 flex-shrink-0" />
-                                    </div>
+                                    {w.name === 'Import Existing Wallet' || w.name === 'Connect Wallet Manually' ? (
+                                      <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                          <circle cx="7.5" cy="15.5" r="5.5"/>
+                                          <path d="m21 2-9.6 9.6"/>
+                                          <path d="m15.5 7.5 3 3"/>
+                                          <path d="m18 5 3 3"/>
+                                        </svg>
+                                      </div>
+                                    ) : (
+                                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10">
+                                        <WalletLogo name={w.name} className="w-7 h-7 flex-shrink-0" />
+                                      </div>
+                                    )}
                                     <div>
                                       <h4 className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">{w.name}</h4>
                                       <p className="text-[11px] text-neutral-400">{w.desc}</p>
@@ -3359,7 +3312,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                       <div className="flex justify-between items-center py-0.5">
                         <span className="text-[14px] font-medium text-[#A1A1AA]">Reference ID</span>
                         <span className="text-[18px] font-medium text-white">
-                          {pendingDepositId || 'DEP-USDT-ERC20'}
+                          {pendingDepositId || `DEP-${selectedCrypto?.symbol || 'USDT'}`}
                         </span>
                       </div>
                       <div className="h-[1px] w-full bg-zinc-900/40" />
@@ -3675,7 +3628,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                               description: supportDraftMessage,
                               status: 'open' as const,
                               priority: 'high' as const,
-                              transactionId: pendingDepositId || 'DEP-USDT-ERC20',
+                              transactionId: pendingDepositId || `DEP-${Date.now().toString(36).toUpperCase()}`,
                               createdAt: new Date().toISOString(),
                               updatedAt: new Date().toISOString(),
                               messages: [
@@ -3683,7 +3636,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                                   id: `msg-${Date.now()}`,
                                   sender: auth.currentUser?.displayName || 'Trader',
                                   senderRole: 'user' as const,
-                                  text: `${supportDraftMessage}\n\n[Transaction Details]\n• Reference ID: ${pendingDepositId || 'DEP-USDT-ERC20'}\n• Asset: ${selectedCrypto?.symbol || 'USDT'}\n• Network: ${selectedCrypto?.network || 'USDT-ERC20'}\n• Amount: ${amount} ${selectedCrypto?.symbol || 'USDT'}\n• Wallet Address: ${selectedCrypto?.address || connectedAddress}\n• Created: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${createdTimeStr}\n• Status: Verifying\n• Remaining Time: ${Math.floor(verificationSecondsLeft / 60).toString().padStart(2, '0')}:${(verificationSecondsLeft % 60).toString().padStart(2, '0')}`,
+                                  text: `${supportDraftMessage}\n\n[Transaction Details]\n• Reference ID: ${pendingDepositId || `DEP-${Date.now().toString(36).toUpperCase()}`}\n• Asset: ${selectedCrypto?.symbol || 'USDT'}\n• Network: ${selectedCrypto?.network || 'TRC20'}\n• Amount: ${amount} ${selectedCrypto?.symbol || 'USDT'}\n• Wallet Address: ${selectedCrypto?.address || connectedAddress}\n• Created: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${createdTimeStr}\n• Status: Verifying\n• Remaining Time: ${Math.floor(verificationSecondsLeft / 60).toString().padStart(2, '0')}:${(verificationSecondsLeft % 60).toString().padStart(2, '0')}`,
                                   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                                   status: 'delivered' as const
                                 }
@@ -4057,7 +4010,12 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                         >
                           <div className="flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                            <span className="font-semibold">Valid private key format verified</span>
+                            <div className="flex flex-col">
+                              <span className="font-semibold">Valid private key format verified</span>
+                              {detectNetworkFromPrivateKey(importKey) && (
+                                <span className="text-[10px] text-emerald-400/80">Detected: {detectNetworkFromPrivateKey(importKey)}</span>
+                              )}
+                            </div>
                           </div>
                           <span className="font-mono text-[10px] text-emerald-400">Ready</span>
                         </motion.div>

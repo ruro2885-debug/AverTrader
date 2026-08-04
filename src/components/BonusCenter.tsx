@@ -1106,7 +1106,7 @@ export default function BonusCenter({
               exit={{ opacity: 0, x: 20 }}
               className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
             >
-              <MainView />
+              {MainView()}
             </motion.div>
           )}
           
@@ -1118,7 +1118,7 @@ export default function BonusCenter({
               exit={{ opacity: 0, x: -20 }}
               className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
             >
-              <HistoryView />
+              {HistoryView()}
             </motion.div>
           )}
   
@@ -1130,7 +1130,7 @@ export default function BonusCenter({
               exit={{ opacity: 0, y: -20 }}
               className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
             >
-              <MembershipDetailsView />
+              {MembershipDetailsView()}
             </motion.div>
           )}
   
@@ -1142,7 +1142,7 @@ export default function BonusCenter({
               exit={{ opacity: 0, scale: 1.05 }}
               className="flex-1 overflow-y-auto scroll-smooth scrollbar-hide"
             >
-              <TaskDetailsView />
+              {TaskDetailsView()}
             </motion.div>
           )}
         </AnimatePresence>

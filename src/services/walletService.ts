@@ -72,7 +72,7 @@ export const walletService = {
             }
           }
           if (!pBalance || pBalance === 0) {
-            pBalance = 25000; // Default starting balance
+            pBalance = 0; // Default starting balance
           }
 
           const walletData: WalletData = {
@@ -103,7 +103,7 @@ export const walletService = {
             } catch {}
           }
           if (!cachedBalance || cachedBalance === 0) {
-            cachedBalance = 25000;
+            cachedBalance = 0;
           }
 
           const newWallet: WalletData = {

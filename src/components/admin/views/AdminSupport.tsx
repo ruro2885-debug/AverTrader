@@ -75,8 +75,6 @@ export interface UserTicketSummary {
 }
 
 export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
-  const [activeTab, setActiveTab] = useState<'live' | 'tickets'>('live');
-  
   // Real-time Firestore stores
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [usersMap, setUsersMap] = useState<Record<string, UserProfile>>({});
@@ -190,7 +188,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [tickets, selectedUserId, selectedTicketId, activeTab]);
+  }, [tickets, selectedUserId, selectedTicketId]);
 
   // Sync admin notes input when active ticket changes
   useEffect(() => {
@@ -554,36 +552,18 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
       {/* Top Header Bar */}
       <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0 ${isChatActive ? 'hidden sm:flex' : ''} ${isChatActive ? '' : 'px-0'}`}>
         <div>
-          <h1 className="text-3xl font-black tracking-tight mb-2">Institutional Admin Customer Support Workspace</h1>
+          <h1 className="text-3xl font-black tracking-tight mb-2">Support Ticket Terminal</h1>
           <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            Support Terminal
+            Manage and respond to institutional support tickets.
           </p>
         </div>
 
-        {/* Tab Selection & Metrics */}
+        {/* Metric Summary */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => { setActiveTab('live'); setSelectedUserId(null); setSelectedTicketId(null); }}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border ${
-              activeTab === 'live' 
-                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 font-black' 
-                : isDark ? 'bg-slate-900/80 text-slate-300 border-white/10 hover:bg-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>Messages ({filteredLiveUsers.length})</span>
-          </button>
-          <button
-            onClick={() => { setActiveTab('tickets'); setSelectedUserId(null); setSelectedTicketId(null); }}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border ${
-              activeTab === 'tickets' 
-                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 font-black' 
-                : isDark ? 'bg-slate-900/80 text-slate-300 border-white/10 hover:bg-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>Tickets ({filteredTicketUsers.length})</span>
-          </button>
+          <div className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border ${isDark ? 'bg-slate-900/80 text-slate-300 border-white/10' : 'bg-white text-slate-600 border-slate-200 shadow-sm'}`}>
+            <Layers className="w-4 h-4 text-emerald-500" />
+            <span>Active Support Queues ({filteredTicketUsers.length})</span>
+          </div>
         </div>
       </div>
 
@@ -599,7 +579,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={activeTab === 'live' ? "Search users, messages..." : "Search tickets, subjects..."}
+                placeholder="Search tickets, subjects..."
                 className={`w-full pl-9 pr-3 py-1.5 rounded-lg ${isDark ? "bg-white/10" : "bg-slate-50"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs ${isDark ? "text-white" : "text-slate-900"} placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50`}
               />
               {search && (
@@ -609,8 +589,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
               )}
             </div>
 
-            {activeTab === 'tickets' && (
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
                 <select
                   value={statusFilter}
                   onChange={(e: any) => setStatusFilter(e.target.value)}
@@ -635,7 +614,6 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                   <option value="low">Low</option>
                 </select>
               </div>
-            )}
           </div>
         )}
 
@@ -646,212 +624,10 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
               <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
               <p className={`text-xs font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider`}>Syncing Support Desk...</p>
             </div>
-          ) : activeTab === 'live' ? (
+          ) : (
             
             /* =========================================================
-               TAB 1: MESSAGES (LIVE CONVERSATIONS)
-               ========================================================= */
-            !selectedUserId ? (
-              
-              /* USER LIST (MESSAGES TAB) */
-              filteredLiveUsers.length === 0 ? (
-                <div className={`h-full min-h-[350px] flex flex-col items-center justify-center text-center p-8 border-2 border-dashed ${isDark ? "border-white/10" : "border-slate-200"} rounded-3xl ${isDark ? "bg-white/5" : "bg-white"}/50`}>
-                  <MessageSquare className="w-12 h-12 text-slate-600 mb-3" />
-                  <h3 className={`text-sm font-bold ${isDark ? "text-slate-300" : "text-slate-700"} uppercase tracking-wider`}>No Conversations Found</h3>
-                  <p className="text-xs text-slate-500 max-w-sm mt-1">Users will appear here as soon as they start a support conversation.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredLiveUsers.map((item) => (
-                    <motion.div
-                      key={item.user.uid}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      onClick={() => setSelectedUserId(item.user.uid)}
-                      className={`cursor-pointer ${isDark ? "bg-white/5" : "bg-white"} hover:${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"}/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all shadow-lg flex flex-col justify-between space-y-3`}
-                    >
-                      {/* Top Header Row */}
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-slate-950 font-black flex items-center justify-center text-base shadow-md shrink-0">
-                            {(item.user.displayName || item.user.fullName || item.user.email || 'U').charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <h3 className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"} truncate group-hover:text-emerald-400 transition-colors`}>
-                              {item.user.displayName || item.user.fullName}
-                            </h3>
-                            <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} truncate`}>{item.user.email}</p>
-                            <p className="text-[10px] text-emerald-400/80 font-mono truncate">{item.user.username}</p>
-                          </div>
-                        </div>
-
-                        {item.unreadCount > 0 && (
-                          <span className="shrink-0 px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black shadow-md shadow-emerald-500/20">
-                            {item.unreadCount} NEW
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Last Message Snippet */}
-                      <div className={`${isDark ? "bg-transparent" : "bg-transparent"} rounded-xl p-2.5 border ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                        <p className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"} line-clamp-2 italic`}>
-                          "{item.lastMessage?.text || item.latestTicket?.description || 'Support session initiated.'}"
-                        </p>
-                      </div>
-
-                      {/* Bottom Footer Details */}
-                      <div className={`flex items-center justify-between text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"} border-t ${isDark ? "border-white/10" : "border-slate-200"}/60 pt-2 font-mono`}>
-                        <span className="truncate">UID: {item.user.uid.slice(0, 10)}...</span>
-                        <span className={`shrink-0 ${isDark ? "text-slate-400" : "text-slate-500"}`}>{formatTimestamp(item.lastMessageTime)}</span>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )
-
-            ) : (
-
-              /* USER CHAT WORKSPACE (MESSAGES TAB) */
-              selectedUserLiveSummary ? (
-                <div className={`h-full flex flex-col ${isDark ? "bg-white/5" : "bg-white"} sm:border ${isDark ? "sm:border-white/10" : "sm:border-slate-200"}/90 sm:rounded-3xl overflow-hidden sm:shadow-2xl`}>
-                  {/* Chat Header */}
-                  <div className={`shrink-0 ${isDark ? "bg-white/5" : "bg-white"} px-4 sm:px-6 py-3 border-b ${isDark ? "border-white/10" : "border-slate-200"} flex items-center justify-between gap-3`}>
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setSelectedUserId(null)}
-                        className={`p-2 rounded-xl ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-100 hover:bg-slate-200"} ${isDark ? "text-slate-300" : "text-slate-700"} hover:${isDark ? "text-white" : "text-slate-900"} transition-all`}
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                      </button>
-
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-slate-950 font-black flex items-center justify-center text-sm shadow-md">
-                        {(selectedUserLiveSummary.user.displayName || 'U').charAt(0).toUpperCase()}
-                      </div>
-
-                      <div>
-                        <h2 className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"} flex items-center gap-2`}>
-                          {selectedUserLiveSummary.user.displayName || selectedUserLiveSummary.user.fullName}
-                          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
-                            {selectedUserLiveSummary.user.username}
-                          </span>
-                        </h2>
-                        <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} font-mono`}>{selectedUserLiveSummary.user.email} • UID: {selectedUserLiveSummary.user.uid}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
-                        Live Conversation
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Messages Feed */}
-                  <div className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 ${isDark ? "bg-transparent" : "bg-transparent"}`}>
-                    {activeLiveTicket?.messages && activeLiveTicket.messages.length > 0 ? (
-                      activeLiveTicket.messages.map((msg, idx) => {
-                        const isAdmin = msg.isAdmin || msg.senderRole === 'admin' || msg.sender === 'AVER Specialist' || msg.sender === 'Admin' || msg.sender === 'Support Specialist';
-                        return (
-                          <div
-                            key={msg.id || `msg-${idx}`}
-                            className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'}`}
-                          >
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"} uppercase tracking-wider`}>
-                                {isAdmin ? (msg.sender === authAdmin?.displayName || msg.sender === 'Admin' || msg.sender === 'AVER Specialist' ? 'AVER Specialist (You)' : msg.sender) : msg.sender}
-                              </span>
-                              <span className="text-[10px] text-slate-500 font-mono">
-                                {formatTimestamp(msg.timestamp)}
-                              </span>
-                            </div>
-
-                            <div
-                              className={`max-w-[85%] sm:max-w-[70%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
-                                isAdmin
-                                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-slate-950 font-medium rounded-tr-none shadow-md'
-                                  : '${isDark ? "bg-white/10" : "bg-slate-50"} ${isDark ? "text-white" : "text-slate-900"} border ${isDark ? "border-white/10" : "border-slate-200"} rounded-tl-none'
-                              }`}
-                            >
-                              <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-
-                              {msg.attachmentUrl && (
-                                <div className="mt-2 pt-2 border-t border-black/10">
-                                  {msg.attachmentType === "image" || msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) || (msg.attachmentUrl.includes("alt=media") && !msg.attachmentUrl.toLowerCase().includes(".pdf")) ? (
-                                    <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="block mt-1">
-                                      <img src={msg.attachmentUrl} alt="attachment" className="max-h-48 rounded-lg object-cover border border-white/20" />
-                                    </a>
-                                  ) : (
-                                    <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs font-mono underline hover:opacity-80">
-                                      <Paperclip className="w-3.5 h-3.5" />
-                                      <span>{msg.attachmentName || 'View Attached File'}</span>
-                                    </a>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-                        <MessageSquare className="w-10 h-10 mb-2 opacity-50" />
-                        <p className="text-xs font-bold">No messages in this workspace yet.</p>
-                      </div>
-                    )}
-                    <div ref={chatEndRef} />
-                  </div>
-
-                  {/* Reply Composer Bar */}
-                  {activeLiveTicket && (
-                    <div className={`shrink-0 ${isDark ? "bg-white/5" : "bg-white"} p-3 sm:p-4 border-t ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                      {attachment && (
-                        <div className="mb-2.5 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 font-mono">
-                          <Paperclip className="w-3.5 h-3.5" />
-                          <span className="truncate max-w-xs">{attachment.name}</span>
-                          <button onClick={() => { setAttachment(null); setSelectedFile(null); }} className={`hover:${isDark ? "text-white" : "text-slate-900"} ml-auto`}>
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className={`p-3 rounded-xl ${isDark ? "bg-white/10 hover:bg-white/20" : "bg-slate-100 hover:bg-slate-200"} ${isDark ? "text-slate-300" : "text-slate-700"} hover:${isDark ? "text-white" : "text-slate-900"} transition-all shrink-0`}
-                          title="Attach document or image"
-                        >
-                          <Paperclip className="w-4 h-4 text-emerald-400" />
-                        </button>
-
-                        <input
-                          type="text"
-                          value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && !sendingReply && handleSendAdminReply(activeLiveTicket.id)}
-                          placeholder="Type specialist reply..."
-                          className={`flex-1 px-4 py-3 rounded-xl ${isDark ? "bg-transparent" : "bg-transparent"} border ${isDark ? "border-white/10" : "border-slate-200"} text-xs sm:text-sm ${isDark ? "text-white" : "text-slate-900"} placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50`}
-                        />
-
-                        <button
-                          onClick={() => handleSendAdminReply(activeLiveTicket.id)}
-                          disabled={sendingReply || (!replyText.trim() && !attachment && !selectedFile)}
-                          className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0 shadow-lg shadow-emerald-500/20"
-                        >
-                          {sendingReply ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                          <span className="hidden sm:inline">Send Reply</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : null
-            )
-
-          ) : (
-
-            /* =========================================================
-               TAB 2: TICKETS (TICKETS BY USER)
+               SUPPORT TICKETS (PRIMARY INTERFACE)
                ========================================================= */
             !selectedUserId ? (
 
@@ -907,8 +683,21 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
                       {/* Footer Stats */}
                       <div className={`flex items-center justify-between text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"} border-t ${isDark ? "border-white/10" : "border-slate-200"}/60 pt-2 font-mono`}>
-                        <span>Total Tickets: {item.totalTicketCount}</span>
-                        <span className={`${isDark ? "text-slate-400" : "text-slate-500"}`}>{formatTimestamp(item.latestTicket.updatedAt)}</span>
+                        <div className="flex flex-col">
+                          <span>Total Tickets: {item.totalTicketCount}</span>
+                          <span className={`${isDark ? "text-slate-500" : "text-slate-400"}`}>{formatTimestamp(item.latestTicket.updatedAt)}</span>
+                        </div>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedUserId(item.user.uid);
+                            setSelectedTicketId(item.latestTicket.id);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 font-bold text-[10px] transition-all flex items-center gap-1.5 border border-emerald-500/20"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          Open Chat
+                        </button>
                       </div>
                     </motion.div>
                   ))}
@@ -1088,7 +877,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                                 className={`max-w-[85%] sm:max-w-[70%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                                   isAdmin
                                     ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-slate-950 font-medium rounded-tr-none shadow-md'
-                                    : '${isDark ? "bg-white/10" : "bg-slate-50"} ${isDark ? "text-white" : "text-slate-900"} border ${isDark ? "border-white/10" : "border-slate-200"} rounded-tl-none'
+                                    : `${isDark ? "bg-white/10 text-white border-white/10" : "bg-slate-50 text-slate-900 border-slate-200"} border rounded-tl-none`
                                 }`}
                               >
                                 <p className="whitespace-pre-wrap break-words">{msg.text}</p>

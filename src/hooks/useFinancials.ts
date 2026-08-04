@@ -155,9 +155,8 @@ export const useFinancials = () => {
     tokenBalance = Math.max(0, tokenBalance);
 
     // 4. Vault Balance
-    const wVault = walletData?.vaultBalance || 0;
-    const uVault = user?.vaultBalance || 0;
-    const vaultBalance = wVault > 0 ? wVault : uVault;
+    // Prefer actual user vault balance
+    const vaultBalance = user?.vaultBalance ?? walletData?.vaultBalance ?? 0;
 
     // 5. Separate Calculations for Home (Available Funds) and Portfolio (Total Funds)
     // Portfolio Total Net Balance is Wallet + Vault + Holdings + AI Trading Capital
