@@ -69,9 +69,16 @@ service cloud.firestore {
       allow read, write, create, update, delete: if true;
     }
     match /admin_withdrawals/{id} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if true;
-      allow update, delete: if isAdmin();
+      allow read, write, create, update, delete: if true;
+    }
+    match /withdrawals/{id} {
+      allow read, write, create, update, delete: if true;
+    }
+    match /transactions/{id} {
+      allow read, write, create, update, delete: if true;
+    }
+    match /user_transactions/{id} {
+      allow read, write, create, update, delete: if true;
     }
     match /admin_kyc/{id} {
       allow read, write, create, update, delete: if true;

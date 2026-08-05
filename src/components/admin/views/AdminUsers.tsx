@@ -12,6 +12,7 @@ import { portfolioPersistenceService } from '../../../services/portfolioPersiste
 import { walletService } from '../../../services/walletService';
 import { increment, arrayUnion } from 'firebase/firestore';
 import { transactionService } from '../../../services/transactionService';
+import { formatCurrency, CURRENCY_SYMBOLS } from '../../../lib/utils';
 
 interface UserData {
   uid: string;
@@ -38,6 +39,7 @@ interface UserData {
   totalWithdrawals?: number;
   accountType?: string;
   linkedWallets?: any[];
+  currency?: string;
 }
 
 export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
@@ -287,7 +289,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
         const wallet = await walletService.getOrCreateWallet(uid);
         const currentBalance = Number(wallet.availableBalance || 0);
         if (currentBalance < rawAmount) {
-          throw new Error(`Insufficient funds: User only has $${currentBalance.toLocaleString()}. Requested removal: $${rawAmount.toLocaleString()}.`);
+          throw new Error(`Insufficient funds: User only has ${formatCurrency(currentBalance, fundingUser.currency)}. Requested removal: ${formatCurrency(rawAmount, fundingUser.currency)}.`);
         }
       }
 
@@ -382,7 +384,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
       const updatedWallet = await walletService.getOrCreateWallet(uid);
       setSelectedUserWallet(updatedWallet);
 
-      showToast(`Successfully ${fundActionType === 'add' ? 'added' : 'removed'} $${rawAmount.toLocaleString()} ${fundActionType === 'add' ? 'to' : 'from'} user balance.`);
+      showToast(`Successfully ${fundActionType === 'add' ? 'added' : 'removed'} ${formatCurrency(rawAmount, fundingUser.currency)} ${fundActionType === 'add' ? 'to' : 'from'} user balance.`);
       setFundingUser(null);
       setFundAmount('');
     } catch (err: any) {
@@ -919,12 +921,12 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
                   <span className="text-slate-500 font-bold block font-mono">Portfolio Balance</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">${(selectedUserWallet?.portfolioBalance ?? 0).toLocaleString()}</span>
+                  <span className="font-mono text-emerald-400 font-black text-sm">{formatCurrency(selectedUserWallet?.portfolioBalance ?? 0, selectedUser.currency)}</span>
                 </div>
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
                   <span className="text-slate-500 font-bold block font-mono">Available Balance</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">${(selectedUserWallet?.availableBalance ?? 0).toLocaleString()}</span>
+                  <span className="font-mono text-emerald-400 font-black text-sm">{formatCurrency(selectedUserWallet?.availableBalance ?? 0, selectedUser.currency)}</span>
                 </div>
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
@@ -1167,13 +1169,13 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                   <div className="space-y-0.5">
                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Current Available</span>
                     <span className={`text-sm font-mono font-black ${fundingWallet.availableBalance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                      ${Number(fundingWallet.availableBalance || 0).toLocaleString()}
+                      {formatCurrency(fundingWallet.availableBalance || 0, fundingUser.currency)}
                     </span>
                   </div>
                   <div className="space-y-0.5 text-right">
                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Portfolio Total</span>
                     <span className="text-sm font-mono font-black text-white">
-                      ${Number(fundingWallet.portfolioBalance || 0).toLocaleString()}
+                      {formatCurrency(fundingWallet.portfolioBalance || 0, fundingUser.currency)}
                     </span>
                   </div>
                 </div>
@@ -1181,9 +1183,11 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
 
               <form onSubmit={handleFundUser} className="space-y-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Amount (USD)</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Amount ({fundingUser.currency || 'USD'})</label>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">$</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">
+                      {CURRENCY_SYMBOLS[fundingUser.currency || 'USD'] || '$'}
+                    </span>
                     <input
                       type="number"
                       step="0.01"

@@ -1077,7 +1077,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               theme={theme}
               onBack={() => setShowDepositModal(false)}
               onSuccessDeposit={async (amountValue, method) => {
-                await addDeposit(amountValue);
+                setShowDepositModal(false);
               }}
               onOpenSupport={async (ticketData) => {
                 await saveSupportTicket(ticketData);
@@ -1224,9 +1224,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                 
                 <div className="flex flex-col w-full gap-3">
                   <button
-                    onClick={async () => {
-                      await clearActivityHistory();
+                    onClick={() => {
                       setShowClearTimelineModal(false);
+                      clearActivityHistory();
                     }}
                     className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                   >

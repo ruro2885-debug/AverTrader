@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { collection, query, onSnapshot, where, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../../lib/firebase';
+import { useAuth } from '../../../contexts/AuthContext';
 
 interface AdminStats {
   totalUsers: number;
@@ -26,6 +27,27 @@ interface FinancialRecord {
 type TimeframeRange = 'days' | 'weeks' | 'months';
 
 export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
+  const { resetAllFinancialData } = useAuth();
+  const [resetting, setResetting] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  const handleResetAll = async () => {
+    if (!window.confirm("Are you sure you want to completely reset all existing account financial data? This will set all balances to 0.00 and clear all deposits, withdrawals, and transaction history across all user accounts.")) {
+      return;
+    }
+    setResetting(true);
+    try {
+      await resetAllFinancialData();
+      setResetSuccess(true);
+      setTimeout(() => setResetSuccess(false), 4000);
+    } catch (e) {
+      console.error("Reset failed:", e);
+      alert("Failed to reset financial data. Please try again.");
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const [stats, setStats] = useState<AdminStats>({
     totalUsers: 0,
     totalWallets: 0,
@@ -557,6 +579,28 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Global Financial Reset Panel */}
+      <div className={`p-8 rounded-[2rem] border ${
+        isDark ? 'bg-rose-500/10 border-rose-500/20' : 'bg-rose-50 border-rose-200'
+      }`}>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div>
+            <h4 className="text-lg font-black text-rose-500 mb-1">Global Financial Data Reset</h4>
+            <p className="text-xs text-slate-400">Reset Portfolio Net Balance, Home Net Balance, Available Withdrawals, and clear all deposit history, withdrawal history, transaction history, pending requests, and financial notifications across all accounts to $0.00.</p>
+          </div>
+          <button
+            onClick={handleResetAll}
+            disabled={resetting}
+            className="px-6 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition-all shadow-lg active:scale-95 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+          >
+            {resetting ? 'Resetting All Accounts...' : 'Reset All Financial Data'}
+          </button>
+        </div>
+        {resetSuccess && (
+          <p className="text-xs text-emerald-400 font-bold mt-3">✓ All account financial data successfully reset across the entire platform!</p>
+        )}
       </div>
     </div>
   );

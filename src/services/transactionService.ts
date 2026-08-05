@@ -118,7 +118,7 @@ export const transactionService = {
   /**
    * Helper method for withdrawals
    */
-  async recordWithdrawal(userId: string, amount: number, asset: string = 'USDT', network: string = 'TRC20', txHash?: string) {
+  async recordWithdrawal(userId: string, amount: number, asset: string = 'USDT', network: string = 'TRC20', txHash?: string, status: string = 'Processing') {
     return this.recordTransaction({
       userId,
       type: 'withdrawal',
@@ -127,7 +127,7 @@ export const transactionService = {
       amount,
       asset,
       network,
-      status: 'Processing',
+      status,
       txHash
     });
   },
@@ -197,17 +197,20 @@ export const transactionService = {
     if (userProfile) {
       if (Array.isArray(userProfile.deposits)) {
         userProfile.deposits.forEach((d: any, idx: number) => {
+          if (d.status === 'PENDING' || d.status === 'pending') return;
           const id = d.id || `dep-${d.timestamp || d.date || idx}`;
+          const asset = d.asset || d.symbol || 'USDT';
+          const network = d.network || d.cryptoNetwork || 'TRC20';
           if (!map.has(id)) {
             map.set(id, {
               id,
               userId,
               type: 'deposit',
               category: 'transactions',
-              title: 'USDT Deposit',
+              title: `${asset} Deposit`,
               amount: Number(d.amount) || 0,
-              asset: d.asset || 'USDT',
-              network: d.network || 'TRC20',
+              asset,
+              network,
               status: d.status || 'Completed',
               timestamp: d.timestamp || d.date || new Date().toISOString(),
               txHash: d.txHash || d.hash || undefined
@@ -219,16 +222,18 @@ export const transactionService = {
       if (Array.isArray(userProfile.withdrawals)) {
         userProfile.withdrawals.forEach((w: any, idx: number) => {
           const id = w.id || `wd-${w.timestamp || w.date || idx}`;
+          const asset = w.asset || w.symbol || 'USDT';
+          const network = w.network || w.cryptoNetwork || 'TRC20';
           if (!map.has(id)) {
             map.set(id, {
               id,
               userId,
               type: 'withdrawal',
               category: 'transactions',
-              title: 'USDT Withdrawal',
+              title: `${asset} Withdrawal`,
               amount: Number(w.amount) || 0,
-              asset: w.asset || 'USDT',
-              network: w.network || 'TRC20',
+              asset,
+              network,
               status: w.status || 'Processing',
               timestamp: w.timestamp || w.date || new Date().toISOString(),
               txHash: w.txHash || w.hash || undefined
@@ -289,6 +294,9 @@ export const transactionService = {
       const snap = await getDocs(q);
       snap.forEach(d => {
         const data = d.data() as TransactionRecord;
+        if (data.type === 'deposit' && (data.status as string)?.toLowerCase() === 'pending') {
+          return;
+        }
         map.set(d.id, { ...data, id: d.id });
       });
     } catch (err) {

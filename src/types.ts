@@ -227,12 +227,17 @@ export interface TransactionRecord {
   category: 'transactions' | 'orders' | 'order-history';
   title: string;
   asset: string;
+  symbol?: string;
   amount: number;
+  cryptoAmount?: number;
+  cryptoSymbol?: string;
   fee?: number;
   price?: number;
   quantity?: number;
   side?: 'buy' | 'sell';
   network: string;
+  destination?: string;
+  refId?: string;
   status: 'Completed' | 'Pending' | 'Failed' | 'Processing' | 'Cancelled';
   timestamp: string;
   txHash?: string;

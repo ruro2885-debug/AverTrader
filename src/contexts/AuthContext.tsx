@@ -43,6 +43,7 @@ import { walletService } from '../services/walletService';
 import { progressionService } from '../services/progressionService';
 import { transactionService } from '../services/transactionService';
 import { sanitizeAndResetUserData } from '../services/dataSanitizer';
+import { saveLocalWithdrawal } from '../lib/withdrawalStore';
 
 export interface UserPreferences {
   language: string;
@@ -161,6 +162,7 @@ interface AuthContextType {
   updateProfile: (dataOrDisplayName: Partial<User> | string, username?: string, email?: string, silent?: boolean) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
   verifyCurrentPassword: (password: string) => Promise<boolean>;
+  resetAllFinancialData: () => Promise<void>;
 }
 
 export interface SignUpData {
@@ -199,6 +201,7 @@ const AuthContext = createContext<AuthContextType>({
   updateProfile: async () => {},
   changePassword: async () => {},
   verifyCurrentPassword: async () => false,
+  resetAllFinancialData: async () => {},
 });
 
 // Helper for local database simulation
@@ -379,42 +382,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (docSnap.exists()) {
             const userData = docSnap.data() as User;
             
-            // Auto-sanitize if legacy fake vault balance ($310,179) or fake progress exists
-            if (userData.vaultBalance && userData.vaultBalance > 0) {
-              sanitizeAndResetUserData(uid, userData.portfolioBalance || userData.availableBalance || 0).catch(() => {});
-            }
-
-            // Auto-initialize profile details if missing
-            const needsSeed = !userData.avatarSeed && !userData.avatarUrl && !userData.profilePhotoURL;
-            if (needsSeed && !avatarSetupRef.current) {
-              avatarSetupRef.current = true;
-              const resolvedSeed = userData.avatarSeed || uid;
-              const newDataUrl = getAvatarDataUrl(resolvedSeed);
-              updateDoc(userDocRef, {
-                avatarSeed: resolvedSeed,
-                hasCustomPhoto: false,
-                profilePhotoURL: newDataUrl,
-                avatarUrl: newDataUrl,
-                lastUpdated: serverTimestamp()
-              }).catch(() => { avatarSetupRef.current = false; });
-            }
-
-            // Check login streak
-            const todayStr = new Date().toISOString().split('T')[0];
-            const lastLoginDay = userData.lastLoginDate?.split('T')[0];
-            if (lastLoginDay !== todayStr) {
-              progressionService.updateProgress(uid, 'login').catch(() => {});
-            }
-
             setUser(prev => {
               const updatedUser = {
                 ...userData,
-                portfolioBalance: userData.portfolioBalance ?? prev?.portfolioBalance ?? 0,
-                availableBalance: userData.availableBalance ?? prev?.availableBalance ?? 0,
-                vaultBalance: 0, // Always enforce 0 vault balance unless user specifically transfers
-                holdings: prev?.holdings || userData.holdings || [],
-                trades: prev?.trades || userData.trades || [],
-                snapshots: prev?.snapshots || userData.snapshots || []
+                portfolioBalance: typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : (prev?.portfolioBalance ?? 0),
+                availableBalance: typeof userData.availableBalance === 'number' ? userData.availableBalance : (prev?.availableBalance ?? 0),
+                vaultBalance: 0,
+                holdings: userData.holdings || prev?.holdings || [],
+                trades: userData.trades || prev?.trades || [],
+                snapshots: userData.snapshots || prev?.snapshots || []
               } as User;
               
               // Only cache essential profile info
@@ -1534,195 +1510,131 @@ function dataURLtoBlob(dataurl: string): Blob {
     }
   }, [addNotification]);
 
-  const addWithdrawal = useCallback(async (amount: number, destination?: string) => {
+  const addWithdrawal = useCallback(async (amount: number, destination?: string, asset: string = 'USDT', network: string = 'TRC20') => {
     if (userRef.current) {
+      const availBal = userRef.current.portfolioBalance ?? userRef.current.availableBalance ?? 0;
       if (amount > 9000000) {
         throw new Error("Transaction limit exceeded. Maximum withdrawal limit per transaction is $9,000,000.");
       }
-      if (userRef.current.availableBalance < amount) {
+      if (availBal < amount) {
         throw new Error("Insufficient funds available for withdrawal.");
       }
 
-      const txHash = '0x' + Math.random().toString(16).substr(2, 8) + Math.random().toString(16).substr(2, 8);
-      const dateStr = new Date().toISOString();
-      
-      // Automatically record in Transaction History
-      transactionService.recordWithdrawal(userRef.current.uid, amount, 'USDT', 'TRC20', txHash).catch(() => {});
-      
-      const newWithdrawal: WithdrawalItem = {
-        id: 'wth-' + Date.now(),
+      const txId = `wth-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const refId = 'WTH-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+      const txHash = '0x' + Math.random().toString(16).substring(2, 10) + Math.random().toString(16).substring(2, 10);
+      const timestamp = new Date().toISOString();
+
+      const assetPrices: Record<string, number> = { BTC: 64000, ETH: 3400, SOL: 145, BNB: 580, AVR: 1.2, USDT: 1, USDC: 1, USD: 1 };
+      const cleanAsset = (asset || 'USDT').split('-')[0].toUpperCase();
+      const tokenPrice = assetPrices[cleanAsset] || 64000;
+      const cryptoAmount = cleanAsset === 'USDT' || cleanAsset === 'USDC' || cleanAsset === 'USD'
+        ? amount
+        : Number((amount / tokenPrice).toFixed(6));
+
+      // 1. Save to admin_withdrawals collection for Admin Governance
+      const withdrawalData = {
+        id: txId,
+        refId,
+        userId: userRef.current.uid,
+        email: userRef.current.email || '',
+        userName: userRef.current.displayName || userRef.current.username || 'User',
         amount,
+        cryptoAmount,
+        cryptoSymbol: cleanAsset,
+        asset: cleanAsset,
+        symbol: cleanAsset,
+        network: network || 'TRC20',
+        destination: destination || 'N/A',
+        destinationAddress: destination || 'N/A',
         txHash,
-        status: 'Completed',
-        date: dateStr,
+        status: 'pending',
+        timestamp,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       };
 
-      const newHistoryItem: HistoryItem = {
-        id: 'hist-' + Date.now(),
-        type: 'withdrawal',
-        amount,
-        valueUsd: amount,
-        date: dateStr,
-        status: 'Completed',
-      };
+      await setDoc(doc(db, 'admin_withdrawals', txId), withdrawalData).catch((e) => console.warn("Firestore admin_withdrawals write error:", e));
+      await setDoc(doc(db, 'withdrawals', txId), withdrawalData).catch((e) => console.warn("Firestore withdrawals write error:", e));
 
-      let activeSessionCapital = 0;
-      try {
-        const sessionStr = safeStorage.getItem(`aver_session_${userRef.current.uid}`);
-        if (sessionStr) {
-          const s = JSON.parse(sessionStr);
-          if (s && s.status === 'ACTIVE') {
-            activeSessionCapital = s.tradingCapital || 0;
-          }
-        }
-      } catch (e) {}
+      // Save to local store
+      saveLocalWithdrawal({
+        ...withdrawalData,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
 
-      if (!auth.currentUser) {
-        setUser(prev => {
-          if (!prev) return null;
-          const nextPort = (prev.portfolioBalance || 0) - amount;
-          const nextAvail = (prev.availableBalance || 0) - amount; // Already has activeSessionCapital subtracted in state
-          const nextWth = (prev.totalWithdrawals || 0) + amount;
-          const nextTokenBal = nextPort - activeSessionCapital;
-          const updated = {
-            ...prev,
-            portfolioBalance: nextPort,
-            availableBalance: nextAvail,
-            tokenBalance: nextTokenBal,
-            totalWithdrawals: nextWth,
-            withdrawals: [newWithdrawal, ...(prev.withdrawals || [])],
-            history: [newHistoryItem, ...(prev.history || [])],
-            portfolio: {
-              ...prev.portfolio,
-              totalValue: nextPort + (prev.vaultBalance || 0)
-            },
-            lastUpdated: new Date().toISOString()
-          } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
-
-          const dbList = getLocalDB();
-          const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
-          if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
-
-          portfolioPersistenceService.savePortfolioCurrent(prev.uid, {
-            walletState: {
-              portfolioBalance: nextPort,
-              availableBalance: nextAvail,
-              vaultBalance: prev.vaultBalance || 0,
-              activeOffset: prev.activeOffset || 0,
-              totalDeposits: prev.totalDeposits || 0,
-              totalWithdrawals: nextWth,
-              totalProfit: prev.totalProfit || 0,
-              totalLoss: prev.totalLoss || 0,
-              tokenBalance: nextTokenBal,
-              aiTradingCapital: activeSessionCapital
-            },
-            portfolioMetrics: {
-              ...prev.portfolio,
-              totalValue: nextPort + (prev.vaultBalance || 0)
-            }
-          });
-
-          walletService.updateWallet(prev.uid, {
-            portfolioBalance: nextPort,
-            availableBalance: nextAvail,
-            totalWithdrawals: nextWth,
-            portfolioValue: nextPort + (prev.vaultBalance || 0),
-            tokenBalance: nextTokenBal,
-            aiTradingCapital: activeSessionCapital
-          });
-
-          return updated;
-        });
-
-        await addNotification('withdrawal', 'medium', 'Withdrawal Requested', `Your withdrawal request of $${amount.toLocaleString()} has been received.`);
-        await addNotification('withdrawal', 'medium', 'Withdrawal Completed', `Successfully withdrew $${amount.toLocaleString()} from your wallet.`);
-        return;
+      // Update user doc in Firestore
+      if (!userRef.current.uid.startsWith('local-')) {
+        await updateDoc(doc(db, 'users', userRef.current.uid), {
+          withdrawals: arrayUnion({
+            id: txId,
+            refId,
+            amount,
+            cryptoAmount,
+            cryptoSymbol: cleanAsset,
+            asset: cleanAsset,
+            network: network || 'TRC20',
+            destination: destination || 'N/A',
+            status: 'Pending',
+            timestamp,
+            date: timestamp,
+            txHash
+          })
+        }).catch(() => {});
       }
 
-      const userDocRef = doc(db, 'users', userRef.current.uid);
-      await updateDoc(userDocRef, {
-        portfolioBalance: increment(-amount),
-        availableBalance: increment(-amount),
-        tokenBalance: increment(-amount),
-        totalWithdrawals: increment(amount),
-        withdrawals: arrayUnion(newWithdrawal),
-        history: arrayUnion(newHistoryItem),
-        'portfolio.totalValue': increment(-amount),
-        lastUpdated: serverTimestamp()
-      });
+      // Update local state and safeStorage
+      const currentWithdrawals = userRef.current.withdrawals || [];
+      const updatedUser = {
+        ...userRef.current,
+        withdrawals: [
+          ...currentWithdrawals,
+          {
+            id: txId,
+            refId,
+            amount,
+            cryptoAmount,
+            cryptoSymbol: cleanAsset,
+            asset: cleanAsset,
+            network: network || 'TRC20',
+            destination: destination || 'N/A',
+            status: 'Pending',
+            timestamp,
+            date: timestamp,
+            txHash
+          }
+        ]
+      };
+      setUser(updatedUser as any);
+      safeStorage.setItem('aver_active_user', JSON.stringify(updatedUser));
+      safeStorage.setItem(`user_profile_${userRef.current.uid}`, JSON.stringify(updatedUser));
 
-      // Submit to admin_withdrawals for audit
-      await addDoc(collection(db, 'admin_withdrawals'), {
+      // 2. Record in Transaction History with status = 'Pending'
+      await transactionService.recordTransaction({
+        id: txId,
         userId: userRef.current.uid,
-        email: userRef.current.email,
-        userName: userRef.current.displayName || userRef.current.fullName || userRef.current.username || 'User',
+        type: 'withdrawal',
+        category: 'transactions',
+        title: `${cleanAsset} Withdrawal`,
         amount,
-        asset: 'USDT', // Default asset
-        status: 'pending',
-        destination: destination || 'Direct to Wallet',
-        riskScore: Math.floor(Math.random() * 40) + 10, // Simulated risk score
-        timestamp: dateStr,
-        createdAt: serverTimestamp(),
-        txHash
-      }).catch(err => console.warn("Failed to submit to admin_withdrawals:", err));
-
-      const updatedPort = (userRef.current.portfolioBalance || 0) - amount;
-      const updatedAvail = (userRef.current.availableBalance || 0) - amount; // Already has activeSessionCapital subtracted in state
-      const updatedTotalWth = (userRef.current.totalWithdrawals || 0) + amount;
-      const updatedTokenBal = updatedPort - activeSessionCapital;
-
-      setUser(prev => {
-        if (!prev) return null;
-        const updated = {
-          ...prev,
-          portfolioBalance: updatedPort,
-          availableBalance: updatedAvail,
-          tokenBalance: updatedTokenBal,
-          totalWithdrawals: updatedTotalWth,
-          withdrawals: [newWithdrawal, ...(prev.withdrawals || [])],
-          history: [newHistoryItem, ...(prev.history || [])],
-          portfolio: {
-            ...prev.portfolio,
-            totalValue: updatedPort + (prev.vaultBalance || 0)
-          },
-          lastUpdated: new Date().toISOString()
-        } as User;
-        safeStorage.setItem(`user_profile_${prev.uid}`, JSON.stringify(updated));
-        safeStorage.setItem('aver_active_user', JSON.stringify(updated));
-        return updated;
+        cryptoAmount,
+        cryptoSymbol: cleanAsset,
+        asset: cleanAsset,
+        symbol: cleanAsset,
+        network: network || 'TRC20',
+        destination: destination || 'N/A',
+        status: 'Pending',
+        refId,
+        txHash,
+        timestamp
       });
 
-      await portfolioPersistenceService.savePortfolioCurrent(userRef.current.uid, {
-        walletState: {
-          portfolioBalance: updatedPort,
-          availableBalance: updatedAvail,
-          vaultBalance: userRef.current.vaultBalance || 0,
-          activeOffset: userRef.current.activeOffset || 0,
-          totalDeposits: userRef.current.totalDeposits || 0,
-          totalWithdrawals: updatedTotalWth,
-          totalProfit: userRef.current.totalProfit || 0,
-          totalLoss: userRef.current.totalLoss || 0,
-          tokenBalance: updatedTokenBal,
-          aiTradingCapital: activeSessionCapital
-        },
-        portfolioMetrics: {
-          ...(userRef.current.portfolio || {}),
-          totalValue: updatedPort + (userRef.current.vaultBalance || 0)
-        }
-      });
-
-      await walletService.updateWallet(userRef.current.uid, {
-        portfolioBalance: updatedPort,
-        availableBalance: updatedAvail,
-        totalWithdrawals: updatedTotalWth,
-        portfolioValue: updatedPort + (userRef.current.vaultBalance || 0),
-        tokenBalance: updatedTokenBal,
-        aiTradingCapital: activeSessionCapital
-      });
-
-      await addNotification('withdrawal', 'medium', 'Withdrawal Requested', `Your withdrawal request of $${amount.toLocaleString()} has been received.`);
-      await addNotification('withdrawal', 'medium', 'Withdrawal Completed', `Successfully withdrew $${amount.toLocaleString()} from your wallet.`);
+      window.dispatchEvent(new CustomEvent('aver_transaction_created', { detail: txId }));
+      window.dispatchEvent(new CustomEvent('withdrawal_updated', { detail: txId }));
+      window.dispatchEvent(new Event('aver_user_updated'));
+      
+      await addNotification('withdrawals', 'high', 'Withdrawal Request Submitted', `Your withdrawal of $${amount.toLocaleString()} is under review by admin.`).catch(() => {});
     }
   }, [addNotification]);
 
@@ -1880,6 +1792,148 @@ function dataURLtoBlob(dataurl: string): Blob {
     return true; // Simplified/auto-approved for cloud flow
   }, []);
 
+  const resetAllFinancialData = useCallback(async () => {
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const batchPromises = usersSnap.docs.map(async (userDoc) => {
+        const uid = userDoc.id;
+        const uRef = doc(db, 'users', uid);
+        await updateDoc(uRef, {
+          portfolioBalance: 0,
+          availableBalance: 0,
+          vaultBalance: 0,
+          totalDeposits: 0,
+          totalWithdrawals: 0,
+          totalProfit: 0,
+          totalLoss: 0,
+          deposits: [],
+          withdrawals: [],
+          history: [],
+          trades: [],
+          holdings: [],
+          snapshots: [],
+          notificationsList: [],
+          portfolio: {
+            totalValue: 0,
+            todayPnL: 0,
+            todayPnLPercent: 0,
+            overallReturn: 0,
+            realizedPnL: 0,
+            unrealizedPnL: 0,
+            healthScore: 100,
+            diversificationScore: 100,
+            volatility: 0,
+            sharpeRatio: 0,
+            winRate: 0,
+            maxDrawdown: 0,
+            recoveryFactor: 0,
+            riskAdjustedReturn: 0
+          }
+        });
+
+        for (const subcol of ['trades', 'holdings', 'snapshots', 'activity', 'positions', 'aiConfigurations']) {
+          try {
+            const subSnap = await getDocs(collection(db, 'users', uid, subcol));
+            await Promise.all(subSnap.docs.map(d => deleteDoc(d.ref)));
+          } catch (e) {
+            console.warn(`Failed to clear subcollection ${subcol} for user ${uid}:`, e);
+          }
+        }
+      });
+
+      await Promise.all(batchPromises);
+
+      for (const colName of ['admin_deposits', 'admin_withdrawals', 'transactions', 'user_transactions', 'aiSessions', 'aiRecommendations', 'linked_wallets', 'user_wallets']) {
+        try {
+          const colSnap = await getDocs(collection(db, colName));
+          await Promise.all(colSnap.docs.map(d => deleteDoc(d.ref)));
+        } catch (e) {
+          console.warn(`Failed to clear global collection ${colName}:`, e);
+        }
+      }
+
+      // Clear all local storage keys related to financials, wallets, transactions, deposits, withdrawals, trades, portfolios
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (
+            k.includes('aver_') ||
+            k.includes('wallet') ||
+            k.includes('transaction') ||
+            k.includes('deposit') ||
+            k.includes('withdrawal') ||
+            k.includes('trade') ||
+            k.includes('portfolio') ||
+            k.includes('vault') ||
+            k.includes('holding') ||
+            k.includes('snapshot') ||
+            k.includes('activity') ||
+            k.includes('session') ||
+            k.includes('recommendation')
+          )) {
+            // Keep auth token/session if needed, but wipe financial keys
+            if (k !== 'firebase:authUser:' && !k.startsWith('firebase:')) {
+              keysToRemove.push(k);
+            }
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+      } catch (e) {
+        console.warn("Error clearing financial local storage keys:", e);
+      }
+
+      safeStorage.removeItem('aver_admin_deposits_local');
+      safeStorage.removeItem('aver_admin_withdrawals_local');
+      safeStorage.removeItem('aver_transactions_local');
+      safeStorage.removeItem('portfolio_vault_balance');
+
+      if (userRef.current) {
+        const resetUser: User = {
+          ...userRef.current,
+          portfolioBalance: 0,
+          availableBalance: 0,
+          vaultBalance: 0,
+          totalDeposits: 0,
+          totalWithdrawals: 0,
+          totalProfit: 0,
+          totalLoss: 0,
+          deposits: [],
+          withdrawals: [],
+          history: [],
+          trades: [],
+          holdings: [],
+          snapshots: [],
+          notificationsList: [],
+          portfolio: {
+            totalValue: 0,
+            todayPnL: 0,
+            todayPnLPercent: 0,
+            overallReturn: 0,
+            realizedPnL: 0,
+            unrealizedPnL: 0,
+            healthScore: 100,
+            diversificationScore: 100,
+            volatility: 0,
+            sharpeRatio: 0,
+            winRate: 0,
+            maxDrawdown: 0,
+            recoveryFactor: 0,
+            riskAdjustedReturn: 0
+          }
+        };
+        setUser(resetUser);
+        safeStorage.setItem('aver_active_user', JSON.stringify(resetUser));
+        safeStorage.setItem(`user_profile_${resetUser.uid}`, JSON.stringify(resetUser));
+      }
+
+      console.log("All account financial data successfully reset.");
+    } catch (err) {
+      console.error("Error resetting all financial data:", err);
+      throw err;
+    }
+  }, []);
+
   const contextValue = useMemo(() => ({
     user: userWithPreview,
     loading,
@@ -1905,6 +1959,7 @@ function dataURLtoBlob(dataurl: string): Blob {
     updateProfile,
     changePassword,
     verifyCurrentPassword,
+    resetAllFinancialData,
   }), [
     userWithPreview,
     loading,

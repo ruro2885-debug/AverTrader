@@ -31,6 +31,9 @@ const fallbacks: Record<string, { char: string; gradient: string }> = {
   AVR: { char: 'A', gradient: 'from-emerald-400 to-teal-400' },
   USDT: { char: '₮', gradient: 'from-teal-400 to-emerald-600' },
   USDC: { char: 'C', gradient: 'from-blue-400 to-blue-600' },
+  USD: { char: '$', gradient: 'from-emerald-500 to-green-600' },
+  GBP: { char: '£', gradient: 'from-indigo-500 to-blue-600' },
+  EUR: { char: '€', gradient: 'from-sky-500 to-blue-600' },
 };
 
 export default function CoinLogo({ symbol, size = 24, className = '', imgClassName = '' }: CoinLogoProps) {

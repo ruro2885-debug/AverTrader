@@ -1000,13 +1000,10 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         const chunk = snapshot.docs.slice(i, i + batchSize);
         await Promise.all(chunk.map(d => deleteDoc(d.ref)));
       }
-      
-      // Log that history was cleared (this will be the only item in the new history)
-      await logActivity('HISTORY_CLEARED', 'Account timeline history has been cleared by the user.');
     } catch (error) {
       console.warn("Failed to clear activity history in Firestore:", error);
     }
-  }, [user, setLocalStorageItem, logActivity]);
+  }, [user, setLocalStorageItem]);
 
   const closeTrade = useCallback(async (tradeId: string, exitPrice: number, reason: AiTrade['reasonClosed']) => {
     if (!user) return;

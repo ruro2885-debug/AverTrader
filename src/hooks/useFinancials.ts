@@ -158,12 +158,10 @@ export const useFinancials = () => {
     // Prefer actual user vault balance
     const vaultBalance = user?.vaultBalance ?? walletData?.vaultBalance ?? 0;
 
-    // 5. Separate Calculations for Home (Available Funds) and Portfolio (Total Funds)
-    // Portfolio Total Net Balance is Wallet + Vault + Holdings + AI Trading Capital
-    // Active session allocated capital is transferred out but is still part of user's total net balance!
-    const portfolioTotalNetBalance = tokenBalance + vaultBalance + totalHoldingsValue + aiTradingCapital;
-
-    // Home Net Balance represents the primary display balance (Total Net Value)
+    // 5. Unified Balance Calculations (Withdrawal Available Balance & Portfolio Net Balance)
+    // Both MUST be the exact same value, representing the user's withdrawable net balance.
+    const rawVal = user?.availableBalance ?? user?.portfolioBalance ?? walletData?.availableBalance ?? walletData?.portfolioBalance ?? 0;
+    const portfolioTotalNetBalance = typeof rawVal === 'number' && !isNaN(rawVal) ? rawVal : 0;
     const homeNetBalance = portfolioTotalNetBalance;
 
     // 6. Portfolio Value (Same as portfolio total net balance but often used for ROI calcs)

@@ -181,7 +181,7 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
       setProcessingId(deposit.id);
       setSelectedDeposit(null);
 
-      // 1. Update status in admin_deposits collection
+      // 1. Update status in admin_deposits and transactions collections
       const depositRef = doc(db, 'admin_deposits', deposit.id);
       await safeSetDoc(depositRef, { 
         status: 'completed',
@@ -189,6 +189,12 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || 'Super Admin'
       }, { merge: true });
+
+      // Synchronize transaction document status
+      await safeSetDoc(doc(db, 'transactions', deposit.id), {
+        status: 'Completed',
+        updatedAt: serverTimestamp()
+      }, { merge: true }).catch(() => {});
 
       const amount = Number(deposit.amount) || 0;
       let targetUid = deposit.userId;
@@ -244,8 +250,6 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
           tokenBalance: increment(amount),
           'portfolio.totalValue': increment(amount),
           notificationsList: arrayUnion(notifItem),
-          transactionHistory: arrayUnion(newHistoryItem),
-          depositsHistory: arrayUnion(newDepositItem),
           lastUpdated: serverTimestamp()
         }, { merge: true });
 
@@ -301,6 +305,11 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
         processedAt: serverTimestamp(),
         processedBy: auth.currentUser?.email || 'Super Admin'
       }, { merge: true });
+
+      await safeSetDoc(doc(db, 'transactions', deposit.id), {
+        status: 'Rejected',
+        updatedAt: serverTimestamp()
+      }, { merge: true }).catch(() => {});
 
       if (selectedDeposit?.id === deposit.id) {
         setSelectedDeposit(prev => prev ? { ...prev, status: 'rejected' } : null);
@@ -643,10 +652,15 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-base font-black text-emerald-400">
-                          ${Number(item.amount || 0).toLocaleString()}
+                          ${Number(item.amount || 0).toLocaleString()} USD
                         </span>
+                        {item.cryptoAmount && item.cryptoSymbol && item.cryptoSymbol !== 'USD' && item.cryptoSymbol !== 'USDT' && (
+                          <span className="text-xs font-mono font-bold text-amber-400">
+                            {item.cryptoAmount} {item.cryptoSymbol}
+                          </span>
+                        )}
                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          {item.currency || 'USD'}
+                          {item.currency || item.asset || 'USD'}
                         </span>
                       </div>
                     </td>

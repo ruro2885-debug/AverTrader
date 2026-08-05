@@ -84,8 +84,11 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     postalCode: '',
     idType: 'Passport', // 'Passport' | 'National ID' | "Driver's License"
     frontIdUrl: '',
+    frontIdOriginalUrl: '',
     backIdUrl: '',
-    selfieUrl: ''
+    backIdOriginalUrl: '',
+    selfieUrl: '',
+    selfieOriginalUrl: ''
   });
 
   const [error, setError] = useState('');
@@ -99,30 +102,58 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       if (result) {
         const img = new Image();
         img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          const max_size = 200;
-
-          if (width > height) {
-            if (width > max_size) {
-              height *= max_size / width;
-              width = max_size;
+          // 1. Generate optimized low-resolution thumbnail for quick UI rendering (max 240px, quality 0.35)
+          const thumbCanvas = document.createElement('canvas');
+          let thumbWidth = img.width;
+          let thumbHeight = img.height;
+          const max_thumb = 240;
+          if (thumbWidth > thumbHeight) {
+            if (thumbWidth > max_thumb) {
+              thumbHeight *= max_thumb / thumbWidth;
+              thumbWidth = max_thumb;
             }
           } else {
-            if (height > max_size) {
-              width *= max_size / height;
-              height = max_size;
+            if (thumbHeight > max_thumb) {
+              thumbWidth *= max_thumb / thumbHeight;
+              thumbHeight = max_thumb;
             }
           }
+          thumbCanvas.width = thumbWidth;
+          thumbCanvas.height = thumbHeight;
+          const thumbCtx = thumbCanvas.getContext('2d');
+          thumbCtx?.drawImage(img, 0, 0, thumbWidth, thumbHeight);
+          const compressedThumbnail = thumbCanvas.toDataURL('image/jpeg', 0.35);
 
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          
-          const compressedResult = canvas.toDataURL('image/jpeg', 0.2);
-          setFormData(prev => ({ ...prev, [field]: compressedResult }));
+          // 2. Generate high-resolution crystal-clear original for zoom & download (max 1440px, quality 0.82)
+          // This keeps all document text and face details extremely sharp, while reducing the file size to ~150-250KB,
+          // safely avoiding any Firestore 1MB transaction limits.
+          const hdCanvas = document.createElement('canvas');
+          let hdWidth = img.width;
+          let hdHeight = img.height;
+          const max_hd = 1440;
+          if (hdWidth > hdHeight) {
+            if (hdWidth > max_hd) {
+              hdHeight *= max_hd / hdWidth;
+              hdWidth = max_hd;
+            }
+          } else {
+            if (hdHeight > max_hd) {
+              hdWidth *= max_hd / hdHeight;
+              hdHeight = max_hd;
+            }
+          }
+          hdCanvas.width = hdWidth;
+          hdCanvas.height = hdHeight;
+          const hdCtx = hdCanvas.getContext('2d');
+          hdCtx?.drawImage(img, 0, 0, hdWidth, hdHeight);
+          const compressedHD = hdCanvas.toDataURL('image/jpeg', 0.82);
+
+          const originalField = field === 'frontIdUrl' ? 'frontIdOriginalUrl' : field === 'backIdUrl' ? 'backIdOriginalUrl' : 'selfieOriginalUrl';
+          setFormData(prev => ({ 
+            ...prev, 
+            [field]: compressedThumbnail,
+            [originalField]: compressedHD
+          }));
         };
         img.src = result;
       }
@@ -181,8 +212,11 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         },
         documents: [formData.frontIdUrl, formData.backIdUrl].filter(Boolean),
         frontIdUrl: formData.frontIdUrl,
+        frontIdOriginalUrl: formData.frontIdOriginalUrl || formData.frontIdUrl,
         backIdUrl: formData.backIdUrl,
+        backIdOriginalUrl: formData.backIdOriginalUrl || formData.backIdUrl,
         selfieUrl: formData.selfieUrl,
+        selfieOriginalUrl: formData.selfieOriginalUrl || formData.selfieUrl,
         status: 'pending',
         submittedAt: new Date().toISOString(),
         createdAt: serverTimestamp()
@@ -237,8 +271,11 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
           postalCode: latestSubmission.address?.postalCode || '',
           idType: latestSubmission.idType || 'Passport',
           frontIdUrl: latestSubmission.frontIdUrl || latestSubmission.documents?.[0] || '',
+          frontIdOriginalUrl: latestSubmission.frontIdOriginalUrl || latestSubmission.frontIdUrl || latestSubmission.documents?.[0] || '',
           backIdUrl: latestSubmission.backIdUrl || latestSubmission.documents?.[1] || '',
-          selfieUrl: latestSubmission.selfieUrl || latestSubmission.documents?.[2] || ''
+          backIdOriginalUrl: latestSubmission.backIdOriginalUrl || latestSubmission.backIdUrl || latestSubmission.documents?.[1] || '',
+          selfieUrl: latestSubmission.selfieUrl || latestSubmission.documents?.[2] || '',
+          selfieOriginalUrl: latestSubmission.selfieOriginalUrl || latestSubmission.selfieUrl || latestSubmission.documents?.[2] || ''
         });
       }
 
@@ -688,13 +725,13 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 max-w-[280px]">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Date of Birth *</label>
                   <input 
                     type="date" 
                     value={formData.dob}
                     onChange={e => setFormData({...formData, dob: e.target.value})}
-                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
+                    className={`w-full p-3.5 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
                   />
                 </div>
                 <div className="space-y-1.5">

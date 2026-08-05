@@ -302,7 +302,7 @@ export default function AiConfigurationsView({
       setImportText('');
       alert('Configuration imported successfully with all sections synchronized.');
     } catch (e: any) {
-      alert(`Import Failed: ${e.message || 'Invalid JSON structure'}`);
+      alert(`Import Failed: ${e.message || 'Invalid configuration structure'}`);
     }
   };
 
@@ -1273,7 +1273,7 @@ export default function AiConfigurationsView({
           <div className={`w-full max-w-lg rounded-2xl p-6 border ${isDark ? 'border-white/10 bg-[#0B0E14]' : 'border-slate-200 bg-white'}`}>
             <h3 className={`text-lg font-black ${textPrimary} mb-4`}>Import Configuration</h3>
             <textarea
-              placeholder="Paste JSON configuration content here..."
+              placeholder="Paste configuration content here..."
               value={importText}
               onChange={(e) => setImportText(e.target.value)}
               className="w-full h-48 bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono outline-none text-white mb-4"

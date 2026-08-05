@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, ShieldCheck, CheckCircle2, XCircle, Clock, FileText, User, 
-  AlertTriangle, Eye, Check, X, ArrowLeft, RefreshCcw, MapPin, Calendar, Globe, Phone 
+  AlertTriangle, Eye, Check, X, ArrowLeft, RefreshCcw, MapPin, Calendar, Globe, Phone, Download, Maximize2 
 } from 'lucide-react';
 import { safeUpdateDoc, safeSetDoc } from '../../../lib/firebase';
 import { collection, onSnapshot, doc, serverTimestamp, query, where, getDocs, increment, arrayUnion, setDoc, addDoc } from 'firebase/firestore';
@@ -28,8 +28,11 @@ interface KYC {
     postalCode?: string;
   };
   frontIdUrl?: string;
+  frontIdOriginalUrl?: string;
   backIdUrl?: string;
+  backIdOriginalUrl?: string;
   selfieUrl?: string;
+  selfieOriginalUrl?: string;
   documents: string[];
   status: 'pending' | 'verified' | 'rejected' | 'requires_resubmission';
   rejectionReason?: string;
@@ -41,6 +44,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedSubmission, setSelectedSubmission] = useState<KYC | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; title: string } | null>(null);
   const [actionModal, setActionModal] = useState<'reject' | 'resubmit' | null>(null);
   const [reasonText, setReasonText] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -96,6 +100,37 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
+
+  const handleDownload = async (url: string, filename: string) => {
+    try {
+      let blob: Blob;
+      if (url.startsWith('data:')) {
+        const parts = url.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        blob = new Blob([u8arr], { type: mime });
+      } else {
+        const response = await fetch(url);
+        blob = await response.blob();
+      }
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      console.warn("Blob download failed, opening in new tab:", e);
+      window.open(url, '_blank');
+    }
+  };
 
   const handleAction = async (id: string, status: 'verified' | 'rejected' | 'requires_resubmission', reason = '') => {
     try {
@@ -427,24 +462,63 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
 
               {/* Uploaded Documents */}
               <div className="space-y-3">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Uploaded Verification Documents</h4>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Uploaded Verification Documents (Click to Zoom & Download)</h4>
                 <div className="grid grid-cols-3 gap-4">
                   {selectedSubmission.frontIdUrl && (
-                    <div className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group">
-                      <img src={selectedSubmission.frontIdUrl} alt="Front ID" className="w-full h-full object-cover" />
+                    <div 
+                      onClick={() => setPreviewImage({ url: selectedSubmission.frontIdOriginalUrl || selectedSubmission.frontIdUrl!, title: 'Front ID Document' })}
+                      className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer"
+                    >
+                      <img src={selectedSubmission.frontIdUrl} alt="Front ID" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       <span className="absolute bottom-1 left-1 text-[9px] bg-black/80 px-2 py-0.5 rounded text-white font-bold">Front ID</span>
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <Maximize2 className="w-5 h-5 text-white" />
+                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.frontIdOriginalUrl || selectedSubmission.frontIdUrl!, `front-id-${selectedSubmission.userId}.jpg`); }}
+                        className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/80 hover:bg-black text-white transition-all shadow-md flex items-center gap-1 text-[10px] font-bold z-10"
+                        title="Download Front ID"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
                   {selectedSubmission.backIdUrl && (
-                    <div className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group">
-                      <img src={selectedSubmission.backIdUrl} alt="Back ID" className="w-full h-full object-cover" />
+                    <div 
+                      onClick={() => setPreviewImage({ url: selectedSubmission.backIdOriginalUrl || selectedSubmission.backIdUrl!, title: 'Back ID Document' })}
+                      className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer"
+                    >
+                      <img src={selectedSubmission.backIdUrl} alt="Back ID" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       <span className="absolute bottom-1 left-1 text-[9px] bg-black/80 px-2 py-0.5 rounded text-white font-bold">Back ID</span>
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <Maximize2 className="w-5 h-5 text-white" />
+                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.backIdOriginalUrl || selectedSubmission.backIdUrl!, `back-id-${selectedSubmission.userId}.jpg`); }}
+                        className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/80 hover:bg-black text-white transition-all shadow-md flex items-center gap-1 text-[10px] font-bold z-10"
+                        title="Download Back ID"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
                   {selectedSubmission.selfieUrl && (
-                    <div className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group">
-                      <img src={selectedSubmission.selfieUrl} alt="Selfie" className="w-full h-full object-cover" />
+                    <div 
+                      onClick={() => setPreviewImage({ url: selectedSubmission.selfieOriginalUrl || selectedSubmission.selfieUrl!, title: 'Selfie Verification' })}
+                      className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer"
+                    >
+                      <img src={selectedSubmission.selfieUrl} alt="Selfie" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       <span className="absolute bottom-1 left-1 text-[9px] bg-black/80 px-2 py-0.5 rounded text-white font-bold">Selfie</span>
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <Maximize2 className="w-5 h-5 text-white" />
+                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.selfieOriginalUrl || selectedSubmission.selfieUrl!, `selfie-${selectedSubmission.userId}.jpg`); }}
+                        className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/80 hover:bg-black text-white transition-all shadow-md flex items-center gap-1 text-[10px] font-bold z-10"
+                        title="Download Selfie"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
                 </div>
@@ -511,6 +585,42 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                     </button>
                   </>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Lightbox Image Preview Modal */}
+      <AnimatePresence>
+        {previewImage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative max-w-4xl w-full bg-neutral-900 border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col items-center"
+            >
+              <div className="w-full flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-white">{previewImage.title}</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDownload(previewImage.url, `kyc-document-${Date.now()}.jpg`)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-all shadow-md"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download HD</span>
+                  </button>
+                  <button 
+                    onClick={() => setPreviewImage(null)}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="w-full max-h-[75vh] overflow-auto flex items-center justify-center rounded-2xl bg-black/60 border border-white/5 p-2">
+                <img src={previewImage.url} alt="Document Preview" className="max-w-full max-h-[70vh] object-contain rounded-xl" />
               </div>
             </motion.div>
           </div>

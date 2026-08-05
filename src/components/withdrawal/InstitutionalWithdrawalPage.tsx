@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ArrowRight, CheckCircle2, Send, ChevronDown, Clock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinancials } from '../../hooks/useFinancials';
+import { usePreferences } from '../../contexts/PreferencesContext';
 import CoinLogo from '../CoinLogo';
 
 interface InstitutionalWithdrawalPageProps {
@@ -48,13 +49,25 @@ const MAX_WITHDRAWAL_USD = 9000000.00;
 
 export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: InstitutionalWithdrawalPageProps) {
   const { user, addWithdrawal } = useAuth();
-  const { homeNetBalance, tokenBalance } = useFinancials();
+  const { homeNetBalance } = useFinancials();
+  const { preferences } = usePreferences();
 
   // Step state: 1 = Amount Entry, 2 = Destination Address, 3 = Complete Receipt
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  // Active Fiat Currency
-  const [activeFiat, setActiveFiat] = useState<FiatCurrency>('USD');
+  // Active Fiat Currency initialized to user preference currency
+  const [activeFiat, setActiveFiat] = useState<FiatCurrency>(() => {
+    const pref = preferences?.currency;
+    if (pref === 'GBP' || pref === 'EUR' || pref === 'USD') return pref as FiatCurrency;
+    return 'USD';
+  });
+
+  useEffect(() => {
+    const pref = preferences?.currency;
+    if (pref === 'GBP' || pref === 'EUR' || pref === 'USD') {
+      setActiveFiat(pref as FiatCurrency);
+    }
+  }, [preferences?.currency]);
 
   // Selected crypto for conversion
   const [selectedAsset, setSelectedAsset] = useState<CryptoAsset>('BTC');
@@ -86,10 +99,10 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
   // 1. REAL-TIME AVAILABLE BALANCE FROM FIRESTORE / FINANCIALS
   // Strictly synced to total Net balance in portfolio
   const rawUsdBalance = useMemo(() => {
-    if (typeof homeNetBalance === 'number') return homeNetBalance;
-    if (typeof user?.portfolioBalance === 'number') return user.portfolioBalance;
-    if (typeof user?.availableBalance === 'number') return user.availableBalance;
-    return 0;
+    if (typeof homeNetBalance === 'number' && homeNetBalance > 0) return homeNetBalance;
+    if (typeof user?.availableBalance === 'number' && user.availableBalance > 0) return user.availableBalance;
+    if (typeof user?.portfolioBalance === 'number' && user.portfolioBalance > 0) return user.portfolioBalance;
+    return homeNetBalance || user?.availableBalance || user?.portfolioBalance || 0;
   }, [homeNetBalance, user?.portfolioBalance, user?.availableBalance]);
 
   // Active Fiat Details
@@ -124,18 +137,8 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
           });
         }
         
-        // Fetch Forex Rates
-        const fxRes = await fetch('https://open.er-api.com/v6/latest/USD');
-        if (fxRes.ok) {
-          const fxData = await fxRes.json();
-          if (fxData && fxData.rates && isMounted) {
-            setFiatRates({
-              USD: 1.0,
-              GBP: fxData.rates.GBP || 0.79,
-              EUR: fxData.rates.EUR || 0.92,
-            });
-          }
-        }
+        // Crypto prices are fetched from server-side proxy
+        // Fiat rates remain strictly aligned with application exchange rates (GBP: 0.79, EUR: 0.92)
       } catch (e) {
         // Fallback to initial defaults if offline
       }
@@ -234,9 +237,9 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
     return null;
   }, [isExceedingMax, isZeroBalance, isExceeding, isBelowMin, activeFiatInfo.symbol, maxLimitInActiveFiat, activeFiat, minLimitInActiveFiat]);
 
-  // Focus hidden input
+  // Focus hidden input only on step 1
   const handleContainerClick = () => {
-    if (hiddenInputRef.current) {
+    if (step === 1 && hiddenInputRef.current) {
       hiddenInputRef.current.focus();
     }
   };
@@ -291,7 +294,16 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
     setAddressError(null);
     setIsSubmitting(true);
     try {
-      await addWithdrawal(numericAmountInUsd, destinationAddress);
+      const assetNetworkMap: Record<string, string> = {
+        BTC: 'Bitcoin',
+        ETH: 'Ethereum (ERC20)',
+        USDT: 'TRC20',
+        SOL: 'Solana',
+        AVR: 'Internal'
+      };
+      const network = assetNetworkMap[selectedAsset] || 'Mainnet';
+
+      await addWithdrawal(numericAmountInUsd, destinationAddress, selectedAsset, network);
       const hash = '0x' + Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       setTxHash(hash);
       setStep(3);
@@ -313,16 +325,18 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
       className="fixed inset-0 z-50 bg-[#000000] text-white flex flex-col justify-between overflow-hidden h-[100dvh] w-screen select-none font-sans"
       onClick={handleContainerClick}
     >
-      {/* Hidden input to catch keyboard seamlessly */}
-      <input
-        ref={hiddenInputRef}
-        type="text"
-        inputMode="decimal"
-        value={amountString}
-        onChange={handleInputChange}
-        className="absolute opacity-0 pointer-events-none w-1 h-1 top-0 left-0"
-        autoFocus
-      />
+      {/* Hidden input to catch keyboard seamlessly on step 1 */}
+      {step === 1 && (
+        <input
+          ref={hiddenInputRef}
+          type="text"
+          inputMode="decimal"
+          value={amountString}
+          onChange={handleInputChange}
+          className="absolute opacity-0 pointer-events-none w-1 h-1 top-0 left-0"
+          autoFocus
+        />
+      )}
 
       {/* TOP NAVIGATION */}
       <nav className="relative z-20 w-full max-w-2xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between">
@@ -611,7 +625,12 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
             </button>
 
             <button
-              onClick={() => setStep(1)}
+              onClick={() => {
+                setStep(1);
+                setTimeout(() => {
+                  if (hiddenInputRef.current) hiddenInputRef.current.focus();
+                }, 50);
+              }}
               className="text-xs text-neutral-500 hover:text-white transition uppercase tracking-widest py-2"
             >
               Modify Amount

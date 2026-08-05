@@ -13,7 +13,6 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
   try {
     const isLocal = uid.startsWith('local-') || uid === 'guest_user';
 
-    // 1. Purge local storage fake artifacts
     const walletKey = `aver_wallet_${uid}`;
     const profileKey = `user_profile_${uid}`;
     const activeUserKey = `aver_active_user`;
@@ -21,33 +20,51 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
     const sessionKey = `aver_session_${uid}`;
     const positionsKey = `aver_positions_${uid}`;
 
-    // Read existing cached balance if available
-    let currentWalletBalance = walletBalanceOverride;
-    if (currentWalletBalance === undefined) {
+    let realBalance = walletBalanceOverride;
+
+    // 1. If Firestore user document exists, prioritize its balances as absolute source of truth
+    if (!isLocal) {
+      try {
+        const userDocRef = doc(db, 'users', uid);
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          const uData = userSnap.data();
+          const fsBal = uData.availableBalance ?? uData.portfolioBalance ?? uData.tokenBalance;
+          if (typeof fsBal === 'number' && !isNaN(fsBal)) {
+            realBalance = fsBal;
+          }
+        }
+      } catch (err) {
+        console.warn("[dataSanitizer] Firestore lookup notice:", err);
+      }
+    }
+
+    // Fallback to cached balance if realBalance is still undefined
+    if (realBalance === undefined) {
       const cachedWallet = safeStorage.getItem(walletKey);
       if (cachedWallet) {
         try {
           const wObj = JSON.parse(cachedWallet);
-          if (wObj.portfolioBalance !== undefined) currentWalletBalance = wObj.portfolioBalance;
-          else if (wObj.availableBalance !== undefined) currentWalletBalance = wObj.availableBalance;
-          else if (wObj.tokenBalance !== undefined) currentWalletBalance = wObj.tokenBalance;
+          if (wObj.portfolioBalance !== undefined) realBalance = wObj.portfolioBalance;
+          else if (wObj.availableBalance !== undefined) realBalance = wObj.availableBalance;
+          else if (wObj.tokenBalance !== undefined) realBalance = wObj.tokenBalance;
         } catch {}
       }
     }
 
-    if (currentWalletBalance === undefined) {
+    if (realBalance === undefined) {
       const cachedProfile = safeStorage.getItem(profileKey);
       if (cachedProfile) {
         try {
           const pObj = JSON.parse(cachedProfile);
-          if (pObj.portfolioBalance !== undefined) currentWalletBalance = pObj.portfolioBalance;
-          else if (pObj.availableBalance !== undefined) currentWalletBalance = pObj.availableBalance;
-          else if (pObj.tokenBalance !== undefined) currentWalletBalance = pObj.tokenBalance;
+          if (pObj.portfolioBalance !== undefined) realBalance = pObj.portfolioBalance;
+          else if (pObj.availableBalance !== undefined) realBalance = pObj.availableBalance;
+          else if (pObj.tokenBalance !== undefined) realBalance = pObj.tokenBalance;
         } catch {}
       }
     }
 
-    const realBalance = currentWalletBalance !== undefined && !isNaN(currentWalletBalance) ? currentWalletBalance : 0;
+    realBalance = realBalance !== undefined && !isNaN(realBalance) ? realBalance : 0;
 
     // Sanitize Local Storage Wallet Object
     const sanitizedWallet = {

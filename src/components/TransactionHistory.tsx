@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
-import { motion, AnimatePresence, useAnimation } from 'motion/react';
+import React, { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
+import { motion, AnimatePresence, useAnimation, useMotionValue, useTransform } from 'motion/react';
 import { 
   ArrowLeft, Search, Filter, ArrowUpRight, ArrowDownRight, 
   ExternalLink, Clock, Wallet, History,
@@ -292,14 +292,15 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
                     : (isDark ? 'text-neutral-500 hover:text-neutral-300' : 'text-slate-400 hover:text-slate-600')
                 }`}
               >
-                <span>{tabLabel}</span>
-                {isActive && (
-                  <motion.div 
-                    layoutId="activeTabIndicator" 
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
-                    transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-                  />
-                )}
+                {/* Tab Content */}
+                <span className="relative z-10">{tabLabel}</span>
+                
+                {/* Indicator (Always present to avoid layout shifting) */}
+                <motion.div 
+                  className={`absolute bottom-0 left-0 right-0 h-0.5 rounded-full ${isActive ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : 'bg-transparent'}`}
+                  layoutId="activeTabIndicator"
+                  transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+                />
               </button>
             );
           })}
@@ -808,7 +809,7 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
   );
 }
 
-// High-performance Transaction Item with Native-Quality Swipe
+// High-performance Transaction Item with Native-Quality Gmail-Style Swipe (Ref-based, zero React state lag during drag)
 const TransactionItem = memo(({ 
   item, 
   idx, 
@@ -820,90 +821,126 @@ const TransactionItem = memo(({
   renderItemIcon,
   getStatusBadge
 }: any) => {
-  const controls = useAnimation();
+  const cardRef = useRef<HTMLDivElement>(null);
+  const startXRef = useRef(0);
+  const currentXRef = useRef(0);
+  const isDraggingRef = useRef(false);
 
   const isDeposit = item.type.toLowerCase().includes('deposit');
   const isWithdrawal = item.type.toLowerCase().includes('withdrawal');
   const isProfit = item.type.toLowerCase().includes('profit') || item.type.toLowerCase().includes('reward');
 
-  // Sync animation with external state if needed
+  // Reset offset if another item is swiped or selection clears
   useEffect(() => {
-    if (swipedItemId !== item.id) {
-      controls.start({ 
-        x: 0,
-        transition: { type: 'spring', stiffness: 600, damping: 40, mass: 0.6 }
-      });
+    if (cardRef.current) {
+      if (swipedItemId === item.id) {
+        cardRef.current.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
+        cardRef.current.style.transform = 'translate3d(-80px, 0, 0)';
+      } else {
+        cardRef.current.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
+        cardRef.current.style.transform = 'translate3d(0px, 0, 0)';
+      }
     }
-  }, [swipedItemId, item.id, controls]);
+  }, [swipedItemId, item.id]);
+
+  const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    startXRef.current = clientX;
+    isDraggingRef.current = true;
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'none';
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!isDraggingRef.current || !cardRef.current) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const diff = clientX - startXRef.current;
+    
+    const baseTranslate = swipedItemId === item.id ? -80 : 0;
+    let newX = baseTranslate + diff;
+    if (newX > 10) newX = 10;
+    if (newX < -130) newX = -130;
+    currentXRef.current = newX;
+    cardRef.current.style.transform = `translate3d(${newX}px, 0, 0)`;
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingRef.current || !cardRef.current) return;
+    isDraggingRef.current = false;
+    const finalX = currentXRef.current;
+
+    cardRef.current.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
+
+    if (finalX < -45) {
+      cardRef.current.style.transform = 'translate3d(-80px, 0, 0)';
+      setSwipedItemId(item.id);
+    } else {
+      cardRef.current.style.transform = 'translate3d(0px, 0, 0)';
+      setSwipedItemId(null);
+    }
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+      try { window.navigator.vibrate(15); } catch (err) {}
+    }
+    setConfirmDeleteId(item.id);
+  };
 
   return (
-    <motion.div 
-      layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ 
-        type: 'spring', 
-        damping: 28, 
-        stiffness: 400,
-        layout: { duration: 0.3 }
-      }}
-      className="relative overflow-hidden rounded-xl select-none group h-[72px] bg-rose-600"
+    <div 
+      className="relative overflow-hidden rounded-xl select-none group h-[72px] touch-pan-y"
     >
-      {/* Revealed Delete Action (Fixed behind) */}
+      {/* Background Action Reveal */}
       <div 
-        className="absolute inset-0 flex items-center justify-end px-7"
-        style={{ borderRadius: '12px' }}
+        className="absolute inset-0 bg-rose-600 flex items-center justify-end px-6 rounded-xl"
       >
-        <Trash2 className="w-6 h-6 text-white" />
+        <button
+          onClick={handleDeleteClick}
+          className="flex items-center gap-2 text-white font-bold text-xs bg-rose-700/80 hover:bg-rose-700 px-3 py-1.5 rounded-lg cursor-pointer transition-all active:scale-95"
+        >
+          <span>Delete</span>
+          <Trash2 className="w-4 h-4 text-white" />
+        </button>
       </div>
 
-      <motion.div
-        drag="x"
-        dragDirectionLock
-        dragConstraints={{ left: -100, right: 0 }}
-        dragElastic={0.15}
-        animate={controls}
-        onDragStart={() => {
-          setSwipedItemId(item.id);
-        }}
-        onDragEnd={async (_e, info) => {
-          const threshold = -60;
-          const velocityThreshold = -400;
-          
-          if (info.offset.x < threshold || info.velocity.x < velocityThreshold) {
-            // Trigger confirmation modal
-            setConfirmDeleteId(item.id);
-            if (window.navigator.vibrate) window.navigator.vibrate(10);
-          }
-          
-          // Always snap back to 0 immediately on release
-          await controls.start({ 
-            x: 0, 
-            transition: { type: 'spring', stiffness: 600, damping: 40, mass: 0.6 } 
-          });
-          setSwipedItemId(null);
-        }}
+      {/* Swipeable Card Content */}
+      <div
+        ref={cardRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onMouseDown={handleTouchStart}
+        onMouseMove={handleTouchMove}
+        onMouseUp={handleTouchEnd}
+        onMouseLeave={handleTouchEnd}
         onClick={() => {
-          if (swipedItemId) {
+          if (swipedItemId === item.id) {
             setSwipedItemId(null);
-          } else {
+          } else if (!isDraggingRef.current && Math.abs(currentXRef.current) < 5) {
             setSelectedReceipt(item);
           }
         }}
-        className={`relative z-10 h-full p-3 flex items-center justify-between border cursor-pointer ${
+        style={{ 
+          transform: 'translate3d(0,0,0)', 
+          willChange: 'transform',
+          borderRadius: '12px', 
+          touchAction: 'pan-y' 
+        }}
+        className={`relative z-10 h-full p-3 flex items-center justify-between border cursor-pointer transition-shadow touch-pan-y ${
           isDark 
-            ? 'bg-neutral-900 border-white/5' 
-            : 'bg-white border-slate-200 shadow-sm'
+            ? 'bg-neutral-900 border-white/5 hover:border-white/10' 
+            : 'bg-white border-slate-200 shadow-sm hover:shadow-md'
         }`}
-        style={{ borderRadius: '12px' }}
       >
         <div className="flex items-center space-x-3 min-w-0">
           {renderItemIcon(item)}
 
           <div className="min-w-0">
             <h4 className={`text-[13px] font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} truncate`}>
-              {item.title || `${item.type.charAt(0).toUpperCase() + item.type.slice(1).replace('_', ' ')}`}
+              {`${item.asset} ${item.type.charAt(0).toUpperCase() + item.type.slice(1).replace('_', ' ')}`}
             </h4>
 
             <div className="flex items-center space-x-1.5 text-[10px] font-medium text-neutral-500 mt-0.5">
@@ -928,7 +965,7 @@ const TransactionItem = memo(({
             {item.status}
           </span>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 });
