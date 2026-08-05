@@ -1447,124 +1447,153 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     // 3. CONTINUOUS MULTI-ASSET AUTONOMOUS ORDER GENERATOR (Every 15s)
     
     const runOrderLoop = async () => {
-      const currentSession = sessionRefVal.current;
-      if (!userRef.current || !currentSession || currentSession.status !== 'ACTIVE') {
-        clearTimeout(orderTimeout);
-        return;
-      }
-      
-      const sessionConfigId = currentSession.activeConfigId;
-      const activeConfig = (configs.find(c => c.id === sessionConfigId) || configRefVal.current || configs[0]) as AiConfiguration;
-
-      // STRICT SCHEDULE GATE - COMPLETELY STOP IF OUTSIDE OPERATING WINDOW
-      if (!aiTradingService.isWithinOperatingWindow(activeConfig.schedule)) {
-        orderTimeout = setTimeout(runOrderLoop, 1000);
-        return;
-      }
-
-      const currentSessionBalance = currentSession.tradingCapital;
-
-      const selectedAssets = (activeConfig.aiTradingRules?.assetSelection && activeConfig.aiTradingRules.assetSelection.length > 0)
-        ? activeConfig.aiTradingRules.assetSelection
-        : ['BTC', 'ETH', 'SOL'];
-      const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
-      
-      // Find all assets in the selected set that currently do NOT have an open trade
-      const unTradedAssets = selectedAssets.filter(asset => !openTrades.some(t => t.asset === asset));
-
-      if (unTradedAssets.length > 0) {
-        const assetCount = Math.max(1, selectedAssets.length);
-        const sessionStartingCap = currentSession.tradingCapital || currentSession.initialCapital || 1000;
-        let equalAllocPerAsset = sessionStartingCap / assetCount;
+      try {
+        const currentSession = sessionRefVal.current;
+        if (!userRef.current || !currentSession || currentSession.status !== 'ACTIVE') {
+          console.log("[TradingEngineContext] runOrderLoop exit: user or active session missing.");
+          clearTimeout(orderTimeout);
+          return;
+        }
         
-        // Respect configuration's max position size limit
-        if (activeConfig.profitRiskManagement?.maxPositionSize) {
-          equalAllocPerAsset = Math.min(equalAllocPerAsset, activeConfig.profitRiskManagement.maxPositionSize);
+        const sessionConfigId = currentSession.activeConfigId;
+        const activeConfig = (configs.find(c => c.id === sessionConfigId) || configRefVal.current || configs[0]) as AiConfiguration;
+
+        if (!activeConfig) {
+          console.warn("[TradingEngineContext] runOrderLoop: activeConfig not found, rescheduling in 3s");
+          orderTimeout = setTimeout(runOrderLoop, 3000);
+          return;
         }
 
-        const newTradesToAppend: AiTrade[] = [];
-        const newRecsToAppend: AiRecommendation[] = [];
+        const isWithinWindow = aiTradingService.isWithinOperatingWindow(activeConfig.schedule);
+        console.log(`[TradingEngineContext] runOrderLoop: inside operating window? ${isWithinWindow}. Active Schedule Config:`, activeConfig.schedule);
 
-        for (const assetToTrade of unTradedAssets) {
-          // ENSURE ASSET IS TRADABLE ACCORDING TO MARKET CALENDAR AND WINDOWS
-          if (!aiTradingService.isAssetTradable(assetToTrade, activeConfig.schedule)) {
-            continue;
+        // STRICT SCHEDULE GATE - COMPLETELY STOP IF OUTSIDE OPERATING WINDOW
+        if (!isWithinWindow) {
+          console.log("[TradingEngineContext] Operating window is inactive. AI trading orders suspended.");
+          orderTimeout = setTimeout(runOrderLoop, 3000);
+          return;
+        }
+
+        const currentSessionBalance = currentSession.tradingCapital;
+
+        const selectedAssets = (activeConfig.aiTradingRules?.assetSelection && activeConfig.aiTradingRules.assetSelection.length > 0)
+          ? activeConfig.aiTradingRules.assetSelection
+          : ['BTC', 'ETH', 'SOL'];
+        const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
+        
+        // Find all assets in the selected set that currently do NOT have an open trade
+        const unTradedAssets = selectedAssets.filter(asset => !openTrades.some(t => t.asset === asset));
+        console.log(`[TradingEngineContext] Selected assets: ${selectedAssets.join(', ')}. Currently untraded: ${unTradedAssets.join(', ')}`);
+
+        if (unTradedAssets.length > 0) {
+          const assetCount = Math.max(1, selectedAssets.length);
+          const sessionStartingCap = currentSession.tradingCapital || currentSession.initialCapital || 1000;
+          let equalAllocPerAsset = sessionStartingCap / assetCount;
+          
+          // Respect configuration's max position size limit
+          if (activeConfig.profitRiskManagement?.maxPositionSize && activeConfig.profitRiskManagement.maxPositionSize > 0) {
+            equalAllocPerAsset = Math.min(equalAllocPerAsset, activeConfig.profitRiskManagement.maxPositionSize);
           }
 
-          const liveP = livePricesRef.current[assetToTrade];
-          const entryPrice = liveP || (assetToTrade === 'BTC' ? 64200 : assetToTrade === 'ETH' ? 3450 : assetToTrade === 'SOL' ? 145 : 100);
-          const suggestedAction = Math.random() > 0.35 ? 'BUY' : 'SELL';
-          const entry = parseFloat(entryPrice.toFixed(2));
-          const stopLoss = parseFloat((suggestedAction === 'BUY' ? entry * 0.96 : entry * 1.04).toFixed(2));
-          const takeProfit = parseFloat((suggestedAction === 'BUY' ? entry * 1.08 : entry * 0.92).toFixed(2));
-          const quantity = parseFloat((equalAllocPerAsset / entry).toFixed(6));
+          const newTradesToAppend: AiTrade[] = [];
+          const newRecsToAppend: AiRecommendation[] = [];
 
-          if (quantity <= 0) continue;
+          for (const assetToTrade of unTradedAssets) {
+            const isTradable = aiTradingService.isAssetTradable(assetToTrade, activeConfig.schedule);
+            console.log(`[TradingEngineContext] Checking asset ${assetToTrade}. isAssetTradable? ${isTradable}`);
 
-          const tradeId = `trade_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-          const recId = `rec_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+            // ENSURE ASSET IS TRADABLE ACCORDING TO MARKET CALENDAR AND WINDOWS
+            if (!isTradable) {
+              continue;
+            }
 
-          const newTrade: AiTrade = {
-            id: tradeId,
-            recommendationId: recId,
-            userId: userRef.current.uid,
-            asset: assetToTrade,
-            entry,
-            quantity,
-            currentPrice: entry,
-            status: 'OPEN',
-            stopLoss,
-            takeProfit,
-            riskExposure: equalAllocPerAsset,
-            openedAt: Timestamp.now()
-          };
+            const liveP = livePricesRef.current[assetToTrade];
+            const entryPrice = liveP || (assetToTrade === 'BTC' ? 64200 : assetToTrade === 'ETH' ? 3450 : assetToTrade === 'SOL' ? 145 : 100);
+            const suggestedAction = Math.random() > 0.35 ? 'BUY' : 'SELL';
+            const entry = parseFloat(entryPrice.toFixed(2));
+            const stopLoss = parseFloat((suggestedAction === 'BUY' ? entry * 0.96 : entry * 1.04).toFixed(2));
+            const takeProfit = parseFloat((suggestedAction === 'BUY' ? entry * 1.08 : entry * 0.92).toFixed(2));
+            const quantity = parseFloat((equalAllocPerAsset / entry).toFixed(6));
 
-          const rec: AiRecommendation = {
-            id: recId,
-            sessionId: currentSession.id,
-            userId: userRef.current.uid,
-            asset: assetToTrade,
-            entry,
-            stopLoss,
-            takeProfit,
-            confidence: Math.floor(88 + Math.random() * 10),
-            suggestedAction,
-            riskRating: 'LOW',
-            holdingWindow: '1-5 min',
-            volatility: 'MEDIUM',
-            explanation: `Neural momentum scanner identified entry opportunity for ${assetToTrade} with strong volume alignment.`,
-            indicators: ['RSI Trend Support', 'MACD Momentum', 'Volume Delta'],
-            currentPrice: entry,
-            status: 'EXECUTED',
-            createdAt: Timestamp.now(),
-            expiresAt: Timestamp.fromMillis(Date.now() + 3600000)
-          };
+            console.log(`[TradingEngineContext] Calculated order for ${assetToTrade}: quantity=${quantity}, entry=${entry}, action=${suggestedAction}`);
 
-          newTradesToAppend.push(newTrade);
-          newRecsToAppend.push(rec);
+            if (quantity <= 0) {
+              console.warn(`[TradingEngineContext] Quantity for ${assetToTrade} is <= 0. Skipping position opening.`);
+              continue;
+            }
 
-          if (addNotification) {
-            addNotification(
-              'trading',
-              'medium',
-              'Market Discovery Position Opened',
-              `Neural engine allocated $${equalAllocPerAsset.toFixed(2)} to ${assetToTrade} (${suggestedAction} @ $${entry}).`
-            );
+            const tradeId = `trade_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+            const recId = `rec_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+            const newTrade: AiTrade = {
+              id: tradeId,
+              recommendationId: recId,
+              userId: userRef.current.uid,
+              asset: assetToTrade,
+              entry,
+              quantity,
+              currentPrice: entry,
+              status: 'OPEN',
+              stopLoss,
+              takeProfit,
+              riskExposure: equalAllocPerAsset,
+              openedAt: Timestamp.now()
+            };
+
+            const rec: AiRecommendation = {
+              id: recId,
+              sessionId: currentSession.id,
+              userId: userRef.current.uid,
+              asset: assetToTrade,
+              entry,
+              stopLoss,
+              takeProfit,
+              confidence: Math.floor(88 + Math.random() * 10),
+              suggestedAction,
+              riskRating: 'LOW',
+              holdingWindow: '1-5 min',
+              volatility: 'MEDIUM',
+              explanation: `Neural momentum scanner identified entry opportunity for ${assetToTrade} with strong volume alignment.`,
+              indicators: ['RSI Trend Support', 'MACD Momentum', 'Volume Delta'],
+              currentPrice: entry,
+              status: 'EXECUTED',
+              createdAt: Timestamp.now(),
+              expiresAt: Timestamp.fromMillis(Date.now() + 3600000)
+            };
+
+            newTradesToAppend.push(newTrade);
+            newRecsToAppend.push(rec);
+
+            if (addNotification) {
+              addNotification(
+                'trading',
+                'medium',
+                'Market Discovery Position Opened',
+                `Neural engine allocated $${equalAllocPerAsset.toFixed(2)} to ${assetToTrade} (${suggestedAction} @ $${entry}).`
+              );
+            }
           }
-        }
 
-        if (newTradesToAppend.length > 0) {
-          const updatedTradesList = [...tradesRefVal.current, ...newTradesToAppend].slice(-100);
-          tradesRefVal.current = updatedTradesList;
-          setTrades(updatedTradesList);
-          setLocalStorageItem(`aver_trades_${userRef.current.uid}`, updatedTradesList);
+          if (newTradesToAppend.length > 0) {
+            console.log(`[TradingEngineContext] Successfully executed ${newTradesToAppend.length} new automated positions:`, newTradesToAppend);
+            const updatedTradesList = [...tradesRefVal.current, ...newTradesToAppend].slice(-100);
+            tradesRefVal.current = updatedTradesList;
+            setTrades(updatedTradesList);
+            setLocalStorageItem(`aver_trades_${userRef.current.uid}`, updatedTradesList);
 
-          setRecommendations(prev => [...newRecsToAppend, ...prev].slice(0, 50));
-          setLocalStorageItem(`aver_recommendations_${userRef.current.uid}`, newRecsToAppend);
+            setRecommendations(prev => [...newRecsToAppend, ...prev].slice(0, 50));
+            setLocalStorageItem(`aver_recommendations_${userRef.current.uid}`, newRecsToAppend);
+          } else {
+            console.log("[TradingEngineContext] No new positions opened (all untraded assets were skipped or returned 0 quantity).");
+          }
+        } else {
+          console.log("[TradingEngineContext] All selected assets are already traded and have open positions.");
         }
+      } catch (err) {
+        console.error("[TradingEngineContext] Critical exception inside runOrderLoop:", err);
+      } finally {
+        orderTimeout = setTimeout(runOrderLoop, 15000); // 15s interval as designed
       }
-
-      orderTimeout = setTimeout(runOrderLoop, 3000);
     };
 
     runOrderLoop();

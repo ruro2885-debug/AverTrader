@@ -103,6 +103,74 @@ const isMarketMatchHelper = (marketsSetting: any, category: string): boolean => 
   return marketsArr.some(m => m === 'All Markets' || m.toLowerCase() === category.toLowerCase());
 };
 
+export interface TzTimeDetails {
+  weekday: string;
+  month: string;
+  day: string;
+  hours: string;
+  minutes: string;
+  timeStr: string;
+  totalSecs: number;
+}
+
+export const getTzTimeDetails = (tz: string, now: Date): TzTimeDetails => {
+  let ianaTz = tz;
+  if (tz === 'EST' || tz === 'EDT') ianaTz = 'America/New_York';
+  else if (tz === 'PST' || tz === 'PDT') ianaTz = 'America/Los_Angeles';
+  else if (tz === 'GMT' || tz === 'BST') ianaTz = 'Europe/London';
+  else if (tz === 'UTC') ianaTz = 'UTC';
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: ianaTz,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      weekday: 'short'
+    });
+    
+    const parts = formatter.formatToParts(now);
+    const partMap: Record<string, string> = {};
+    parts.forEach(p => { partMap[p.type] = p.value; });
+    
+    let h = parseInt(partMap['hour'] || '0', 10);
+    if (h === 24) h = 0;
+    const m = parseInt(partMap['minute'] || '0', 10);
+    const s = parseInt(partMap['second'] || '0', 10);
+    const totalSecs = h * 3600 + m * 60 + s;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+
+    return {
+      weekday: partMap['weekday'] || 'Mon',
+      month: partMap['month'] || '01',
+      day: partMap['day'] || '01',
+      hours: pad(h),
+      minutes: pad(m),
+      timeStr: `${pad(h)}:${pad(m)}`,
+      totalSecs
+    };
+  } catch (e) {
+    const h = now.getUTCHours();
+    const m = now.getUTCMinutes();
+    const s = now.getUTCSeconds();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return {
+      weekday: weekdays[now.getUTCDay()] || 'Mon',
+      month: pad(now.getUTCMonth() + 1),
+      day: pad(now.getUTCDate()),
+      hours: pad(h),
+      minutes: pad(m),
+      timeStr: `${pad(h)}:${pad(m)}`,
+      totalSecs: h * 3600 + m * 60 + s
+    };
+  }
+};
+
 export const aiTradingService = {
   // Session Management
   async startSession(userId: string, markets: string[], activeConfigId?: string, allocationAmount: number = 0): Promise<AiSession> {
@@ -732,62 +800,7 @@ export const aiTradingService = {
       };
 
       // Helper to get time details in a specific timezone
-      const getTimeInTz = (tz: string) => {
-        let ianaTz = tz;
-        if (tz === 'EST' || tz === 'EDT') ianaTz = 'America/New_York';
-        else if (tz === 'PST' || tz === 'PDT') ianaTz = 'America/Los_Angeles';
-        else if (tz === 'GMT') ianaTz = 'Europe/London';
-        else if (tz === 'UTC') ianaTz = 'UTC';
-
-        try {
-          const formatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: ianaTz,
-            hour12: false,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            weekday: 'short'
-          });
-          
-          const parts = formatter.formatToParts(now);
-          const partMap: Record<string, string> = {};
-          parts.forEach(p => { partMap[p.type] = p.value; });
-          
-          let h = parseInt(partMap['hour'] || '0', 10);
-          if (h === 24) h = 0;
-          const m = parseInt(partMap['minute'] || '0', 10);
-          const s = parseInt(partMap['second'] || '0', 10);
-          const totalSecs = h * 3600 + m * 60 + s;
-          const pad = (n: number) => n.toString().padStart(2, '0');
-
-          return {
-            weekday: partMap['weekday'],
-            month: partMap['month'],
-            day: partMap['day'],
-            hours: pad(h),
-            minutes: pad(m),
-            timeStr: `${pad(h)}:${pad(m)}`,
-            totalSecs
-          };
-        } catch (e) {
-          const h = now.getUTCHours();
-          const m = now.getUTCMinutes();
-          const s = now.getUTCSeconds();
-          const pad = (n: number) => n.toString().padStart(2, '0');
-          return {
-            weekday: 'Mon',
-            month: '01',
-            day: '01',
-            hours: pad(h),
-            minutes: pad(m),
-            timeStr: `${pad(h)}:${pad(m)}`,
-            totalSecs: h * 3600 + m * 60 + s
-          };
-        }
-      };
+      const getTimeInTz = (tz: string) => getTzTimeDetails(tz, now);
 
       // 1. Check Cooling Breaks
       if (schedule.coolingBreaks && schedule.coolingBreaks.length > 0) {
@@ -974,44 +987,7 @@ export const aiTradingService = {
     };
 
     const now = new Date();
-    const getTimeInTz = (tz: string) => {
-      let ianaTz = tz;
-      if (tz === 'EST' || tz === 'EDT') ianaTz = 'America/New_York';
-      else if (tz === 'PST' || tz === 'PDT') ianaTz = 'America/Los_Angeles';
-      else if (tz === 'GMT') ianaTz = 'Europe/London';
-      else if (tz === 'UTC') ianaTz = 'UTC';
-
-      try {
-        const formatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: ianaTz,
-          hour12: false,
-          weekday: 'short',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        });
-        const parts = formatter.formatToParts(now);
-        const partMap: Record<string, string> = {};
-        parts.forEach(p => { partMap[p.type] = p.value; });
-        
-        let h = parseInt(partMap['hour'] || '0', 10);
-        if (h === 24) h = 0;
-        const m = parseInt(partMap['minute'] || '0', 10);
-        const s = parseInt(partMap['second'] || '0', 10);
-        return {
-          weekday: partMap['weekday'],
-          totalSecs: h * 3600 + m * 60 + s
-        };
-      } catch (e) {
-        const h = now.getUTCHours();
-        const m = now.getUTCMinutes();
-        const s = now.getUTCSeconds();
-        return {
-          weekday: 'Mon',
-          totalSecs: h * 3600 + m * 60 + s
-        };
-      }
-    };
+    const getTimeInTz = (tz: string) => getTzTimeDetails(tz, now);
 
     let inWindow = false;
     for (const win of schedule.operatingWindows) {
