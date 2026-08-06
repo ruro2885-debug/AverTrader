@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { transactionService, getExplorerUrl } from '../services/transactionService';
 import { TransactionRecord } from '../types';
+import { safeStorage } from '../utils/storage';
 import CoinLogo from './CoinLogo';
 
 type TabType = 'transactions' | 'orders' | 'order-history';
@@ -40,7 +41,12 @@ const ASSET_OPTIONS = ['All', 'USDT', 'BTC', 'ETH', 'SOL', 'BNB', 'USD'];
 const NETWORK_OPTIONS = ['All', 'TRC20', 'ERC20', 'BEP20', 'Solana', 'Internal'];
 const TIME_OPTIONS = ['All Time', 'Today', 'Past 7 Days', 'Past 30 Days', 'Past 90 Days'];
 
-export default function TransactionHistory({ onBack }: { onBack: () => void }) {
+interface TransactionHistoryProps {
+  onBack: () => void;
+  onOpenSupport?: () => void;
+}
+
+export default function TransactionHistory({ onBack, onOpenSupport }: TransactionHistoryProps) {
   const { user } = useAuth();
   const { formatCurrency, theme } = usePreferences();
   const isDark = theme === 'dark';
@@ -55,6 +61,7 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
 
   const [activeFilterModal, setActiveFilterModal] = useState<'type' | 'asset' | 'network' | 'time' | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<TransactionRecord | null>(null);
+  const [showReasonPopup, setShowReasonPopup] = useState(false);
   const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -76,6 +83,17 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     showToast(`Copied ${label}`);
+  };
+
+  const handleContactSupport = () => {
+    setShowReasonPopup(false);
+    setSelectedReceipt(null);
+    if (onOpenSupport) {
+      onOpenSupport();
+    } else {
+      safeStorage.setItem('aver_dashboard_tab', 'support');
+      onBack();
+    }
   };
 
   const handleDelete = async (txId: string) => {
@@ -105,6 +123,23 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
       setIsRefreshing(false);
     }
   }, [user]);
+
+  // Global outside click / single item focus reset listener
+  useEffect(() => {
+    if (!swipedItemId) return;
+    const handleOutsideInteraction = (e: MouseEvent | TouchEvent) => {
+      const swipedEl = document.getElementById(`tx-item-${swipedItemId}`);
+      if (swipedEl && !swipedEl.contains(e.target as Node)) {
+        setSwipedItemId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideInteraction, { capture: true });
+    document.addEventListener('touchstart', handleOutsideInteraction, { capture: true });
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideInteraction, { capture: true });
+      document.removeEventListener('touchstart', handleOutsideInteraction, { capture: true });
+    };
+  }, [swipedItemId]);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -221,16 +256,39 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
 
   const getStatusBadge = (status: string) => {
     const s = (status || '').toLowerCase();
-    if (s === 'completed' || s === 'success' || s === 'approved' || s === 'filled') {
+    if (s === 'completed' || s === 'success' || s === 'approved' || s === 'successful' || s === 'filled') {
       return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
     }
-    if (s === 'pending' || s === 'processing') {
+    if (s === 'reversed') {
+      return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+    }
+    if (s === 'pending' || s === 'verifying' || s === 'processing') {
       return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
     }
-    if (s === 'failed' || s === 'rejected' || s === 'cancelled') {
+    if (s === 'failed' || s === 'rejected' || s === 'declined' || s === 'expired' || s === 'cancelled') {
       return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
     }
     return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+  };
+
+  const getStatusLabel = (status: string) => {
+    const s = (status || '').toLowerCase();
+    if (s === 'completed' || s === 'success' || s === 'approved' || s === 'successful' || s === 'filled') {
+      return 'Successful';
+    }
+    if (s === 'reversed') {
+      return 'Reversed';
+    }
+    if (s === 'failed' || s === 'rejected' || s === 'declined' || s === 'expired' || s === 'cancelled') {
+      return 'Transaction Failed';
+    }
+    if (s === 'pending' || s === 'verifying') {
+      return 'Pending';
+    }
+    if (s === 'processing') {
+      return 'Processing';
+    }
+    return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
   const openExplorer = (txHash: string, network: string, customUrl?: string) => {
@@ -452,8 +510,8 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
                 exit={{ opacity: 0, y: -6 }}
                 className="space-y-6"
               >
-                {(Object.entries(groupedItems) as [string, TransactionRecord[]][]).map(([dateLabel, items]) => (
-                  <div key={dateLabel} className="space-y-2.5">
+                {(Object.entries(groupedItems) as [string, TransactionRecord[]][]).map(([dateLabel, items], gIdx) => (
+                  <div key={`group-${dateLabel}-${gIdx}`} className="space-y-2.5">
                     <div className="flex items-center space-x-3">
                       <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">{dateLabel}</h3>
                       <div className="flex-1 h-[1px] bg-white/5" />
@@ -463,7 +521,7 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
                       <AnimatePresence mode="popLayout">
                         {items.map((item, idx) => (
                           <TransactionItem 
-                            key={item.id || idx}
+                            key={`tx-${item.id || 'record'}-${dateLabel}-${idx}`}
                             item={item}
                             idx={idx}
                             isDark={isDark}
@@ -473,6 +531,7 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
                             setConfirmDeleteId={setConfirmDeleteId}
                             renderItemIcon={renderItemIcon}
                             getStatusBadge={getStatusBadge}
+                            getStatusLabel={getStatusLabel}
                           />
                         ))}
                       </AnimatePresence>
@@ -697,93 +756,226 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
                 isDark ? 'bg-neutral-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
               }`}
             >
-              {/* Receipt Header */}
-              <div className="p-6 text-center border-b border-white/5 relative">
-                <button
-                  onClick={() => setSelectedReceipt(null)}
-                  className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-white/10 text-neutral-500 hover:text-white transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-                
-                <div className="flex justify-center mb-3">
-                  <CoinLogo symbol={selectedReceipt.asset} size={56} className="shadow-lg border-4 border-white/5" />
-                </div>
-                
-                <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-1">{selectedReceipt.asset}</h3>
-                <h2 className="text-2xl font-black tracking-tight mb-2">
-                  {selectedReceipt.type.includes('deposit') || selectedReceipt.type.includes('profit') ? '+' : '-'}
-                  {Math.abs(Number(selectedReceipt.amount)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
-                </h2>
-                
-                <div className="flex justify-center">
-                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(selectedReceipt.status)}`}>
-                    {selectedReceipt.status}
-                  </span>
-                </div>
-              </div>
+              {(() => {
+                const isWithdrawal = selectedReceipt.type.toLowerCase().includes('withdrawal');
+                const isReversed = (selectedReceipt.status || '').toLowerCase() === 'reversed';
+                const tokenPrice = selectedReceipt.asset === 'BTC' ? 64000 : selectedReceipt.asset === 'ETH' ? 3400 : selectedReceipt.asset === 'SOL' ? 145 : 1;
+                const tokenAmountDisplay = selectedReceipt.cryptoAmount 
+                  ? Number(selectedReceipt.cryptoAmount).toLocaleString(undefined, { maximumFractionDigits: 8 })
+                  : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(6);
+                const tokenSymbol = selectedReceipt.cryptoSymbol || selectedReceipt.asset || 'USDT';
 
-              {/* Receipt Information Card */}
-              <div className="p-5 space-y-3">
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-neutral-500 font-medium">Type</span>
-                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{selectedReceipt.type.replace('_', ' ').toUpperCase()}</span>
-                </div>
-                
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-neutral-500 font-medium">Network</span>
-                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{selectedReceipt.network || 'Mainnet'}</span>
-                </div>
+                return (
+                  <>
+                    {/* Receipt Header */}
+                    <div className="p-6 text-center border-b border-white/5 relative">
+                      <button
+                        onClick={() => setSelectedReceipt(null)}
+                        className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-white/10 text-neutral-500 hover:text-white transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                      
+                      <div className="flex justify-center mb-3">
+                        <CoinLogo symbol={selectedReceipt.asset} size={56} className="shadow-lg border-4 border-white/5" />
+                      </div>
+                      
+                      <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-1">
+                        {selectedReceipt.asset} {isWithdrawal ? 'Withdrawal' : selectedReceipt.type.includes('deposit') ? 'Deposit' : ''}
+                      </h3>
+                      
+                      {isWithdrawal ? (
+                        <>
+                          <h2 className="text-3xl font-black tracking-tight mb-1 text-rose-500 font-mono">
+                            -{tokenAmountDisplay} {tokenSymbol}
+                          </h2>
+                          <p className="text-xs text-neutral-400 font-medium mb-3">
+                            ≈ ${Math.abs(Number(selectedReceipt.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <h2 className="text-3xl font-black tracking-tight mb-1 font-mono">
+                            {selectedReceipt.type.includes('deposit') || selectedReceipt.type.includes('profit') ? '+$' : selectedReceipt.type.includes('loss') ? '-$' : '$'}
+                            {Math.abs(Number(selectedReceipt.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </h2>
+                          {(selectedReceipt.cryptoAmount || (selectedReceipt.asset !== 'USD' && selectedReceipt.asset !== 'USDT' && selectedReceipt.asset !== 'USDC')) && (
+                            <p className="text-xs text-neutral-400 font-medium mb-3">
+                              ~{selectedReceipt.cryptoAmount ? Number(selectedReceipt.cryptoAmount).toLocaleString(undefined, { maximumFractionDigits: 6 }) : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(4)} {selectedReceipt.asset}
+                            </p>
+                          )}
+                        </>
+                      )}
+                      
+                      <div className="flex justify-center items-center gap-2">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(selectedReceipt.status)}`}>
+                          {getStatusLabel(selectedReceipt.status)}
+                        </span>
+                        {isReversed && (
+                          <button
+                            onClick={() => setShowReasonPopup(true)}
+                            className="text-emerald-400 hover:text-emerald-300 font-bold text-xs underline cursor-pointer transition-colors"
+                          >
+                            Reason
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-neutral-500 font-medium">Date & Time</span>
-                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{new Date(selectedReceipt.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                </div>
+                    {/* Receipt Information Card */}
+                    <div className="p-5 space-y-3">
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-neutral-500 font-medium">Status</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-bold ${
+                            getStatusLabel(selectedReceipt.status) === 'Successful' ? 'text-emerald-500' :
+                            getStatusLabel(selectedReceipt.status) === 'Reversed' ? 'text-purple-400' :
+                            getStatusLabel(selectedReceipt.status) === 'Transaction Failed' ? 'text-rose-500' : 'text-amber-500'
+                          }`}>
+                            {getStatusLabel(selectedReceipt.status)}
+                          </span>
+                          {isReversed && (
+                            <button
+                              onClick={() => setShowReasonPopup(true)}
+                              className="text-emerald-400 hover:text-emerald-300 font-bold text-xs underline cursor-pointer transition-colors"
+                            >
+                              Reason
+                            </button>
+                          )}
+                        </div>
+                      </div>
 
-                {selectedReceipt.txHash && (
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-neutral-500 font-medium">Transaction Hash</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`font-mono text-[10px] ${isDark ? 'text-emerald-400' : 'text-emerald-600'} truncate max-w-[120px]`}>{selectedReceipt.txHash}</span>
-                      <button onClick={() => handleCopy(selectedReceipt.txHash!, 'Hash')} className="p-1 hover:bg-emerald-500/10 rounded transition-colors text-emerald-500">
-                        <Copy className="w-3 h-3" />
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-neutral-500 font-medium">Type</span>
+                        <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{(selectedReceipt?.type || 'Transaction').replace(/_/g, ' ').toUpperCase()}</span>
+                      </div>
+
+                      {selectedReceipt.destination && selectedReceipt.destination !== 'N/A' && (
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span className="text-neutral-500 font-medium">Destination</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`font-mono text-[10px] ${isDark ? 'text-white/80' : 'text-slate-700'} truncate max-w-[130px]`}>
+                              {selectedReceipt.destination}
+                            </span>
+                            <button onClick={() => handleCopy(selectedReceipt.destination!, 'Destination')} className="p-1 hover:bg-white/10 rounded transition-colors text-neutral-400">
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-neutral-500 font-medium">Network</span>
+                        <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{selectedReceipt.network || 'Mainnet'}</span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-neutral-500 font-medium">Date & Time</span>
+                        <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{new Date(selectedReceipt.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                      </div>
+
+                      {selectedReceipt.txHash && (
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span className="text-neutral-500 font-medium">Transaction Hash</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`font-mono text-[10px] ${isDark ? 'text-emerald-400' : 'text-emerald-600'} truncate max-w-[120px]`}>{selectedReceipt.txHash}</span>
+                            <button onClick={() => handleCopy(selectedReceipt.txHash!, 'Hash')} className="p-1 hover:bg-emerald-500/10 rounded transition-colors text-emerald-500">
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-neutral-500 font-medium">Reference ID</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-mono text-[10px] ${isDark ? 'text-white/60' : 'text-slate-500'} truncate max-w-[120px]`}>{selectedReceipt.id}</span>
+                          <button onClick={() => handleCopy(selectedReceipt.id, 'Reference ID')} className="p-1 hover:bg-white/10 rounded transition-colors text-neutral-400">
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {selectedReceipt.txHash && selectedReceipt.network !== 'Internal' && (
+                        <div className="pt-2">
+                          <button
+                            onClick={() => openExplorer(selectedReceipt.txHash!, selectedReceipt.network!, selectedReceipt.explorerUrl)}
+                            className={`w-full py-2.5 rounded-xl text-[11px] font-bold border flex items-center justify-center gap-2 transition-all ${
+                              isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-white' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-900'
+                            }`}
+                          >
+                            <span>View on Blockchain Explorer</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-5 pt-0">
+                      <button
+                        onClick={() => setSelectedReceipt(null)}
+                        className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+                      >
+                        Done
                       </button>
                     </div>
-                  </div>
-                )}
+                  </>
+                );
+              })()}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-neutral-500 font-medium">Reference ID</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`font-mono text-[10px] ${isDark ? 'text-white/60' : 'text-slate-500'} truncate max-w-[120px]`}>{selectedReceipt.id}</span>
-                    <button onClick={() => handleCopy(selectedReceipt.id, 'Reference ID')} className="p-1 hover:bg-white/10 rounded transition-colors text-neutral-400">
-                      <Copy className="w-3 h-3" />
-                    </button>
-                  </div>
+      {/* Reversal Reason Popup Modal */}
+      <AnimatePresence>
+        {showReasonPopup && selectedReceipt && (
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`w-full max-w-sm rounded-[24px] border p-6 shadow-2xl space-y-5 text-center ${
+                isDark ? 'bg-neutral-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="space-y-1">
+                <div className="w-12 h-12 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 mx-auto flex items-center justify-center mb-3">
+                  <AlertCircle className="w-6 h-6" />
                 </div>
-
-                {selectedReceipt.txHash && selectedReceipt.network !== 'Internal' && (
-                  <div className="pt-2">
-                    <button
-                      onClick={() => openExplorer(selectedReceipt.txHash!, selectedReceipt.network!, selectedReceipt.explorerUrl)}
-                      className={`w-full py-2.5 rounded-xl text-[11px] font-bold border flex items-center justify-center gap-2 transition-all ${
-                        isDark ? 'bg-white/5 border-white/10 hover:bg-white/10 text-white' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-900'
-                      }`}
-                    >
-                      <span>View on Blockchain Explorer</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </button>
-                  </div>
-                )}
+                <h3 className="text-lg font-black tracking-tight">Withdrawal Reversal</h3>
+                <p className="text-xs text-neutral-400">
+                  This transaction was reversed and the funds have been returned to your account.
+                </p>
               </div>
 
-              <div className="p-5 pt-0">
+              <div className={`p-4 rounded-2xl border text-left space-y-1.5 ${
+                isDark ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">Admin Reason</span>
+                <p className="text-xs leading-relaxed font-medium text-neutral-200">
+                  {selectedReceipt.reversalReason || 'Administrative correction and compliance review.'}
+                </p>
+              </div>
+
+              <div className="space-y-3 pt-2">
                 <button
-                  onClick={() => setSelectedReceipt(null)}
-                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest transition shadow-lg shadow-emerald-500/20"
+                  type="button"
+                  onClick={() => setShowReasonPopup(false)}
+                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest transition shadow-lg shadow-emerald-500/20 cursor-pointer"
                 >
-                  Done
+                  Understood
                 </button>
+
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleContactSupport}
+                    className="text-xs text-neutral-400 hover:text-emerald-400 underline font-medium cursor-pointer transition-colors"
+                  >
+                    Contact Support
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -809,7 +1001,7 @@ export default function TransactionHistory({ onBack }: { onBack: () => void }) {
   );
 }
 
-// High-performance Transaction Item with Native-Quality Gmail-Style Swipe (Ref-based, zero React state lag during drag)
+// High-performance Transaction Item with Native-Quality Bounce-Snap Swipe
 const TransactionItem = memo(({ 
   item, 
   idx, 
@@ -819,34 +1011,72 @@ const TransactionItem = memo(({
   setSelectedReceipt, 
   setConfirmDeleteId,
   renderItemIcon,
-  getStatusBadge
+  getStatusBadge,
+  getStatusLabel
 }: any) => {
   const cardRef = useRef<HTMLDivElement>(null);
+  const bgRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
+  const startYRef = useRef(0);
   const currentXRef = useRef(0);
   const isDraggingRef = useRef(false);
+  const isHorizontalRef = useRef<boolean | null>(null);
 
   const isDeposit = item.type.toLowerCase().includes('deposit');
   const isWithdrawal = item.type.toLowerCase().includes('withdrawal');
   const isProfit = item.type.toLowerCase().includes('profit') || item.type.toLowerCase().includes('reward');
 
-  // Reset offset if another item is swiped or selection clears
+  // Explicit setShowDeleteModal function mapped directly to confirmDeleteId state
+  const setShowDeleteModal = (show: boolean) => {
+    if (show) {
+      setConfirmDeleteId(item.id);
+    } else {
+      setConfirmDeleteId(null);
+    }
+  };
+
+  // Sync transitions from parent swipedItemId updates (e.g., outside click, other item swipe, or canceled modal)
   useEffect(() => {
     if (cardRef.current) {
       if (swipedItemId === item.id) {
-        cardRef.current.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
-        cardRef.current.style.transform = 'translate3d(-80px, 0, 0)';
+        cardRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 1, 0.2, 1.1)';
+        cardRef.current.style.transform = 'translate3d(-80px, 0, 0) translateZ(0)';
+        currentXRef.current = -80;
+        if (bgRef.current) {
+          bgRef.current.style.opacity = '1';
+          bgRef.current.style.pointerEvents = 'auto';
+        }
       } else {
-        cardRef.current.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
-        cardRef.current.style.transform = 'translate3d(0px, 0, 0)';
+        cardRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 1, 0.2, 1.1)';
+        cardRef.current.style.transform = 'translate3d(0px, 0, 0) translateZ(0)';
+        currentXRef.current = 0;
+        if (bgRef.current) {
+          bgRef.current.style.opacity = '0';
+          bgRef.current.style.pointerEvents = 'none';
+        }
       }
     }
   }, [swipedItemId, item.id]);
 
   const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
+    // Single Item Focus: If another item is swiped, automatically close it immediately on new touch start
+    if (swipedItemId && swipedItemId !== item.id) {
+      setSwipedItemId(null);
+    }
+
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
     startXRef.current = clientX;
+    startYRef.current = clientY;
+    
+    // Base coordinate depending on active swipe position
+    const baseTranslate = swipedItemId === item.id ? -80 : 0;
+    currentXRef.current = baseTranslate;
+    
     isDraggingRef.current = true;
+    isHorizontalRef.current = null; // reset gesture direction lock
+    
     if (cardRef.current) {
       cardRef.current.style.transition = 'none';
     }
@@ -854,52 +1084,136 @@ const TransactionItem = memo(({
 
   const handleTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
     if (!isDraggingRef.current || !cardRef.current) return;
+    
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const diff = clientX - startXRef.current;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
+    const diffX = clientX - startXRef.current;
+    const diffY = clientY - startYRef.current;
+    
+    // Lock direction to avoid horizontal swipe stealing native vertical page scroll
+    if (isHorizontalRef.current === null) {
+      const deltaX = Math.abs(diffX);
+      const deltaY = Math.abs(diffY);
+
+      if (deltaX > 4 || deltaY > 4) {
+        if (deltaY > deltaX) {
+          isHorizontalRef.current = false;
+          isDraggingRef.current = false;
+          return;
+        } else {
+          isHorizontalRef.current = true;
+        }
+      } else {
+        return;
+      }
+    }
+    
+    if (isHorizontalRef.current === false) return;
+    
+    // Prevent native scrolling during active horizontal drag
+    if ('touches' in e && e.cancelable) {
+      e.preventDefault();
+    }
     
     const baseTranslate = swipedItemId === item.id ? -80 : 0;
-    let newX = baseTranslate + diff;
-    if (newX > 10) newX = 10;
-    if (newX < -130) newX = -130;
+    let newX = baseTranslate + diffX;
+    
+    // Limits and elastic resistance
+    if (newX > 10) {
+      newX = 10;
+    }
+    if (newX < -120) {
+      newX = -120;
+    }
+    
     currentXRef.current = newX;
-    cardRef.current.style.transform = `translate3d(${newX}px, 0, 0)`;
+    cardRef.current.style.transform = `translate3d(${newX}px, 0, 0) translateZ(0)`;
+
+    // Toggle background delete container opacity only when horizontal swipe distance exceeds -10px
+    if (bgRef.current) {
+      if (newX < -10) {
+        bgRef.current.style.opacity = '1';
+        bgRef.current.style.pointerEvents = 'auto';
+      } else {
+        bgRef.current.style.opacity = '0';
+        bgRef.current.style.pointerEvents = 'none';
+      }
+    }
   };
 
   const handleTouchEnd = () => {
     if (!isDraggingRef.current || !cardRef.current) return;
     isDraggingRef.current = false;
+    
     const finalX = currentXRef.current;
-
-    cardRef.current.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)';
-
-    if (finalX < -45) {
-      cardRef.current.style.transform = 'translate3d(-80px, 0, 0)';
+    
+    // Smooth bouncing snap curves
+    cardRef.current.style.transition = 'transform 0.3s cubic-bezier(0.2, 1, 0.2, 1.1)';
+    
+    // Bouncing Snap / Release threshold at exactly -40px
+    if (finalX <= -40) {
+      cardRef.current.style.transform = 'translate3d(-80px, 0, 0) translateZ(0)';
+      currentXRef.current = -80;
+      if (bgRef.current) {
+        bgRef.current.style.opacity = '1';
+        bgRef.current.style.pointerEvents = 'auto';
+      }
       setSwipedItemId(item.id);
     } else {
-      cardRef.current.style.transform = 'translate3d(0px, 0, 0)';
+      cardRef.current.style.transform = 'translate3d(0px, 0, 0) translateZ(0)';
+      currentXRef.current = 0;
+      if (bgRef.current) {
+        bgRef.current.style.opacity = '0';
+        bgRef.current.style.pointerEvents = 'none';
+      }
       setSwipedItemId(null);
     }
   };
 
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
-      try { window.navigator.vibrate(15); } catch (err) {}
+  const handleClick = (e: React.MouseEvent) => {
+    // Skip clicking if a drag of more than 5px took place
+    const baseTranslate = swipedItemId === item.id ? -80 : 0;
+    if (Math.abs(currentXRef.current - baseTranslate) > 5) {
+      return;
     }
-    setConfirmDeleteId(item.id);
+    
+    if (swipedItemId) {
+      // Tap anywhere on the swiped item or other items to reset
+      setSwipedItemId(null);
+    } else {
+      // Show full receipt details on tap
+      setSelectedReceipt(item);
+    }
   };
 
   return (
     <div 
+      id={`tx-item-${item.id}`}
       className="relative overflow-hidden rounded-xl select-none group h-[72px] touch-pan-y"
+      style={{ touchAction: 'pan-y' }}
     >
-      {/* Background Action Reveal */}
+      {/* Background Action Reveal Layer - opacity 0 and pointer-events none by default */}
       <div 
-        className="absolute inset-0 bg-rose-600 flex items-center justify-end px-6 rounded-xl"
+        ref={bgRef}
+        style={{
+          opacity: swipedItemId === item.id ? 1 : 0,
+          pointerEvents: swipedItemId === item.id ? 'auto' : 'none',
+          transform: 'translateZ(0)',
+          WebkitTransform: 'translateZ(0)',
+          backfaceVisibility: 'hidden',
+          WebkitBackfaceVisibility: 'hidden',
+          transition: 'opacity 0.15s ease-out',
+        }}
+        className="absolute inset-0 bg-rose-600 flex items-center justify-end px-5 rounded-xl z-0"
       >
         <button
-          onClick={handleDeleteClick}
-          className="flex items-center gap-2 text-white font-bold text-xs bg-rose-700/80 hover:bg-rose-700 px-3 py-1.5 rounded-lg cursor-pointer transition-all active:scale-95"
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowDeleteModal(true);
+          }}
+          className="flex items-center gap-1.5 text-white font-extrabold text-xs bg-rose-700 hover:bg-rose-800 px-3.5 py-2 rounded-xl transition-all active:scale-95 cursor-pointer shadow-md shadow-rose-900/20 z-20"
         >
           <span>Delete</span>
           <Trash2 className="w-4 h-4 text-white" />
@@ -916,15 +1230,12 @@ const TransactionItem = memo(({
         onMouseMove={handleTouchMove}
         onMouseUp={handleTouchEnd}
         onMouseLeave={handleTouchEnd}
-        onClick={() => {
-          if (swipedItemId === item.id) {
-            setSwipedItemId(null);
-          } else if (!isDraggingRef.current && Math.abs(currentXRef.current) < 5) {
-            setSelectedReceipt(item);
-          }
-        }}
+        onClick={handleClick}
         style={{ 
-          transform: 'translate3d(0,0,0)', 
+          transform: 'translate3d(0,0,0) translateZ(0)', 
+          WebkitTransform: 'translate3d(0,0,0) translateZ(0)',
+          backfaceVisibility: 'hidden',
+          WebkitBackfaceVisibility: 'hidden',
           willChange: 'transform',
           borderRadius: '12px', 
           touchAction: 'pan-y' 
@@ -940,7 +1251,7 @@ const TransactionItem = memo(({
 
           <div className="min-w-0">
             <h4 className={`text-[13px] font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} truncate`}>
-              {`${item.asset} ${item.type.charAt(0).toUpperCase() + item.type.slice(1).replace('_', ' ')}`}
+              {`${item.asset || ''} ${item.type ? (item.type.charAt(0).toUpperCase() + item.type.slice(1)).replace(/_/g, ' ') : 'Transaction'}`}
             </h4>
 
             <div className="flex items-center space-x-1.5 text-[10px] font-medium text-neutral-500 mt-0.5">
@@ -957,12 +1268,12 @@ const TransactionItem = memo(({
             isWithdrawal || (item.amount < 0) ? 'text-rose-500' : 
             (isDark ? 'text-white' : 'text-slate-900')
           }`}>
-            {isDeposit || isProfit ? '+' : isWithdrawal ? '-' : ''}
-            {Math.abs(Number(item.amount)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {item.asset}
+            {isDeposit || isProfit ? '+$' : isWithdrawal ? '-$' : '$'}
+            {Math.abs(Number(item.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
 
           <span className={`mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border inline-block ${getStatusBadge(item.status)}`}>
-            {item.status}
+            {getStatusLabel ? getStatusLabel(item.status) : item.status}
           </span>
         </div>
       </div>

@@ -448,11 +448,11 @@ export default function EventsPromosPage({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {livePromotions.map((item) => {
+            {livePromotions.map((item, idx) => {
               const capacityPct = item.maxParticipants ? Math.min(100, Math.round((item.participantCount / item.maxParticipants) * 100)) : 45;
               return (
                 <div 
-                  key={item.id}
+                  key={`live-${item.id || idx}-${idx}`}
                   onClick={() => setSelectedEventId(item.id)}
                   className="rounded-3xl border border-white/10 bg-slate-900/60 backdrop-blur-xl overflow-hidden hover:border-emerald-500/40 transition-all duration-300 flex flex-col justify-between group cursor-pointer hover:shadow-2xl hover:shadow-emerald-500/10"
                 >
@@ -533,11 +533,11 @@ export default function EventsPromosPage({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {endingSoonEvents.map((item) => {
+              {endingSoonEvents.map((item, idx) => {
                 const timeLeft = formatTimeLeft(item.endTime);
                 return (
                   <div 
-                    key={item.id}
+                    key={`ending-${item.id || idx}-${idx}`}
                     onClick={() => setSelectedEventId(item.id)}
                     className="p-5 rounded-3xl border border-amber-500/40 bg-gradient-to-r from-amber-500/10 via-slate-900/80 to-slate-900/80 backdrop-blur-xl hover:border-amber-400 transition-all cursor-pointer flex flex-col sm:flex-row items-center justify-between gap-4 group shadow-xl shadow-amber-500/5"
                   >
@@ -583,9 +583,9 @@ export default function EventsPromosPage({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {upcomingEvents.map((item) => (
+              {upcomingEvents.map((item, idx) => (
                 <div 
-                  key={item.id}
+                  key={`upcoming-${item.id || idx}-${idx}`}
                   onClick={() => setSelectedEventId(item.id)}
                   className="rounded-3xl border border-white/10 bg-slate-900/60 backdrop-blur-xl p-6 hover:border-blue-500/40 transition-all cursor-pointer space-y-4 group"
                 >
@@ -640,9 +640,9 @@ export default function EventsPromosPage({
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-slate-900/40 overflow-hidden divide-y divide-white/5">
-              {completedEvents.map((item) => (
+              {completedEvents.map((item, idx) => (
                 <div 
-                  key={item.id}
+                  key={`completed-${item.id || idx}-${idx}`}
                   onClick={() => setSelectedEventId(item.id)}
                   className="p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors cursor-pointer"
                 >

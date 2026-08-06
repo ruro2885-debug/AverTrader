@@ -88,8 +88,8 @@ export default function AdminAiMonitor({ theme }: { theme: 'light' | 'dark' }) {
             </div>
 
             <div className="space-y-4">
-              {sessions.map((session) => (
-                <div key={session.id} className={`p-4 rounded-2xl border flex items-center justify-between group transition-all ${
+              {sessions.map((session, idx) => (
+                <div key={`sess-${session.id || idx}-${idx}`} className={`p-4 rounded-2xl border flex items-center justify-between group transition-all ${
                   isDark ? 'bg-white/5 border-white/5 hover:border-emerald-500/30' : 'bg-slate-50 border-slate-100'
                 }`}>
                   <div className="flex items-center gap-4">
@@ -168,8 +168,8 @@ export default function AdminAiMonitor({ theme }: { theme: 'light' | 'dark' }) {
           </div>
 
           <div className="space-y-6">
-            {recommendations.map((rec) => (
-              <div key={rec.id} className="relative pl-6 border-l border-emerald-500/20 py-1">
+            {recommendations.map((rec, idx) => (
+              <div key={`rec-${rec.id || idx}-${idx}`} className="relative pl-6 border-l border-emerald-500/20 py-1">
                 <div className="absolute top-2 -left-1.5 w-3 h-3 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/50" />
                 <div className="flex justify-between items-start mb-1">
                   <h4 className="text-sm font-black">{rec.asset}</h4>

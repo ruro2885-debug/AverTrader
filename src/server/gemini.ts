@@ -22,29 +22,40 @@ const getAiClient = () => {
 
 let isQuotaExhausted = false;
 let quotaExhaustionTime = 0;
-const QUOTA_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+const QUOTA_LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
 
-async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+function checkIsQuotaOrRateLimitError(error: any): boolean {
+  if (!error) return false;
+  const msg = (error.message || error.toString() || '').toLowerCase();
+  const status = error.status || error.code;
+  return (
+    msg.includes('quota') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('exceeded your current quota') ||
+    msg.includes('rate-limits') ||
+    msg.includes('rate limit') ||
+    msg.includes('too many requests') ||
+    msg.includes('429') ||
+    msg.includes('quota exceeded') ||
+    status === 429 ||
+    status === 'RESOURCE_EXHAUSTED'
+  );
+}
+
+async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 2, delay = 800): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
-    const errorMessage = error.message || '';
-    const isQuotaError = errorMessage.includes('quota') || 
-                         errorMessage.includes('Quota exceeded') || 
-                         errorMessage.includes('exceeded your current quota') ||
-                         errorMessage.includes('RESOURCE_EXHAUSTED');
-    
-    if (isQuotaError) {
+    if (checkIsQuotaOrRateLimitError(error)) {
       isQuotaExhausted = true;
       quotaExhaustionTime = Date.now();
-      throw error; // Immediately fail fast so that fallback is triggered without wasteful retries
+      throw error; // Fail immediately to allow instant fallback without waiting
     }
 
+    const errorMessage = (error.message || '').toLowerCase();
     const isTransient = errorMessage.includes('503') || 
-                        errorMessage.includes('UNAVAILABLE') || 
-                        errorMessage.includes('429') || 
-                        error.status === 503 ||
-                        error.status === 429;
+                        errorMessage.includes('unavailable') || 
+                        error.status === 503;
     
     if (retries > 0 && isTransient) {
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -75,16 +86,11 @@ async function generateContentWithFallback(prompt: string, config?: any, default
         // Reset lockout upon a successful call
         isQuotaExhausted = false;
         return res;
-      }, 2, 800);
+      }, 1, 600);
     } catch (error: any) {
       lastError = error;
-      const errorMessage = error.message || '';
-      const isQuotaError = errorMessage.includes('quota') || 
-                           errorMessage.includes('Quota exceeded') || 
-                           errorMessage.includes('exceeded your current quota') ||
-                           errorMessage.includes('RESOURCE_EXHAUSTED');
-      if (isQuotaError) {
-        continue; // Don't break, try next model which might have quota
+      if (checkIsQuotaOrRateLimitError(error)) {
+        continue; // Try next fallback model
       }
     }
   }

@@ -62,7 +62,7 @@ const CountdownTimer = ({ timestamp }: { timestamp: string }) => {
   );
 };
 
-import { saveLocalDeposit, mergeDepositsWithLocal } from '../../../lib/depositStore';
+import { saveLocalDeposit, mergeDepositsWithLocal, updateLocalDeposit } from '../../../lib/depositStore';
 
 export interface DepositRecord {
   id: string;
@@ -196,6 +196,9 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
         updatedAt: serverTimestamp()
       }, { merge: true }).catch(() => {});
 
+      updateLocalDeposit(deposit.id, { status: 'completed' });
+      window.dispatchEvent(new CustomEvent('aver_transaction_created'));
+
       const amount = Number(deposit.amount) || 0;
       let targetUid = deposit.userId;
 
@@ -310,6 +313,9 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
         status: 'Rejected',
         updatedAt: serverTimestamp()
       }, { merge: true }).catch(() => {});
+
+      updateLocalDeposit(deposit.id, { status: 'rejected' });
+      window.dispatchEvent(new CustomEvent('aver_transaction_created'));
 
       if (selectedDeposit?.id === deposit.id) {
         setSelectedDeposit(prev => prev ? { ...prev, status: 'rejected' } : null);
@@ -486,7 +492,7 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
 
       {/* Mobile Card View (visible on small screens) */}
       <div className="block md:hidden space-y-4">
-        {filteredDeposits.map((item) => {
+        {filteredDeposits.map((item, idx) => {
           const isPending = item.status === 'pending';
           const isApproved = item.status === 'completed';
           const isDeclined = item.status === 'rejected';
@@ -496,7 +502,7 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
 
           return (
             <div 
-              key={item.id} 
+              key={`dep-card-${item.id || idx}-${idx}`} 
               className={`p-5 rounded-2xl border shadow-xl space-y-4 ${
                 isDark ? 'bg-slate-900/90 border-white/10' : 'bg-white border-slate-200'
               }`}
@@ -590,13 +596,13 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {filteredDeposits.map((item) => {
+              {filteredDeposits.map((item, idx) => {
                 const isPending = item.status === 'pending';
                 const isApproved = item.status === 'completed';
                 const isDeclined = item.status === 'rejected';
 
                 return (
-                  <tr key={item.id} className={`group transition-colors ${
+                  <tr key={`dep-row-${item.id || idx}-${idx}`} className={`group transition-colors ${
                     isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'
                   }`}>
                     <td className="px-6 py-4">

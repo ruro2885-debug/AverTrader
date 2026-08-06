@@ -139,8 +139,8 @@ export default function AdminAnalytics({ theme }: { theme: 'light' | 'dark' }) {
         }`}>
           <h3 className="text-lg font-bold mb-6">Recent Platform Snapshots</h3>
           <div className="space-y-4">
-            {data.slice(0, 5).map((record) => (
-              <div key={record.id} className={`flex items-center justify-between p-4 rounded-2xl border ${
+            {data.slice(0, 5).map((record, idx) => (
+              <div key={`rec-${record.id || idx}-${idx}`} className={`flex items-center justify-between p-4 rounded-2xl border ${
                 isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'
               }`}>
                 <div className="flex items-center gap-4">

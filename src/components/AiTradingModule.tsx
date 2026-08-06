@@ -886,12 +886,12 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200/5 dark:divide-white/5 text-xs font-mono text-slate-300">
-                          {closedTrades.map((trade) => {
+                          {closedTrades.map((trade, idx) => {
                             const pnl = (trade.exit || trade.entry) - trade.entry;
                             const totalPnl = pnl * trade.quantity;
                             const isProfit = totalPnl >= 0;
                             return (
-                              <tr key={trade.id} className="hover:bg-slate-500/5 dark:hover:bg-white/2 transition-colors">
+                              <tr key={`closed-${trade.id || idx}-${idx}`} className="hover:bg-slate-500/5 dark:hover:bg-white/2 transition-colors">
                                 <td className="px-6 py-4 font-black text-slate-900 dark:text-white flex items-center gap-2">
                                   <span className={`w-1.5 h-1.5 rounded-full ${isProfit ? 'bg-[#00D09C]' : 'bg-red-500'}`} />
                                   {trade.asset}

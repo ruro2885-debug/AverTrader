@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { TransactionRecord, TransactionType } from '../types';
+import { getLocalDeposits } from '../lib/depositStore';
 
 export const getExplorerUrl = (txHash?: string, network?: string): string | undefined => {
   if (!txHash) return undefined;
@@ -101,16 +102,18 @@ export const transactionService = {
   /**
    * Helper method for deposits
    */
-  async recordDeposit(userId: string, amount: number, asset: string = 'USDT', network: string = 'TRC20', txHash?: string) {
+  async recordDeposit(userId: string, amount: number, asset: string = 'USDT', network: string = 'TRC20', txHash?: string, customId?: string, cryptoAmount?: number) {
     return this.recordTransaction({
+      id: customId,
       userId,
       type: 'deposit',
       category: 'transactions',
       title: `${asset} Deposit`,
       amount,
+      cryptoAmount,
       asset,
       network,
-      status: 'Completed',
+      status: 'Pending',
       txHash
     });
   },
@@ -118,8 +121,9 @@ export const transactionService = {
   /**
    * Helper method for withdrawals
    */
-  async recordWithdrawal(userId: string, amount: number, asset: string = 'USDT', network: string = 'TRC20', txHash?: string, status: string = 'Processing') {
+  async recordWithdrawal(userId: string, amount: number, asset: string = 'USDT', network: string = 'TRC20', txHash?: string, customId?: string, status: any = 'Processing') {
     return this.recordTransaction({
+      id: customId,
       userId,
       type: 'withdrawal',
       category: 'transactions',
@@ -176,10 +180,18 @@ export const transactionService = {
   },
 
   /**
-   * Fetch all transactions for a user from Firestore + localStorage + profile fields
+   * Fetch all transactions for a user from Firestore + localStorage + admin_deposits + profile fields
    */
   async getUserTransactions(userId: string, userProfile?: any): Promise<TransactionRecord[]> {
     const map = new Map<string, TransactionRecord>();
+
+    const normalizeStatus = (s?: string): TransactionRecord['status'] => {
+      const lower = (s || '').toLowerCase();
+      if (lower === 'completed' || lower === 'approved' || lower === 'success' || lower === 'successful') return 'Completed';
+      if (lower === 'rejected' || lower === 'declined' || lower === 'failed' || lower === 'expired' || lower === 'cancelled') return 'Failed';
+      if (lower === 'processing') return 'Processing';
+      return 'Pending';
+    };
 
     // 1. Read from localStorage
     try {
@@ -188,19 +200,53 @@ export const transactionService = {
       if (localStr) {
         const localList: TransactionRecord[] = JSON.parse(localStr);
         localList.forEach(item => {
-          if (item.id) map.set(item.id, item);
+          if (item.id) map.set(item.id, { ...item, status: normalizeStatus(item.status) });
         });
       }
     } catch (err) {}
 
-    // 2. Map user legacy arrays (deposits, withdrawals, trades, history)
+    // 2. Read from local admin_deposits store (aver_admin_deposits_local)
+    try {
+      const localAdminDeposits = getLocalDeposits();
+      localAdminDeposits.forEach(d => {
+        const matchesUser = d.userId === userId || (!d.userId && userId === 'anonymous') || (userProfile?.email && d.email && d.email.toLowerCase() === userProfile.email.toLowerCase());
+        if (matchesUser) {
+          const id = d.id;
+          const status = normalizeStatus(d.status);
+          const existing = map.get(id);
+          if (existing) {
+            existing.status = status;
+            if (d.amount) existing.amount = Number(d.amount);
+            if (d.cryptoAmount) existing.cryptoAmount = Number(d.cryptoAmount);
+            if (d.cryptoSymbol || d.asset) existing.asset = d.cryptoSymbol || d.asset;
+          } else {
+            map.set(id, {
+              id,
+              userId,
+              type: 'deposit',
+              category: 'transactions',
+              title: `${d.cryptoSymbol || d.asset || 'USD'} Deposit`,
+              amount: Number(d.amount) || 0,
+              cryptoAmount: d.cryptoAmount ? Number(d.cryptoAmount) : undefined,
+              asset: d.cryptoSymbol || d.asset || 'USD',
+              network: d.network || d.cryptoNetwork || 'Mainnet',
+              status,
+              timestamp: d.timestamp || d.createdAt || new Date().toISOString(),
+              txHash: d.txHash || undefined
+            });
+          }
+        }
+      });
+    } catch (e) {}
+
+    // 3. Map user legacy arrays (deposits, withdrawals, trades, history)
     if (userProfile) {
       if (Array.isArray(userProfile.deposits)) {
         userProfile.deposits.forEach((d: any, idx: number) => {
-          if (d.status === 'PENDING' || d.status === 'pending') return;
           const id = d.id || `dep-${d.timestamp || d.date || idx}`;
           const asset = d.asset || d.symbol || 'USDT';
           const network = d.network || d.cryptoNetwork || 'TRC20';
+          const status = normalizeStatus(d.status || 'Completed');
           if (!map.has(id)) {
             map.set(id, {
               id,
@@ -209,12 +255,16 @@ export const transactionService = {
               category: 'transactions',
               title: `${asset} Deposit`,
               amount: Number(d.amount) || 0,
+              cryptoAmount: d.cryptoAmount ? Number(d.cryptoAmount) : undefined,
               asset,
               network,
-              status: d.status || 'Completed',
+              status,
               timestamp: d.timestamp || d.date || new Date().toISOString(),
               txHash: d.txHash || d.hash || undefined
             });
+          } else {
+            const existing = map.get(id)!;
+            if (d.status && !existing.status) existing.status = status;
           }
         });
       }
@@ -234,7 +284,7 @@ export const transactionService = {
               amount: Number(w.amount) || 0,
               asset,
               network,
-              status: w.status || 'Processing',
+              status: normalizeStatus(w.status || 'Processing'),
               timestamp: w.timestamp || w.date || new Date().toISOString(),
               txHash: w.txHash || w.hash || undefined
             });
@@ -259,7 +309,7 @@ export const transactionService = {
               quantity: t.quantity,
               side: t.side,
               network: 'Trading Engine',
-              status: t.status || 'Completed',
+              status: normalizeStatus(t.status || 'Completed'),
               timestamp: t.timestamp || new Date().toISOString()
             });
           }
@@ -279,7 +329,7 @@ export const transactionService = {
               amount: Number(h.amount) || 0,
               asset: h.asset || 'USDT',
               network: h.network || 'Internal',
-              status: h.status || 'Completed',
+              status: normalizeStatus(h.status || 'Completed'),
               timestamp: h.timestamp || h.date || new Date().toISOString(),
               txHash: h.txHash || undefined
             });
@@ -288,19 +338,52 @@ export const transactionService = {
       }
     }
 
-    // 3. Query Firestore 'transactions'
+    // 4. Query Firestore 'transactions'
     try {
       const q = query(collection(db, 'transactions'), where('userId', '==', userId));
       const snap = await getDocs(q);
       snap.forEach(d => {
         const data = d.data() as TransactionRecord;
-        if (data.type === 'deposit' && (data.status as string)?.toLowerCase() === 'pending') {
-          return;
-        }
-        map.set(d.id, { ...data, id: d.id });
+        const normalized = normalizeStatus(data.status);
+        map.set(d.id, { ...data, id: d.id, status: normalized });
       });
     } catch (err) {
       console.warn("Firestore transactions query notice:", err);
+    }
+
+    // 5. Query Firestore 'admin_deposits' to ensure instant synchronization with Admin approvals/declines
+    try {
+      const qAdmin = query(collection(db, 'admin_deposits'), where('userId', '==', userId));
+      const snapAdmin = await getDocs(qAdmin);
+      snapAdmin.forEach(docSnap => {
+        const d = docSnap.data();
+        const id = docSnap.id;
+        const status = normalizeStatus(d.status);
+        const existing = map.get(id);
+        if (existing) {
+          existing.status = status;
+          if (d.amount) existing.amount = Number(d.amount);
+          if (d.cryptoAmount) existing.cryptoAmount = Number(d.cryptoAmount);
+          if (d.cryptoSymbol || d.asset) existing.asset = d.cryptoSymbol || d.asset;
+        } else {
+          map.set(id, {
+            id,
+            userId,
+            type: 'deposit',
+            category: 'transactions',
+            title: `${d.cryptoSymbol || d.asset || 'USD'} Deposit`,
+            amount: Number(d.amount) || 0,
+            cryptoAmount: d.cryptoAmount ? Number(d.cryptoAmount) : undefined,
+            asset: d.cryptoSymbol || d.asset || 'USD',
+            network: d.network || d.cryptoNetwork || 'Mainnet',
+            status,
+            timestamp: d.timestamp || d.createdAt || new Date().toISOString(),
+            txHash: d.txHash || undefined
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("Firestore admin_deposits sync notice:", err);
     }
 
     const list = Array.from(map.values());
@@ -321,7 +404,6 @@ export const transactionService = {
       }
 
       // Priority 3: Fuzzy matching for legacy records without IDs/Hashes
-      // (amount + asset + type + 5-minute time window)
       if (tx.amount && tx.timestamp) {
         const timeBucket = Math.floor(new Date(tx.timestamp).getTime() / (5 * 60 * 1000)); 
         const fuzzyKey = `fuzzy-${tx.amount}-${tx.asset}-${tx.type}-${timeBucket}`;
@@ -389,26 +471,42 @@ export const transactionService = {
     // Initial fetch
     fetchAndCallback();
 
-    // Event listener for local updates
+    // Event listener for local updates & deposit state updates
     const handleLocalUpdate = () => {
       fetchAndCallback();
     };
     window.addEventListener('aver_transaction_created', handleLocalUpdate);
+    window.addEventListener('deposit_updated', handleLocalUpdate);
+    window.addEventListener('storage', handleLocalUpdate);
 
-    // Firestore listener
-    let unsubFirestore = () => {};
+    // Firestore listener on transactions
+    let unsubTransactions = () => {};
     try {
       const q = query(collection(db, 'transactions'), where('userId', '==', userId));
-      unsubFirestore = onSnapshot(q, () => {
+      unsubTransactions = onSnapshot(q, () => {
         fetchAndCallback();
       }, (err) => {
         console.warn("Realtime transactions listener notice:", err);
       });
     } catch (err) {}
 
+    // Firestore listener on admin_deposits
+    let unsubDeposits = () => {};
+    try {
+      const qDep = query(collection(db, 'admin_deposits'), where('userId', '==', userId));
+      unsubDeposits = onSnapshot(qDep, () => {
+        fetchAndCallback();
+      }, (err) => {
+        console.warn("Realtime admin_deposits listener notice:", err);
+      });
+    } catch (err) {}
+
     return () => {
       window.removeEventListener('aver_transaction_created', handleLocalUpdate);
-      unsubFirestore();
+      window.removeEventListener('deposit_updated', handleLocalUpdate);
+      window.removeEventListener('storage', handleLocalUpdate);
+      unsubTransactions();
+      unsubDeposits();
     };
   }
 };

@@ -215,9 +215,9 @@ export default function AdminCampaigns({ theme }: { theme: 'light' | 'dark' }) {
 
       {/* Campaigns Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filtered.map((campaign) => (
+        {filtered.map((campaign, idx) => (
           <motion.div
-            key={campaign.id}
+            key={`camp-${campaign.id || idx}-${idx}`}
             layout
             className={`p-6 rounded-[2.5rem] border transition-all flex flex-col justify-between ${
               isDark ? 'bg-white/[0.03] border-white/5 hover:border-white/10' : 'bg-white border-slate-200 shadow-sm hover:border-slate-300'

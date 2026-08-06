@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { Search, ShieldAlert, CheckCircle2, XCircle, Clock, ExternalLink, ArrowUpCircle } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, updateDoc, doc, serverTimestamp, increment, arrayUnion, addDoc, getDoc } from 'firebase/firestore';
+import { motion, AnimatePresence } from 'motion/react';
+import { Search, ShieldAlert, CheckCircle2, XCircle, Clock, ExternalLink, ArrowUpCircle, RotateCcw, AlertTriangle, X, Check, Copy } from 'lucide-react';
+import { collection, onSnapshot, query, orderBy, updateDoc, doc, serverTimestamp, increment, arrayUnion, addDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
@@ -9,65 +9,202 @@ import { mergeWithdrawalsWithLocal, saveLocalWithdrawal, getLocalWithdrawals } f
 
 interface Withdrawal {
   id: string;
+  refId?: string;
   userId: string;
   email: string;
+  userName?: string;
   asset: string;
+  symbol?: string;
   amount: number;
+  cryptoAmount?: number;
+  cryptoSymbol?: string;
   destination: string;
-  riskScore: number;
-  status: 'pending' | 'completed' | 'rejected';
+  destinationAddress?: string;
+  network?: string;
+  riskScore?: number;
+  status: 'pending' | 'completed' | 'failed' | 'reversed' | 'rejected';
+  reversalReason?: string;
   timestamp: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' }) {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [reversalTarget, setReversalTarget] = useState<Withdrawal | null>(null);
+  const [reversalReasonInput, setReversalReasonInput] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const isDark = theme === 'dark';
 
-  useEffect(() => {
-    // Initialize from local withdrawals first
-    const initialLocal = getLocalWithdrawals();
-    if (initialLocal.length > 0) {
-      setWithdrawals(initialLocal as Withdrawal[]);
-      setLoading(false);
-    }
+  const showNotification = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  };
 
-    const unsub = onSnapshot(collection(db, 'admin_withdrawals'), (snap) => {
-      const fsData = snap.docs.map(docSnap => {
-        const d = docSnap.data();
-        return { ...d, id: docSnap.id } as Withdrawal;
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  useEffect(() => {
+    let adminWithdrawalsList: any[] = [];
+    let withdrawalsList: any[] = [];
+    let transactionsWithdrawalsList: any[] = [];
+    let userWithdrawalsList: any[] = [];
+
+    const aggregateAndSetWithdrawals = () => {
+      const combinedMap = new Map<string, any>();
+
+      // 1. Start from local withdrawals
+      const local = getLocalWithdrawals();
+      local.forEach(w => {
+        if (w && w.id) {
+          combinedMap.set(w.id, {
+            ...w,
+            status: (w.status || 'pending').toLowerCase()
+          });
+        }
       });
-      const merged = mergeWithdrawalsWithLocal(fsData);
+
+      // 2. Add admin_withdrawals
+      adminWithdrawalsList.forEach(w => {
+        if (w && w.id) {
+          const existing = combinedMap.get(w.id);
+          combinedMap.set(w.id, { 
+            ...existing, 
+            ...w,
+            status: (w.status || existing?.status || 'pending').toLowerCase()
+          });
+        }
+      });
+
+      // 3. Add withdrawals collection
+      withdrawalsList.forEach(w => {
+        if (w && w.id) {
+          const existing = combinedMap.get(w.id);
+          combinedMap.set(w.id, { 
+            ...existing, 
+            ...w,
+            status: (w.status || existing?.status || 'pending').toLowerCase()
+          });
+        }
+      });
+
+      // 4. Add transaction withdrawals
+      transactionsWithdrawalsList.forEach(w => {
+        if (w && w.id) {
+          const existing = combinedMap.get(w.id);
+          combinedMap.set(w.id, {
+            ...existing,
+            ...w,
+            status: (w.status || existing?.status || 'pending').toLowerCase()
+          });
+        }
+      });
+
+      // 5. Add user doc withdrawals
+      userWithdrawalsList.forEach(w => {
+        if (w && w.id) {
+          const existing = combinedMap.get(w.id);
+          combinedMap.set(w.id, {
+            ...existing,
+            ...w,
+            status: (w.status || existing?.status || 'pending').toLowerCase()
+          });
+        }
+      });
+
+      const merged = mergeWithdrawalsWithLocal(Array.from(combinedMap.values()));
       setWithdrawals(merged as Withdrawal[]);
       setLoading(false);
+    };
+
+    // Immediate initial sync from local storage
+    aggregateAndSetWithdrawals();
+
+    // 1. Subscribe to 'admin_withdrawals'
+    const unsubAdmin = onSnapshot(collection(db, 'admin_withdrawals'), (snap) => {
+      adminWithdrawalsList = snap.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id }));
+      aggregateAndSetWithdrawals();
     }, (err) => {
-      console.warn("[AdminWithdrawals] Firestore snapshot error, falling back to local:", err);
-      const local = getLocalWithdrawals();
-      setWithdrawals(local as Withdrawal[]);
-      setLoading(false);
+      console.warn("[AdminWithdrawals] admin_withdrawals snapshot notice:", err);
+    });
+
+    // 2. Subscribe to 'withdrawals'
+    const unsubWithdrawals = onSnapshot(collection(db, 'withdrawals'), (snap) => {
+      withdrawalsList = snap.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id }));
+      aggregateAndSetWithdrawals();
+    }, (err) => {
+      console.warn("[AdminWithdrawals] withdrawals snapshot notice:", err);
+    });
+
+    // 3. Subscribe to 'transactions'
+    const unsubTx = onSnapshot(collection(db, 'transactions'), (snap) => {
+      transactionsWithdrawalsList = snap.docs
+        .map(docSnap => ({ ...docSnap.data(), id: docSnap.id }))
+        .filter((t: any) => t.type === 'withdrawal' || t.category === 'withdrawal' || t.refId?.startsWith('WTH-') || t.id?.startsWith('wth-'));
+      aggregateAndSetWithdrawals();
+    }, (err) => {
+      console.warn("[AdminWithdrawals] transactions snapshot notice:", err);
+    });
+
+    // 4. Subscribe to 'users' to extract user.withdrawals arrays
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      const extracted: any[] = [];
+      snap.docs.forEach(docSnap => {
+        const u = docSnap.data();
+        if (Array.isArray(u.withdrawals)) {
+          u.withdrawals.forEach((w: any) => {
+            if (w && w.id) {
+              extracted.push({
+                ...w,
+                userId: docSnap.id,
+                email: u.email || 'User',
+                userName: u.displayName || u.username || 'User'
+              });
+            }
+          });
+        }
+      });
+      userWithdrawalsList = extracted;
+      aggregateAndSetWithdrawals();
+    }, (err) => {
+      console.warn("[AdminWithdrawals] users snapshot notice:", err);
     });
 
     const handleLocalUpdate = () => {
-      const local = getLocalWithdrawals();
-      setWithdrawals(prev => mergeWithdrawalsWithLocal(prev));
+      aggregateAndSetWithdrawals();
     };
 
     window.addEventListener('withdrawal_updated', handleLocalUpdate);
+    window.addEventListener('aver_transaction_created', handleLocalUpdate);
+    window.addEventListener('storage', handleLocalUpdate);
+
     return () => {
-      unsub();
+      unsubAdmin();
+      unsubWithdrawals();
+      unsubTx();
+      unsubUsers();
       window.removeEventListener('withdrawal_updated', handleLocalUpdate);
+      window.removeEventListener('aver_transaction_created', handleLocalUpdate);
+      window.removeEventListener('storage', handleLocalUpdate);
     };
   }, []);
 
-  const handleAction = async (id: string, status: 'completed' | 'failed' | 'reversed', reversalReason?: string) => {
+  const handleAction = async (id: string, newStatus: 'completed' | 'failed' | 'reversed', reason?: string) => {
     try {
+      setIsProcessing(true);
       const withdrawalRef = doc(db, 'admin_withdrawals', id);
-      const withdrawalSnap = await getDoc(withdrawalRef);
+      const withdrawalSnap = await getDoc(withdrawalRef).catch(() => null);
       
       let withdrawalData: any = null;
-      if (withdrawalSnap.exists()) {
+      if (withdrawalSnap && withdrawalSnap.exists()) {
         withdrawalData = withdrawalSnap.data();
       } else {
         const localList = getLocalWithdrawals();
@@ -78,40 +215,52 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         throw new Error("Withdrawal record not found.");
       }
 
-      const currentStatus = withdrawalData.status;
+      const currentStatus = (withdrawalData.status || 'pending').toLowerCase();
       const userId = withdrawalData.userId;
       const amount = Number(withdrawalData.amount) || 0;
 
       // 1. Update withdrawal record across admin_withdrawals, withdrawals and transactions collections
-      await updateDoc(withdrawalRef, { 
-        status,
-        reversalReason: reversalReason || withdrawalData.reversalReason || null,
+      const updatePayload: any = { 
+        status: newStatus,
         processedAt: serverTimestamp(),
-        processedBy: auth.currentUser?.email || 'Super Admin'
-      }).catch(() => {});
+        processedBy: auth.currentUser?.email || 'Super Admin',
+        updatedAt: serverTimestamp()
+      };
 
-      const txStatus = status === 'completed' ? 'Completed' : (status === 'failed' ? 'Rejected' : status);
-      await updateDoc(doc(db, 'transactions', id), {
+      if (newStatus === 'reversed' && reason) {
+        updatePayload.reversalReason = reason.trim();
+      }
+
+      await updateDoc(withdrawalRef, updatePayload).catch(async () => {
+        await setDoc(withdrawalRef, { ...withdrawalData, ...updatePayload }, { merge: true });
+      });
+
+      const txStatus = newStatus === 'completed' ? 'Completed' : (newStatus === 'failed' ? 'Failed' : 'Reversed');
+      
+      const txUpdatePayload: any = {
         status: txStatus,
         updatedAt: serverTimestamp()
-      }).catch(() => {});
+      };
+      if (newStatus === 'reversed' && reason) {
+        txUpdatePayload.reversalReason = reason.trim();
+      }
 
-      await updateDoc(doc(db, 'withdrawals', id), {
-        status,
-        updatedAt: serverTimestamp()
-      }).catch(() => {});
+      await updateDoc(doc(db, 'transactions', id), txUpdatePayload).catch(() => {});
+      await updateDoc(doc(db, 'withdrawals', id), updatePayload).catch(() => {});
 
-      // Update local storage store
+      // 2. Update local storage store
       const updatedLocalRecord = {
         ...withdrawalData,
         id,
-        status,
+        status: newStatus,
+        reversalReason: newStatus === 'reversed' ? (reason || withdrawalData.reversalReason) : withdrawalData.reversalReason,
         updatedAt: new Date().toISOString()
       };
       saveLocalWithdrawal(updatedLocalRecord);
 
-      // 2. If approved (completed) and not already completed, deduct from user EXACTLY ONCE
-      if (status === 'completed' && currentStatus !== 'completed' && userId && amount > 0) {
+      // 3. Balance adjustments:
+      // A. If approved ('completed') and not already completed: DEDUCT FROM USER EXACTLY ONCE
+      if (newStatus === 'completed' && currentStatus !== 'completed' && userId && amount > 0) {
         if (!userId.startsWith('local-')) {
           const userRef = doc(db, 'users', userId);
           const userSnap = await getDoc(userRef).catch(() => null);
@@ -158,18 +307,53 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             });
           }
         } catch (e) {}
+
+        showNotification(`Withdrawal of $${amount.toLocaleString()} approved and deducted from user balance.`);
       }
 
-      // 3. If reversed (works after approval), refund money back to user
-      if (status === 'reversed' && userId && amount > 0) {
+      // B. If rejected ('failed'): NO balance deduction, only mark failed
+      if (newStatus === 'failed' && userId) {
         if (!userId.startsWith('local-')) {
           const userRef = doc(db, 'users', userId);
+          const userSnap = await getDoc(userRef).catch(() => null);
+          if (userSnap && userSnap.exists()) {
+            const uData = userSnap.data();
+            if (Array.isArray(uData.withdrawals)) {
+              const updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
+                w.id === id ? { ...w, status: 'Failed' } : w
+              );
+              await updateDoc(userRef, {
+                withdrawals: updatedUserWithdrawals,
+                lastUpdated: serverTimestamp()
+              }).catch(() => {});
+            }
+          }
+        }
+        showNotification(`Withdrawal of $${amount.toLocaleString()} rejected (status set to failed). No balance was deducted.`);
+      }
+
+      // C. If reversed ('reversed'): REFUND THE DEDUCTED AMOUNT BACK TO USER
+      if (newStatus === 'reversed' && userId && amount > 0) {
+        if (!userId.startsWith('local-')) {
+          const userRef = doc(db, 'users', userId);
+          const userSnap = await getDoc(userRef).catch(() => null);
+          let updatedUserWithdrawals: any[] = [];
+          if (userSnap && userSnap.exists()) {
+            const uData = userSnap.data();
+            if (Array.isArray(uData.withdrawals)) {
+              updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
+                w.id === id ? { ...w, status: 'Reversed', reversalReason: reason || 'Administrative Reversal' } : w
+              );
+            }
+          }
+
           await updateDoc(userRef, {
             availableBalance: increment(amount),
             portfolioBalance: increment(amount),
             tokenBalance: increment(amount),
             cashBalance: increment(amount),
             totalWithdrawals: increment(-amount),
+            ...(updatedUserWithdrawals.length > 0 ? { withdrawals: updatedUserWithdrawals } : {}),
             lastUpdated: serverTimestamp()
           }).catch(() => {});
         }
@@ -183,6 +367,21 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             totalWithdrawals: Math.max(0, (Number(wallet.totalWithdrawals) || 0) - amount)
           });
         } catch (e) {}
+
+        try {
+          const currentPortfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+          if (currentPortfolio) {
+            await portfolioPersistenceService.savePortfolioCurrent(userId, {
+              walletState: {
+                portfolioBalance: (currentPortfolio.walletState?.portfolioBalance || 0) + amount,
+                availableBalance: (currentPortfolio.walletState?.availableBalance || 0) + amount,
+                totalWithdrawals: Math.max(0, (currentPortfolio.walletState?.totalWithdrawals || 0) - amount)
+              }
+            });
+          }
+        } catch (e) {}
+
+        showNotification(`Withdrawal reversed! $${amount.toLocaleString()} refunded to user account.`);
       }
 
       // Dispatch global sync events
@@ -190,22 +389,39 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
       window.dispatchEvent(new CustomEvent('withdrawal_updated', { detail: id }));
       window.dispatchEvent(new Event('aver_user_updated'));
 
-      alert(`Withdrawal marked as ${status}${reversalReason ? ` (Reason: ${reversalReason})` : ''}.`);
+      // Update state locally
+      setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, status: newStatus, reversalReason: reason || w.reversalReason } : w));
     } catch (err: any) {
       console.error("[AdminWithdrawals] Error processing withdrawal:", err);
       alert(`Error updating withdrawal: ${err.message || 'Unknown database error'}`);
+    } finally {
+      setIsProcessing(false);
+      setReversalTarget(null);
+      setReversalReasonInput('');
     }
   };
 
+  const handleConfirmReversal = () => {
+    if (!reversalTarget) return;
+    const reason = reversalReasonInput.trim() || 'Administrative correction and compliance review';
+    handleAction(reversalTarget.id, 'reversed', reason);
+  };
+
   const filtered = withdrawals.filter(w => 
-    w.email?.toLowerCase().includes(search.toLowerCase()) || 
-    w.asset?.toLowerCase().includes(search.toLowerCase()) ||
-    w.destination?.toLowerCase().includes(search.toLowerCase())
+    (w.email || '').toLowerCase().includes(search.toLowerCase()) || 
+    (w.asset || '').toLowerCase().includes(search.toLowerCase()) ||
+    (w.destination || w.destinationAddress || '').toLowerCase().includes(search.toLowerCase()) ||
+    (w.id || '').toLowerCase().includes(search.toLowerCase())
   );
+
+  const pendingOutflow = withdrawals
+    .filter(w => (w.status || '').toLowerCase() === 'pending')
+    .reduce((acc, w) => acc + (Number(w.amount) || 0), 0);
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      {/* HEADER */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black tracking-tight mb-2">Withdrawal Governance</h1>
           <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -218,13 +434,14 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
           <div className="text-right">
             <span className="text-[10px] font-bold text-slate-500 uppercase block">Pending Outflow</span>
             <strong className="text-rose-500 text-lg font-black">
-              ${withdrawals.filter(w => w.status === 'pending').reduce((acc, w) => acc + (w.amount || 0), 0).toLocaleString()}
+              ${pendingOutflow.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </strong>
           </div>
           <ArrowUpCircle className="w-8 h-8 text-rose-500" />
         </div>
       </div>
 
+      {/* SEARCH BAR */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
         <div className={`flex-1 max-w-md flex items-center gap-3 px-4 py-2.5 rounded-2xl border ${
           isDark ? 'bg-white/5 border-white/5' : 'bg-white border-slate-200'
@@ -232,14 +449,15 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
           <Search className="w-4 h-4 text-slate-500" />
           <input 
             type="text" 
-            placeholder="Search by email, asset or destination..." 
+            placeholder="Search by email, asset, ID or destination..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="bg-transparent border-none focus:ring-0 text-sm w-full"
+            className="bg-transparent border-none focus:ring-0 text-sm w-full text-white placeholder:text-neutral-500"
           />
         </div>
       </div>
 
+      {/* TABLE */}
       <div className={`rounded-[2rem] border overflow-hidden ${
         isDark ? 'bg-white/5 border-white/5' : 'bg-white border-slate-200 shadow-sm'
       }`}>
@@ -248,97 +466,260 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             <thead>
               <tr className={`border-b ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">User / Request ID</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Amount / Destination</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Risk Score</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Amount / Crypto</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Destination Address</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Status</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {filtered.map((item) => (
-                <tr key={item.id} className="group hover:bg-white/[0.02] transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-bold">{item.email}</span>
-                      <span className="text-[10px] font-mono text-slate-500">{item.id}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-black text-rose-500">${Number(item.amount || 0).toLocaleString()} USD</span>
-                      {item.cryptoAmount && item.cryptoSymbol && item.cryptoSymbol !== 'USD' && item.cryptoSymbol !== 'USDT' && (
-                        <span className="text-xs font-mono font-bold text-amber-400">
-                          {item.cryptoAmount} {item.cryptoSymbol}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-slate-500 truncate max-w-[150px]">{item.destination}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-12 h-1.5 rounded-full bg-slate-800 overflow-hidden`}>
-                        <div 
-                          className={`h-full rounded-full ${item.riskScore > 70 ? 'bg-rose-500' : item.riskScore > 30 ? 'bg-amber-500' : 'bg-emerald-500'}`} 
-                          style={{ width: `${item.riskScore}%` }}
-                        />
+              {filtered.map((item, idx) => {
+                const normStatus = (item.status || 'pending').toLowerCase();
+                const isPending = normStatus === 'pending';
+                const isCompleted = normStatus === 'completed' || normStatus === 'approved';
+                const isReversed = normStatus === 'reversed';
+                const isFailed = normStatus === 'failed' || normStatus === 'rejected';
+
+                const dest = item.destination || item.destinationAddress || 'N/A';
+
+                return (
+                  <tr key={`wth-${item.id || idx}-${idx}`} className="group hover:bg-white/[0.02] transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-white">{item.email || item.userName || 'User'}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] font-mono text-slate-500 truncate max-w-[120px]">{item.id}</span>
+                          <button 
+                            onClick={() => handleCopy(item.id, item.id)} 
+                            className="text-neutral-500 hover:text-white p-0.5"
+                            title="Copy ID"
+                          >
+                            {copiedId === item.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        </div>
                       </div>
-                      <span className={`text-[10px] font-bold ${item.riskScore > 70 ? 'text-rose-500' : item.riskScore > 30 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                        {item.riskScore}%
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border ${
-                      item.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                      item.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                      'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
-                    }`}>
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button 
-                        onClick={() => handleAction(item.id, 'completed')}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 transition font-bold text-[10px]"
-                        title="Approve"
-                      >
-                        Approve
-                      </button>
-                      <button 
-                        onClick={() => handleAction(item.id, 'failed')}
-                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition font-bold text-[10px]"
-                        title="Fail"
-                      >
-                        Fail
-                      </button>
-                      <button 
-                        onClick={() => {
-                          const reason = prompt("Enter reason for transaction reversal:");
-                          if (reason) handleAction(item.id, 'reversed', reason);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500 hover:text-slate-950 transition font-bold text-[10px]"
-                        title="Reverse"
-                      >
-                        Reverse
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-black text-rose-400">
+                          -${Number(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </span>
+                        <span className="text-xs font-mono font-bold text-amber-400">
+                          {item.cryptoAmount ? `-${item.cryptoAmount}` : ''} {item.cryptoSymbol || item.asset || 'USDT'}
+                        </span>
+                        <span className="text-[10px] text-slate-500">{item.network || 'TRC20'}</span>
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-mono text-neutral-300 truncate max-w-[180px]" title={dest}>
+                          {dest}
+                        </span>
+                        {dest !== 'N/A' && (
+                          <button 
+                            onClick={() => handleCopy(dest, `dest-${item.id}`)}
+                            className="text-neutral-500 hover:text-white p-0.5"
+                            title="Copy Address"
+                          >
+                            {copiedId === `dest-${item.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-1 items-start">
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border ${
+                          isCompleted ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                          isReversed ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
+                          isFailed ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                          'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
+                        }`}>
+                          {isCompleted ? 'Approved' : isReversed ? 'Reversed' : isFailed ? 'Failed' : 'Pending'}
+                        </span>
+                        {isReversed && item.reversalReason && (
+                          <span className="text-[10px] text-neutral-400 italic max-w-[180px] truncate" title={item.reversalReason}>
+                            Reason: {item.reversalReason}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {isPending && (
+                          <>
+                            <button 
+                              onClick={() => handleAction(item.id, 'completed')}
+                              disabled={isProcessing}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 transition font-bold text-xs flex items-center gap-1 border border-emerald-500/20 cursor-pointer disabled:opacity-50"
+                              title="Approve and deduct balance"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Approve</span>
+                            </button>
+
+                            <button 
+                              onClick={() => handleAction(item.id, 'failed')}
+                              disabled={isProcessing}
+                              className="px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition font-bold text-xs flex items-center gap-1 border border-rose-500/20 cursor-pointer disabled:opacity-50"
+                              title="Reject withdrawal (marks as failed without deducting balance)"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Reject</span>
+                            </button>
+                          </>
+                        )}
+
+                        {isCompleted && (
+                          <button 
+                            onClick={() => {
+                              setReversalTarget(item);
+                              setReversalReasonInput(item.reversalReason || '');
+                            }}
+                            disabled={isProcessing}
+                            className="px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white transition font-bold text-xs flex items-center gap-1.5 border border-purple-500/20 cursor-pointer disabled:opacity-50"
+                            title="Reverse completed withdrawal and refund user balance"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Reverse</span>
+                          </button>
+                        )}
+
+                        {(isReversed || isFailed) && (
+                          <span className="text-[11px] text-neutral-500 italic">
+                            No actions
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+
         {filtered.length === 0 && !loading && (
           <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 opacity-40">
-            <ArrowUpCircle className="w-16 h-16" />
+            <ArrowUpCircle className="w-16 h-16 text-neutral-500" />
             <div className="space-y-1">
               <p className="font-bold">No withdrawal activity detected</p>
-              <p className="text-xs">Outbound capital flow will appear here after automated risk screening.</p>
+              <p className="text-xs">Outbound capital requests will appear here when users submit withdrawals.</p>
             </div>
           </div>
         )}
       </div>
+
+      {/* REVERSAL REASON MODAL */}
+      <AnimatePresence>
+        {reversalTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`w-full max-w-md rounded-3xl p-6 border shadow-2xl space-y-5 ${
+                isDark ? 'bg-neutral-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                <div className="flex items-center gap-2 text-purple-400">
+                  <RotateCcw className="w-5 h-5" />
+                  <h3 className="font-black text-lg text-white">Reverse Withdrawal</h3>
+                </div>
+                <button
+                  onClick={() => setReversalTarget(null)}
+                  className="p-1 rounded-lg text-neutral-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className={`p-4 rounded-2xl space-y-2 border text-xs ${
+                isDark ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className="flex justify-between text-neutral-400">
+                  <span>User Email:</span>
+                  <span className="font-bold text-white">{reversalTarget.email}</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Refund Amount:</span>
+                  <span className="font-bold text-emerald-400">+${Number(reversalTarget.amount || 0).toLocaleString()} USD</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Asset / Crypto:</span>
+                  <span className="font-bold text-amber-400">{reversalTarget.cryptoAmount || ''} {reversalTarget.cryptoSymbol || reversalTarget.asset}</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Request ID:</span>
+                  <span className="font-mono text-neutral-300 truncate max-w-[180px]">{reversalTarget.id}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                  Reason for Reversal <span className="text-rose-400">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={reversalReasonInput}
+                  onChange={(e) => setReversalReasonInput(e.target.value)}
+                  placeholder="e.g. Compliance hold, invalid destination network, user requested refund..."
+                  className={`w-full rounded-2xl p-3.5 text-xs border focus:outline-none focus:ring-1 focus:ring-purple-400 ${
+                    isDark ? 'bg-neutral-950 border-white/10 text-white placeholder:text-neutral-600' : 'bg-slate-100 border-slate-200 text-slate-900 placeholder:text-slate-400'
+                  }`}
+                />
+                <p className="text-[11px] text-neutral-500">
+                  This reason will be visible to the user on their transaction receipt and the deducted amount will be immediately refunded to their balance.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={() => setReversalTarget(null)}
+                  disabled={isProcessing}
+                  className="flex-1 py-3 rounded-xl border border-neutral-700 hover:border-neutral-500 font-bold text-xs text-neutral-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmReversal}
+                  disabled={isProcessing}
+                  className="flex-1 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition shadow-lg shadow-purple-600/30 flex items-center justify-center gap-1.5"
+                >
+                  {isProcessing ? (
+                    <span className="animate-pulse">Processing...</span>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Confirm & Refund</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* TOAST NOTIFICATION */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-10 right-10 z-50 px-5 py-3 rounded-2xl bg-emerald-500 text-slate-950 text-xs font-black shadow-2xl flex items-center gap-2"
+          >
+            <Check className="w-4 h-4" />
+            <span>{toast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+

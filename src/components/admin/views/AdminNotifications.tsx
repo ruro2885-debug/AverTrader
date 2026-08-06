@@ -106,9 +106,9 @@ export default function AdminNotifications({ theme }: { theme: 'light' | 'dark' 
       </div>
 
       <div className="grid grid-cols-1 gap-4">
-        {filtered.map((item) => (
+        {filtered.map((item, idx) => (
           <motion.div
-            key={item.id}
+            key={`notif-${item.id || idx}-${idx}`}
             layout
             className={`p-6 rounded-[2rem] border flex items-center gap-6 transition-all ${
               isDark ? 'bg-white/5 border-white/5' : 'bg-white border-slate-200 shadow-sm'

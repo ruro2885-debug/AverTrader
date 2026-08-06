@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Bell, X, Search, Filter, Check, Trash2, 
+  Bell, BellOff, X, Search, Filter, Check, Trash2, 
   Archive, Pin, Clock, ShieldCheck, User as UserIcon, 
   Briefcase, ArrowDownToLine, ArrowUpFromLine, 
   Wallet, RefreshCw, Link2, Settings, Zap,
@@ -10,13 +10,14 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { NotificationCategory, NotificationItem } from '../types/notifications';
 import { usePreferences } from '../contexts/PreferencesContext';
+import { NotificationManager } from '../services/NotificationManager';
 
 interface NotificationCenterProps {
   onClose: () => void;
   isDark: boolean;
 }
 
-const getCategoryIcon = (category: NotificationCategory) => {
+const getCategoryIcon = (category?: NotificationCategory | string) => {
   switch (category) {
     case 'account': return <UserIcon className="w-4 h-4" />;
     case 'security': return <ShieldCheck className="w-4 h-4" />;
@@ -33,7 +34,7 @@ const getCategoryIcon = (category: NotificationCategory) => {
   }
 };
 
-const getCategoryStyles = (category: NotificationCategory, isDark: boolean) => {
+const getCategoryStyles = (category?: NotificationCategory | string, isDark?: boolean) => {
   switch (category) {
     case 'account': 
       return {
@@ -163,7 +164,9 @@ const NotificationRow = React.memo(({
   onDelete: (id: string) => void 
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const catStyles = getCategoryStyles(not.category, isDark);
+  const category = not?.category || 'system';
+  const priority = not?.priority || 'low';
+  const catStyles = getCategoryStyles(category, isDark);
 
   return (
     <motion.div 
@@ -184,7 +187,7 @@ const NotificationRow = React.memo(({
       <div className="flex gap-3.5 items-start">
         {/* Category Circular Icon Container with colored Glow */}
         <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 relative ${catStyles.bg} ${catStyles.glow}`}>
-          {getCategoryIcon(not.category)}
+          {getCategoryIcon(category)}
           {/* Pulsing Green dot for Unread notifications */}
           {!not.read && (
             <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-[#0c0d14] animate-pulse" />
@@ -195,23 +198,23 @@ const NotificationRow = React.memo(({
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-1">
             <h4 className={`text-sm font-semibold truncate ${textPrimary} ${!not.read ? 'text-white' : 'text-gray-300'}`}>
-              {not.title}
+              {not.title || 'Notification'}
             </h4>
             <span className="text-[11px] font-mono text-gray-500 whitespace-nowrap shrink-0">
-              {formatTimeAgo(not.date)}
+              {formatTimeAgo(not.date || new Date().toISOString())}
             </span>
           </div>
 
           <p className="text-xs text-gray-400 leading-relaxed mb-2.5 break-words">
-            {not.body}
+            {not.body || ''}
           </p>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`text-[9px] font-semibold font-mono tracking-wider uppercase px-2 py-0.5 rounded-md ${getPriorityColor(not.priority, isDark)}`}>
-              {not.priority}
+            <span className={`text-[9px] font-semibold font-mono tracking-wider uppercase px-2 py-0.5 rounded-md ${getPriorityColor(priority, isDark)}`}>
+              {priority}
             </span>
             <span className="text-[9px] font-semibold font-mono tracking-wider uppercase px-2 py-0.5 rounded-md bg-white/[0.04] text-gray-400 border border-white/5">
-              {not.category.replace('_', ' ')}
+              {String(category).replace(/_/g, ' ')}
             </span>
             {not.pinned && (
               <span className="flex items-center gap-1 text-[9px] font-semibold font-mono uppercase px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -365,7 +368,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
   // Sync with context whenever notifications list changes
   useEffect(() => {
     if (authNotifications) {
-      setLocalNotifications(authNotifications);
+      setLocalNotifications(NotificationManager.deduplicateList(authNotifications));
     }
   }, [authNotifications]);
 
@@ -378,33 +381,40 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
   }, []);
 
   const filteredAndSorted = useMemo(() => {
-    let result = localNotifications.filter(n => showArchived ? !!n.archived : !n.archived);
+    const deduplicated = NotificationManager.deduplicateList(localNotifications);
+    let result = deduplicated.filter(n => showArchived ? !!n.archived : !n.archived);
 
     const notifPrefs = preferences?.notifications || {};
     const isMasterOn = notifPrefs.master ?? true;
 
-    if (isMasterOn) {
-      result = result.filter(n => {
-        const cat = n.category;
-        if (cat === 'security' && notifPrefs.security === false) return false;
-        if (cat === 'account' && notifPrefs.profile === false) return false;
-        if (cat === 'deposit' && notifPrefs.deposits === false) return false;
-        if (cat === 'withdrawal' && notifPrefs.withdrawals === false) return false;
-        if (['trading', 'portfolio', 'copy_trading', 'swap'].includes(cat) && notifPrefs.trading === false) return false;
-        if (['referral', 'vault'].includes(cat) && notifPrefs.rewards === false) return false;
-        if (['system'].includes(cat) && notifPrefs.system === false) return false;
-        if (['marketing'].includes(cat) && notifPrefs.marketing === false) return false;
-        return true;
-      });
+    if (!isMasterOn) {
+      return {
+        today: [],
+        yesterday: [],
+        earlier: []
+      };
     }
+
+    result = result.filter(n => {
+      const cat = n?.category || 'system';
+      if (cat === 'security' && notifPrefs.security === false) return false;
+      if (['account', 'profile'].includes(cat) && notifPrefs.profile === false) return false;
+      if (cat === 'deposit' && notifPrefs.deposits === false) return false;
+      if (cat === 'withdrawal' && notifPrefs.withdrawals === false) return false;
+      if (['trading', 'portfolio', 'copy_trading', 'swap', 'ai'].includes(cat) && notifPrefs.trading === false) return false;
+      if (['referral', 'vault', 'rewards'].includes(cat) && notifPrefs.rewards === false) return false;
+      if (['system'].includes(cat) && notifPrefs.system === false) return false;
+      if (['marketing'].includes(cat) && notifPrefs.marketing === false) return false;
+      return true;
+    });
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
+      result = result.filter(n => (n?.title || '').toLowerCase().includes(q) || (n?.body || '').toLowerCase().includes(q));
     }
 
     if (categoryFilter !== 'all') {
-      result = result.filter(n => n.category === categoryFilter);
+      result = result.filter(n => (n?.category || 'system') === categoryFilter);
     }
 
     if (showUnreadOnly) {
@@ -416,8 +426,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
 
-      const timeA = new Date(a.date).getTime();
-      const timeB = new Date(b.date).getTime();
+      const timeA = a.date ? new Date(a.date).getTime() : 0;
+      const timeB = b.date ? new Date(b.date).getTime() : 0;
       
       return sortOrder === 'newest' ? timeB - timeA : timeA - timeB;
     });
@@ -434,7 +444,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
     yesterday.setDate(today.getDate() - 1);
 
     result.forEach(n => {
-      const date = new Date(n.date);
+      const date = n.date ? new Date(n.date) : new Date();
       if (date >= today) grouped.today.push(n);
       else if (date >= yesterday) grouped.yesterday.push(n);
       else grouped.earlier.push(n);
@@ -467,13 +477,13 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
     if (!isMasterOn) return 0;
 
     const filtered = localNotifications.filter(n => {
-      const cat = n.category;
+      const cat = n?.category || 'system';
       if (cat === 'security' && notifPrefs.security === false) return false;
-      if (cat === 'account' && notifPrefs.profile === false) return false;
+      if (['account', 'profile'].includes(cat) && notifPrefs.profile === false) return false;
       if (cat === 'deposit' && notifPrefs.deposits === false) return false;
       if (cat === 'withdrawal' && notifPrefs.withdrawals === false) return false;
-      if (['trading', 'portfolio', 'copy_trading', 'swap'].includes(cat) && notifPrefs.trading === false) return false;
-      if (['referral', 'vault'].includes(cat) && notifPrefs.rewards === false) return false;
+      if (['trading', 'portfolio', 'copy_trading', 'swap', 'ai'].includes(cat) && notifPrefs.trading === false) return false;
+      if (['referral', 'vault', 'rewards'].includes(cat) && notifPrefs.rewards === false) return false;
       if (['system'].includes(cat) && notifPrefs.system === false) return false;
       if (['marketing'].includes(cat) && notifPrefs.marketing === false) return false;
       return true;
@@ -757,22 +767,36 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="h-full flex flex-col items-center justify-center text-center py-16"
+                className="h-full flex flex-col items-center justify-center text-center py-16 px-4"
               >
-                <div className="w-14 h-14 rounded-full bg-white/[0.03] border border-white/10 flex items-center justify-center mb-4 text-gray-500">
-                  <Bell className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-semibold text-white">You’re all caught up.</h3>
-                <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed px-4">
-                  We’ll notify you about deposits, withdrawals, referrals, membership progress, AI trading updates and important account activity.
-                </p>
+                {(preferences?.notifications?.master ?? true) === false ? (
+                  <>
+                    <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-4 text-amber-400">
+                      <BellOff className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-white">Notifications are paused</h3>
+                    <p className="text-xs text-gray-400 mt-1 max-w-xs leading-relaxed">
+                      You have turned off notifications in your settings. Re-enable them anytime in Notification Settings.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-14 h-14 rounded-full bg-white/[0.03] border border-white/10 flex items-center justify-center mb-4 text-gray-500">
+                      <Bell className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-white">You’re all caught up.</h3>
+                    <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed px-4">
+                      We’ll notify you about deposits, withdrawals, referrals, membership progress, AI trading updates and important account activity.
+                    </p>
+                  </>
+                )}
               </motion.div>
             ) : (
               <div className="space-y-6">
-                {(Object.entries(filteredAndSorted) as [string, NotificationItem[]][]).map(([key, list]) => {
+                {(Object.entries(filteredAndSorted) as [string, NotificationItem[]][]).map(([key, list], gIdx) => {
                   if (list.length === 0) return null;
                   return (
-                    <div key={key}>
+                    <div key={`group-${key}-${gIdx}`}>
                       <h3 className="text-[10px] font-bold text-gray-500 uppercase px-6 py-3 tracking-wider">
                         {key}
                       </h3>
@@ -783,7 +807,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                           
                           return (
                             <NotificationRow
-                              key={`${not.id}-${idx}`}
+                              key={`notif-${not.id || 'n'}-${key}-${idx}`}
                               not={not}
                               isDark={isDark}
                               textPrimary={textPrimary}

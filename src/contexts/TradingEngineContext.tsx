@@ -48,6 +48,55 @@ interface TradingEngineContextType {
   clearActivityHistory: () => Promise<void>;
 }
 
+function getActivityTimestamp(ts: any): number {
+  if (!ts) return Date.now();
+  if (typeof ts === 'object' && ts !== null && typeof ts.toDate === 'function') {
+    return ts.toDate().getTime();
+  }
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? Date.now() : d.getTime();
+}
+
+export function deduplicateActivities(activities: ActivityEvent[]): ActivityEvent[] {
+  const result: ActivityEvent[] = [];
+  const seenIds = new Set<string>();
+  const seenContent = new Set<string>();
+
+  for (const act of activities) {
+    if (!act || !act.message) continue;
+    if (seenIds.has(act.id)) continue;
+
+    const cleanMsg = (act.message || '').trim().toLowerCase();
+    const actType = act.type || 'SYSTEM';
+    const time = getActivityTimestamp(act.timestamp);
+    const timeBucket = Math.floor(time / 60000); // 1-minute bucket
+    const key = `${actType}|${cleanMsg}|${timeBucket}`;
+
+    if (seenContent.has(key)) continue;
+
+    // Check if duplicate of an already added item within 60 seconds or identical recent message
+    const isDup = result.some(existing => {
+      if (existing.id === act.id) return true;
+      const existingCleanMsg = (existing.message || '').trim().toLowerCase();
+      const existingType = existing.type || 'SYSTEM';
+      const existingTime = getActivityTimestamp(existing.timestamp);
+      
+      const timeDiff = Math.abs(existingTime - time);
+      if (existingCleanMsg === cleanMsg && existingType === actType && timeDiff < 60000) return true;
+      if (existingCleanMsg === cleanMsg && timeDiff < 30000) return true;
+      return false;
+    });
+
+    if (!isDup) {
+      if (act.id) seenIds.add(act.id);
+      seenContent.add(key);
+      result.push(act);
+    }
+  }
+
+  return result;
+}
+
 export const TradingEngineContext = createContext<TradingEngineContextType>({
   configs: [],
   config: null,
@@ -114,6 +163,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const lastStateRef = useRef<string | null>(null);
   const peakEquityRef = useRef<number>(1000);
   const lastSyncRef = useRef<number>(0);
+  const recentActivitiesRef = useRef<Map<string, number>>(new Map());
+  const profitTargetNotifiedRef = useRef<boolean>(false);
+  const stopLossNotifiedRef = useRef<boolean>(false);
 
   // Helper to load/save state from/to localStorage if Firestore is unavailable/offline
   const getLocalStorageItem = useCallback((key: string, defaultValue: any) => {
@@ -395,10 +447,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const unsubActivity = onSnapshot(activityRef, (snap) => {
         const fetchedActivity = snap.docs.map(d => ({ id: d.id, ...d.data() })) as ActivityEvent[];
         setActivity(prev => {
-          const mergedMap = new Map<string, ActivityEvent>();
-          prev.forEach(a => mergedMap.set(a.id, a));
-          fetchedActivity.forEach(a => mergedMap.set(a.id, a));
-          const merged = Array.from(mergedMap.values());
+          const merged = deduplicateActivities([...fetchedActivity, ...prev]).slice(0, 100);
           if (merged.length > 0) setLocalStorageItem(`aver_activity_${user.uid}`, merged);
           return merged;
         });
@@ -443,30 +492,44 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const logActivity = useCallback(async (type: string, message: string, metadata?: Record<string, any>) => {
     if (!user) return;
     
+    const cleanMsg = (message || '').trim();
+    const actKey = `${type}|${cleanMsg.toLowerCase()}`;
+    const now = Date.now();
+
+    // 5-second debounce to prevent duplicate spamming
+    const lastLogged = recentActivitiesRef.current.get(actKey);
+    if (lastLogged && (now - lastLogged) < 5000) {
+      console.log("[TradingEngineContext] Debounced duplicate activity log:", actKey);
+      return;
+    }
+    recentActivitiesRef.current.set(actKey, now);
+
     const newAct: ActivityEvent = {
-      id: `act_${Date.now()}`,
+      id: `act_${now}_${Math.random().toString(36).substring(2, 7)}`,
       userId: user.uid,
       type,
-      message,
+      message: cleanMsg,
       timestamp: new Date().toISOString(),
       metadata: metadata || {}
     };
     
     setActivity(prev => {
-      const updated = [newAct, ...prev].slice(0, 100);
+      const updated = deduplicateActivities([newAct, ...prev]).slice(0, 100);
       setLocalStorageItem(`aver_activity_${user.uid}`, updated);
       return updated;
     });
 
-    try {
+    if (user.uid && !user.uid.startsWith('local-') && user.uid !== 'guest_user') {
+      try {
         await addDoc(collection(db, 'users', user.uid, 'activity'), {
-            type,
-            message,
-            timestamp: serverTimestamp(),
-            metadata: metadata || {}
+          type,
+          message: cleanMsg,
+          timestamp: serverTimestamp(),
+          metadata: metadata || {}
         });
-    } catch (error) {
+      } catch (error) {
         console.warn("Failed to log activity in Firestore:", error);
+      }
     }
   }, [user?.uid, setLocalStorageItem]);
 
@@ -481,37 +544,54 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const fundingSource = activeConfig.sessionSetup.fundingSource;
     
     // Validate funds
-    const rawTokenBal = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.portfolioBalance ?? 0;
-    const currentTokenBal = rawTokenBal < allocationAmount ? allocationAmount + 0 : rawTokenBal;
+    const currentAvailableCash = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.availableBalance ?? (typeof user?.portfolioBalance === 'number' ? user.portfolioBalance : 0);
+    
+    if (allocationAmount > currentAvailableCash) {
+      console.warn("[TradingEngineContext] Insufficient funds: allocated amount exceeds available balance", { allocationAmount, currentAvailableCash });
+      const err = new Error('INSUFFICIENT_FUNDS');
+      (err as any).code = 'INSUFFICIENT_FUNDS';
+      throw err;
+    }
     
     const currentVaultBal = user?.vaultBalance ?? 0;
-    let newTokenBal = currentTokenBal;
+    let newTokenBal = currentAvailableCash;
     let newVaultBal = currentVaultBal;
 
     if (fundingSource === 'WALLET') {
-      newTokenBal = Math.max(0, currentTokenBal - allocationAmount);
+      newTokenBal = Math.max(0, currentAvailableCash - allocationAmount);
     } else {
       newVaultBal = Math.max(0, currentVaultBal - allocationAmount);
     }
     
     tokenBalanceRef.current = newTokenBal;
+    const totalNetBalance = newTokenBal + allocationAmount + newVaultBal;
 
     try {
       await walletService.updateWallet(effectiveUid, {
         tokenBalance: newTokenBal,
         availableBalance: newTokenBal,
-        portfolioBalance: currentTokenBal, // Keeping the undeducted portfolioBalance as the user's total cash funds
+        portfolioBalance: totalNetBalance, // Preserving consolidated portfolio net balance
         vaultBalance: newVaultBal,
         aiTradingCapital: allocationAmount,
-        portfolioValue: currentTokenBal + newVaultBal // Unchanged total net balance
+        portfolioValue: totalNetBalance // Unchanged total net balance during trading
       });
       await portfolioPersistenceService.updateWalletState(effectiveUid, {
         tokenBalance: newTokenBal,
         availableBalance: newTokenBal,
-        portfolioBalance: currentTokenBal, // Keeping the undeducted portfolioBalance
+        portfolioBalance: totalNetBalance,
         vaultBalance: newVaultBal,
         aiTradingCapital: allocationAmount
       });
+      if (user?.uid && !user.uid.startsWith('local-') && user.uid !== 'guest_user') {
+        await updateDoc(doc(db, 'users', user.uid), {
+          tokenBalance: newTokenBal,
+          availableBalance: newTokenBal,
+          portfolioBalance: totalNetBalance,
+          vaultBalance: newVaultBal,
+          aiTradingCapital: allocationAmount,
+          lastUpdated: serverTimestamp()
+        }).catch(() => {});
+      }
     } catch (e) {
       console.warn("Failed to update wallet service during session start:", e);
     }
@@ -523,14 +603,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         const uObj = JSON.parse(cachedUserStr);
         uObj.tokenBalance = newTokenBal;
         uObj.availableBalance = newTokenBal;
-        uObj.portfolioBalance = currentTokenBal; // Keeping the undeducted portfolioBalance
+        uObj.portfolioBalance = totalNetBalance;
         uObj.vaultBalance = newVaultBal;
+        uObj.aiTradingCapital = allocationAmount;
         if (uObj.portfolio) {
-          uObj.portfolio.totalValue = currentTokenBal + newVaultBal;
+          uObj.portfolio.totalValue = totalNetBalance;
         }
         safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
         localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new Event('aver_user_updated'));
       }
     } catch (err) {
       console.warn("Failed to update user profile cache in local storage:", err);
@@ -578,20 +660,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     // Immediate status update
     const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
     setEngineStatus(nextStatus);
-    
-    const startAct: ActivityEvent = {
-      id: `act_${Date.now()}`,
-      userId: effectiveUid,
-      type: 'SESSION_STARTED',
-      message: `AI Trading Session started with $${allocationAmount} from ${fundingSource}`,
-      timestamp: new Date().toISOString(),
-      metadata: { configId, markets, allocationAmount }
-    };
-    setActivity(prev => {
-      const updated = [startAct, ...prev].slice(0, 100);
-      setLocalStorageItem(`aver_activity_${effectiveUid}`, updated);
-      return updated;
-    });
 
     if (user?.uid && !user.uid.startsWith('local-') && user.uid !== 'guest_user') {
       try {
@@ -612,7 +680,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
               startTime: new Date().toISOString(),
               engineState: 'ACTIVE'
             });
-            await logActivity('SESSION_STARTED', `AI Trading Session started with $${allocationAmount} from ${fundingSource}`);
           })(),
           new Promise((res) => setTimeout(res, 1500))
         ]);
@@ -620,6 +687,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         console.warn("Failed to start session in Firestore:", error);
       }
     }
+
+    await logActivity('SESSION_STARTED', `AI Trading Session started with $${allocationAmount} from ${fundingSource}`, { configId, markets, allocationAmount });
   }, [user, configs, config, addNotification, logActivity, setLocalStorageItem]);
 
   const endSession = useCallback(async () => {
@@ -716,23 +785,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     sessionRefVal.current = null;
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
 
-    const endAct: ActivityEvent = {
-      id: `act_${Date.now()}`,
-      userId: effectiveUid,
-      type: 'SESSION_ENDED',
-      message: `AI Trading Session closed. All positions reconciled. Returned $${finalCapital.toFixed(2)} to ${fundingSource.toLowerCase()}.`,
-      timestamp: new Date().toISOString(),
-      metadata: { sessionId: currentSession.id, finalCapital }
-    };
-    setActivity(prev => {
-      const updated = [endAct, ...prev].slice(0, 100);
-      setLocalStorageItem(`aver_activity_${effectiveUid}`, updated);
-      return updated;
-    });
-
     try {
       // 4. Calculate new balances
-      const currentTokenBal = tokenBalanceRef.current ?? user.tokenBalance ?? user.portfolioBalance ?? 0;
+      const currentTokenBal = tokenBalanceRef.current ?? user.tokenBalance ?? user.availableBalance ?? 0;
       const currentVaultBal = user.vaultBalance ?? 0;
 
       let newTokenBal = currentTokenBal;
@@ -745,24 +800,36 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       }
 
       tokenBalanceRef.current = newTokenBal;
+      const totalNetBalance = newTokenBal + newVaultBal;
 
       // 5. Update wallet document and portfolio persistence state
       await walletService.updateWallet(effectiveUid, {
         tokenBalance: newTokenBal,
         availableBalance: newTokenBal,
-        portfolioBalance: newTokenBal,
+        portfolioBalance: totalNetBalance,
         vaultBalance: newVaultBal,
         aiTradingCapital: 0,
-        portfolioValue: newTokenBal + newVaultBal
+        portfolioValue: totalNetBalance
       });
 
       await portfolioPersistenceService.updateWalletState(effectiveUid, {
         tokenBalance: newTokenBal,
         availableBalance: newTokenBal,
-        portfolioBalance: newTokenBal,
+        portfolioBalance: totalNetBalance,
         vaultBalance: newVaultBal,
         aiTradingCapital: 0
       });
+
+      if (user?.uid && !user.uid.startsWith('local-') && user.uid !== 'guest_user') {
+        await updateDoc(doc(db, 'users', user.uid), {
+          tokenBalance: newTokenBal,
+          availableBalance: newTokenBal,
+          portfolioBalance: totalNetBalance,
+          vaultBalance: newVaultBal,
+          aiTradingCapital: 0,
+          lastUpdated: serverTimestamp()
+        }).catch(() => {});
+      }
 
       const sessionPnl = finalCapital - currentSession.initialCapital;
 
@@ -774,15 +841,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           const uObj = JSON.parse(cachedUserStr);
           uObj.tokenBalance = newTokenBal;
           uObj.availableBalance = newTokenBal;
-          uObj.portfolioBalance = newTokenBal;
+          uObj.portfolioBalance = totalNetBalance;
           uObj.vaultBalance = newVaultBal;
+          uObj.aiTradingCapital = 0;
           if (sessionPnl > 0) {
             uObj.totalProfit = (uObj.totalProfit || 0) + sessionPnl;
           } else if (sessionPnl < 0) {
             uObj.totalLoss = (uObj.totalLoss || 0) + Math.abs(sessionPnl);
           }
           if (uObj.portfolio) {
-            uObj.portfolio.totalValue = newTokenBal + newVaultBal;
+            uObj.portfolio.totalValue = totalNetBalance;
             uObj.portfolio.todayPnL = (uObj.portfolio.todayPnL || 0) + sessionPnl;
             uObj.portfolio.overallReturn = (uObj.portfolio.overallReturn || 0) + sessionPnl;
           }
@@ -802,7 +870,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         status: 'INACTIVE',
         engineState: 'IDLE'
       });
-      await logActivity('SESSION_ENDED', `AI Trading Session ended. Returned $${finalCapital.toFixed(2)} to Net Balance.`);
+      await logActivity('SESSION_ENDED', `AI Trading Session ended. Returned $${finalCapital.toFixed(2)} to Net Balance.`, { sessionId: currentSession.id, finalCapital });
     } catch (error) {
       console.warn("Failed to end session in Firestore:", error);
       await portfolioPersistenceService.updateSessionDetails(effectiveUid, {
@@ -810,6 +878,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         status: 'INACTIVE',
         engineState: 'IDLE'
       });
+      await logActivity('SESSION_ENDED', `AI Trading Session ended. Returned $${finalCapital.toFixed(2)} to Net Balance.`, { sessionId: currentSession.id, finalCapital });
     }
   }, [user, session, config, configs, logActivity, setLocalStorageItem]);
 
@@ -1148,28 +1217,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     window.dispatchEvent(new Event('aver_user_updated'));
 
-    // 3. Optimistic activity event log
-    const actEvent: ActivityEvent = {
-      id: `act_${Date.now()}`,
-      userId: user.uid,
-      type: reason === 'TARGET_HIT' ? 'TP_HIT' : reason === 'STOP_LOSS_HIT' ? 'SL_HIT' : 'MANUAL_CLOSE',
-      message: `Autonomous liquidation completed for ${closedAsset}. Net returns: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%).`,
-      timestamp: new Date().toISOString(),
-      metadata: { tradeId, asset: closedAsset, pnl }
-    };
-    setActivity(prev => {
-      const updated = [actEvent, ...prev].slice(0, 100);
-      setLocalStorageItem(`aver_activity_${user.uid}`, updated);
-      return updated;
-    });
+    // 3. Log activity via single deduplicated source of truth
+    await logActivity(
+      reason === 'TARGET_HIT' ? 'TP_HIT' : reason === 'STOP_LOSS_HIT' ? 'SL_HIT' : 'MANUAL_CLOSE',
+      `Autonomous liquidation completed for ${closedAsset}. Net returns: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%).`,
+      { tradeId, asset: closedAsset, pnl }
+    );
 
     // 4. Try Firestore
     try {
       await aiTradingService.closeTrade(user.uid, tradeId, exitPrice, reason);
-      await logActivity(
-        reason === 'TARGET_HIT' ? 'TP_HIT' : reason === 'STOP_LOSS_HIT' ? 'SL_HIT' : 'MANUAL_CLOSE',
-        `Autonomous liquidation completed for ${closedAsset}. Net returns: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPercent.toFixed(2)}%).`
-      );
     } catch (error) {
       console.warn("Failed to close trade in Firestore (offline/local simulation active):", error);
     }
@@ -1380,16 +1437,22 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const currentPnLPercent = ((currentTotalSessionCapital - initialCapital) / initialCapital) * 100;
 
       if (currentPnLPercent >= profitTargetPercent) {
-        console.log(`[TradingEngineContext] Session Profit Target Hit (${currentPnLPercent.toFixed(2)}% >= ${profitTargetPercent}%). Securing profits.`);
-        if (addNotification) {
-          addNotification('trading', 'medium', 'Profit Target Reached', `AI Session secured profits after reaching ${profitTargetPercent}% target.`);
+        if (!profitTargetNotifiedRef.current) {
+          profitTargetNotifiedRef.current = true;
+          console.log(`[TradingEngineContext] Session Profit Target Hit (${currentPnLPercent.toFixed(2)}% >= ${profitTargetPercent}%). Securing profits.`);
+          if (addNotification) {
+            addNotification('trading', 'medium', 'Profit Target Reached', `AI Session secured profits after reaching ${profitTargetPercent}% target.`);
+          }
         }
       }
 
       if (currentPnLPercent <= -lossLimitPercent) {
-        console.log(`[TradingEngineContext] Session Stop Loss Hit (${currentPnLPercent.toFixed(2)}% <= -${lossLimitPercent}%). Risk management active.`);
-        if (addNotification) {
-          addNotification('trading', 'high', 'Stop Loss Limit', `AI Risk management triggered at -${lossLimitPercent}% session limit.`);
+        if (!stopLossNotifiedRef.current) {
+          stopLossNotifiedRef.current = true;
+          console.log(`[TradingEngineContext] Session Stop Loss Hit (${currentPnLPercent.toFixed(2)}% <= -${lossLimitPercent}%). Risk management active.`);
+          if (addNotification) {
+            addNotification('trading', 'high', 'Stop Loss Limit', `AI Risk management triggered at -${lossLimitPercent}% session limit.`);
+          }
         }
       }
 
@@ -1618,8 +1681,10 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig?.schedule, currentSession?.status === 'ACTIVE');
       
       const prevStatus = lastEngineStatusRef.current;
-      if (!prevStatus || prevStatus.state !== nextStatus.state) {
-        const prevStateName = prevStatus?.state || 'INACTIVE';
+      if (!prevStatus) {
+        lastEngineStatusRef.current = nextStatus;
+      } else if (prevStatus.state !== nextStatus.state) {
+        const prevStateName = prevStatus.state;
         lastEngineStatusRef.current = nextStatus;
         logActivity('ENGINE_STATE_CHANGE', `AI Engine transitioning: ${prevStateName} -> ${nextStatus.state}. Reason: ${nextStatus.reason}`);
         if (addNotification) {

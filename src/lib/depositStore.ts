@@ -40,6 +40,28 @@ export function saveLocalDeposit(deposit: any) {
   }
 }
 
+export function updateLocalDeposit(id: string, updates: Partial<any>) {
+  try {
+    const current = getLocalDeposits();
+    const map = new Map<string, any>();
+    current.forEach(d => map.set(d.id, d));
+    const existing = map.get(id);
+    if (existing) {
+      const updated = {
+        ...existing,
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+      map.set(id, updated);
+      localStorage.setItem(DEPOSITS_STORAGE_KEY, JSON.stringify(Array.from(map.values())));
+      window.dispatchEvent(new CustomEvent('deposit_updated', { detail: id }));
+      window.dispatchEvent(new Event('storage'));
+    }
+  } catch (e) {
+    console.warn("Local storage update notice:", e);
+  }
+}
+
 export function mergeDepositsWithLocal(firestoreDeposits: any[]): any[] {
   const localDeposits = getLocalDeposits();
   const map = new Map<string, any>();

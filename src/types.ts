@@ -238,10 +238,11 @@ export interface TransactionRecord {
   network: string;
   destination?: string;
   refId?: string;
-  status: 'Completed' | 'Pending' | 'Failed' | 'Processing' | 'Cancelled';
+  status: 'Completed' | 'Pending' | 'Failed' | 'Processing' | 'Cancelled' | 'Reversed';
   timestamp: string;
   txHash?: string;
   explorerUrl?: string;
   description?: string;
+  reversalReason?: string;
   details?: Record<string, any>;
 }

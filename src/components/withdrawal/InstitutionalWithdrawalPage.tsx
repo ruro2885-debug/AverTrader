@@ -271,23 +271,19 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
   const handleAuthorize = async () => {
     const addr = destinationAddress.trim();
     if (!addr) {
-      setAddressError("Invalid address");
+      setAddressError("Please enter a valid destination address.");
       return;
     }
-    if (selectedAsset === 'BTC' && !(/^(1|3|bc1)[a-km-zA-HJ-NP-Z1-9]{25,39}$/.test(addr) || addr.length >= 26)) {
-      setAddressError("Invalid address");
+    if (addr.length < 8) {
+      setAddressError("Destination address is too short.");
       return;
     }
-    if ((selectedAsset === 'USDT' || selectedAsset === 'SOL') && addr.length < 20) {
-      setAddressError("Invalid address");
+    if (selectedAsset === 'BTC' && !(/^(1|3|bc1|tb1)[a-km-zA-HJ-NP-Z1-9]{20,62}$/.test(addr) || addr.length >= 26)) {
+      setAddressError("Please enter a valid Bitcoin address (e.g. 1..., 3..., or bc1...).");
       return;
     }
-    if ((selectedAsset === 'ETH' || selectedAsset === 'BNB') && !(addr.startsWith('0x') && addr.length === 42)) {
-      setAddressError("Invalid address");
-      return;
-    }
-    if (addr.length < 10) {
-      setAddressError("Invalid address");
+    if ((selectedAsset === 'ETH' || selectedAsset === 'BNB') && addr.startsWith('0x') && addr.length !== 42) {
+      setAddressError("Ethereum / BNB address must be 42 characters starting with 0x.");
       return;
     }
 
@@ -299,6 +295,7 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
         ETH: 'Ethereum (ERC20)',
         USDT: 'TRC20',
         SOL: 'Solana',
+        BNB: 'BNB Smart Chain (BEP20)',
         AVR: 'Internal'
       };
       const network = assetNetworkMap[selectedAsset] || 'Mainnet';
@@ -308,7 +305,7 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
       setTxHash(hash);
       setStep(3);
     } catch (err: any) {
-      setAddressError(err?.message || 'Invalid address');
+      setAddressError(err?.message || 'Failed to submit withdrawal. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -514,11 +511,13 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
               className="w-full space-y-6 flex flex-col items-center text-center"
             >
               <div className="space-y-1">
-                <div className="text-xs text-neutral-500 uppercase tracking-widest font-medium">Target Address</div>
-                <div className="text-3xl font-light text-white">
-                  {activeFiatInfo.symbol}{numericAmountInActiveFiat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <div className="text-xs text-neutral-500 uppercase tracking-widest font-medium">You Will Receive</div>
+                <div className="text-3xl font-light text-white font-mono">
+                  {cryptoEquivalent} {selectedAsset}
                 </div>
-                <div className="text-sm text-neutral-400">≈ {cryptoEquivalent} {selectedAsset}</div>
+                <div className="text-sm text-neutral-400">
+                  ≈ {activeFiatInfo.symbol}{numericAmountInActiveFiat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeFiat}
+                </div>
               </div>
 
               <div className="w-full space-y-2 max-w-md pt-4" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
@@ -561,11 +560,14 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
                 <div className="inline-block px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest">
                   Status: Pending Admin Review
                 </div>
-                <h2 className="text-2xl font-light tracking-tight text-white uppercase">
-                  Withdrawal Information Receipt
+                <h2 className="text-3xl font-bold tracking-tight text-white font-mono">
+                  -{cryptoEquivalent} {selectedAsset}
                 </h2>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Your request of <span className="text-white font-medium">{activeFiatInfo.symbol}{numericAmountInActiveFiat.toFixed(2)} {activeFiat}</span> ({cryptoEquivalent} {selectedAsset}) has been sent for administrative confirmation.
+                <div className="text-xs text-neutral-400 font-medium">
+                  ≈ {activeFiatInfo.symbol}{numericAmountInActiveFiat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeFiat}
+                </div>
+                <p className="text-xs text-neutral-400 leading-relaxed pt-1">
+                  Your withdrawal of <span className="text-white font-semibold">-{cryptoEquivalent} {selectedAsset}</span> has been submitted and is awaiting administrative governance confirmation.
                 </p>
               </div>
 

@@ -289,7 +289,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
         const wallet = await walletService.getOrCreateWallet(uid);
         const currentBalance = Number(wallet.availableBalance || 0);
         if (currentBalance < rawAmount) {
-          throw new Error(`Insufficient funds: User only has ${formatCurrency(currentBalance, fundingUser.currency)}. Requested removal: ${formatCurrency(rawAmount, fundingUser.currency)}.`);
+          throw new Error(`Insufficient funds: User only has ${formatCurrency(currentBalance)}. Requested removal: ${formatCurrency(rawAmount)}.`);
         }
       }
 
@@ -384,7 +384,7 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
       const updatedWallet = await walletService.getOrCreateWallet(uid);
       setSelectedUserWallet(updatedWallet);
 
-      showToast(`Successfully ${fundActionType === 'add' ? 'added' : 'removed'} ${formatCurrency(rawAmount, fundingUser.currency)} ${fundActionType === 'add' ? 'to' : 'from'} user balance.`);
+      showToast(`Successfully ${fundActionType === 'add' ? 'added' : 'removed'} ${formatCurrency(rawAmount)} ${fundActionType === 'add' ? 'to' : 'from'} user balance.`);
       setFundingUser(null);
       setFundAmount('');
     } catch (err: any) {
@@ -627,14 +627,14 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                   </tr>
                 ))
               ) : (
-                filteredUsers.map((user) => {
+                filteredUsers.map((user, idx) => {
                   const name = user.displayName || user.fullName || user.username || (user.email ? user.email.split('@')[0] : 'User');
                   const avatar = user.profilePhotoURL || user.avatarUrl;
                   const currentStatus = (user.accountStatus || user.status || 'Active');
                   const kyc = (user.kycStatus || 'unverified').toLowerCase();
 
                   return (
-                    <tr key={user.uid} className="group hover:bg-white/[0.02] transition-colors">
+                    <tr key={`usr-${user.uid || idx}-${idx}`} className="group hover:bg-white/[0.02] transition-colors">
                       {/* User & UID */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -921,12 +921,12 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
                   <span className="text-slate-500 font-bold block font-mono">Portfolio Balance</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">{formatCurrency(selectedUserWallet?.portfolioBalance ?? 0, selectedUser.currency)}</span>
+                  <span className="font-mono text-emerald-400 font-black text-sm">{formatCurrency(selectedUserWallet?.portfolioBalance ?? 0)}</span>
                 </div>
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
                   <span className="text-slate-500 font-bold block font-mono">Available Balance</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">{formatCurrency(selectedUserWallet?.availableBalance ?? 0, selectedUser.currency)}</span>
+                  <span className="font-mono text-emerald-400 font-black text-sm">{formatCurrency(selectedUserWallet?.availableBalance ?? 0)}</span>
                 </div>
 
                 <div className="p-4 rounded-2xl border border-white/5 bg-white/5 space-y-1">
@@ -1169,13 +1169,13 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
                   <div className="space-y-0.5">
                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Current Available</span>
                     <span className={`text-sm font-mono font-black ${fundingWallet.availableBalance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                      {formatCurrency(fundingWallet.availableBalance || 0, fundingUser.currency)}
+                      {formatCurrency(fundingWallet.availableBalance || 0)}
                     </span>
                   </div>
                   <div className="space-y-0.5 text-right">
                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Portfolio Total</span>
                     <span className="text-sm font-mono font-black text-white">
-                      {formatCurrency(fundingWallet.portfolioBalance || 0, fundingUser.currency)}
+                      {formatCurrency(fundingWallet.portfolioBalance || 0)}
                     </span>
                   </div>
                 </div>

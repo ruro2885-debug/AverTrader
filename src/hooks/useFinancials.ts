@@ -143,35 +143,48 @@ export const useFinancials = () => {
     // Prioritize active session dynamic capital when active, falling back to wallet value or 0
     const aiTradingCapital = activeSessionCapital > 0 ? activeSessionCapital : (walletData?.aiTradingCapital || user?.aiTradingCapital || 0);
 
-    // 3. Base Cash Balance (Wallet Balance)
-    // tokenBalance represents the funds available in the wallet (not locked in a session)
-    // We strictly subtract aiTradingCapital if the source values are undeducted to prevent double-counting.
+    // 3. Base Cash Balance (Wallet Balance / Home Net Balance)
+    // tokenBalance represents the available unallocated cash funds in the wallet
     let tokenBalance = 0;
-    if (walletData) {
-      tokenBalance = walletData.tokenBalance ?? walletData.cashBalance ?? (walletData.portfolioBalance !== undefined ? walletData.portfolioBalance - aiTradingCapital : 0);
-    } else if (user) {
-      tokenBalance = user.tokenBalance ?? user.cashBalance ?? (user.portfolioBalance !== undefined ? user.portfolioBalance - aiTradingCapital : (user.portfolio?.totalValue !== undefined ? user.portfolio.totalValue - aiTradingCapital : 0));
+    if (typeof user?.tokenBalance === 'number') {
+      tokenBalance = user.tokenBalance;
+    } else if (typeof walletData?.tokenBalance === 'number') {
+      tokenBalance = walletData.tokenBalance;
+    } else if (typeof user?.availableBalance === 'number') {
+      tokenBalance = user.availableBalance;
+    } else if (typeof walletData?.availableBalance === 'number') {
+      tokenBalance = walletData.availableBalance;
+    } else if (typeof user?.cashBalance === 'number') {
+      tokenBalance = user.cashBalance;
+    } else if (typeof walletData?.cashBalance === 'number') {
+      tokenBalance = walletData.cashBalance;
+    } else if (typeof user?.portfolioBalance === 'number') {
+      tokenBalance = Math.max(0, user.portfolioBalance - aiTradingCapital);
+    } else if (typeof walletData?.portfolioBalance === 'number') {
+      tokenBalance = Math.max(0, walletData.portfolioBalance - aiTradingCapital);
+    } else if (user?.portfolio?.totalValue !== undefined) {
+      tokenBalance = Math.max(0, user.portfolio.totalValue - aiTradingCapital);
     }
     tokenBalance = Math.max(0, tokenBalance);
 
     // 4. Vault Balance
-    // Prefer actual user vault balance
     const vaultBalance = user?.vaultBalance ?? walletData?.vaultBalance ?? 0;
 
-    // 5. Unified Balance Calculations (Withdrawal Available Balance & Portfolio Net Balance)
-    // Both MUST be the exact same value, representing the user's withdrawable net balance.
-    const rawVal = user?.availableBalance ?? user?.portfolioBalance ?? walletData?.availableBalance ?? walletData?.portfolioBalance ?? 0;
-    const portfolioTotalNetBalance = typeof rawVal === 'number' && !isNaN(rawVal) ? rawVal : 0;
-    const homeNetBalance = portfolioTotalNetBalance;
+    // 5. Unified Total Portfolio Balance Calculations
+    // Consolidated portfolio net balance is the sum of available wallet cash + active AI trading capital + vault reserves + asset holdings.
+    const calculatedConsolidatedTotal = tokenBalance + aiTradingCapital + vaultBalance + totalHoldingsValue;
 
-    // 6. Portfolio Value (Same as portfolio total net balance but often used for ROI calcs)
+    const portfolioTotalNetBalance = calculatedConsolidatedTotal;
+    const homeNetBalance = tokenBalance;
+
+    // 6. Portfolio Value
     const portfolioValue = portfolioTotalNetBalance;
 
     return {
-      totalNetBalance: portfolioTotalNetBalance, // Preserve backward compatibility
+      totalNetBalance: portfolioTotalNetBalance,
       portfolioTotalNetBalance,
       homeNetBalance,
-      activeTradingBalance: tokenBalance, // Wallet acts as the base trading balance when idle
+      activeTradingBalance: tokenBalance, // Wallet cash available for trading/allocation
       vaultBalance,
       totalHoldingsValue,
       aiTradingCapital,
@@ -180,7 +193,7 @@ export const useFinancials = () => {
       tokenBalance,
       walletData
     };
-  }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.vaultBalance, user?.holdings, walletData, activeSessionCapital]);
+  }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.availableBalance, user?.cashBalance, user?.vaultBalance, user?.holdings, walletData, activeSessionCapital]);
 
   const updateVaultBalance = useCallback(async (newBalance: number) => {
     const uid = user?.uid || auth.currentUser?.uid || 'local-user';

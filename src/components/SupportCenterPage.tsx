@@ -555,9 +555,10 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
 
   // Filtered tickets for Support Tickets page
   const filteredTickets = tickets.filter(t => {
-    const matchesSearch = t.title.toLowerCase().includes(ticketSearch.toLowerCase()) ||
-                          t.id.toLowerCase().includes(ticketSearch.toLowerCase()) ||
-                          t.category.toLowerCase().includes(ticketSearch.toLowerCase());
+    const q = ticketSearch.toLowerCase();
+    const matchesSearch = (t?.title || '').toLowerCase().includes(q) ||
+                          (t?.id || '').toLowerCase().includes(q) ||
+                          (t?.category || '').toLowerCase().includes(q);
     const matchesStatus = statusFilter === 'all' || t.status === statusFilter;
     return matchesSearch && matchesStatus;
   });

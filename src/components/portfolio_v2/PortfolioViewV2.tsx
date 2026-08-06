@@ -308,7 +308,8 @@ export default function PortfolioViewV2({
     tokenBalance,
     aiTradingCapital,
     activeTradingBalance,
-    vaultBalance, 
+    vaultBalance,
+    totalHoldingsValue,
     updateVaultBalance, 
   } = useFinancials();
 
@@ -323,7 +324,16 @@ export default function PortfolioViewV2({
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
 
-  const totalValue = totalNetBalance + totalFloatingPnl;
+  const activeEngineCapital = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      return Math.max(0, (session.tradingCapital || session.initialCapital || 0) + totalFloatingPnl);
+    }
+    return 0;
+  }, [session, totalFloatingPnl]);
+
+  const totalValue = useMemo(() => {
+    return tokenBalance + activeEngineCapital + vaultBalance + totalHoldingsValue;
+  }, [tokenBalance, activeEngineCapital, vaultBalance, totalHoldingsValue]);
 
   const scrollPositionRef = useRef<number>(0);
   const { formatCurrency } = usePreferences();
@@ -1147,7 +1157,7 @@ export default function PortfolioViewV2({
                 Active Engine
               </span>
               <div className={`text-sm font-bold font-mono ${session?.status === 'ACTIVE' ? 'text-[#00D09C]' : 'text-slate-400'}`}>
-                {formatCurrency(aiTradingCapital + totalFloatingPnl)}
+                {formatCurrency(activeEngineCapital)}
               </div>
             </div>
             <div className="space-y-0.5 col-span-2 md:col-span-1">
@@ -1281,9 +1291,9 @@ export default function PortfolioViewV2({
               Live AI Executions Feed
             </span>
             <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-white/10">
-              {executionEvents.map(evt => (
+              {executionEvents.map((evt, idx) => (
                 <button
-                  key={evt.id}
+                  key={`exec-${evt.id || idx}-${idx}`}
                   onClick={() => setSelectedEventId(selectedEventId === evt.id ? null : evt.id)}
                   className={`px-3 py-1.5 rounded-xl text-[9px] font-bold font-sans uppercase tracking-wider flex items-center space-x-1.5 transition-all cursor-pointer touch-manipulation whitespace-nowrap border ${
                     selectedEventId === evt.id 

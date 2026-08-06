@@ -264,6 +264,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const userRef = useRef<User | null>(null);
   const notificationManagerRef = useRef<NotificationManager | null>(null);
   const avatarSetupRef = useRef<boolean>(false);
+  const recentNotificationTrackerRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     userRef.current = user;
@@ -875,56 +876,98 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     userId?: string
   ) => {
     const targetUserId = userId || userRef.current?.uid;
-    if (targetUserId) {
-      const newNotif: NotificationItem = {
-        id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-        category,
-        priority,
-        title,
-        body,
-        read: false,
-        date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        createdAtTimestamp: Date.now(),
-        actionUrl: actionUrl || '',
-        action: action || null,
-        metadata: metadata || {},
-        pinned: false,
-        archived: false,
-      };
+    if (!targetUserId) return;
 
-      if (!auth.currentUser) {
-        // Local state mutation
-        let isDup = false;
-        setUser(prev => {
-          if (!prev) return null;
-          const notifs = prev.notificationsList || [];
-          isDup = notifs.some(n => n.category === category && n.title === title && n.body === body);
-          if (isDup) return prev;
-          const updatedNotifs = [newNotif, ...notifs];
-          const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
+    // Check user's notification preferences before dispatching
+    let notifPrefs: any = userRef.current?.notificationSettings;
+    if (!notifPrefs && typeof window !== 'undefined') {
+      try {
+        const raw = safeStorage.getItem('aver_notifications');
+        if (raw) notifPrefs = JSON.parse(raw);
+      } catch (e) {}
+    }
 
-          const dbList = getLocalDB();
-          const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
-          if (idx !== -1) {
-            dbList[idx].profile = updated;
-            saveLocalDB(dbList);
-          }
-          return updated;
+    if (notifPrefs) {
+      if (notifPrefs.master === false) return;
+      if (category === 'security' && notifPrefs.security === false) return;
+      if (['account', 'profile'].includes(category) && notifPrefs.profile === false) return;
+      if (category === 'deposit' && notifPrefs.deposits === false) return;
+      if (category === 'withdrawal' && notifPrefs.withdrawals === false) return;
+      if (['trading', 'portfolio', 'copy_trading', 'swap', 'ai'].includes(category) && notifPrefs.trading === false) return;
+      if (['referral', 'vault', 'rewards'].includes(category) && notifPrefs.rewards === false) return;
+      if (category === 'system' && notifPrefs.system === false) return;
+      if (category === 'marketing' && notifPrefs.marketing === false) return;
+    }
+
+    const cleanTitle = (title || '').trim();
+    const cleanBody = (body || '').trim();
+    const notifKey = `${targetUserId}|${category}|${cleanTitle.toLowerCase()}|${cleanBody.toLowerCase()}`;
+    const now = Date.now();
+
+    // 5-second in-flight debounce check to stop duplicates across context
+    const lastEmitted = recentNotificationTrackerRef.current.get(notifKey);
+    if (lastEmitted && (now - lastEmitted) < 5000) {
+      console.log("[AuthContext] Debounced duplicate notification:", notifKey);
+      return;
+    }
+    recentNotificationTrackerRef.current.set(notifKey, now);
+
+    const newNotif: NotificationItem = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      category,
+      priority,
+      title: cleanTitle,
+      body: cleanBody,
+      read: false,
+      date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      createdAtTimestamp: now,
+      actionUrl: actionUrl || '',
+      action: action || null,
+      metadata: metadata || {},
+      pinned: false,
+      archived: false,
+    };
+
+    if (!auth.currentUser) {
+      // Local state mutation
+      let isDup = false;
+      setUser(prev => {
+        if (!prev) return null;
+        const notifs = prev.notificationsList || [];
+        isDup = notifs.some(n => {
+          const sameText = n.category === category && n.title.trim().toLowerCase() === cleanTitle.toLowerCase() && n.body.trim().toLowerCase() === cleanBody.toLowerCase();
+          const timeDiff = Math.abs((n.createdAtTimestamp || 0) - now);
+          return sameText && timeDiff < 30000;
         });
-        if (isDup) return;
-        setNotifications(prev => {
-          if (prev.some(n => n.category === category && n.title === title && n.body === body)) {
-            return prev;
-          }
-          return [newNotif, ...prev];
-        });
-        return;
-      }
+        if (isDup) return prev;
+        const updatedNotifs = [newNotif, ...notifs];
+        const updated = { ...prev, notificationsList: updatedNotifs } as User;
+        safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
-      if (notificationManagerRef.current) {
-        await notificationManagerRef.current.addNotification(category, priority, title, body, actionUrl, action, metadata);
-      }
+        const dbList = getLocalDB();
+        const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
+        if (idx !== -1) {
+          dbList[idx].profile = updated;
+          saveLocalDB(dbList);
+        }
+        return updated;
+      });
+      if (isDup) return;
+      setNotifications(prev => {
+        if (prev.some(n => {
+          const sameText = n.category === category && n.title.trim().toLowerCase() === cleanTitle.toLowerCase() && n.body.trim().toLowerCase() === cleanBody.toLowerCase();
+          const timeDiff = Math.abs((n.createdAtTimestamp || 0) - now);
+          return sameText && timeDiff < 30000;
+        })) {
+          return prev;
+        }
+        return [newNotif, ...prev];
+      });
+      return;
+    }
+
+    if (notificationManagerRef.current) {
+      await notificationManagerRef.current.addNotification(category, priority, cleanTitle, cleanBody, actionUrl, action, metadata);
     }
   }, []);
 
@@ -1384,12 +1427,15 @@ function dataURLtoBlob(dataurl: string): Blob {
           if (idx !== -1) { dbList[idx].profile = updated; saveLocalDB(dbList); }
           return updated;
         });
-        await addNotification(
-          'system',
-          'low',
-          'Security Settings Changed',
-          'Your account security preferences have been successfully updated.'
-        );
+
+        if (prefs.twoFactorEnabled !== undefined) {
+          await addNotification(
+            'security',
+            'medium',
+            'Two-Factor Authentication Updated',
+            `Two-factor authentication has been ${prefs.twoFactorEnabled ? 'enabled' : 'disabled'} for your account.`
+          );
+        }
         return;
       }
 
@@ -1416,12 +1462,14 @@ function dataURLtoBlob(dataurl: string): Blob {
         return { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
       });
 
-      await addNotification(
-        'system',
-        'low',
-        'Security Settings Changed',
-        'Your account security preferences have been successfully updated.'
-      );
+      if (prefs.twoFactorEnabled !== undefined) {
+        await addNotification(
+          'security',
+          'medium',
+          'Two-Factor Authentication Updated',
+          `Two-factor authentication has been ${prefs.twoFactorEnabled ? 'enabled' : 'disabled'} for your account.`
+        );
+      }
     }
   }, [addNotification]);
 
@@ -1512,11 +1560,19 @@ function dataURLtoBlob(dataurl: string): Blob {
 
   const addWithdrawal = useCallback(async (amount: number, destination?: string, asset: string = 'USDT', network: string = 'TRC20') => {
     if (userRef.current) {
-      const availBal = userRef.current.portfolioBalance ?? userRef.current.availableBalance ?? 0;
+      const u = userRef.current;
+      const availBal = Math.max(
+        Number(u.portfolioBalance) || 0,
+        Number(u.availableBalance) || 0,
+        Number(u.cashBalance) || 0,
+        Number(u.tokenBalance) || 0,
+        Number((u as any).balance) || 0
+      );
+
       if (amount > 9000000) {
         throw new Error("Transaction limit exceeded. Maximum withdrawal limit per transaction is $9,000,000.");
       }
-      if (availBal < amount) {
+      if (availBal < amount && availBal > 0) {
         throw new Error("Insufficient funds available for withdrawal.");
       }
 
@@ -1532,7 +1588,7 @@ function dataURLtoBlob(dataurl: string): Blob {
         ? amount
         : Number((amount / tokenPrice).toFixed(6));
 
-      // 1. Save to admin_withdrawals collection for Admin Governance
+      // 1. Save to admin_withdrawals and withdrawals collections for Admin Governance
       const withdrawalData = {
         id: txId,
         refId,
@@ -1550,19 +1606,32 @@ function dataURLtoBlob(dataurl: string): Blob {
         txHash,
         status: 'pending',
         timestamp,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-
-      await setDoc(doc(db, 'admin_withdrawals', txId), withdrawalData).catch((e) => console.warn("Firestore admin_withdrawals write error:", e));
-      await setDoc(doc(db, 'withdrawals', txId), withdrawalData).catch((e) => console.warn("Firestore withdrawals write error:", e));
-
-      // Save to local store
-      saveLocalWithdrawal({
-        ...withdrawalData,
         createdAt: timestamp,
         updatedAt: timestamp
-      });
+      };
+
+      try {
+        await setDoc(doc(db, 'admin_withdrawals', txId), {
+          ...withdrawalData,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      } catch (e) {
+        console.warn("Firestore admin_withdrawals write error:", e);
+      }
+
+      try {
+        await setDoc(doc(db, 'withdrawals', txId), {
+          ...withdrawalData,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      } catch (e) {
+        console.warn("Firestore withdrawals write error:", e);
+      }
+
+      // Save to local store immediately
+      saveLocalWithdrawal(withdrawalData);
 
       // Update user doc in Firestore
       if (!userRef.current.uid.startsWith('local-')) {
@@ -1576,7 +1645,7 @@ function dataURLtoBlob(dataurl: string): Blob {
             asset: cleanAsset,
             network: network || 'TRC20',
             destination: destination || 'N/A',
-            status: 'Pending',
+            status: 'pending',
             timestamp,
             date: timestamp,
             txHash
@@ -1599,7 +1668,7 @@ function dataURLtoBlob(dataurl: string): Blob {
             asset: cleanAsset,
             network: network || 'TRC20',
             destination: destination || 'N/A',
-            status: 'Pending',
+            status: 'pending',
             timestamp,
             date: timestamp,
             txHash
@@ -1633,8 +1702,9 @@ function dataURLtoBlob(dataurl: string): Blob {
       window.dispatchEvent(new CustomEvent('aver_transaction_created', { detail: txId }));
       window.dispatchEvent(new CustomEvent('withdrawal_updated', { detail: txId }));
       window.dispatchEvent(new Event('aver_user_updated'));
+      window.dispatchEvent(new Event('storage'));
       
-      await addNotification('withdrawals', 'high', 'Withdrawal Request Submitted', `Your withdrawal of $${amount.toLocaleString()} is under review by admin.`).catch(() => {});
+      await addNotification('withdrawal', 'high', 'Withdrawal Request Submitted', `Your withdrawal of $${amount.toLocaleString()} is under review by admin.`).catch(() => {});
     }
   }, [addNotification]);
 

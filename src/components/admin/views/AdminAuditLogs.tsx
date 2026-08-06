@@ -83,8 +83,8 @@ export default function AdminAuditLogs({ theme }: { theme: 'light' | 'dark' }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {filtered.map((log) => (
-                <tr key={log.id} className="group hover:bg-white/[0.02] transition-colors">
+              {filtered.map((log, idx) => (
+                <tr key={`log-${log.id || idx}-${idx}`} className="group hover:bg-white/[0.02] transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center font-bold text-emerald-500 border border-white/5">

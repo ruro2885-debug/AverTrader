@@ -784,7 +784,7 @@ export default function BonusCenter({
             
             return (
               <motion.div 
-                key={tier.id}
+                key={`tier-card-${tier.id}-${idx}`}
                 onClick={() => setCurrentView('membership-details')}
                 whileHover={{ scale: 1.02 }}
                 className={`min-w-[280px] p-6 rounded-[32px] border snap-start cursor-pointer transition-all ${
@@ -843,7 +843,7 @@ export default function BonusCenter({
             { label: 'Invite an active friend', value: '+15%', icon: Users }
           ].filter(item => !isPlatinumOrHigher || !item.label.toLowerCase().includes('kyc')).map((item, idx) => (
             <div 
-              key={item.label}
+              key={`level-up-${item.label}-${idx}`}
               onClick={() => {
                 if (item.label.toLowerCase().includes('invite')) {
                   onNavigate?.('referral-centre');
@@ -878,9 +878,9 @@ export default function BonusCenter({
       <section className="px-6 py-6">
         <h2 className="text-lg font-black text-white mb-6">Current Tasks</h2>
         <div className="space-y-4">
-          {tasks.map((task) => (
+          {tasks.map((task, idx) => (
             <motion.div 
-              key={task.id}
+              key={`task-${task.id || idx}-${idx}`}
               onClick={() => {
                 setSelectedTask(task);
                 setCurrentView('task-details');
@@ -936,9 +936,9 @@ export default function BonusCenter({
       <section className="px-6 py-6">
         <h2 className="text-lg font-black text-white mb-6">Daily Missions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {dailyMissions.map((mission) => (
+          {dailyMissions.map((mission, idx) => (
             <div 
-              key={mission.id} 
+              key={`mission-${mission.id || idx}-${idx}`} 
               onClick={async () => {
                 if (mission.id === 'welcome') {
                   if (welcomeBonusUnlocked && !welcomeBonusClaimed) {
@@ -992,9 +992,9 @@ export default function BonusCenter({
       <section className="px-6 py-12">
         <h2 className="text-lg font-black text-white mb-8">Achievements</h2>
         <div className="grid grid-cols-3 gap-6">
-          {achievements.map((ach) => (
+          {achievements.map((ach, idx) => (
             <div 
-              key={ach.id} 
+              key={`ach-${ach.id || idx}-${idx}`} 
               onClick={() => {
                 if (ach.id === 'a6' || ach.title.toLowerCase().includes('invite')) {
                   onNavigate?.('referral-centre');
@@ -1061,8 +1061,8 @@ export default function BonusCenter({
     <div className="pb-12 bg-slate-950">
       {renderHeader("Tier Benefits")}
       <div className="px-6 py-6 space-y-8">
-        {TIERS.map((tier) => (
-          <div key={tier.id} className="space-y-4">
+        {TIERS.map((tier, idx) => (
+          <div key={`tier-detail-${tier.id}-${idx}`} className="space-y-4">
             <div className="flex items-center gap-3">
               <div className={`p-2.5 rounded-xl bg-gradient-to-br ${tier.color} text-white shadow-lg`}>
                 <tier.icon className="w-5 h-5" />
@@ -1071,7 +1071,7 @@ export default function BonusCenter({
             </div>
             <div className="grid grid-cols-1 gap-3">
               {tier.benefits.map((benefit, bIdx) => (
-                <div key={bIdx} className="p-4 rounded-[24px] bg-slate-900 border border-white/5 flex items-center gap-4">
+                <div key={`benefit-${tier.id}-${bIdx}`} className="p-4 rounded-[24px] bg-slate-900 border border-white/5 flex items-center gap-4">
                   <div className="p-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
                     <Check className="w-3.5 h-3.5 text-emerald-500" />
                   </div>

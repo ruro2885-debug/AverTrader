@@ -17,18 +17,14 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
 };
 
 export const formatCurrency = (amount: number | undefined, currency: string = 'USD'): string => {
-  if (amount === undefined || isNaN(amount)) return `${CURRENCY_SYMBOLS[currency] || '$'}0.00`;
+  if (amount === undefined || isNaN(amount)) return `$0.00`;
   
-  const rate = EXCHANGE_RATES[currency] || 1;
-  const convertedValue = amount * rate;
-
-  if (currency === 'BTC') {
-    return `${CURRENCY_SYMBOLS.BTC}${convertedValue.toFixed(8)}`;
-  }
-
+  // Force standard dollar-first ($) formatting for all users across all locales as requested
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: currency,
+    currency: 'USD',
     currencyDisplay: 'symbol',
-  }).format(convertedValue);
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 };

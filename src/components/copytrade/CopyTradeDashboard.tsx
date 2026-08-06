@@ -294,7 +294,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
         },
         schedule: trader.schedule ? { ...trader.schedule } : undefined,
         configurationDetails: {
-          description: `Procedurally duplicated directly from copy-trading profile of ${trader.username} (${trader.strategyName}). Built for ${trader.style.replace('_', ' ')} execution. Original performance: ${trader.return30D >= 0 ? '+' : ''}${trader.return30D}% ROI.`,
+          description: `Procedurally duplicated directly from copy-trading profile of ${trader.username} (${trader.strategyName}). Built for ${(trader.style || 'SCALPING').replace(/_/g, ' ')} execution. Original performance: ${trader.return30D >= 0 ? '+' : ''}${trader.return30D}% ROI.`,
           category: 'Copy Trading',
           version: '1.0.0'
         },
@@ -850,7 +850,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                     return (
                       <motion.div
                         layout
-                        key={trader.id}
+                        key={`trader-${trader.id || idx}-${idx}`}
                         onClick={() => setSelectedTrader(trader)}
                         className={`grid grid-cols-12 gap-3 px-6 py-4 items-center cursor-pointer transition-all hover:bg-white/[0.02]`}
                       >
@@ -1050,7 +1050,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Brain className="w-4 h-4 text-emerald-400" />
-                    <span>Preferred Style: <strong className="text-white">{selectedTrader.style.replace('_', ' ')}</strong></span>
+                    <span>Preferred Style: <strong className="text-white">{(selectedTrader.style || 'SCALPING').replace(/_/g, ' ')}</strong></span>
                   </div>
                 </div>
               </div>
@@ -1268,7 +1268,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   
                   <div className="divide-y divide-white/5 rounded-2xl border border-white/5 overflow-hidden">
                     {(selectedTrader.recentTrades || []).map((t, idx) => (
-                      <div key={t.id} className="p-4 bg-white/[0.01] flex items-center justify-between text-xs">
+                      <div key={`trd-${t.id || idx}-${idx}`} className="p-4 bg-white/[0.01] flex items-center justify-between text-xs">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
                             t.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'

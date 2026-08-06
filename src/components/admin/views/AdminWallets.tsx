@@ -418,9 +418,9 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
 
       {/* Wallets Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filtered.map((wallet) => (
+        {filtered.map((wallet, idx) => (
           <motion.div
-            key={wallet.id}
+            key={`wlt-${wallet.id || idx}-${idx}`}
             layout
             onClick={() => setSelectedWalletForDetails(wallet)}
             className={`p-6 rounded-[2rem] border transition-all cursor-pointer group ${

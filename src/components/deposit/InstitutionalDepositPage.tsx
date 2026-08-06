@@ -41,7 +41,7 @@ import {
   ArrowDownToLine
 } from 'lucide-react';
 import { db, auth, safeAddDoc } from '../../lib/firebase';
-import { collection, addDoc, setDoc, serverTimestamp, doc, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, setDoc, serverTimestamp, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import CoinLogo from '../CoinLogo';
 
@@ -548,6 +548,22 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
   const [cardStageFailed, setCardStageFailed] = useState<boolean>(false);
   const [cardSessionId, setCardSessionId] = useState<string>('');
 
+  const exactCryptoAmount = cryptoRate && amount ? (amount / cryptoRate) : 0;
+  
+  const formatExactAmount = (value: number, symbol: string) => {
+    const maxDecimals = (symbol === 'BTC') ? 8 : (symbol === 'ETH' ? 6 : 6);
+    const formatted = value.toFixed(maxDecimals);
+    if (formatted.includes('.')) {
+      const parts = formatted.split('.');
+      const trimmedDecimal = parts[1].replace(/0+$/, '');
+      if (trimmedDecimal.length === 0) {
+        return parts[0];
+      }
+      return `${parts[0]}.${trimmedDecimal}`;
+    }
+    return formatted;
+  };
+
   // Persistence: lock user into active crypto deposit verification until timer expires
   useEffect(() => {
     try {
@@ -589,10 +605,14 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
             setSelectedMethod(record.fundingMethod);
           }
 
-          if (record.status === 'completed' || record.status === 'approved') {
+          if (record.status === 'completed' || record.status === 'approved' || record.status === 'success' || record.status === 'successful') {
             localStorage.removeItem('aver_deposit_timer_target');
             localStorage.removeItem('aver_pending_deposit_id');
             setStep('crypto_success');
+          } else if (record.status === 'rejected' || record.status === 'declined' || record.status === 'failed' || record.status === 'cancelled') {
+            localStorage.removeItem('aver_deposit_timer_target');
+            localStorage.removeItem('aver_pending_deposit_id');
+            setStep('crypto_expired');
           }
         }
       }, (err) => {
@@ -647,9 +667,36 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     if (step === 'crypto_deposit_verification' && verificationSecondsLeft === 0) {
       localStorage.removeItem('aver_deposit_timer_target');
       localStorage.removeItem('aver_pending_deposit_id');
+      
+      if (pendingDepositId) {
+        try {
+          updateDoc(doc(db, 'admin_deposits', pendingDepositId), {
+            status: 'failed',
+            updatedAt: serverTimestamp()
+          }).catch(() => {});
+          import('../../lib/depositStore').then(({ updateLocalDeposit }) => {
+            updateLocalDeposit(pendingDepositId, { status: 'failed' });
+          }).catch(() => {});
+          import('../../services/transactionService').then(({ transactionService }) => {
+            transactionService.recordTransaction({
+              id: pendingDepositId,
+              userId: authUser?.uid || 'anonymous',
+              type: 'deposit',
+              category: 'transactions',
+              title: `${selectedCrypto?.symbol || 'USD'} Deposit`,
+              amount: amount,
+              cryptoAmount: exactCryptoAmount ? Number(exactCryptoAmount) : undefined,
+              asset: selectedCrypto?.symbol || 'USD',
+              network: selectedCrypto?.network || 'Mainnet',
+              status: 'Failed'
+            });
+          }).catch(() => {});
+        } catch (e) {}
+      }
+
       setStep('crypto_expired');
     }
-  }, [step, verificationSecondsLeft]);
+  }, [step, verificationSecondsLeft, pendingDepositId, amount, exactCryptoAmount, selectedCrypto, authUser]);
   
   const CARD_GATEWAY_STAGES = [
     {
@@ -1104,10 +1151,13 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         setBankStatusIndex((prev) => {
           if (prev < BANK_STATUS_MESSAGES.length - 1) {
             return prev + 1;
+          } else {
+            clearInterval(interval);
+            setStep('form');
+            return prev;
           }
-          return prev;
         });
-      }, 3000);
+      }, 600); // 600ms is perfectly snappy and premium for status transitions
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -1166,22 +1216,6 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       clearInterval(interval);
     };
   }, [selectedCrypto.symbol, selectedMethod, step]);
-
-  const exactCryptoAmount = cryptoRate && amount ? (amount / cryptoRate) : 0;
-  
-  const formatExactAmount = (value: number, symbol: string) => {
-    const maxDecimals = (symbol === 'BTC') ? 8 : (symbol === 'ETH' ? 6 : 6);
-    const formatted = value.toFixed(maxDecimals);
-    if (formatted.includes('.')) {
-      const parts = formatted.split('.');
-      const trimmedDecimal = parts[1].replace(/0+$/, '');
-      if (trimmedDecimal.length === 0) {
-        return parts[0];
-      }
-      return `${parts[0]}.${trimmedDecimal}`;
-    }
-    return formatted;
-  };
 
   // Bank states
   const [bankRef] = useState(`AVER-WIRE-${Math.floor(100000 + Math.random() * 900000)}`);
@@ -1390,55 +1424,51 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       setCardStageStatus('pending');
       setCardStageFailed(false);
 
-      // Stage 1
+      // Stage 1 - Secure Channel
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 2500);
+      }, 1000);
 
-      // Stage 2
+      // Stage 2 - Encrypting info
       setTimeout(() => {
         setCardStage(2);
         setCardStageStatus('pending');
-      }, 3000);
+      }, 1200);
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 5500);
+      }, 2200);
 
-      // Stage 3
+      // Stage 3 - Contacting network
       setTimeout(() => {
         setCardStage(3);
         setCardStageStatus('pending');
-      }, 6000);
+      }, 2400);
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 8500);
+      }, 3400);
 
-      // Stage 4
+      // Stage 4 - Authorizing
       setTimeout(() => {
         setCardStage(4);
         setCardStageStatus('pending');
-      }, 9000);
+      }, 3600);
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 11500);
+      }, 4600);
 
-      // Stage 5
+      // Stage 5 - Verifying 3DS Secure Protocol
       setTimeout(() => {
         setCardStage(5);
         setCardStageStatus('pending');
-      }, 12000);
+      }, 4800);
+      setTimeout(() => {
+        setCardStageStatus('completed');
+      }, 5800);
       
       setTimeout(() => {
-        // At stage 5 completion, show connection failed state after 30 seconds of loading (Stage 5 starts at 12s, fails at 42s)
-        setCardStageFailed(true);
-        // Save the card deposit attempt to Firestore so admin can see the details
         commitDepositToFirestore();
-      }, 42000);
-
-      setTimeout(() => {
-        // Transition to dedicated error interface
-        setStep('card_gateway_error');
-      }, 46000); // Give 4 seconds to see the "Failed" state before jumping
+        setStep('success');
+      }, 6200);
 
       return;
     }
@@ -1519,6 +1549,37 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       };
 
       await setDoc(doc(db, 'admin_deposits', depositId), depositPayload);
+      
+      // Save a matching transaction document for the user's transaction history
+      const generatedTxHash = `0x${Math.random().toString(16).substring(2, 10)}${Math.random().toString(16).substring(2, 10)}`;
+      const txPayload = {
+        id: depositId,
+        userId: authUser?.uid || firebaseUser?.uid || 'anonymous',
+        type: 'deposit' as any,
+        category: 'transactions' as any,
+        title: selectedMethod === 'card' ? 'Card Deposit' : (selectedMethod === 'bank' ? 'Bank Wire Deposit' : `${cleanSym} Deposit`),
+        amount: fiatAmt,
+        asset: cleanSym === 'USD' ? 'USD' : cleanSym,
+        network: selectedMethod === 'crypto' ? (selectedCrypto?.network || 'Unknown') : (selectedMethod === 'walletconnect' ? 'Ethereum' : (selectedMethod === 'card' ? 'Visa / Mastercard' : 'Bank Wire')),
+        status: 'Pending' as any,
+        timestamp: new Date().toISOString(),
+        txHash: generatedTxHash,
+        createdAt: serverTimestamp(),
+        serverCreatedAt: serverTimestamp()
+      };
+      
+      try {
+        const { transactionService } = await import('../../services/transactionService');
+        await transactionService.recordTransaction(txPayload);
+      } catch (err) {
+        console.warn("Failed to record transaction via service, falling back to direct Firestore:", err);
+        try {
+          await setDoc(doc(db, 'transactions', depositId), txPayload);
+          await setDoc(doc(db, 'user_transactions', depositId), txPayload).catch(() => {});
+        } catch (dbErr) {
+          console.warn("Direct Firestore fallback failed:", dbErr);
+        }
+      }
       
       const depAsset = depositPayload.asset || 'USD';
       const depNetwork = depositPayload.network || 'Mainnet';
@@ -3495,11 +3556,35 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                         <div className="flex flex-col gap-3">
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
+                              const depId = pendingDepositId || localStorage.getItem('aver_pending_deposit_id');
+                              if (depId) {
+                                try {
+                                  updateDoc(doc(db, 'admin_deposits', depId), {
+                                    status: 'failed',
+                                    updatedAt: serverTimestamp()
+                                  }).catch(() => {});
+                                  const { updateLocalDeposit } = await import('../../lib/depositStore');
+                                  updateLocalDeposit(depId, { status: 'failed' });
+                                  const { transactionService } = await import('../../services/transactionService');
+                                  await transactionService.recordTransaction({
+                                    id: depId,
+                                    userId: authUser?.uid || 'anonymous',
+                                    type: 'deposit',
+                                    category: 'transactions',
+                                    title: `${selectedCrypto?.symbol || 'USD'} Deposit`,
+                                    amount: amount,
+                                    cryptoAmount: exactCryptoAmount ? Number(exactCryptoAmount) : undefined,
+                                    asset: selectedCrypto?.symbol || 'USD',
+                                    network: selectedCrypto?.network || 'Mainnet',
+                                    status: 'Failed'
+                                  });
+                                } catch (e) {}
+                              }
                               localStorage.removeItem('aver_deposit_timer_target');
                               localStorage.removeItem('aver_pending_deposit_id');
-                              setStep('methods');
                               setShowAbandonModal(false);
+                              setStep('crypto_expired');
                             }}
                             className="w-full py-3.5 rounded-xl bg-white text-black font-semibold text-[14px] hover:bg-neutral-200 transition cursor-pointer text-center"
                           >
@@ -3528,14 +3613,14 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                     animate={{ opacity: 1, scale: 1 }}
                     className="flex flex-col items-center text-center space-y-4 max-w-sm"
                   >
-                    <div className="w-12 h-12 rounded-full border border-white flex items-center justify-center text-white mb-2">
-                      <Check className="w-6 h-6 stroke-[1.5]" />
+                    <div className="w-12 h-12 rounded-full border border-emerald-500 bg-emerald-500/10 flex items-center justify-center text-emerald-400 mb-2">
+                      <Check className="w-6 h-6 stroke-[2]" />
                     </div>
-                    <h2 className="text-[38px] font-semibold tracking-tight text-white leading-tight">
+                    <h2 className="text-[34px] font-semibold tracking-tight text-white leading-tight">
                       Deposit Approved
                     </h2>
-                    <p className="text-[16px] text-[#A1A1AA] leading-relaxed">
-                      Your transfer has been verified successfully. Your available balance and portfolio metrics have been updated in real-time.
+                    <p className="text-[15px] text-[#A1A1AA] leading-relaxed">
+                      Your transfer of <span className="text-white font-bold">+${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> has been approved and verified successfully.
                     </p>
                     <div className="pt-6 w-full">
                       <button
@@ -3570,18 +3655,51 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="flex flex-col items-center text-center space-y-4 max-w-sm"
+                    className="flex flex-col items-center text-center space-y-4 max-w-sm w-full"
                   >
-                    <div className="w-12 h-12 rounded-full border border-zinc-700 flex items-center justify-center text-zinc-400 mb-2">
-                      <X className="w-5 h-5 stroke-[1.5]" />
+                    <div className="w-14 h-14 rounded-full border border-rose-500/30 bg-rose-500/10 flex items-center justify-center text-rose-500 mb-1">
+                      <X className="w-7 h-7 stroke-[2]" />
                     </div>
-                    <h2 className="text-[38px] font-semibold tracking-tight text-white leading-tight">
-                      Session Expired
+                    <h2 className="text-[32px] font-bold tracking-tight text-white leading-tight">
+                      Transaction Failed
                     </h2>
-                    <p className="text-[16px] text-[#A1A1AA] leading-relaxed">
-                      The deposit verification window has closed. Any transfers sent after expiration may require manual clearing.
+                    <p className="text-[14px] text-[#A1A1AA] leading-relaxed">
+                      The deposit verification window has closed or was declined. No funds were added to your balance. Your transaction receipt is archived in History.
                     </p>
-                    <div className="pt-6 w-full">
+
+                    <div className="w-full rounded-2xl bg-zinc-900/80 border border-white/10 p-4 text-left space-y-2 my-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-zinc-400">Deposit Amount</span>
+                        <span className="font-bold text-white">+${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-zinc-400">Status</span>
+                        <span className="font-bold text-rose-500">Transaction Failed</span>
+                      </div>
+                      {pendingDepositId && (
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-zinc-400">Reference ID</span>
+                          <span className="font-mono text-zinc-300 text-[11px]">{pendingDepositId}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-3 w-full space-y-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.removeItem('aver_deposit_timer_target');
+                          localStorage.removeItem('aver_pending_deposit_id');
+                          if (onBack) {
+                            onBack();
+                          } else {
+                            setStep('methods');
+                          }
+                        }}
+                        className="w-full py-3.5 rounded-xl bg-white text-black font-bold text-[14px] hover:bg-neutral-200 transition cursor-pointer"
+                      >
+                        Return to Dashboard
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -3589,9 +3707,9 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                           localStorage.removeItem('aver_pending_deposit_id');
                           setStep('methods');
                         }}
-                        className="w-full py-3.5 rounded-xl bg-white text-black font-semibold text-[14px] hover:bg-neutral-200 transition"
+                        className="w-full py-3 rounded-xl bg-zinc-900 border border-white/10 text-white font-medium text-[13px] hover:bg-zinc-800 transition cursor-pointer"
                       >
-                        Return to Funding Methods
+                        Try Another Deposit
                       </button>
                     </div>
                   </motion.div>

@@ -640,9 +640,9 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredTicketUsers.map((item) => (
+                  {filteredTicketUsers.map((item, idx) => (
                     <motion.div
-                      key={item.user.uid}
+                      key={`usr-${item.user?.uid || idx}-${idx}`}
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
                       onClick={() => { setSelectedUserId(item.user.uid); setSelectedTicketId(null); }}
@@ -739,9 +739,9 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
                   {/* List of user tickets */}
                   <div className="space-y-3">
-                    {selectedUserTicketSummary.tickets.map(t => (
+                    {selectedUserTicketSummary.tickets.map((t, idx) => (
                       <div
-                        key={t.id}
+                        key={`tkt-${t.id || idx}-${idx}`}
                         onClick={() => setSelectedTicketId(t.id)}
                         className={`cursor-pointer ${isDark ? "bg-white/5" : "bg-white"} hover:${isDark ? "bg-white/5" : "bg-white"} border ${isDark ? "border-white/10" : "border-slate-200"}/90 hover:border-emerald-500/40 rounded-2xl p-4 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4`}
                       >
@@ -861,7 +861,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                           const isAdmin = msg.isAdmin || msg.senderRole === 'admin' || msg.sender === 'AVER Specialist' || msg.sender === 'Admin' || msg.sender === 'Support Specialist';
                           return (
                             <div
-                              key={msg.id || `msg-${idx}`}
+                              key={`msg-${msg.id || idx}-${idx}`}
                               className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'}`}
                             >
                               <div className="flex items-center gap-2 mb-1">

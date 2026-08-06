@@ -329,9 +329,9 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
       </AnimatePresence>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filtered.map((item) => (
+        {filtered.map((item, idx) => (
           <motion.div
-            key={item.id}
+            key={`kyc-${item.id || idx}-${idx}`}
             layout
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -362,7 +362,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                   item.status === 'requires_resubmission' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
                   'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                 }`}>
-                  {item.status.replace('_', ' ')}
+                  {(item?.status || 'pending').replace(/_/g, ' ')}
                 </span>
               </div>
 

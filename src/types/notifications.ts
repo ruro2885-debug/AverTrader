@@ -9,7 +9,8 @@ export type NotificationCategory =
   | 'copy_trading' 
   | 'swap' 
   | 'referral' 
-  | 'system';
+  | 'system'
+  | 'marketing';
 
 export type NotificationPriority = 'low' | 'medium' | 'high' | 'critical';
 

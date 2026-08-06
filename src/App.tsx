@@ -331,7 +331,13 @@ function AppContent() {
             onComplete={() => setCurrentView('bonus-center')}
           />
         ) : currentView === 'history' ? (
-          <TransactionHistory onBack={() => setCurrentView('dashboard')} />
+          <TransactionHistory 
+            onBack={() => setCurrentView('dashboard')} 
+            onOpenSupport={() => {
+              safeStorage.setItem('aver_dashboard_tab', 'support');
+              setCurrentView('dashboard');
+            }}
+          />
         ) : currentView === 'referral-centre' ? (
           <ReferralCenter
             theme={theme}

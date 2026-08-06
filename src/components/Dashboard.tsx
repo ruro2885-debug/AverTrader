@@ -46,7 +46,7 @@ import { walletService, WalletData } from '../services/walletService';
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'history') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
-  const { activity, trades, liveTradePrices, session, saveConfiguration, config: currentConfig, clearActivityHistory } = useContext(TradingEngineContext);
+  const { activity, trades, liveTradePrices, session, completedSessions, saveConfiguration, config: currentConfig, clearActivityHistory } = useContext(TradingEngineContext);
 
   const handleSelectStrategy = async (strategy: any) => {
     let tradingStrategy: 'NEURAL_MOMENTUM' | 'VOLATILITY_BREAKOUT' | 'MEAN_REVERSION' | 'QUANT_GRID' = 'NEURAL_MOMENTUM';
@@ -308,20 +308,26 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     // 1. First check actual closed trades in state
     const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
     if (fromTrades !== 0) return fromTrades;
+
+    // 2. Check completed sessions
+    if (completedSessions && completedSessions.length > 0) {
+      const fromSessions = completedSessions.reduce((sum, s) => sum + (s.totalPnl || 0), 0);
+      if (fromSessions !== 0) return fromSessions;
+    }
     
-    // 2. Check total profit minus total loss
+    // 3. Check total profit minus total loss
     if (user?.totalProfit !== undefined || user?.totalLoss !== undefined) {
       const diff = (user?.totalProfit || 0) - (user?.totalLoss || 0);
       if (diff !== 0) return diff;
     }
 
-    // 3. Check portfolio todayPnL
+    // 4. Check portfolio todayPnL
     if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) {
       return user.portfolio.todayPnL;
     }
     
     return 0;
-  }, [trades, user]);
+  }, [trades, completedSessions, user]);
 
   // Net value displayed on Home Net Balance card (represents available money, decreases immediately on session start by active trading capital)
   const totalValue = useMemo(() => {
@@ -331,19 +337,19 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Account baseline for trading return calculations (independent of cash deposits/withdrawals)
   const baselineAccountBalance = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      return (session.tradingCapital || session.initialCapital || 1000);
+      const allocated = session.initialCapital || session.tradingCapital || 0;
+      const starting = totalValue + allocated;
+      return starting > 0 ? starting : (allocated > 0 ? allocated : 1000);
     }
     const computedBase = totalValue - (closedTradesPnL + totalFloatingPnl);
-    return computedBase > 0 ? computedBase : 1000;
+    return computedBase > 0 ? computedBase : (totalValue > 0 ? totalValue : 1000);
   }, [session, totalValue, closedTradesPnL, totalFloatingPnl]);
 
   // Total PnL dollar change for performance indicator strictly driven by trading activity
   const totalPlAmount = useMemo(() => {
-    // If account is zero or near zero, force 0 returns to prevent ghost increments
-    if (totalValue <= 0.01) return 0;
-
     if (session?.status === 'ACTIVE') {
-      return totalFloatingPnl + (session.currentPnL || 0);
+      const allocated = session.initialCapital || session.tradingCapital || 0;
+      return -allocated;
     }
     if (closedTradesPnL !== 0 || totalFloatingPnl !== 0) {
       return closedTradesPnL + totalFloatingPnl;
@@ -356,7 +362,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   // Performance indicator percentage beneath Net Balance
   const totalPlPercent = useMemo(() => {
-    return (totalPlAmount / (baselineAccountBalance || 1000)) * 100;
+    if (baselineAccountBalance <= 0) return 0;
+    return (totalPlAmount / baselineAccountBalance) * 100;
   }, [totalPlAmount, baselineAccountBalance]);
 
   // Overall Return Amount & Overall Return % (strictly trading return, unaffected by deposits/withdrawals)
@@ -365,13 +372,36 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   }, [totalPlAmount]);
 
   const overallReturnPercent = useMemo(() => {
-    return (overallReturnAmount / (baselineAccountBalance || 1000)) * 100;
+    if (baselineAccountBalance <= 0) return 0;
+    return (overallReturnAmount / baselineAccountBalance) * 100;
   }, [overallReturnAmount, baselineAccountBalance]);
 
   const totalValueFormatted = formatCurrency(totalValue);
-  const todayPnLFormatted = (totalPlAmount >= 0 ? '+' : '') + formatCurrency(totalPlAmount);
+  const todayPnLFormatted = (totalPlAmount < 0 ? '-' : '+') + formatCurrency(Math.abs(totalPlAmount));
   const todayPnLPercentFormatted = (totalPlPercent >= 0 ? '+' : '') + totalPlPercent.toFixed(2) + '%';
   const overallReturnFormatted = (overallReturnPercent >= 0 ? '+' : '') + overallReturnPercent.toFixed(2) + '%';
+
+  // Respect user notification preferences for the header unread badge count
+  const unreadNotificationsCount = useMemo(() => {
+    if (!notifications || notifications.length === 0) return 0;
+    const notifPrefs = preferences?.notifications || (user?.notificationSettings as any) || {};
+    const isMasterOn = notifPrefs.master ?? true;
+    if (!isMasterOn) return 0;
+
+    return notifications.filter(n => {
+      if (n.read || n.archived) return false;
+      const cat = n?.category || 'system';
+      if (cat === 'security' && notifPrefs.security === false) return false;
+      if (['account', 'profile'].includes(cat) && notifPrefs.profile === false) return false;
+      if (cat === 'deposit' && notifPrefs.deposits === false) return false;
+      if (cat === 'withdrawal' && notifPrefs.withdrawals === false) return false;
+      if (['trading', 'portfolio', 'copy_trading', 'swap', 'ai'].includes(cat) && notifPrefs.trading === false) return false;
+      if (['referral', 'vault', 'rewards'].includes(cat) && notifPrefs.rewards === false) return false;
+      if (['system'].includes(cat) && notifPrefs.system === false) return false;
+      if (['marketing'].includes(cat) && notifPrefs.marketing === false) return false;
+      return true;
+    }).length;
+  }, [notifications, preferences?.notifications, user?.notificationSettings]);
 
   const referralCount = user?.referralCount || 0;
   const completedAiTrades = trades.length || 0;
@@ -411,16 +441,43 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return `${days}d ago`;
   };
 
-  const getActivitiesList = () => {
+  const getActivitiesList = useCallback(() => {
     if (!activity || activity.length === 0) return [];
 
     const list: any[] = [];
+    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
 
     activity.forEach((act: any) => {
-      if (!act) return;
+      if (!act || !act.message) return;
+      if (act.id && seenIds.has(act.id)) return;
+
       const dateObj = act.timestamp ? (act.timestamp.toDate ? act.timestamp.toDate() : new Date(act.timestamp)) : new Date();
       if (isNaN(dateObj.getTime())) return;
       
+      const timeMs = dateObj.getTime();
+      const timeBucket = Math.floor(timeMs / 20000); // 20-second bucket
+      const cleanMsg = (act.message || '').trim().toLowerCase();
+      const typeKey = `${act.type || 'system'}|${cleanMsg}|${timeBucket}`;
+
+      if (seenKeys.has(typeKey)) return;
+
+      // Check if duplicate of an already mapped item within 30s
+      const isDup = list.some(existing => {
+        if (existing.id === act.id) return true;
+        const existingMsg = (existing.description || '').trim().toLowerCase();
+        const existingTime = existing.timestamp.getTime();
+        const timeDiff = Math.abs(existingTime - timeMs);
+        if (existingMsg === cleanMsg && existing.originalType === act.type && timeDiff < 30000) return true;
+        if (existingMsg === cleanMsg && timeDiff < 10000) return true;
+        return false;
+      });
+
+      if (isDup) return;
+
+      if (act.id) seenIds.add(act.id);
+      seenKeys.add(typeKey);
+
       let mappedType = act.type || 'system';
       let mappedTitle = 'Activity Logged';
       let mappedCategory = 'system';
@@ -474,6 +531,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       list.push({
         id: act.id,
         type: mappedType,
+        originalType: act.type,
         title: mappedTitle,
         description: act.message,
         timestamp: dateObj,
@@ -483,7 +541,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
     list.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     return list;
-  };
+  }, [activity]);
 
   const getAssistantWarnings = () => {
     const warnings: any[] = [];
@@ -732,9 +790,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
             >
               <Bell className={`w-4 h-4 ${textPrimary}`} />
-              {notifications && notifications.filter(n => !n.read).length > 0 && (
+              {unreadNotificationsCount > 0 && (
                 <span className="absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-2 ring-slate-950">
-                  {notifications.filter(n => !n.read).length}
+                  {unreadNotificationsCount}
                 </span>
               )}
             </button>
@@ -775,21 +833,21 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   {totalValueFormatted}
                 </h2>
                 
-                <div className="flex items-center space-x-3 mb-6">
+                <div className="flex flex-wrap items-center gap-3 mb-6">
                   <div 
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border whitespace-nowrap shrink-0"
                     style={{
                       backgroundColor: totalPlAmount >= 0 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                       borderColor: totalPlAmount >= 0 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
                       color: totalPlAmount >= 0 ? '#22c55e' : '#ef4444'
                     }}
                   >
-                    {totalPlAmount >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                    <span className="text-sm font-black">{todayPnLFormatted}</span>
-                    <span className="text-xs font-bold opacity-90">({todayPnLPercentFormatted})</span>
+                    {totalPlAmount >= 0 ? <TrendingUp className="w-4 h-4 shrink-0" /> : <TrendingDown className="w-4 h-4 shrink-0" />}
+                    <span className="text-sm font-black whitespace-nowrap">{todayPnLFormatted}</span>
+                    <span className="text-xs font-bold opacity-90 whitespace-nowrap">({todayPnLPercentFormatted})</span>
                   </div>
-                  <div className={`text-xs font-semibold ${textSecondary}`}>
-                    Overall: <span className="font-bold" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
+                  <div className={`text-xs font-semibold whitespace-nowrap ${textSecondary}`}>
+                    Overall: <span className="font-bold whitespace-nowrap" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
                   </div>
                 </div>
 

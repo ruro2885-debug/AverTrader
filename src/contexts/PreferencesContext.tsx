@@ -79,18 +79,31 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       const userTheme = user.theme as Theme;
       const userCurrency = user.currency as Currency;
 
+      let savedNotifs = user.notificationSettings;
+      if (!savedNotifs) {
+        try {
+          const raw = safeStorage.getItem('aver_notifications');
+          if (raw) savedNotifs = JSON.parse(raw);
+        } catch (e) {}
+      }
+
       setPreferences({
         language: validLanguages.includes(userLang) ? userLang : 'EN',
         theme: validThemes.includes(userTheme) ? userTheme : 'dark',
         currency: validCurrencies.includes(userCurrency) ? userCurrency : 'USD',
         biometricsEnabled: user.biometricEnabled,
         rememberMeEnabled: user.rememberMeEnabled,
-        notifications: user.notificationSettings,
+        notifications: savedNotifs,
       });
     } else {
       const savedLanguage = safeStorage.getItem('aver_language') as Language;
       const savedTheme = safeStorage.getItem('aver_theme') as Theme;
       const savedCurrency = safeStorage.getItem('aver_currency') as Currency;
+      let savedNotifications: any = undefined;
+      try {
+        const raw = safeStorage.getItem('aver_notifications');
+        if (raw) savedNotifications = JSON.parse(raw);
+      } catch (e) {}
       
       const validLanguages: Language[] = ['EN', 'ES', 'ZH', 'DE', 'FR'];
       const validThemes: Theme[] = ['light', 'dark'];
@@ -100,10 +113,11 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         language: validLanguages.includes(savedLanguage) ? savedLanguage : prev.language,
         theme: validThemes.includes(savedTheme) ? savedTheme : prev.theme,
         currency: validCurrencies.includes(savedCurrency) ? savedCurrency : prev.currency,
+        notifications: savedNotifications !== undefined ? savedNotifications : prev.notifications,
       }));
     }
     setIsLoaded(true);
-  }, [user?.uid, user?.role]);
+  }, [user?.uid, user?.role, user?.notificationSettings]);
 
   // Keep a local storage listener to synchronize across tabs for global settings
   useEffect(() => {
@@ -118,6 +132,12 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       }
       if (e.key === 'aver_currency') {
         setPreferences(prev => ({ ...prev, currency: e.newValue as Currency || prev.currency }));
+      }
+      if (e.key === 'aver_notifications') {
+        try {
+          const parsed = e.newValue ? JSON.parse(e.newValue) : undefined;
+          if (parsed) setPreferences(prev => ({ ...prev, notifications: parsed }));
+        } catch (err) {}
       }
     };
 
@@ -193,57 +213,18 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
   }, [preferences.language]);
 
   const formatCurrency = React.useCallback((usdValue: number, compact: boolean = false): string => {
-    const rate = EXCHANGE_RATES[preferences.currency];
-    const convertedValue = usdValue * rate;
-
-    // Use Intl.NumberFormat for proper localization based on the selected language
-    let locale = 'en-US';
-    switch (preferences.language) {
-      case 'ES': locale = 'es-ES'; break;
-      case 'FR': locale = 'fr-FR'; break;
-      case 'DE': locale = 'de-DE'; break;
-      case 'ZH': locale = 'zh-CN'; break;
-      case 'PT': locale = 'pt-PT'; break;
-    }
-
-    // Custom handling for BTC to ensure 8 decimal places and symbol at front
-    if (preferences.currency === 'BTC') {
-       const formatter = new Intl.NumberFormat(locale, {
-           minimumFractionDigits: 8,
-           maximumFractionDigits: 8,
-           notation: compact ? 'compact' : 'standard',
-       });
-       return `${CURRENCY_SYMBOLS[preferences.currency]}${formatter.format(convertedValue)}`;
-    }
-
-    // Standard currencies (USD, EUR, GBP)
-    // We explicitly set currencyDisplay: 'symbol' to ensure we get $, €, £
-    const formatter = new Intl.NumberFormat(locale, {
+    // Force standard dollar-first ($) formatting for all users across all locales as requested
+    const formatter = new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: preferences.currency,
+      currency: 'USD',
       currencyDisplay: 'symbol',
       notation: compact ? 'compact' : 'standard',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
 
-    let result = formatter.format(convertedValue);
-
-    // Ensure symbol is at the front for USD, EUR, GBP regardless of locale defaults
-    // Some European locales put the symbol at the end by default.
-    // The user specifically requested symbol before the number for these.
-    if (['USD', 'EUR', 'GBP'].includes(preferences.currency)) {
-        const symbol = CURRENCY_SYMBOLS[preferences.currency];
-        // If the symbol is not at the start, move it.
-        if (!result.startsWith(symbol)) {
-            // Remove the symbol from wherever it is (and any non-breaking spaces)
-            const numericPart = result.replace(symbol, '').replace(/\u00A0/g, ' ').trim();
-            result = `${symbol}${numericPart}`;
-        }
-    }
-
-    return result;
-  }, [preferences.currency, preferences.language]);
+    return formatter.format(usdValue);
+  }, []);
 
   const contextValue = React.useMemo(() => ({ 
     preferences, 

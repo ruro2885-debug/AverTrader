@@ -131,7 +131,7 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
     const unsubDeposits = onSnapshot(collection(db, 'admin_deposits'), (snap) => {
       if (isSubscribed) {
         const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
-        const pendingCount = docs.filter(d => d.status === 'pending').length;
+        const pendingCount = docs.filter(d => (d.status || '').toLowerCase() === 'pending').length;
         setStats(prev => ({ ...prev, pendingDeposits: pendingCount }));
         setAllDeposits(docs);
         checkLoaded();
@@ -148,7 +148,7 @@ export default function AdminDashboard({ theme }: { theme: 'light' | 'dark' }) {
     const unsubWithdrawals = onSnapshot(collection(db, 'admin_withdrawals'), (snap) => {
       if (isSubscribed) {
         const docs = snap.docs.map(doc => doc.data() as FinancialRecord);
-        const pendingCount = docs.filter(w => w.status === 'pending').length;
+        const pendingCount = docs.filter(w => (w.status || '').toLowerCase() === 'pending').length;
         setStats(prev => ({ ...prev, pendingWithdrawals: pendingCount }));
         setAllWithdrawals(docs);
         checkLoaded();

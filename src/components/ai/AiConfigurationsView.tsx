@@ -397,11 +397,11 @@ export default function AiConfigurationsView({
 
           {/* Config Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {filteredConfigs.map(cfg => {
+            {filteredConfigs.map((cfg, idx) => {
               const isActive = cfg.id === activeConfigId;
               return (
                 <div 
-                  key={cfg.id} 
+                  key={`cfg-${cfg.id || idx}-${idx}`} 
                   className={`rounded-2xl border p-6 transition-all relative overflow-hidden flex flex-col justify-between ${cardClasses} ${isActive ? 'ring-2 ring-[#00D09C]' : ''}`}
                 >
                   <div>
@@ -419,9 +419,9 @@ export default function AiConfigurationsView({
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-full ${
-                          cfg.aiTradingRules.tradingStrategy === 'NEURAL_MOMENTUM' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
+                          cfg?.aiTradingRules?.tradingStrategy === 'NEURAL_MOMENTUM' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'
                         }`}>
-                          {cfg.aiTradingRules.tradingStrategy.replace('_', ' ')}
+                          {(cfg?.aiTradingRules?.tradingStrategy || 'QUANT').replace(/_/g, ' ')}
                         </span>
                       </div>
                     </div>
@@ -955,8 +955,8 @@ export default function AiConfigurationsView({
                           </div>
                         ) : (
                           <div className="grid grid-cols-1 gap-4">
-                            {editingConfig.schedule.operatingWindows.map((win) => (
-                              <div key={win.id} className={`p-5 rounded-2xl border ${cardClasses} relative group`}>
+                            {editingConfig.schedule.operatingWindows.map((win, idx) => (
+                              <div key={`win-${win.id || idx}-${idx}`} className={`p-5 rounded-2xl border ${cardClasses} relative group`}>
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                   <div className="space-y-2">
                                     <label className="text-[10px] font-black uppercase text-slate-500">Operating Time</label>
@@ -1123,8 +1123,8 @@ export default function AiConfigurationsView({
                           </div>
                         ) : (
                           <div className="grid grid-cols-1 gap-3">
-                            {editingConfig.schedule.coolingBreaks.map((brk) => (
-                              <div key={brk.id} className={`p-4 rounded-xl border border-white/5 bg-black/20 flex items-center justify-between`}>
+                            {editingConfig.schedule.coolingBreaks.map((brk, idx) => (
+                              <div key={`brk-${brk.id || idx}-${idx}`} className={`p-4 rounded-xl border border-white/5 bg-black/20 flex items-center justify-between`}>
                                 <div className="flex items-center gap-6">
                                   <div className="flex items-center gap-2">
                                     <input 
