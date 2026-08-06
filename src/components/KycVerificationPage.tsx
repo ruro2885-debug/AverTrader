@@ -15,6 +15,42 @@ interface KycVerificationPageProps {
   onComplete: () => void;
 }
 
+const downscaleImage = (dataUrl: string, maxWidth = 800, maxHeight = 800, quality = 0.7): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!dataUrl || !dataUrl.startsWith('data:image')) {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth || height > maxHeight) {
+        if (width > height) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } else {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+};
+
 export default function KycVerificationPage({ theme, onBack, onComplete }: KycVerificationPageProps) {
   const isDark = theme === 'dark';
   const { user, updateProfile } = useAuth();
@@ -97,15 +133,15 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
+    reader.onload = async (uploadEvent) => {
       const result = uploadEvent.target?.result as string;
       if (result) {
-        // Always preserve original high-resolution uncompressed image quality
+        const compressed = await downscaleImage(result, 800, 800, 0.7);
         const originalField = field === 'frontIdUrl' ? 'frontIdOriginalUrl' : field === 'backIdUrl' ? 'backIdOriginalUrl' : 'selfieOriginalUrl';
         setFormData(prev => ({ 
           ...prev, 
-          [field]: result,
-          [originalField]: result
+          [field]: compressed,
+          [originalField]: compressed
         }));
       }
     };
@@ -148,12 +184,17 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       const nowIso = new Date().toISOString();
       console.log("[KYC TRACE 2] Generated submission ID:", submissionId);
 
+      console.log("[KYC TRACE 2.1] Compressing image uploads to safe payload size (<100KB)...");
+      const compressedFront = await downscaleImage(formData.frontIdUrl, 800, 800, 0.7);
+      const compressedBack = await downscaleImage(formData.backIdUrl, 800, 800, 0.7);
+      const compressedSelfie = await downscaleImage(formData.selfieUrl, 800, 800, 0.7);
+
       const submissionPayload = {
         id: submissionId,
         userId: user?.uid || 'guest_user',
         name: `${formData.firstName} ${formData.lastName}`.trim() || user?.name || 'Verified User',
         email: user?.email || 'user@aver.platform',
-        profilePhoto: user?.photoURL || formData.selfieUrl,
+        profilePhoto: user?.photoURL || compressedSelfie,
         tier: 'Tier 1',
         idType: formData.idType,
         personalInfo: {
@@ -167,13 +208,13 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
           state: formData.state,
           postalCode: formData.postalCode
         },
-        documents: [formData.frontIdUrl, formData.backIdUrl, formData.selfieUrl].filter(Boolean),
-        frontIdUrl: formData.frontIdUrl,
-        frontIdOriginalUrl: formData.frontIdOriginalUrl || formData.frontIdUrl,
-        backIdUrl: formData.backIdUrl,
-        backIdOriginalUrl: formData.backIdOriginalUrl || formData.backIdUrl,
-        selfieUrl: formData.selfieUrl,
-        selfieOriginalUrl: formData.selfieOriginalUrl || formData.selfieUrl,
+        documents: [compressedFront, compressedBack, compressedSelfie].filter(Boolean),
+        frontIdUrl: compressedFront,
+        frontIdOriginalUrl: compressedFront,
+        backIdUrl: compressedBack,
+        backIdOriginalUrl: compressedBack,
+        selfieUrl: compressedSelfie,
+        selfieOriginalUrl: compressedSelfie,
         status: 'pending',
         submittedAt: nowIso,
         createdAt: nowIso

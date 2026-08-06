@@ -252,6 +252,8 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
           totalDeposits: increment(amount),
           tokenBalance: increment(amount),
           'portfolio.totalValue': increment(amount),
+          resetPnL: true,
+          pnlResetAt: new Date().toISOString(),
           notificationsList: arrayUnion(notifItem),
           lastUpdated: serverTimestamp()
         }, { merge: true });

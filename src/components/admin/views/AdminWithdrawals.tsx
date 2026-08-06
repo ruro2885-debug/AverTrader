@@ -320,6 +320,8 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             tokenBalance: increment(-amount),
             cashBalance: increment(-amount),
             totalWithdrawals: increment(amount),
+            resetPnL: true,
+            pnlResetAt: new Date().toISOString(),
             ...(updatedUserWithdrawals.length > 0 ? { withdrawals: updatedUserWithdrawals } : {}),
             lastUpdated: serverTimestamp()
           }, { merge: true });
@@ -373,7 +375,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             }
           }
         }
-        showNotification(`Withdrawal of $${amount.toLocaleString()} rejected (status set to failed).`);
+        showNotification(`Withdrawal unsuccessful. Transaction of $${amount.toLocaleString()} rejected.`);
       } else if (newStatus === 'reversed' && userId && amount > 0) {
         if (!userId.startsWith('local-') && userId !== 'anonymous') {
           const userRef = doc(db, 'users', userId);

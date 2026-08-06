@@ -351,6 +351,13 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       const allocated = session.initialCapital || session.tradingCapital || 0;
       return -allocated;
     }
+    if (user?.resetPnL) {
+      const resetTime = user.pnlResetAt ? new Date(user.pnlResetAt).getTime() : 0;
+      const recentTrades = trades.filter((t: any) => t.status === 'CLOSED' && t.closedAt && new Date(t.closedAt).getTime() > resetTime);
+      if (recentTrades.length === 0) {
+        return 0;
+      }
+    }
     if (closedTradesPnL !== 0 || totalFloatingPnl !== 0) {
       return closedTradesPnL + totalFloatingPnl;
     }
@@ -358,7 +365,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       return user.portfolio.overallReturn;
     }
     return 0;
-  }, [totalValue, session, closedTradesPnL, totalFloatingPnl, user?.portfolio?.overallReturn]);
+  }, [totalValue, session, closedTradesPnL, totalFloatingPnl, user?.portfolio?.overallReturn, user?.resetPnL, user?.pnlResetAt, trades]);
 
   // Performance indicator percentage beneath Net Balance
   const totalPlPercent = useMemo(() => {
