@@ -213,10 +213,9 @@ export default function BonusCenter({
     if (isDeposited) total += 25;
     if (isKycVerified) total += 35;
     if (isTraded) total += 15;
-    if (user?.phoneNumber) total += 15;
     if (referralCount > 0) total += Math.min(referralCount * 15, 60);
     return total;
-  }, [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, user?.phoneNumber, referralCount]);
+  }, [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, referralCount]);
 
   const { currentTier, nextTier, membershipProgress } = useMemo(() => {
     let tierIdx = 0;

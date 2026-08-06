@@ -740,6 +740,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setNotifications([]);
         setLoading(false);
       }
+
+      // Process Referral Linkage to credit referrer
+      if (data.referralCode && data.referralCode.trim()) {
+        const refCodeClean = data.referralCode.trim();
+        try {
+          const refQuery = query(collection(db, 'users'), where('referralCode', '==', refCodeClean));
+          let refSnap = await getDocs(refQuery);
+          if (refSnap.empty && refCodeClean.toUpperCase() !== refCodeClean) {
+            const refQueryUpper = query(collection(db, 'users'), where('referralCode', '==', refCodeClean.toUpperCase()));
+            refSnap = await getDocs(refQueryUpper);
+          }
+          
+          if (!refSnap.empty) {
+            const referrerDoc = refSnap.docs[0];
+            const referrerUid = referrerDoc.id;
+            const referrerData = referrerDoc.data();
+            
+            const newRefUser = {
+              uid: targetUid,
+              name: username,
+              displayName: username,
+              email: data.email.toLowerCase().trim(),
+              joinedAt: new Date().toISOString()
+            };
+
+            const existingList = Array.isArray(referrerData.referredUsers) ? referrerData.referredUsers : [];
+            const updatedList = [...existingList, newRefUser];
+            const updatedCount = (referrerData.referralCount || referrerData.totalReferrals || 0) + 1;
+
+            await updateDoc(doc(db, 'users', referrerUid), {
+              referralCount: updatedCount,
+              totalReferrals: updatedCount,
+              referredUsers: updatedList,
+              lastUpdated: serverTimestamp()
+            }).catch(e => console.warn("Failed updating referrer doc:", e));
+          }
+        } catch (refErr) {
+          console.warn("Failed processing referral linkage:", refErr);
+        }
+      }
     } catch (error: any) {
       console.error("signUp error:", error);
       throw error;

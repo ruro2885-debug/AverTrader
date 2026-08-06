@@ -1142,17 +1142,22 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       
       const currentAiTrades = (user.aiTradesCount || 0) + 1;
 
-      const xpGain = 50 + (isProfitable ? 20 : 0) + (isProfitable ? currentWinRun * 15 : 0);
+      const xpGain = 5 + (isProfitable ? 5 : 0) + (isProfitable ? Math.min(currentWinRun, 5) * 2 : 0);
       let currentXp = (user.xp || 0) + xpGain;
       let currentLevel = user.level || 1;
       let insignias = user.insignias ? [...user.insignias] : [];
       
-      let nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+      let nextLevelXp = 5000 * currentLevel;
       while (currentXp >= nextLevelXp) {
         currentLevel += 1;
         currentXp -= nextLevelXp;
-        insignias.push(`Level ${currentLevel} Vanguard`);
-        nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+        if (currentLevel % 5 === 0) {
+          const newInsignia = `Level ${currentLevel} Vanguard`;
+          if (!insignias.includes(newInsignia)) {
+            insignias.push(newInsignia);
+          }
+        }
+        nextLevelXp = 5000 * currentLevel;
       }
 
       // We still update historical stats and overall portfolio tracking for charts

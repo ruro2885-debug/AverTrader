@@ -5,8 +5,8 @@ import {
   User, MapPin, Calendar, Globe, Phone, AlertCircle, Check, X, ChevronRight, Edit3, XCircle,
   ScanFace, BookOpen, CreditCard, Car, RefreshCw
 } from 'lucide-react';
-import { doc, setDoc, updateDoc, serverTimestamp, collection, addDoc, query, where, onSnapshot, limit } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { doc, setDoc, updateDoc, serverTimestamp, collection, addDoc, query, where, onSnapshot, limit, arrayUnion } from 'firebase/firestore';
+import { db, safeSetDoc } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 
 interface KycVerificationPageProps {
@@ -100,62 +100,13 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     reader.onload = (uploadEvent) => {
       const result = uploadEvent.target?.result as string;
       if (result) {
-        const img = new Image();
-        img.onload = () => {
-          // 1. Generate optimized low-resolution thumbnail for quick UI rendering (max 240px, quality 0.35)
-          const thumbCanvas = document.createElement('canvas');
-          let thumbWidth = img.width;
-          let thumbHeight = img.height;
-          const max_thumb = 240;
-          if (thumbWidth > thumbHeight) {
-            if (thumbWidth > max_thumb) {
-              thumbHeight *= max_thumb / thumbWidth;
-              thumbWidth = max_thumb;
-            }
-          } else {
-            if (thumbHeight > max_thumb) {
-              thumbWidth *= max_thumb / thumbHeight;
-              thumbHeight = max_thumb;
-            }
-          }
-          thumbCanvas.width = thumbWidth;
-          thumbCanvas.height = thumbHeight;
-          const thumbCtx = thumbCanvas.getContext('2d');
-          thumbCtx?.drawImage(img, 0, 0, thumbWidth, thumbHeight);
-          const compressedThumbnail = thumbCanvas.toDataURL('image/jpeg', 0.35);
-
-          // 2. Generate high-resolution crystal-clear original for zoom & download (max 1440px, quality 0.82)
-          // This keeps all document text and face details extremely sharp, while reducing the file size to ~150-250KB,
-          // safely avoiding any Firestore 1MB transaction limits.
-          const hdCanvas = document.createElement('canvas');
-          let hdWidth = img.width;
-          let hdHeight = img.height;
-          const max_hd = 1440;
-          if (hdWidth > hdHeight) {
-            if (hdWidth > max_hd) {
-              hdHeight *= max_hd / hdWidth;
-              hdWidth = max_hd;
-            }
-          } else {
-            if (hdHeight > max_hd) {
-              hdWidth *= max_hd / hdHeight;
-              hdHeight = max_hd;
-            }
-          }
-          hdCanvas.width = hdWidth;
-          hdCanvas.height = hdHeight;
-          const hdCtx = hdCanvas.getContext('2d');
-          hdCtx?.drawImage(img, 0, 0, hdWidth, hdHeight);
-          const compressedHD = hdCanvas.toDataURL('image/jpeg', 0.82);
-
-          const originalField = field === 'frontIdUrl' ? 'frontIdOriginalUrl' : field === 'backIdUrl' ? 'backIdOriginalUrl' : 'selfieOriginalUrl';
-          setFormData(prev => ({ 
-            ...prev, 
-            [field]: compressedThumbnail,
-            [originalField]: compressedHD
-          }));
-        };
-        img.src = result;
+        // Always preserve original high-resolution uncompressed image quality
+        const originalField = field === 'frontIdUrl' ? 'frontIdOriginalUrl' : field === 'backIdUrl' ? 'backIdOriginalUrl' : 'selfieOriginalUrl';
+        setFormData(prev => ({ 
+          ...prev, 
+          [field]: result,
+          [originalField]: result
+        }));
       }
     };
     reader.readAsDataURL(file);
@@ -188,13 +139,19 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   };
 
   const handleSubmitKYC = async () => {
+    console.log("[KYC TRACE 1] Submit button clicked. Entering handleSubmitKYC...");
     try {
       setSubmitting(true);
       setError('');
 
+      const submissionId = `kyc_${user?.uid || 'guest'}_${Date.now()}`;
+      const nowIso = new Date().toISOString();
+      console.log("[KYC TRACE 2] Generated submission ID:", submissionId);
+
       const submissionPayload = {
+        id: submissionId,
         userId: user?.uid || 'guest_user',
-        name: `${formData.firstName} ${formData.lastName}`,
+        name: `${formData.firstName} ${formData.lastName}`.trim() || user?.name || 'Verified User',
         email: user?.email || 'user@aver.platform',
         profilePhoto: user?.photoURL || formData.selfieUrl,
         tier: 'Tier 1',
@@ -210,7 +167,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
           state: formData.state,
           postalCode: formData.postalCode
         },
-        documents: [formData.frontIdUrl, formData.backIdUrl].filter(Boolean),
+        documents: [formData.frontIdUrl, formData.backIdUrl, formData.selfieUrl].filter(Boolean),
         frontIdUrl: formData.frontIdUrl,
         frontIdOriginalUrl: formData.frontIdOriginalUrl || formData.frontIdUrl,
         backIdUrl: formData.backIdUrl,
@@ -218,36 +175,75 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         selfieUrl: formData.selfieUrl,
         selfieOriginalUrl: formData.selfieOriginalUrl || formData.selfieUrl,
         status: 'pending',
-        submittedAt: new Date().toISOString(),
-        createdAt: serverTimestamp()
+        submittedAt: nowIso,
+        createdAt: nowIso
       };
 
-      // Save to admin_kyc collection for real-time admin review
-      const { safeAddDoc } = await import('../lib/firebase');
-      await safeAddDoc(collection(db, 'admin_kyc'), submissionPayload);
+      console.log("[KYC TRACE 3] Constructed payload successfully.");
 
-      // Local storage fallback so Admin can see it if Firestore is dead
+      // 1. Save to admin_kyc collection for real-time admin review
+      console.log("[KYC TRACE 4] Writing to admin_kyc document:", submissionId);
+      await safeSetDoc(doc(db, 'admin_kyc', submissionId), submissionPayload);
+      console.log("[KYC TRACE 4 COMPLETED] admin_kyc document written.");
+
+      // 2. Local storage fallback so Admin can see it on any device/session
+      console.log("[KYC TRACE 5] Updating local storage fallback...");
       try {
         const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
-        locals.push({ ...submissionPayload, id: `localkyc-${Date.now()}` });
-        localStorage.setItem('aver_admin_kyc_local', JSON.stringify(locals));
+        const filtered = locals.filter((item: any) => item.id !== submissionId);
+        filtered.unshift(submissionPayload);
+        try {
+          localStorage.setItem('aver_admin_kyc_local', JSON.stringify(filtered));
+        } catch (storageErr) {
+          const trimmed = filtered.slice(0, 10);
+          localStorage.setItem('aver_admin_kyc_local', JSON.stringify(trimmed));
+        }
         window.dispatchEvent(new Event('storage'));
-      } catch (e) {}
-
-      // Also update user kycStatus to pending
-      if (user?.uid) {
-        await updateDoc(doc(db, 'users', user.uid), {
-          kycStatus: 'pending',
-          kycSubmittedAt: new Date().toISOString()
-        }).catch(() => {});
+        window.dispatchEvent(new CustomEvent('aver_kyc_submitted', { detail: submissionPayload }));
+        console.log("[KYC TRACE 5 COMPLETED] Local storage aver_admin_kyc_local updated.");
+      } catch (e) {
+        console.warn("[KYC TRACE 5 NOTICE] Local storage sync notice:", e);
       }
 
+      // 3. Update user document with kycStatus, full kycData and append to kycHistory
+      if (user?.uid) {
+        console.log("[KYC TRACE 6] Updating user document in users collection...");
+        await safeSetDoc(doc(db, 'users', user.uid), {
+          kycStatus: 'pending',
+          kycSubmittedAt: nowIso,
+          kycData: submissionPayload,
+          kycHistory: arrayUnion(submissionPayload),
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+        console.log("[KYC TRACE 6 COMPLETED] User document updated.");
+
+        // Update cached profile
+        try {
+          const uKey = `user_profile_${user.uid}`;
+          const cachedUser = JSON.parse(localStorage.getItem(uKey) || '{}');
+          const existingHistory = Array.isArray(cachedUser.kycHistory) ? cachedUser.kycHistory : [];
+          const updatedUser = {
+            ...cachedUser,
+            kycStatus: 'pending',
+            kycData: submissionPayload,
+            kycHistory: [submissionPayload, ...existingHistory.filter((h: any) => h.id !== submissionId)]
+          };
+          localStorage.setItem(uKey, JSON.stringify(updatedUser));
+          localStorage.setItem('aver_user_profile', JSON.stringify(updatedUser));
+          window.dispatchEvent(new Event('aver_user_updated'));
+          console.log("[KYC TRACE 6.1 COMPLETED] Local user profile updated.");
+        } catch (e) {}
+      }
+
+      console.log("[KYC TRACE 7] Setting step=7 and submittedSuccess=true...");
       setSubmittedSuccess(true);
       setStep(7);
+      console.log("[KYC TRACE 8] Submission flow completed successfully.");
     } catch (err: any) {
-      console.error("Failed to submit KYC:", err);
-      setError(err.message || 'Failed to submit KYC. Please try again.');
+      console.error("[KYC TRACE EXCEPTION] Exception caught during submission:", err);
+      setError(err?.message || 'Failed to submit KYC. Please try again.');
     } finally {
+      console.log("[KYC TRACE FINALLY] Clearing submitting state (setSubmitting(false)).");
       setSubmitting(false);
     }
   };
@@ -257,7 +253,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       setSubmitting(true);
       setError('');
       
-      // Pre-fill formData from latestSubmission if available
+      // Pre-fill personal info from latestSubmission if available, but ALWAYS clear image documents
       if (latestSubmission) {
         setFormData({
           firstName: latestSubmission.name?.split(' ')[0] || '',
@@ -270,13 +266,23 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
           state: latestSubmission.address?.state || '',
           postalCode: latestSubmission.address?.postalCode || '',
           idType: latestSubmission.idType || 'Passport',
-          frontIdUrl: latestSubmission.frontIdUrl || latestSubmission.documents?.[0] || '',
-          frontIdOriginalUrl: latestSubmission.frontIdOriginalUrl || latestSubmission.frontIdUrl || latestSubmission.documents?.[0] || '',
-          backIdUrl: latestSubmission.backIdUrl || latestSubmission.documents?.[1] || '',
-          backIdOriginalUrl: latestSubmission.backIdOriginalUrl || latestSubmission.backIdUrl || latestSubmission.documents?.[1] || '',
-          selfieUrl: latestSubmission.selfieUrl || latestSubmission.documents?.[2] || '',
-          selfieOriginalUrl: latestSubmission.selfieOriginalUrl || latestSubmission.selfieUrl || latestSubmission.documents?.[2] || ''
+          frontIdUrl: '',
+          frontIdOriginalUrl: '',
+          backIdUrl: '',
+          backIdOriginalUrl: '',
+          selfieUrl: '',
+          selfieOriginalUrl: ''
         });
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          frontIdUrl: '',
+          frontIdOriginalUrl: '',
+          backIdUrl: '',
+          backIdOriginalUrl: '',
+          selfieUrl: '',
+          selfieOriginalUrl: ''
+        }));
       }
 
       if (user?.uid) {

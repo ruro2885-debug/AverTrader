@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, safeSetDoc } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
 
 export interface WalletData {
@@ -120,7 +120,7 @@ export const walletService = {
             ...(initialDefaults || {})
           };
           createdWalletIds.add(userId);
-          await setDoc(walletRef, {
+          await safeSetDoc(walletRef, {
             ...newWallet,
             updatedAt: serverTimestamp()
           }, { merge: true });
@@ -160,7 +160,7 @@ export const walletService = {
     if (userId && !userId.startsWith('local-')) {
       try {
         const walletRef = doc(db, 'wallets', userId);
-        await setDoc(walletRef, {
+        await safeSetDoc(walletRef, {
           ...updated,
           updatedAt: serverTimestamp()
         }, { merge: true });

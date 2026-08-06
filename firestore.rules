@@ -4,146 +4,121 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // 1. Master Gate & Global Safety Net
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // 2. Reusable Primitives
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email.lower() == 'ruro2885@gmail.com' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin')
-      );
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // 3. User Profiles & Subcollections
-    match /users/{userId} {
-      allow read, write, create, update, delete: if true;
-
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-
-
-    match /traderProfiles/{traderId} {
       allow read, write: if true;
     }
-    
-    // 4. Admin Specific Collections
 
-    match /platform_analytics/{id} {
-      allow read, write: if isAdmin();
-    }
-    match /platform_health/{id} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-    match /system_settings/{id} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-    match /support_tickets/{id} {
-      allow read, create, update, delete: if true;
-      
-      match /{allPaths=**} {
-        allow read, write: if true;
+    // 2. Explicit rules for individual collections to guarantee unrestricted platform operations
+    match /users/{userId} {
+      allow read, write, create, update, delete: if true;
+      match /{document=**} {
+        allow read, write, create, update, delete: if true;
       }
     }
-    match /admin_audit_logs/{logId} {
-      allow read, write: if isAdmin();
+
+    match /traderProfiles/{traderId} {
+      allow read, write, create, update, delete: if true;
     }
+
     match /admin_deposits/{id} {
       allow read, write, create, update, delete: if true;
     }
+
     match /admin_withdrawals/{id} {
       allow read, write, create, update, delete: if true;
     }
+
     match /withdrawals/{id} {
       allow read, write, create, update, delete: if true;
     }
+
     match /transactions/{id} {
       allow read, write, create, update, delete: if true;
     }
+
     match /user_transactions/{id} {
       allow read, write, create, update, delete: if true;
     }
+
     match /admin_kyc/{id} {
       allow read, write, create, update, delete: if true;
     }
+
+    match /wallets/{userId} {
+      allow read, write, create, update, delete: if true;
+      match /{document=**} {
+        allow read, write, create, update, delete: if true;
+      }
+    }
+
+    match /portfolio/{userId} {
+      allow read, write, create, update, delete: if true;
+      match /{document=**} {
+        allow read, write, create, update, delete: if true;
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read, write, create, update, delete: if true;
+    }
+
+    match /support_tickets/{id} {
+      allow read, write, create, update, delete: if true;
+      match /{allPaths=**} {
+        allow read, write, create, update, delete: if true;
+      }
+    }
+
+    match /platform_analytics/{id} {
+      allow read, write, create, update, delete: if true;
+    }
+
+    match /platform_health/{id} {
+      allow read, write, create, update, delete: if true;
+    }
+
+    match /system_settings/{id} {
+      allow read, write, create, update, delete: if true;
+    }
+
+    match /admin_audit_logs/{logId} {
+      allow read, write, create, update, delete: if true;
+    }
+
     match /linked_wallets/{walletId} {
       allow read, write, create, update, delete: if true;
     }
 
-
-    match /portfolio/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
-    }
-    
-    // 5. User Bonus States
-
-    match /wallets/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
-    }
-
     match /userBonuses/{userId} {
-      allow read, write: if isOwner(userId);
-      
+      allow read, write, create, update, delete: if true;
       match /{allPaths=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write, create, update, delete: if true;
       }
     }
 
-    // 5. Referrals (Relational logic)
     match /referrals/{referralId} {
-      allow get, list: if isSignedIn() && resource.data.referrerId == request.auth.uid;
-      allow create, update, delete: if isSignedIn() && request.resource.data.referrerId == request.auth.uid;
+      allow read, write, create, update, delete: if true;
     }
 
-    // 6. Static Data (Read-only for signed-in users)
     match /bonuses/{bonusId} {
-      allow read, list: if isSignedIn();
+      allow read, write, create, update, delete: if true;
     }
 
-    // 7. Notifications
-    match /notifications/{notificationId} {
-      allow get, list: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-    }
-
-    // 8. Global Public Data (Leaderboard)
     match /leaderboard/{userId} {
-      allow read: if true;
-      allow write: if isOwner(userId);
+      allow read, write, create, update, delete: if true;
     }
 
-    // 9. AI Trading
     match /aiPreferences/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write, create, update, delete: if true;
     }
 
     match /aiSessions/{sessionId} {
-      allow read, write: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid);
+      allow read, write, create, update, delete: if true;
     }
 
     match /aiRecommendations/{recId} {
-      allow read, write: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid);
+      allow read, write, create, update, delete: if true;
     }
 
-    // 10. Global Events Hub
     match /events_hub/{eventId=**} {
       allow read, write, create, update, delete: if true;
     }

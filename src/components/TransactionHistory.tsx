@@ -146,7 +146,10 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       setLoading(false);
       return;
     }
-    setLoading(true);
+    // Only set loading on initial fetch if empty to prevent screen flicker on updates
+    if (transactions.length === 0) {
+      setLoading(true);
+    }
     const unsub = transactionService.subscribeUserTransactions(user.uid, (data) => {
       setTransactions(data);
       setLoading(false);
@@ -154,7 +157,7 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
     }, user);
 
     return () => unsub();
-  }, [user]);
+  }, [user?.uid]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -249,12 +252,39 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
     return groups;
   }, [filteredItems]);
 
-  const renderItemIcon = (item: TransactionRecord) => {
+  // Windowing & Virtual Infinite Scroll threshold for 60fps scrolling performance
+  const [displayLimit, setDisplayLimit] = useState<number>(30);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollHeight - target.scrollTop - target.clientHeight < 350) {
+      setDisplayLimit(prev => Math.min(prev + 25, 2000));
+    }
+  }, []);
+
+  useEffect(() => {
+    setDisplayLimit(30);
+  }, [activeTab, filters]);
+
+  const windowedGroupedItems = useMemo(() => {
+    let count = 0;
+    const result: Record<string, TransactionRecord[]> = {};
+    for (const [label, items] of Object.entries(groupedItems) as [string, TransactionRecord[]][]) {
+      if (count >= displayLimit) break;
+      const needed = displayLimit - count;
+      const sliced = items.slice(0, needed);
+      result[label] = sliced;
+      count += sliced.length;
+    }
+    return result;
+  }, [groupedItems, displayLimit]);
+
+  const renderItemIcon = useCallback((item: TransactionRecord) => {
     const symbol = (item.asset || 'USDT').toUpperCase();
     return <CoinLogo symbol={symbol} size={36} className="shadow-sm" />;
-  };
+  }, []);
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = useCallback((status: string) => {
     const s = (status || '').toLowerCase();
     if (s === 'completed' || s === 'success' || s === 'approved' || s === 'successful' || s === 'filled') {
       return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
@@ -269,9 +299,9 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
     }
     return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
-  };
+  }, []);
 
-  const getStatusLabel = (status: string) => {
+  const getStatusLabel = useCallback((status: string) => {
     const s = (status || '').toLowerCase();
     if (s === 'completed' || s === 'success' || s === 'approved' || s === 'successful' || s === 'filled') {
       return 'Successful';
@@ -289,7 +319,7 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       return 'Processing';
     }
     return status.charAt(0).toUpperCase() + status.slice(1);
-  };
+  }, []);
 
   const openExplorer = (txHash: string, network: string, customUrl?: string) => {
     const url = customUrl || getExplorerUrl(txHash, network);
@@ -442,8 +472,12 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
         </div>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 max-w-7xl mx-auto w-full flex flex-col justify-between">
+      {/* Content Area with Virtualized Smooth Scroll */}
+      <div 
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-5 sm:px-8 py-5 max-w-7xl mx-auto w-full flex flex-col justify-between"
+        style={{ contain: 'content', transform: 'translateZ(0)' }}
+      >
         <div>
           {loading ? (
             // Skeleton Loader
@@ -501,7 +535,7 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
               )}
             </motion.div>
           ) : (
-            // Render Transaction List Grouped By Date
+            // Render Transaction List Grouped By Date (Windowed for 60fps scrolling)
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab + JSON.stringify(filters)}
@@ -510,31 +544,29 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                 exit={{ opacity: 0, y: -6 }}
                 className="space-y-6"
               >
-                {(Object.entries(groupedItems) as [string, TransactionRecord[]][]).map(([dateLabel, items], gIdx) => (
+                {(Object.entries(windowedGroupedItems) as [string, TransactionRecord[]][]).map(([dateLabel, items], gIdx) => (
                   <div key={`group-${dateLabel}-${gIdx}`} className="space-y-2.5">
                     <div className="flex items-center space-x-3">
                       <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">{dateLabel}</h3>
                       <div className="flex-1 h-[1px] bg-white/5" />
                     </div>
 
-                    <div className="space-y-1.5 min-h-[100px]">
-                      <AnimatePresence mode="popLayout">
-                        {items.map((item, idx) => (
-                          <TransactionItem 
-                            key={`tx-${item.id || 'record'}-${dateLabel}-${idx}`}
-                            item={item}
-                            idx={idx}
-                            isDark={isDark}
-                            swipedItemId={swipedItemId}
-                            setSwipedItemId={setSwipedItemId}
-                            setSelectedReceipt={setSelectedReceipt}
-                            setConfirmDeleteId={setConfirmDeleteId}
-                            renderItemIcon={renderItemIcon}
-                            getStatusBadge={getStatusBadge}
-                            getStatusLabel={getStatusLabel}
-                          />
-                        ))}
-                      </AnimatePresence>
+                    <div className="space-y-1.5 min-h-[72px]">
+                      {items.map((item, idx) => (
+                        <TransactionItem 
+                          key={`tx-${item.id || 'record'}-${dateLabel}-${idx}`}
+                          item={item}
+                          idx={idx}
+                          isDark={isDark}
+                          swipedItemId={swipedItemId}
+                          setSwipedItemId={setSwipedItemId}
+                          setSelectedReceipt={setSelectedReceipt}
+                          setConfirmDeleteId={setConfirmDeleteId}
+                          renderItemIcon={renderItemIcon}
+                          getStatusBadge={getStatusBadge}
+                          getStatusLabel={getStatusLabel}
+                        />
+                      ))}
                     </div>
                   </div>
                 ))}

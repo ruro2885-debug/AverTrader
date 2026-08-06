@@ -143,9 +143,11 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
     };
     safeStorage.setItem(portfolioCurrentKey, JSON.stringify(sanitizedPortfolioCurrent));
 
-    // Sanitize Session
+    // Sanitize Session & Activity
     safeStorage.removeItem(sessionKey);
     safeStorage.removeItem(positionsKey);
+    safeStorage.removeItem(`aver_activity_${uid}`);
+    safeStorage.removeItem(`aver_trades_${uid}`);
 
     // Sanitize User Profile in Local Storage
     const cachedProfileRaw = safeStorage.getItem(profileKey);

@@ -412,14 +412,16 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   
   const currentLevel = user?.level || 1;
   const totalXp = user?.xp || 0;
-  const nextLevelXp = 1000 + ((currentLevel - 1) * 250);
+  const nextLevelXp = 5000 * currentLevel;
   const xpProgressPercent = Math.min(100, Math.round((totalXp / nextLevelXp) * 100));
 
+  const accountAgeDays = user?.createdAt ? Math.floor((Date.now() - new Date(user.createdAt).getTime()) / 86400000) : 0;
+
   const badges = [
-    { name: 'Pioneer', unlocked: true, icon: '🚀', desc: 'Aver platform voyager' },
-    { name: 'AI Pilot', unlocked: aiTradesCount > 0, icon: '🤖', desc: 'Executed AI trade' },
-    { name: 'Alpha', unlocked: referralCount > 0, icon: '👑', desc: 'Referred active user' },
-    { name: 'VIP Vault', unlocked: (Number(user?.totalDeposits) || 0) > 1000, icon: '💎', desc: 'Deposited over $1,000' }
+    { name: 'Pioneer', unlocked: accountAgeDays >= 7 || completedAiTrades >= 20, icon: '🚀', desc: '7+ Days Member or 20 Trades' },
+    { name: 'AI Pilot', unlocked: aiTradesCount >= 10 || completedAiTrades >= 10, icon: '🤖', desc: 'Executed 10+ AI Trades' },
+    { name: 'Alpha', unlocked: referralCount >= 2, icon: '👑', desc: 'Referred 2 Active Users' },
+    { name: 'VIP Vault', unlocked: (Number(user?.totalDeposits) || 0) >= 10000, icon: '💎', desc: 'Deposited $10,000+' }
   ];
 
   if (user?.insignias && user.insignias.length > 0) {
@@ -441,7 +443,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return `${days}d ago`;
   };
 
-  const getActivitiesList = useCallback(() => {
+  const activitiesList = useMemo(() => {
     if (!activity || activity.length === 0) return [];
 
     const list: any[] = [];
@@ -953,13 +955,13 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                     </div>
 
                     <div className={`rounded-[24px] p-5 space-y-4 ${cardClasses} max-h-[350px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pr-2`}>
-                      {getActivitiesList().length === 0 ? (
+                      {activitiesList.length === 0 ? (
                         <div className="text-center py-6 text-xs text-gray-500">
                           No recent account activities.
                         </div>
                       ) : (
                         <div className="relative border-l border-white/5 ml-3 pl-5 space-y-5">
-                          {getActivitiesList().map((item, i) => {
+                          {activitiesList.slice(0, 40).map((item, i) => {
                             let icon = <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
                             if (item.type === 'deposit') icon = <ArrowDownRight className="w-4 h-4 text-emerald-400" />;
                             if (item.type === 'withdrawal') icon = <ArrowUpRight className="w-4 h-4 text-rose-400" />;

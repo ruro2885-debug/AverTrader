@@ -7,7 +7,7 @@ import {
   serverTimestamp, 
   Timestamp 
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, auth, safeSetDoc } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
 import { walletService } from './walletService';
 
@@ -222,7 +222,7 @@ export const portfolioPersistenceService = {
     if (!userId.startsWith('local-')) {
       try {
         const docRef = doc(db, 'users', userId, 'portfolio', 'current');
-        await setDoc(docRef, {
+        await safeSetDoc(docRef, {
           ...updated,
           updatedAt: serverTimestamp()
         }, { merge: true });

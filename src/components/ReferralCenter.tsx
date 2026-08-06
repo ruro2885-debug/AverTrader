@@ -1,21 +1,78 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Copy, Lock, ShieldCheck, Zap } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { copyToClipboard } from '../lib/clipboard';
+import { db } from '../lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'dark', onBack: () => void }) {
   const { user } = useAuth();
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showAllReferrals, setShowAllReferrals] = useState(false);
-  
-  const referredUsersList = Array.isArray((user as any)?.referredUsers) ? (user as any).referredUsers : [];
+  const [liveReferredUsers, setLiveReferredUsers] = useState<any[]>([]);
 
   const referralCode = user?.referralCode || (user?.uid ? `AVR-${user.uid.slice(0, 6).toUpperCase()}` : 'AVR-29VXT');
   const referralLink = (user as any)?.referralLink || `https://aver.app/ref/${referralCode}`;
+
+  useEffect(() => {
+    if (!user) return;
+    const codesToMatch = Array.from(new Set([
+      user.referralCode,
+      user.uid,
+      referralCode,
+      user.referralCode?.toLowerCase(),
+      user.referralCode?.toUpperCase(),
+      `AVR-${user.uid.slice(0, 6).toUpperCase()}`
+    ].filter(Boolean)));
+
+    const fetchReferred = async () => {
+      try {
+        const foundMap = new Map<string, any>();
+        
+        // Add existing from profile if present
+        const profileList = Array.isArray((user as any)?.referredUsers) ? (user as any).referredUsers : [];
+        profileList.forEach((u: any) => {
+          if (u.uid || u.email || u.name) {
+            foundMap.set(u.uid || u.email || u.name, u);
+          }
+        });
+
+        // Query Firestore for users with matching referredBy
+        for (const code of codesToMatch) {
+          try {
+            const q = query(collection(db, 'users'), where('referredBy', '==', code));
+            const snap = await getDocs(q);
+            snap.docs.forEach(docSnap => {
+              const d = docSnap.data();
+              if (d.uid !== user.uid) {
+                foundMap.set(d.uid || docSnap.id, {
+                  uid: d.uid || docSnap.id,
+                  name: d.username || d.displayName || d.email?.split('@')[0] || 'Referred Member',
+                  email: d.email,
+                  joinedAt: d.createdAt || new Date().toISOString(),
+                  photoURL: d.profilePhotoURL || d.avatarUrl
+                });
+              }
+            });
+          } catch (e) {}
+        }
+
+        setLiveReferredUsers(Array.from(foundMap.values()));
+      } catch (err) {
+        console.warn("Failed fetching live referred users:", err);
+      }
+    };
+
+    fetchReferred();
+  }, [user, referralCode]);
+
+  const profileReferredList = Array.isArray((user as any)?.referredUsers) ? (user as any).referredUsers : [];
+  const referredUsersList = liveReferredUsers.length > 0 ? liveReferredUsers : profileReferredList;
+
   const totalReferralEarnings = (user as any)?.totalReferralEarnings ?? (user as any)?.referralEarnings ?? 0;
-  const totalReferrals = (user as any)?.totalReferrals ?? user?.referralCount ?? 0;
+  const totalReferrals = Math.max(referredUsersList.length, (user as any)?.totalReferrals ?? user?.referralCount ?? 0);
   const referralLevel = (user as any)?.referralLevel ?? Math.floor(totalReferrals / 5) + 1;
 
   const handleCopyLink = async () => {

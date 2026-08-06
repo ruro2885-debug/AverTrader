@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, ShieldCheck, CheckCircle2, XCircle, Clock, FileText, User, 
-  AlertTriangle, Eye, Check, X, ArrowLeft, RefreshCcw, MapPin, Calendar, Globe, Phone, Download, Maximize2 
+  AlertTriangle, Eye, Check, X, ArrowLeft, RefreshCcw, MapPin, Calendar, Globe, Phone, Download, Maximize2,
+  ZoomIn, ZoomOut, RotateCcw, Filter, ChevronRight
 } from 'lucide-react';
 import { safeUpdateDoc, safeSetDoc } from '../../../lib/firebase';
 import { collection, onSnapshot, doc, serverTimestamp, query, where, getDocs, increment, arrayUnion, setDoc, addDoc } from 'firebase/firestore';
@@ -37,14 +38,24 @@ interface KYC {
   status: 'pending' | 'verified' | 'rejected' | 'requires_resubmission';
   rejectionReason?: string;
   submittedAt: string;
+  reviewedAt?: string;
+  reviewedByAdmin?: string;
 }
 
 export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
   const [submissions, setSubmissions] = useState<KYC[]>([]);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'verified' | 'rejected' | 'requires_resubmission'>('all');
   const [loading, setLoading] = useState(true);
   const [selectedSubmission, setSelectedSubmission] = useState<KYC | null>(null);
+  
+  // High-Resolution Image Inspector Modal State
   const [previewImage, setPreviewImage] = useState<{ url: string; title: string } | null>(null);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [panPos, setPanPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
   const [actionModal, setActionModal] = useState<'reject' | 'resubmit' | null>(null);
   const [reasonText, setReasonText] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -57,31 +68,95 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   useEffect(() => {
-    const syncKyc = (docs?: any[]) => {
-      let data: KYC[] = [];
+    const syncKyc = async (docs?: any[]) => {
+      console.log("[AdminKYC DEBUG] Starting syncKyc...", { firestoreDocsCount: docs?.length || 0 });
+      let dataMap = new Map<string, KYC>();
+
+      // 1. Load from admin_kyc collection snapshot (Primary source for all submissions)
       if (docs) {
-        data = docs.map(d => {
+        docs.forEach(d => {
           const raw = typeof d.data === 'function' ? d.data() : d;
-          return { ...raw, id: d.id || raw.id } as KYC;
+          const kycObj = { ...raw, id: d.id || raw.id } as KYC;
+          if (kycObj.id) {
+            dataMap.set(kycObj.id, kycObj);
+          }
         });
       }
-      
+
+      // 2. Load from user documents (kycHistory array & kycData)
       try {
-        const local = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
-        if (Array.isArray(local)) {
-          const localMap = new Map<string, KYC>();
-          local.forEach(k => localMap.set(k.userId, k as KYC)); // prefer latest per user
-          data.forEach(k => localMap.set(k.userId, k)); // fs overrides local
-          data = Array.from(localMap.values());
+        const usersSnap = await getDocs(collection(db, 'users')).catch(() => null);
+        if (usersSnap && !usersSnap.empty) {
+          usersSnap.docs.forEach(uDoc => {
+            const u = uDoc.data();
+            // Check kycHistory array for all past submissions
+            if (Array.isArray(u.kycHistory)) {
+              u.kycHistory.forEach((h: any) => {
+                const subId = h.id || `hist-${uDoc.id}-${h.submittedAt || Math.random()}`;
+                if (!dataMap.has(subId)) {
+                  dataMap.set(subId, {
+                    id: subId,
+                    userId: uDoc.id,
+                    name: h.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email?.split('@')[0] || 'User',
+                    email: u.email || h.email || '',
+                    profilePhoto: h.profilePhoto || u.profilePhotoURL || h.selfieUrl,
+                    tier: h.tier || 'Tier 1',
+                    idType: h.idType || 'Passport',
+                    personalInfo: h.personalInfo,
+                    address: h.address,
+                    documents: h.documents || [h.frontIdUrl, h.backIdUrl, h.selfieUrl].filter(Boolean),
+                    frontIdUrl: h.frontIdUrl,
+                    frontIdOriginalUrl: h.frontIdOriginalUrl || h.frontIdUrl,
+                    backIdUrl: h.backIdUrl,
+                    backIdOriginalUrl: h.backIdOriginalUrl || h.backIdUrl,
+                    selfieUrl: h.selfieUrl,
+                    selfieOriginalUrl: h.selfieOriginalUrl || h.selfieUrl,
+                    status: h.status || 'pending',
+                    rejectionReason: h.rejectionReason,
+                    submittedAt: h.submittedAt || new Date().toISOString()
+                  });
+                }
+              });
+            }
+
+            // Check single kycData if present and not in map
+            if (u.kycData && u.kycData.id) {
+              if (!dataMap.has(u.kycData.id)) {
+                dataMap.set(u.kycData.id, {
+                  ...u.kycData,
+                  id: u.kycData.id,
+                  userId: uDoc.id
+                });
+              }
+            }
+          });
         }
       } catch (e) {}
 
-      // Memory sort by submittedAt descending
+      // 3. Load from local storage
+      try {
+        const local = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
+        if (Array.isArray(local)) {
+          console.log("[AdminKYC DEBUG] Loaded local storage submissions:", local.length);
+          local.forEach((k: KYC) => {
+            if (k.id && !dataMap.has(k.id)) {
+              dataMap.set(k.id, k);
+            }
+          });
+        }
+      } catch (e) {}
+
+      let data = Array.from(dataMap.values());
+
+      // Memory sort by submittedAt descending (Newest first)
       data.sort((a, b) => {
         const timeA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
         const timeB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
         return timeB - timeA;
       });
+
+      console.log("[AdminKYC DEBUG] Total unique KYC submission cards to render:", data.length, data.map(s => ({ id: s.id, status: s.status, user: s.userId })));
+
       setSubmissions(data);
       setLoading(false);
     };
@@ -95,11 +170,59 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
 
     const handleStorage = () => syncKyc();
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('aver_kyc_submitted', handleStorage);
     return () => {
       unsub();
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('aver_kyc_submitted', handleStorage);
     };
   }, []);
+
+  // Image Inspector Controls
+  const handleOpenInspector = (url: string, title: string) => {
+    setPreviewImage({ url, title });
+    setZoomScale(1);
+    setPanPos({ x: 0, y: 0 });
+  };
+
+  const handleZoomIn = () => setZoomScale(prev => Math.min(prev + 0.5, 4));
+  const handleZoomOut = () => setZoomScale(prev => Math.max(prev - 0.5, 1));
+  const handleResetZoom = () => {
+    setZoomScale(1);
+    setPanPos({ x: 0, y: 0 });
+  };
+
+  const handleToggleDoubleClickZoom = () => {
+    if (zoomScale > 1.2) {
+      handleResetZoom();
+    } else {
+      setZoomScale(2.5);
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoomScale <= 1) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - panPos.x, y: e.clientY - panPos.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || zoomScale <= 1) return;
+    setPanPos({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  const handleWheelZoom = (e: React.WheelEvent) => {
+    if (e.deltaY < 0) {
+      setZoomScale(prev => Math.min(prev + 0.25, 4));
+    } else {
+      setZoomScale(prev => Math.max(prev - 0.25, 1));
+    }
+  };
 
   const handleDownload = async (url: string, filename: string) => {
     try {
@@ -137,21 +260,36 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
       const submission = submissions.find(s => s.id === id);
       if (!submission) return;
 
-      // Close UI immediately for better responsiveness as requested
       setSelectedSubmission(null);
       setActionModal(null);
 
       const updatePayload: any = { 
         status,
-        reviewedAt: serverTimestamp(),
+        reviewedAt: new Date().toISOString(),
         reviewedByAdmin: auth.currentUser?.email || 'admin@aver.io'
       };
       if (reason) {
         updatePayload.rejectionReason = reason;
       }
 
+      // 1. Update specific submission doc in admin_kyc
       await safeUpdateDoc(doc(db, 'admin_kyc', id), updatePayload);
 
+      // 2. Local Storage Sync
+      try {
+        const local = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
+        if (Array.isArray(local)) {
+          const updatedLocal = local.map((item: any) => {
+            if (item.id === id) {
+              return { ...item, ...updatePayload };
+            }
+            return item;
+          });
+          localStorage.setItem('aver_admin_kyc_local', JSON.stringify(updatedLocal));
+        }
+      } catch (e) {}
+
+      // 3. Update User document status
       if (submission.userId) {
         const userUpdate: any = {
           kycStatus: status === 'verified' ? 'verified' : status === 'rejected' ? 'rejected' : 'requires_resubmission',
@@ -177,7 +315,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                 const depData = dDoc.data();
                 const amount = Number(depData.amount) || 0;
                 
-                // Approve deposit
                 await safeUpdateDoc(doc(db, 'admin_deposits', dDoc.id), {
                   status: 'completed',
                   approvedAt: serverTimestamp(),
@@ -211,7 +348,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                   type: 'success'
                 };
 
-                // Credit balance
                 await safeSetDoc(doc(db, 'users', submission.userId), {
                   portfolioBalance: increment(amount),
                   availableBalance: increment(amount),
@@ -223,8 +359,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                   notificationsList: arrayUnion(notifItem),
                   lastUpdated: serverTimestamp()
                 }, { merge: true });
-                
-                console.log(`[KYC-AutoFund] Credited $${amount} to user ${submission.userId}`);
               }
             }
           } catch (fundErr) {
@@ -240,7 +374,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
 
         await setDoc(doc(db, 'users', submission.userId), userUpdate, { merge: true });
 
-        // Create notification
         let notifTitle = '';
         let notifBody = '';
         if (status === 'verified') {
@@ -265,46 +398,116 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         }).catch(() => {});
       }
 
-      showToast(status === 'verified' ? 'Verification Complete & Account Funded' : `KYC status updated to ${status}`);
+      // Update local React state instantly
+      setSubmissions(prev => prev.map(s => s.id === id ? { ...s, ...updatePayload } : s));
+
+      showToast(status === 'verified' ? 'Verification Complete & Account Funded' : `KYC submission status updated to ${status}`);
     } catch (err: any) {
       console.error("Failed to update KYC status:", err);
       showToast(err.message || 'Error updating KYC status', 'error');
     }
   };
 
-  const filtered = submissions.filter(s => 
-    s.email?.toLowerCase().includes(search.toLowerCase()) || 
-    s.name?.toLowerCase().includes(search.toLowerCase()) ||
-    s.userId?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = submissions.filter(s => {
+    const matchesSearch = 
+      s.email?.toLowerCase().includes(search.toLowerCase()) || 
+      s.name?.toLowerCase().includes(search.toLowerCase()) ||
+      s.userId?.toLowerCase().includes(search.toLowerCase()) ||
+      s.id?.toLowerCase().includes(search.toLowerCase());
+    
+    if (statusFilter === 'all') return matchesSearch;
+    return matchesSearch && s.status === statusFilter;
+  });
+
+  const countPending = submissions.filter(s => s.status === 'pending').length;
+  const countVerified = submissions.filter(s => s.status === 'verified').length;
+  const countRejected = submissions.filter(s => s.status === 'rejected').length;
+  const countResubmit = submissions.filter(s => s.status === 'requires_resubmission').length;
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-black tracking-tight mb-2">Identity Governance</h1>
         <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-          Review and verify institutional KYC submissions for regulatory compliance and platform security.
+          Review and audit all individual KYC verification records for regulatory compliance and platform security.
         </p>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+      {/* Filter Tabs & Search Bar */}
+      <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-2 lg:pb-0 scrollbar-none">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all ${
+              statusFilter === 'all'
+                ? 'bg-emerald-500 text-slate-950 shadow-md'
+                : isDark ? 'bg-white/5 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>All Submissions</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/20 font-black">{submissions.length}</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('pending')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all ${
+              statusFilter === 'pending'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : isDark ? 'bg-white/5 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>Pending Review</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/20 font-black">{countPending}</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('verified')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all ${
+              statusFilter === 'verified'
+                ? 'bg-emerald-500 text-slate-950 shadow-md'
+                : isDark ? 'bg-white/5 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>Approved</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/20 font-black">{countVerified}</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('rejected')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all ${
+              statusFilter === 'rejected'
+                ? 'bg-rose-500 text-white shadow-md'
+                : isDark ? 'bg-white/5 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>Rejected</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/20 font-black">{countRejected}</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('requires_resubmission')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 whitespace-nowrap transition-all ${
+              statusFilter === 'requires_resubmission'
+                ? 'bg-blue-500 text-white shadow-md'
+                : isDark ? 'bg-white/5 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>Resubmission Req.</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/20 font-black">{countResubmit}</span>
+          </button>
+        </div>
+
         <div className={`flex-1 max-w-md flex items-center gap-3 px-4 py-2.5 rounded-2xl border ${
           isDark ? 'bg-white/5 border-white/5' : 'bg-white border-slate-200 shadow-sm'
         }`}>
           <Search className="w-4 h-4 text-slate-500" />
           <input 
             type="text" 
-            placeholder="Search by name, email or UID..." 
+            placeholder="Search by name, email, UID or submission ID..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="bg-transparent border-none focus:ring-0 text-sm w-full"
           />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-400">Total Submissions:</span>
-          <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-500 font-black text-xs">
-            {submissions.length}
-          </span>
         </div>
       </div>
 
@@ -328,10 +531,11 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         )}
       </AnimatePresence>
 
+      {/* INDIVIDUAL SUBMISSION CARDS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {filtered.map((item, idx) => (
           <motion.div
-            key={`kyc-${item.id || idx}-${idx}`}
+            key={`kyc-card-${item.id}-${idx}`}
             layout
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -340,19 +544,19 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
             } ${item.status === 'pending' ? 'ring-1 ring-amber-500/30' : ''}`}
           >
             <div>
-              <div className="flex items-start justify-between mb-6">
+              <div className="flex items-start justify-between mb-5">
                 <div className="flex items-center gap-3">
                   <div className={`w-12 h-12 rounded-2xl overflow-hidden flex items-center justify-center font-bold text-lg ${
                     isDark ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'
                   }`}>
                     {item.profilePhoto || item.selfieUrl ? (
-                      <img src={item.profilePhoto || item.selfieUrl} alt={item.name} className="w-full h-full object-cover" />
+                      <img src={item.selfieUrl || item.profilePhoto} alt={item.name} className="w-full h-full object-cover" />
                     ) : (
                       item.name?.charAt(0) || <User className="w-6 h-6" />
                     )}
                   </div>
                   <div>
-                    <h3 className="font-bold text-base">{item.name || 'Anonymous User'}</h3>
+                    <h3 className="font-bold text-base leading-tight">{item.name || 'Anonymous User'}</h3>
                     <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{item.email}</p>
                   </div>
                 </div>
@@ -368,16 +572,20 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
 
               <div className="space-y-2 mb-6 text-xs">
                 <div className="flex justify-between py-1 border-b border-white/5">
+                  <span className="text-slate-400">Submission ID</span>
+                  <span className="font-mono text-[10px] text-emerald-400 font-bold">{item.id?.slice(0, 18)}...</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-white/5">
                   <span className="text-slate-400">ID Type</span>
                   <span className="font-bold">{item.idType || 'Passport'}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-white/5">
-                  <span className="text-slate-400">UID</span>
+                  <span className="text-slate-400">User UID</span>
                   <span className="font-mono text-[10px] text-slate-400">{item.userId?.slice(0, 10)}...</span>
                 </div>
                 <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Submitted</span>
-                  <span className="font-semibold">{new Date(item.submittedAt || Date.now()).toLocaleDateString()}</span>
+                  <span className="text-slate-400">Submitted Date</span>
+                  <span className="font-semibold">{new Date(item.submittedAt || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
                 </div>
               </div>
             </div>
@@ -389,7 +597,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                   isDark ? 'border-white/10 hover:bg-white/5 text-white' : 'border-slate-200 hover:bg-slate-100 text-slate-800'
                 }`}
               >
-                <Eye className="w-4 h-4" />
+                <Eye className="w-4 h-4 text-emerald-400" />
                 <span>Review Details</span>
               </button>
             </div>
@@ -399,12 +607,12 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         {filtered.length === 0 && !loading && (
           <div className="col-span-full py-16 text-center text-slate-500">
             <ShieldCheck className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="text-sm font-bold">No KYC submissions found</p>
+            <p className="text-sm font-bold">No KYC submissions found for selected filter</p>
           </div>
         )}
       </div>
 
-      {/* DETAILED REVIEW MODAL */}
+      {/* DETAILED SUBMISSION REVIEW MODAL */}
       <AnimatePresence>
         {selectedSubmission && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -412,22 +620,33 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className={`max-w-3xl w-full max-h-[90vh] overflow-y-auto rounded-[2.5pax] border p-8 space-y-6 ${
+              className={`max-w-3xl w-full max-h-[90vh] overflow-y-auto rounded-[2.5rem] border p-8 space-y-6 ${
                 isDark ? 'bg-slate-900 border-white/10 text-slate-100' : 'bg-white border-slate-200 text-slate-950 shadow-2xl'
               }`}
             >
               <div className="flex items-center justify-between pb-4 border-b border-white/10">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl overflow-hidden bg-slate-800">
+                  <div className="w-14 h-14 rounded-2xl overflow-hidden bg-slate-800 flex items-center justify-center font-bold text-xl">
                     {selectedSubmission.selfieUrl ? (
                       <img src={selectedSubmission.selfieUrl} alt="Selfie" className="w-full h-full object-cover" />
                     ) : (
-                      <User className="w-6 h-6 m-auto text-slate-400" />
+                      <User className="w-6 h-6 text-slate-400" />
                     )}
                   </div>
                   <div>
-                    <h2 className="text-xl font-black">{selectedSubmission.name}</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-black">{selectedSubmission.name}</h2>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                        selectedSubmission.status === 'verified' ? 'bg-emerald-500/20 text-emerald-400' :
+                        selectedSubmission.status === 'rejected' ? 'bg-rose-500/20 text-rose-400' :
+                        selectedSubmission.status === 'requires_resubmission' ? 'bg-blue-500/20 text-blue-400' :
+                        'bg-amber-500/20 text-amber-400'
+                      }`}>
+                        {selectedSubmission.status}
+                      </span>
+                    </div>
                     <p className="text-xs text-slate-400">{selectedSubmission.email} • UID: {selectedSubmission.userId}</p>
+                    <p className="text-[10px] text-emerald-400 font-mono mt-0.5">Submission ID: {selectedSubmission.id}</p>
                   </div>
                 </div>
                 <button 
@@ -438,7 +657,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                 </button>
               </div>
 
-              {/* Submission Information Grid */}
+              {/* Information Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className={`p-5 rounded-2xl border space-y-3 ${isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
                   <h4 className="text-xs font-black uppercase tracking-wider text-emerald-400">Personal Information</h4>
@@ -447,6 +666,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                     <div className="flex justify-between"><span className="text-slate-400">Date of Birth:</span> <span className="font-bold">{selectedSubmission.personalInfo?.dob || 'N/A'}</span></div>
                     <div className="flex justify-between"><span className="text-slate-400">Nationality:</span> <span className="font-bold">{selectedSubmission.personalInfo?.nationality || 'N/A'}</span></div>
                     <div className="flex justify-between"><span className="text-slate-400">Phone:</span> <span className="font-bold">{selectedSubmission.personalInfo?.phone || 'N/A'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Submitted:</span> <span className="font-semibold">{new Date(selectedSubmission.submittedAt).toLocaleString()}</span></div>
                   </div>
                 </div>
 
@@ -456,66 +676,81 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                     <div className="flex justify-between"><span className="text-slate-400">Street:</span> <span className="font-bold">{selectedSubmission.address?.street || 'N/A'}</span></div>
                     <div className="flex justify-between"><span className="text-slate-400">City / State:</span> <span className="font-bold">{selectedSubmission.address?.city}, {selectedSubmission.address?.state}</span></div>
                     <div className="flex justify-between"><span className="text-slate-400">Postal Code:</span> <span className="font-bold">{selectedSubmission.address?.postalCode || 'N/A'}</span></div>
+                    {selectedSubmission.rejectionReason && (
+                      <div className="pt-2 border-t border-white/10 text-rose-400">
+                        <span className="font-bold">Rejection Reason:</span> {selectedSubmission.rejectionReason}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Uploaded Documents */}
+              {/* Uploaded Verification Documents */}
               <div className="space-y-3">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Uploaded Verification Documents (Click to Zoom & Download)</h4>
-                <div className="grid grid-cols-3 gap-4">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  Uploaded High-Resolution Verification Documents (Click to Inspect & Zoom)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {selectedSubmission.frontIdUrl && (
                     <div 
-                      onClick={() => setPreviewImage({ url: selectedSubmission.frontIdOriginalUrl || selectedSubmission.frontIdUrl!, title: 'Front ID Document' })}
-                      className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer"
+                      onClick={() => handleOpenInspector(selectedSubmission.frontIdOriginalUrl || selectedSubmission.frontIdUrl!, 'Front ID Document')}
+                      className="h-40 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer bg-slate-950"
                     >
                       <img src={selectedSubmission.frontIdUrl} alt="Front ID" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                      <span className="absolute bottom-1 left-1 text-[9px] bg-black/80 px-2 py-0.5 rounded text-white font-bold">Front ID</span>
+                      <span className="absolute bottom-2 left-2 text-[10px] bg-black/80 px-2 py-1 rounded text-white font-bold backdrop-blur-sm">
+                        Front ID
+                      </span>
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <Maximize2 className="w-5 h-5 text-white" />
+                        <Maximize2 className="w-6 h-6 text-white" />
                       </div>
                       <button 
-                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.frontIdOriginalUrl || selectedSubmission.frontIdUrl!, `front-id-${selectedSubmission.userId}.jpg`); }}
+                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.frontIdOriginalUrl || selectedSubmission.frontIdUrl!, `front-id-${selectedSubmission.id}.jpg`); }}
                         className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/80 hover:bg-black text-white transition-all shadow-md flex items-center gap-1 text-[10px] font-bold z-10"
-                        title="Download Front ID"
+                        title="Download HD Front ID"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
+
                   {selectedSubmission.backIdUrl && (
                     <div 
-                      onClick={() => setPreviewImage({ url: selectedSubmission.backIdOriginalUrl || selectedSubmission.backIdUrl!, title: 'Back ID Document' })}
-                      className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer"
+                      onClick={() => handleOpenInspector(selectedSubmission.backIdOriginalUrl || selectedSubmission.backIdUrl!, 'Back ID Document')}
+                      className="h-40 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer bg-slate-950"
                     >
                       <img src={selectedSubmission.backIdUrl} alt="Back ID" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                      <span className="absolute bottom-1 left-1 text-[9px] bg-black/80 px-2 py-0.5 rounded text-white font-bold">Back ID</span>
+                      <span className="absolute bottom-2 left-2 text-[10px] bg-black/80 px-2 py-1 rounded text-white font-bold backdrop-blur-sm">
+                        Back ID
+                      </span>
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <Maximize2 className="w-5 h-5 text-white" />
+                        <Maximize2 className="w-6 h-6 text-white" />
                       </div>
                       <button 
-                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.backIdOriginalUrl || selectedSubmission.backIdUrl!, `back-id-${selectedSubmission.userId}.jpg`); }}
+                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.backIdOriginalUrl || selectedSubmission.backIdUrl!, `back-id-${selectedSubmission.id}.jpg`); }}
                         className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/80 hover:bg-black text-white transition-all shadow-md flex items-center gap-1 text-[10px] font-bold z-10"
-                        title="Download Back ID"
+                        title="Download HD Back ID"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
+
                   {selectedSubmission.selfieUrl && (
                     <div 
-                      onClick={() => setPreviewImage({ url: selectedSubmission.selfieOriginalUrl || selectedSubmission.selfieUrl!, title: 'Selfie Verification' })}
-                      className="h-36 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer"
+                      onClick={() => handleOpenInspector(selectedSubmission.selfieOriginalUrl || selectedSubmission.selfieUrl!, 'Selfie Verification')}
+                      className="h-40 rounded-2xl overflow-hidden border border-white/10 relative group cursor-pointer bg-slate-950"
                     >
                       <img src={selectedSubmission.selfieUrl} alt="Selfie" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                      <span className="absolute bottom-1 left-1 text-[9px] bg-black/80 px-2 py-0.5 rounded text-white font-bold">Selfie</span>
+                      <span className="absolute bottom-2 left-2 text-[10px] bg-black/80 px-2 py-1 rounded text-white font-bold backdrop-blur-sm">
+                        Selfie Verification
+                      </span>
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <Maximize2 className="w-5 h-5 text-white" />
+                        <Maximize2 className="w-6 h-6 text-white" />
                       </div>
                       <button 
-                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.selfieOriginalUrl || selectedSubmission.selfieUrl!, `selfie-${selectedSubmission.userId}.jpg`); }}
+                        onClick={(e) => { e.stopPropagation(); handleDownload(selectedSubmission.selfieOriginalUrl || selectedSubmission.selfieUrl!, `selfie-${selectedSubmission.id}.jpg`); }}
                         className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/80 hover:bg-black text-white transition-all shadow-md flex items-center gap-1 text-[10px] font-bold z-10"
-                        title="Download Selfie"
+                        title="Download HD Selfie"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
@@ -536,7 +771,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                         type="text" 
                         value={reasonText}
                         onChange={e => setReasonText(e.target.value)}
-                        placeholder={actionModal === 'reject' ? 'e.g. Document image is blurry or expired' : 'e.g. Please upload a clear color photo of your passport'}
+                        placeholder={actionModal === 'reject' ? 'e.g. ID document photo is expired or illegible' : 'e.g. Please upload a clear color photo of your Passport'}
                         className={`w-full p-3 rounded-xl border text-xs bg-transparent ${isDark ? 'border-white/10' : 'border-slate-300'}`}
                       />
                     </div>
@@ -574,14 +809,14 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                       onClick={() => setActionModal('reject')}
                       className="px-5 py-3 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 font-bold text-xs transition-all"
                     >
-                      Reject
+                      Reject Submission
                     </button>
                     <button
                       onClick={() => handleAction(selectedSubmission.id, 'verified')}
                       className="px-6 py-3 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Approve KYC</span>
+                      <span>Approve Submission</span>
                     </button>
                   </>
                 )}
@@ -591,38 +826,89 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         )}
       </AnimatePresence>
 
-      {/* Lightbox Image Preview Modal */}
+      {/* FULL-SCREEN HD DOCUMENT INSPECTOR MODAL WITH ZOOM & PAN */}
       <AnimatePresence>
         {previewImage && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative max-w-4xl w-full bg-neutral-900 border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col items-center"
-            >
-              <div className="w-full flex items-center justify-between mb-4">
+          <div className="fixed inset-0 z-[100] flex flex-col bg-black/95 backdrop-blur-xl select-none">
+            {/* Inspector Navigation Header */}
+            <div className="p-4 bg-neutral-900/90 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
                 <h3 className="text-sm font-black text-white">{previewImage.title}</h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleDownload(previewImage.url, `kyc-document-${Date.now()}.jpg`)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-all shadow-md"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download HD</span>
-                  </button>
-                  <button 
-                    onClick={() => setPreviewImage(null)}
-                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] bg-white/10 text-slate-300 font-mono">
+                  {Math.round(zoomScale * 100)}%
+                </span>
               </div>
-              <div className="w-full max-h-[75vh] overflow-auto flex items-center justify-center rounded-2xl bg-black/60 border border-white/5 p-2">
-                <img src={previewImage.url} alt="Document Preview" className="max-w-full max-h-[70vh] object-contain rounded-xl" />
+
+              {/* Inspector Action Controls */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleZoomIn}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all"
+                  title="Zoom In (+)"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleZoomOut}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all"
+                  title="Zoom Out (-)"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleResetZoom}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all"
+                  title="Reset Scale"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleDownload(previewImage.url, `kyc-document-hd-${Date.now()}.jpg`)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md ml-2"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download HD Original</span>
+                </button>
+                <button 
+                  onClick={() => { setPreviewImage(null); handleResetZoom(); }}
+                  className="p-2 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-white transition-colors ml-2"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </motion.div>
+            </div>
+
+            {/* Inspector Canvas Container */}
+            <div 
+              className="flex-1 overflow-hidden relative flex items-center justify-center cursor-grab active:cursor-grabbing p-4"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onWheel={handleWheelZoom}
+              onDoubleClick={handleToggleDoubleClickZoom}
+            >
+              <div
+                style={{
+                  transform: `translate(${panPos.x}px, ${panPos.y}px) scale(${zoomScale})`,
+                  transition: isDragging ? 'none' : 'transform 0.15s ease-out'
+                }}
+                className="max-w-full max-h-full flex items-center justify-center"
+              >
+                <img 
+                  src={previewImage.url} 
+                  alt="Uncompressed HD Document" 
+                  className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl shadow-2xl pointer-events-none select-none" 
+                />
+              </div>
+
+              {/* On-screen Zoom Hint Overlay */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 border border-white/10 px-4 py-1.5 rounded-full text-[11px] text-slate-300 pointer-events-none backdrop-blur-md flex items-center gap-2">
+                <span>Double-click or pinch to toggle 2.5x zoom</span>
+                <span>•</span>
+                <span>Drag to pan when zoomed</span>
+              </div>
+            </div>
           </div>
         )}
       </AnimatePresence>

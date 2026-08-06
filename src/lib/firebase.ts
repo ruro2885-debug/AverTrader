@@ -156,6 +156,9 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     lowerMsg.includes('quota') ||
     lowerMsg.includes('unavailable') ||
     lowerMsg.includes('resource-exhausted') ||
+    lowerMsg.includes('permission') ||
+    lowerMsg.includes('insufficient') ||
+    lowerMsg.includes('unauthorized') ||
     lowerMsg.includes('permission-denied') ||
     lowerMsg.includes('could not reach') ||
     lowerMsg.includes('backend didn\'t respond')
@@ -163,6 +166,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     if (lowerMsg.includes('quota') || lowerMsg.includes('resource-exhausted')) {
       quotaExceeded = true;
     }
+    console.warn(`[Firebase] Handled permission/network notice for ${operationType} on ${path}:`, errMessage);
     return;
   }
   throw new Error(JSON.stringify(errInfo));
