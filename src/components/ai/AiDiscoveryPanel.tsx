@@ -3,6 +3,8 @@ import { Search, CheckCircle2, Clock, XCircle, Zap } from 'lucide-react';
 import { AiSession, AiRecommendation, AiConfiguration } from '../../types/aiTrading';
 import { motion } from 'motion/react';
 
+import CoinLogo from '../CoinLogo';
+
 interface AiDiscoveryPanelProps {
   session: AiSession | null;
   config: AiConfiguration | null;
@@ -34,16 +36,19 @@ export default function AiDiscoveryPanel({ session, config, recommendations, isD
           No trading pairs selected. Please save a configuration to begin.
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-y divide-white/5 border-b border-white/5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 divide-x divide-y divide-white/5 border-b border-white/5">
           {markets.map((asset, i) => {
             const hasRec = recommendations.some(r => r.asset === asset && r.status === 'PENDING');
             const isScanning = session && !hasRec && i % 3 === 0;
             const liveState = liveStates?.[asset];
             
             return (
-              <div key={asset} className="p-2 flex flex-col items-center gap-1">
-                <span className={`text-xs font-black ${textPrimary}`}>{asset}</span>
-                <div className="flex flex-col items-center gap-0.5 text-center justify-center">
+              <div key={asset} className="p-6 flex flex-col items-center gap-4 hover:bg-white/2 transition-colors border-r border-b border-white/5">
+                <div className="flex flex-col items-center gap-2">
+                  <CoinLogo symbol={asset} size={28} />
+                  <span className={`text-sm font-black tracking-wider ${textPrimary}`}>{asset}</span>
+                </div>
+                <div className="flex flex-col items-center gap-1 text-center justify-center">
                   {liveState ? (
                     <>
                       {(() => {

@@ -1,127 +1,177 @@
 import { doc, updateDoc, increment, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile } from '../types';
+import { safeStorage } from '../utils/storage';
 
 export const progressionService = {
-  async updateProgress(userId: string, actionType: 'trade' | 'win' | 'login') {
-    const userRef = doc(db, 'users', userId);
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists()) return;
-    
-    const user = userSnap.data() as UserProfile;
+  async updateProgress(userId: string, actionType: 'trade' | 'win' | 'loss' | 'login') {
+    if (!userId) return;
+
+    const profileKey = `user_profile_${userId}`;
+    const activeUserKey = `aver_active_user`;
+
+    // 1. Get current profile from local storage if available
+    let localProfile: UserProfile | null = null;
+    try {
+      const pStr = safeStorage.getItem(profileKey) || safeStorage.getItem(activeUserKey);
+      if (pStr) {
+        const parsed = JSON.parse(pStr);
+        if (parsed && (!parsed.uid || parsed.uid === userId)) {
+          localProfile = parsed;
+        }
+      }
+    } catch (e) {}
+
+    // 2. Fetch from Firestore if possible
+    let fsUser: UserProfile | null = null;
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        fsUser = userSnap.data() as UserProfile;
+      }
+    } catch (err) {}
+
+    const user: UserProfile = fsUser || localProfile || { uid: userId } as UserProfile;
+
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     
     let xpGain = 0;
     let updates: any = {};
 
+    let currentWinRun = user.winRun || localProfile?.winRun || 0;
+    let currentLoginStreak = user.loginStreak || localProfile?.loginStreak || 1;
+    let currentAiTrades = user.aiTradesCount || localProfile?.aiTradesCount || 0;
+    let lastLoginDate = user.lastLoginDate || localProfile?.lastLoginDate;
+
     switch (actionType) {
       case 'trade':
         xpGain = 20;
-        updates.aiTradesCount = increment(1);
-        // Also check if this completes a daily mission
+        currentAiTrades += 1;
+        updates.aiTradesCount = currentAiTrades;
         await this.completeDailyMission(userId, 'm2');
         break;
       case 'win':
         xpGain = 40;
-        updates.winRun = increment(1);
+        currentWinRun += 1;
+        updates.winRun = currentWinRun;
+        break;
+      case 'loss':
+        currentWinRun = 0;
+        updates.winRun = 0;
         break;
       case 'login':
-        const lastLogin = user.lastLoginDate ? new Date(user.lastLoginDate) : null;
-        
-        // Reset daily missions if it's a new day
-        if (!user.dailyMissions || user.dailyMissions.lastResetDate !== todayStr) {
-          updates.dailyMissions = {
-            lastResetDate: todayStr,
-            completedIds: []
-          };
-        }
+        const lastLoginDateOnly = lastLoginDate ? lastLoginDate.split('T')[0] : null;
 
-        if (!lastLogin) {
-          updates.loginStreak = 1;
+        if (!lastLoginDateOnly) {
+          currentLoginStreak = 1;
           xpGain = 10;
+        } else if (lastLoginDateOnly === todayStr) {
+          // Already logged in today - keep current login streak (at least 1)
+          currentLoginStreak = Math.max(1, currentLoginStreak);
+          xpGain = 0;
         } else {
-          const lastLoginDateOnly = user.lastLoginDate?.split('T')[0];
-          
-          if (lastLoginDateOnly === todayStr) {
-            // Already logged in today, don't increment streak
-            xpGain = 0; 
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+          if (lastLoginDateOnly === yesterdayStr) {
+            // Consecutive day!
+            currentLoginStreak += 1;
+            xpGain = 10;
           } else {
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = yesterday.toISOString().split('T')[0];
-            
-            if (lastLoginDateOnly === yesterdayStr) {
-              // Consecutive day!
-              updates.loginStreak = increment(1);
-              xpGain = 10;
-            } else {
-              // Skipped a day or more
-              updates.loginStreak = 1;
-              xpGain = 10;
-            }
+            // Skipped a day or more
+            currentLoginStreak = 1;
+            xpGain = 10;
           }
         }
-        updates.lastLoginDate = now.toISOString();
+        lastLoginDate = now.toISOString();
+        updates.loginStreak = currentLoginStreak;
+        updates.lastLoginDate = lastLoginDate;
         break;
     }
 
-    // Leveling logic matching UI threshold: 1000 + (level - 1) * 250
-    let currentXp = (user.xp || 0) + xpGain;
-    let currentLevel = user.level || 1;
+    // Leveling logic: 1000 XP per level
+    const calculatedXp = (currentAiTrades * 20) + (currentWinRun * 15) + (currentLoginStreak * 10);
+    let currentXp = Math.max((user.xp || localProfile?.xp || 0) + xpGain, calculatedXp);
+    let currentLevel = Math.max(1, Math.floor(currentXp / 1000) + 1);
 
-    let threshold = 1000 + (currentLevel - 1) * 250;
-    while (currentXp >= threshold) {
-      currentLevel += 1;
-      currentXp -= threshold;
-      threshold = 1000 + (currentLevel - 1) * 250;
+    let insignias: string[] = [];
+    if (currentLevel >= 5) {
+      const milestone = Math.floor(currentLevel / 5) * 5;
+      insignias.push(`Level ${milestone} Vanguard`);
     }
 
     updates.xp = currentXp;
     updates.level = currentLevel;
+    updates.insignias = insignias;
 
-    await updateDoc(userRef, updates);
+    // 3. Update local storage caches for immediate UI update
+    const updatedProfile = {
+      ...user,
+      ...localProfile,
+      winRun: currentWinRun,
+      loginStreak: currentLoginStreak,
+      aiTradesCount: currentAiTrades,
+      xp: currentXp,
+      level: currentLevel,
+      insignias,
+      lastLoginDate
+    };
+
+    try {
+      safeStorage.setItem(profileKey, JSON.stringify(updatedProfile));
+      safeStorage.setItem(activeUserKey, JSON.stringify(updatedProfile));
+      window.dispatchEvent(new Event('aver_user_updated'));
+      window.dispatchEvent(new Event('storage'));
+    } catch (err) {}
+
+    // 4. Update Firestore if accessible
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, updates);
+    } catch (err) {}
   },
 
   async completeDailyMission(userId: string, missionId: string) {
-    const userRef = doc(db, 'users', userId);
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists()) return;
-    
-    const user = userSnap.data() as UserProfile;
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) return;
+      
+      const user = userSnap.data() as UserProfile;
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
 
-    // Initialize daily missions if they don't exist
-    let dailyMissions = user.dailyMissions;
-    if (!dailyMissions || dailyMissions.lastResetDate !== todayStr) {
-      dailyMissions = {
-        lastResetDate: todayStr,
-        completedIds: []
+      let dailyMissions = user.dailyMissions;
+      if (!dailyMissions || dailyMissions.lastResetDate !== todayStr) {
+        dailyMissions = {
+          lastResetDate: todayStr,
+          completedIds: []
+        };
+      }
+
+      if (dailyMissions.completedIds.includes(missionId)) return;
+
+      const updatedCompletedIds = [...dailyMissions.completedIds, missionId];
+      
+      let progressGain = 0;
+      if (missionId === 'm2') progressGain = 1;
+      if (missionId === 'm3' || missionId === 'm4') progressGain = 0.3;
+      if (missionId === 'm5') progressGain = 0.2;
+
+      const updates: any = {
+        'dailyMissions.completedIds': updatedCompletedIds,
+        'dailyMissions.lastResetDate': todayStr
       };
-    }
 
-    // If already completed, skip
-    if (dailyMissions.completedIds.includes(missionId)) return;
+      if (progressGain > 0) {
+        updates.xp = increment(progressGain * 100);
+      }
 
-    // Add to completed list
-    const updatedCompletedIds = [...dailyMissions.completedIds, missionId];
-    
-    let progressGain = 0;
-    if (missionId === 'm2') progressGain = 1; // Trade
-    if (missionId === 'm3' || missionId === 'm4') progressGain = 0.3; // Markets, Portfolio
-    if (missionId === 'm5') progressGain = 0.2; // Check News
-
-    const updates: any = {
-      'dailyMissions.completedIds': updatedCompletedIds,
-      'dailyMissions.lastResetDate': todayStr
-    };
-
-    if (progressGain > 0) {
-      // Add XP too
-      updates.xp = increment(progressGain * 100);
-    }
-
-    await updateDoc(userRef, updates);
+      await updateDoc(userRef, updates);
+    } catch (err) {}
   }
 };
+

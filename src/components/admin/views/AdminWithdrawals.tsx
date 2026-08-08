@@ -268,7 +268,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         updatePayload.reversalReason = reason.trim();
       }
 
-      const txStatus = newStatus === 'completed' ? 'Completed' : (newStatus === 'failed' ? 'Failed' : 'Reversed');
+      const txStatus = newStatus === 'completed' ? 'Successful' : (newStatus === 'failed' ? 'Failed' : 'Reversed');
       const txUpdatePayload: any = {
         id,
         status: txStatus,
@@ -309,7 +309,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                w.id === id ? { ...w, status: 'Completed' } : w
+                w.id === id ? { ...w, status: 'Successful' } : w
               );
             }
           }
@@ -605,7 +605,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
                           isFailed ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
                           'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
                         }`}>
-                          {isCompleted ? 'Approved' : isReversed ? 'Reversed' : isFailed ? 'Failed' : 'Pending'}
+                          {isCompleted ? 'Successful' : isReversed ? 'Reversed' : isFailed ? 'Failed' : 'Pending'}
                         </span>
                         {isReversed && item.reversalReason && (
                           <span className="text-[10px] text-neutral-400 italic max-w-[180px] truncate" title={item.reversalReason}>

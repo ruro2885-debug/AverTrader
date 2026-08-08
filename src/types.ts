@@ -65,7 +65,13 @@ export interface UserProfile {
   
   onboardingCompleted?: boolean;
   bonuses?: any[];
-  kycStatus?: 'unverified' | 'pending' | 'verified' | 'rejected';
+  kycStatus?: 'unverified' | 'pending' | 'verified' | 'rejected' | 'requires_resubmission';
+  kycData?: any;
+  kycHistory?: any[];
+  kycSubmittedAt?: string;
+  kycApprovedAt?: string;
+  kycRewardUnlocked?: boolean;
+  kycRejectionReason?: string | null;
   role?: 'user' | 'super_admin' | 'admin';
   watchlist?: string[];
 }

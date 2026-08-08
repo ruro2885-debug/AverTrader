@@ -10,6 +10,7 @@ import {
   Filter,
   Layers
 } from 'lucide-react';
+import CoinLogo from '../CoinLogo';
 
 interface MarketAsset {
   symbol: string;
@@ -37,6 +38,14 @@ const initialMarkets: MarketAsset[] = [
   { symbol: 'MSFT', name: 'Microsoft Corp.', category: 'STOCKS', price: 442.1, change: 0.2, rsi: 51, volatility: 'LOW', monitored: false, favorite: false },
   { symbol: 'GOOGL', name: 'Alphabet Inc.', category: 'STOCKS', price: 185.4, change: 0.5, rsi: 53, volatility: 'LOW', monitored: false, favorite: false },
   { symbol: 'AMZN', name: 'Amazon.com', category: 'STOCKS', price: 198.2, change: -0.2, rsi: 48, volatility: 'LOW', monitored: false, favorite: false },
+  { symbol: 'META', name: 'Meta Platforms', category: 'STOCKS', price: 512.4, change: 1.5, rsi: 58, volatility: 'MEDIUM', monitored: false, favorite: false },
+  { symbol: 'NFLX', name: 'Netflix Inc.', category: 'STOCKS', price: 685.2, change: -0.8, rsi: 42, volatility: 'MEDIUM', monitored: false, favorite: false },
+  { symbol: 'AMD', name: 'AMD', category: 'STOCKS', price: 172.4, change: 2.2, rsi: 62, volatility: 'HIGH', monitored: false, favorite: false },
+  { symbol: 'INTC', name: 'Intel Corp.', category: 'STOCKS', price: 32.5, change: -5.4, rsi: 28, volatility: 'HIGH', monitored: false, favorite: false },
+  { symbol: 'SPY', name: 'S&P 500 ETF', category: 'STOCKS', price: 542.1, change: 0.3, rsi: 52, volatility: 'LOW', monitored: true, favorite: true },
+  { symbol: 'QQQ', name: 'Nasdaq 100 ETF', category: 'STOCKS', price: 482.5, change: 0.5, rsi: 55, volatility: 'LOW', monitored: false, favorite: false },
+  { symbol: 'ARKK', name: 'Ark Innovation', category: 'STOCKS', price: 42.1, change: 3.2, rsi: 64, volatility: 'HIGH', monitored: false, favorite: false },
+  { symbol: 'GLD', name: 'Gold Trust', category: 'STOCKS', price: 224.2, change: 0.1, rsi: 50, volatility: 'LOW', monitored: false, favorite: false },
   { symbol: 'EUR/USD', name: 'Euro / US Dollar', category: 'FOREX', price: 1.085, change: 0.05, rsi: 48, volatility: 'LOW', monitored: false, favorite: false },
   { symbol: 'GBP/USD', name: 'British Pound / US Dollar', category: 'FOREX', price: 1.291, change: -0.1, rsi: 46, volatility: 'LOW', monitored: false, favorite: false },
   { symbol: 'USD/JPY', name: 'US Dollar / Yen', category: 'FOREX', price: 155.2, change: 0.3, rsi: 62, volatility: 'MEDIUM', monitored: false, favorite: false },
@@ -158,9 +167,12 @@ export default function AiMarketScannerView({ monitoredMarkets, onToggleMarket, 
                 >
                   <Star className={`w-4 h-4 ${m.favorite ? 'fill-current' : ''}`} />
                 </button>
-                <div>
-                  <h4 className={`text-base font-black ${textPrimary}`}>{m.symbol}</h4>
-                  <span className={`text-[10px] ${textSecondary}`}>{m.name}</span>
+                <div className="flex items-center gap-3">
+                  <CoinLogo symbol={m.symbol} size={40} className="rounded-xl border border-white/10" />
+                  <div>
+                    <h4 className={`text-base font-black ${textPrimary}`}>{m.symbol}</h4>
+                    <span className={`text-[10px] ${textSecondary}`}>{m.name}</span>
+                  </div>
                 </div>
               </div>
               <div className="text-right">

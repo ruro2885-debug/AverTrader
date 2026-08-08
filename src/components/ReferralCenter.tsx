@@ -13,7 +13,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
   const [showAllReferrals, setShowAllReferrals] = useState(false);
   const [liveReferredUsers, setLiveReferredUsers] = useState<any[]>([]);
 
-  const referralCode = user?.referralCode || (user?.uid ? `AVR-${user.uid.slice(0, 6).toUpperCase()}` : 'AVR-29VXT');
+  const referralCode = user?.referralCode || (user?.uid ? `AVR-${user.uid.slice(0, 6).toUpperCase()}` : '');
   const referralLink = (user as any)?.referralLink || `https://aver.app/ref/${referralCode}`;
 
   useEffect(() => {
@@ -29,6 +29,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
 
     const fetchReferred = async () => {
       try {
+        setIsInitialLoading(true);
         const foundMap = new Map<string, any>();
         
         // Add existing from profile if present
@@ -62,6 +63,8 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
         setLiveReferredUsers(Array.from(foundMap.values()));
       } catch (err) {
         console.warn("Failed fetching live referred users:", err);
+      } finally {
+        setIsInitialLoading(false);
       }
     };
 
@@ -71,9 +74,32 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
   const profileReferredList = Array.isArray((user as any)?.referredUsers) ? (user as any).referredUsers : [];
   const referredUsersList = liveReferredUsers.length > 0 ? liveReferredUsers : profileReferredList;
 
-  const totalReferralEarnings = (user as any)?.totalReferralEarnings ?? (user as any)?.referralEarnings ?? 0;
   const totalReferrals = Math.max(referredUsersList.length, (user as any)?.totalReferrals ?? user?.referralCount ?? 0);
-  const referralLevel = (user as any)?.referralLevel ?? Math.floor(totalReferrals / 5) + 1;
+  const totalReferralEarnings = totalReferrals * 10;
+  const referralLevel = (user as any)?.referralLevel || Math.floor(totalReferrals / 5) + 1;
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+  const formatJoinedDate = (dateVal: any) => {
+    if (!dateVal) return 'Aug, 2026';
+    let d: Date;
+    if (typeof dateVal === 'object' && dateVal !== null) {
+      if (typeof dateVal.toDate === 'function') {
+        d = dateVal.toDate();
+      } else if ('seconds' in dateVal) {
+        d = new Date(dateVal.seconds * 1000);
+      } else {
+        d = new Date(dateVal);
+      }
+    } else {
+      d = new Date(dateVal);
+    }
+    if (isNaN(d.getTime())) {
+      return 'Aug, 2026';
+    }
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${monthNames[d.getMonth()]}, ${d.getFullYear()}`;
+  };
 
   const handleCopyLink = async () => {
     const success = await copyToClipboard(referralLink);
@@ -150,9 +176,20 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
       <section className="px-6 -mt-10 relative z-30">
         <div className="max-w-4xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white/[0.03] backdrop-blur-2xl border border-white/10 p-8 rounded-[32px] shadow-2xl">
-            <div className="flex flex-col items-center text-center space-y-2 p-4">
+            <div className="flex flex-col items-center text-center space-y-2 p-4 relative">
+              {totalReferrals > 0 && (
+                <button
+                  onClick={() => setShowLockModal(true)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-amber-400 hover:text-amber-300 hover:bg-white/10 transition-all cursor-pointer shadow-lg"
+                  title="Earnings Vault Status"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                </button>
+              )}
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.2em]">Total Earnings</span>
-              <span className="text-3xl font-black text-white">${totalReferralEarnings.toFixed(2)}</span>
+              <span className="text-3xl font-black text-white">
+                {isInitialLoading ? '...' : `$${totalReferralEarnings.toFixed(2)}`}
+              </span>
               <div className="flex items-center gap-1.5 text-[#00e676] text-[10px] font-black uppercase">
                 <Zap className="w-3 h-3 fill-[#00e676]" /> Active Program
               </div>
@@ -245,7 +282,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
                       {refUser.name || refUser.displayName || 'Anonymous User'}
                     </div>
                     <div className="text-xs text-gray-400">
-                      Joined {refUser.joinedAt ? new Date(refUser.joinedAt).toLocaleDateString() : 'Recently'}
+                      Joined {formatJoinedDate(refUser.joinedAt)}
                     </div>
                   </div>
                 </div>
@@ -263,6 +300,49 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
           )}
         </div>
       </section>
+
+      {/* Vault Status Modal */}
+      {showLockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#111] border border-white/10 p-8 rounded-[32px] max-w-md w-full space-y-6 shadow-2xl relative"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+              <Lock className="w-6 h-6" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-black text-white">Referral Rewards Locked</h3>
+              <p className="text-sm text-gray-400 leading-relaxed">
+                Your accumulated rewards of <span className="text-[#00e676] font-bold">${totalReferralEarnings.toFixed(2)}</span> are currently locked. 
+                <br /><br />
+                To unlock these rewards and have them awarded to your balance, your referees are required to reach at least the <span className="text-white font-bold underline decoration-[#00e676]">Platinum Tier</span> through consistent trading activity.
+              </p>
+            </div>
+            <div className="bg-white/5 p-4 rounded-2xl space-y-2">
+              <div className="flex justify-between text-xs font-bold">
+                <span className="text-gray-400">Active Referrals</span>
+                <span className="text-white">{totalReferrals} Friends</span>
+              </div>
+              <div className="flex justify-between text-xs font-bold">
+                <span className="text-gray-400">Reward Per Referral</span>
+                <span className="text-[#00e676]">$10.00 USDT</span>
+              </div>
+              <div className="flex justify-between text-xs font-bold pt-2 border-t border-white/5">
+                <span className="text-gray-400">Vault Status</span>
+                <span className="text-amber-400 flex items-center gap-1"><Lock className="w-3 h-3" /> Secured & Vested</span>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowLockModal(false)}
+              className="w-full py-4 rounded-2xl bg-[#00e676] text-black font-black hover:bg-[#00c853] transition-all cursor-pointer"
+            >
+              Got It
+            </button>
+          </motion.div>
+        </div>
+      )}
 
     </motion.div>
   );

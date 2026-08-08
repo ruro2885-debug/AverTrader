@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, ShieldCheck, CheckCircle2, Clock, Upload, Camera, FileText, 
@@ -51,6 +51,105 @@ const downscaleImage = (dataUrl: string, maxWidth = 800, maxHeight = 800, qualit
   });
 };
 
+// Robust timestamp extractor for any KYC submission record
+export function getKycTimestamp(sub: any): number {
+  if (!sub) return 0;
+  const timeVal = sub.submittedAt || sub.createdAt || sub.timestamp || sub.reviewedAt;
+  if (typeof timeVal === 'number' && !isNaN(timeVal)) return timeVal;
+  if (typeof timeVal === 'string') {
+    const parsed = new Date(timeVal).getTime();
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (sub.id && typeof sub.id === 'string') {
+    const parts = sub.id.split('_');
+    const num = Number(parts[parts.length - 1]);
+    if (!isNaN(num) && num > 1000000000) return num;
+  }
+  return 0;
+}
+
+// Consolidates all candidate KYC records across memory, user profile, kycHistory, localStorage, and Firestore
+export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
+  const map = new Map<string, any>();
+
+  // 1. Load from user.kycData (the active submission on active user profile)
+  if (user?.kycData && typeof user.kycData === 'object') {
+    const kData = user.kycData;
+    const id = kData.id || `kyc_${user?.uid || 'user'}_active`;
+    map.set(id, { ...kData, id, userId: user?.uid || kData.userId });
+  }
+
+  // 2. Load from user.kycHistory (array of past and current submissions on user profile)
+  if (Array.isArray(user?.kycHistory)) {
+    user.kycHistory.forEach((h: any, idx: number) => {
+      if (h && typeof h === 'object') {
+        const id = h.id || `hist_${user?.uid || 'user'}_${idx}_${getKycTimestamp(h)}`;
+        if (!map.has(id)) {
+          map.set(id, { ...h, id, userId: user?.uid || h.userId });
+        }
+      }
+    });
+  }
+
+  // 3. Load from user_profile_${uid} cached profile in localStorage
+  if (user?.uid) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(`user_profile_${user.uid}`) || '{}');
+      if (cached.kycData && typeof cached.kycData === 'object') {
+        const id = cached.kycData.id || `cached_${user.uid}`;
+        if (!map.has(id)) {
+          map.set(id, { ...cached.kycData, id, userId: user.uid });
+        }
+      }
+      if (Array.isArray(cached.kycHistory)) {
+        cached.kycHistory.forEach((h: any, idx: number) => {
+          if (h && typeof h === 'object') {
+            const id = h.id || `cached_hist_${idx}`;
+            if (!map.has(id)) {
+              map.set(id, { ...h, id, userId: user.uid });
+            }
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
+  // 4. Load from aver_admin_kyc_local in localStorage
+  try {
+    const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
+    if (Array.isArray(locals)) {
+      locals.forEach((item: any) => {
+        if (item && typeof item === 'object') {
+          const isUserMatch = !user?.uid || item.userId === user.uid || item.userId === 'guest_user';
+          const isEmailMatch = user?.email && item.email && item.email.toLowerCase() === user.email.toLowerCase();
+          if (isUserMatch || isEmailMatch) {
+            const id = item.id || `local_${getKycTimestamp(item)}`;
+            if (!map.has(id)) {
+              map.set(id, { ...item, id, userId: user?.uid || item.userId });
+            }
+          }
+        }
+      });
+    }
+  } catch (e) {}
+
+  // 5. Load from extraDocs (e.g. from Firestore admin_kyc snapshot)
+  if (Array.isArray(extraDocs)) {
+    extraDocs.forEach((d: any) => {
+      const raw = typeof d.data === 'function' ? d.data() : d;
+      if (raw && typeof raw === 'object') {
+        const id = d.id || raw.id || `firestore_${getKycTimestamp(raw)}`;
+        map.set(id, { ...raw, id, userId: user?.uid || raw.userId });
+      }
+    });
+  }
+
+  const list = Array.from(map.values());
+  // Sort strictly by timestamp descending: newest submission is index 0
+  list.sort((a, b) => getKycTimestamp(b) - getKycTimestamp(a));
+  return list;
+}
+
 export default function KycVerificationPage({ theme, onBack, onComplete }: KycVerificationPageProps) {
   const isDark = theme === 'dark';
   const { user, updateProfile } = useAuth();
@@ -61,51 +160,89 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentTimestamp, setConsentTimestamp] = useState<string | null>(null);
 
-  // Real-time listener for latest submission in admin_kyc
-  const [latestSubmission, setLatestSubmission] = useState<any>(null);
-  const [loadingSubmission, setLoadingSubmission] = useState(true);
-  const [initialStepSet, setInitialStepSet] = useState(false);
+  // Synchronous resolution of the newest submission from all available sources
+  const [latestSubmission, setLatestSubmission] = useState<any>(() => {
+    // Try to get cached status from localStorage first to avoid flash of Step 1
+    const cachedProfile = JSON.parse(localStorage.getItem(`user_profile_${user?.uid}`) || localStorage.getItem('aver_user_profile') || '{}');
+    const initialList = resolveUserSubmissions(user || cachedProfile);
+    return initialList.length > 0 ? initialList[0] : null;
+  });
+  const [loadingSubmission, setLoadingSubmission] = useState(false);
+
+  // Derive effective status to avoid Step 1 flicker during reload
+  const effectiveStatus = useMemo(() => {
+    if (submittedSuccess) return null; // Post-submission view
+    if (user?.kycStatus) return user.kycStatus;
+    
+    // Check cached profile if Firestore user is still loading or doesn't have status
+    try {
+      const cached = JSON.parse(localStorage.getItem(`user_profile_${user?.uid}`) || localStorage.getItem('aver_user_profile') || '{}');
+      if (cached.kycStatus) return cached.kycStatus;
+    } catch (e) {}
+    
+    return 'unverified';
+  }, [user?.kycStatus, submittedSuccess, user?.uid]);
 
   useEffect(() => {
+    // If status is verified, show it briefly then complete
+    if (effectiveStatus === 'verified' && !submittedSuccess) {
+      const timer = setTimeout(() => {
+        onComplete();
+      }, 4000); // 4 seconds of "brief moment"
+      return () => clearTimeout(timer);
+    }
+  }, [effectiveStatus, submittedSuccess, onComplete]);
+
+  useEffect(() => {
+    // Initial sync
+    const initialList = resolveUserSubmissions(user);
+    if (initialList.length > 0) {
+      setLatestSubmission(initialList[0]);
+    }
+
     if (!user?.uid) {
-      setLoadingSubmission(false);
       return;
     }
 
+    // Real-time listener for admin_kyc collection
     const q = query(
       collection(db, 'admin_kyc'),
       where('userId', '==', user.uid)
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // sort by submittedAt descending
-        docs.sort((a: any, b: any) => {
-          const timeA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
-          const timeB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
-          return timeB - timeA;
-        });
-        const latest = docs[0];
-        setLatestSubmission(latest);
-        
-        if (!initialStepSet) {
-           setStep(7); // Jump to status screen if there is an existing submission
-           setInitialStepSet(true);
-        }
-      } else {
-        setLatestSubmission(null);
-        setInitialStepSet(true);
+      const firestoreDocs = snap.empty ? [] : snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const updatedList = resolveUserSubmissions(user, firestoreDocs);
+      if (updatedList.length > 0) {
+        setLatestSubmission(updatedList[0]);
       }
-      setLoadingSubmission(false);
     }, (err) => {
-      console.warn("Failed to listen to latest KYC submission:", err);
-      setLoadingSubmission(false);
-      setInitialStepSet(true);
+      console.warn("[KYC] Failed to listen to admin_kyc:", err);
+      const fallbackList = resolveUserSubmissions(user);
+      if (fallbackList.length > 0) {
+        setLatestSubmission(fallbackList[0]);
+      }
     });
 
-    return unsub;
-  }, [user?.uid, initialStepSet]);
+    // Real-time listener for local storage and window submission events
+    const handleSync = () => {
+      const updatedList = resolveUserSubmissions(user);
+      if (updatedList.length > 0) {
+        setLatestSubmission(updatedList[0]);
+      }
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('aver_kyc_submitted', handleSync);
+    window.addEventListener('aver_user_updated', handleSync);
+
+    return () => {
+      unsub();
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('aver_kyc_submitted', handleSync);
+      window.removeEventListener('aver_user_updated', handleSync);
+    };
+  }, [user?.uid, user?.kycData, user?.kycHistory]);
 
   // Form Data
   const [formData, setFormData] = useState({
@@ -222,16 +359,19 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
       console.log("[KYC TRACE 3] Constructed payload successfully.");
 
+      // Set newest submission immediately in local React state so Pending view is instant & guaranteed
+      setLatestSubmission(submissionPayload);
+
       // 1. Save to admin_kyc collection for real-time admin review
       console.log("[KYC TRACE 4] Writing to admin_kyc document:", submissionId);
       await safeSetDoc(doc(db, 'admin_kyc', submissionId), submissionPayload);
       console.log("[KYC TRACE 4 COMPLETED] admin_kyc document written.");
 
-      // 2. Local storage fallback so Admin can see it on any device/session
+      // 2. Local storage fallback so Admin and User can see it across all views/sessions
       console.log("[KYC TRACE 5] Updating local storage fallback...");
       try {
         const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
-        const filtered = locals.filter((item: any) => item.id !== submissionId);
+        const filtered = Array.isArray(locals) ? locals.filter((item: any) => item.id !== submissionId) : [];
         filtered.unshift(submissionPayload);
         try {
           localStorage.setItem('aver_admin_kyc_local', JSON.stringify(filtered));
@@ -258,7 +398,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         }, { merge: true });
         console.log("[KYC TRACE 6 COMPLETED] User document updated.");
 
-        // Update cached profile
+        // Update cached profile in localStorage
         try {
           const uKey = `user_profile_${user.uid}`;
           const cachedUser = JSON.parse(localStorage.getItem(uKey) || '{}');
@@ -294,19 +434,20 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       setSubmitting(true);
       setError('');
       
-      // Pre-fill personal info from latestSubmission if available, but ALWAYS clear image documents
-      if (latestSubmission) {
+      const active = latestSubmission || (resolveUserSubmissions(user)[0]) || null;
+      // Pre-fill personal info from active submission if available, but ALWAYS clear image documents for fresh upload
+      if (active) {
         setFormData({
-          firstName: latestSubmission.name?.split(' ')[0] || '',
-          lastName: latestSubmission.name?.split(' ').slice(1).join(' ') || '',
-          dob: latestSubmission.personalInfo?.dob || '',
-          nationality: latestSubmission.personalInfo?.nationality || 'United States',
-          phone: latestSubmission.personalInfo?.phone || '',
-          address: latestSubmission.address?.street || '',
-          city: latestSubmission.address?.city || '',
-          state: latestSubmission.address?.state || '',
-          postalCode: latestSubmission.address?.postalCode || '',
-          idType: latestSubmission.idType || 'Passport',
+          firstName: active.name?.split(' ')[0] || user?.name?.split(' ')[0] || '',
+          lastName: active.name?.split(' ').slice(1).join(' ') || user?.name?.split(' ').slice(1).join(' ') || '',
+          dob: active.personalInfo?.dob || '',
+          nationality: active.personalInfo?.nationality || 'United States',
+          phone: active.personalInfo?.phone || '',
+          address: active.address?.street || '',
+          city: active.address?.city || '',
+          state: active.address?.state || '',
+          postalCode: active.address?.postalCode || '',
+          idType: active.idType || 'Passport',
           frontIdUrl: '',
           frontIdOriginalUrl: '',
           backIdUrl: '',
@@ -327,10 +468,10 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       }
 
       if (user?.uid) {
-        await updateDoc(doc(db, 'users', user.uid), {
+        await safeSetDoc(doc(db, 'users', user.uid), {
           kycStatus: 'unverified',
           lastUpdated: serverTimestamp()
-        });
+        }, { merge: true });
       }
       setStep(1);
     } catch (err: any) {
@@ -341,22 +482,25 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     }
   };
 
-  const displayData = latestSubmission ? {
-    firstName: latestSubmission.name?.split(' ')[0] || '',
-    lastName: latestSubmission.name?.split(' ').slice(1).join(' ') || '',
-    dob: latestSubmission.personalInfo?.dob || '',
-    nationality: latestSubmission.personalInfo?.nationality || '',
-    phone: latestSubmission.personalInfo?.phone || '',
-    address: latestSubmission.address?.street || '',
-    city: latestSubmission.address?.city || '',
-    state: latestSubmission.address?.state || '',
-    postalCode: latestSubmission.address?.postalCode || '',
-    idType: latestSubmission.idType || '',
-    frontIdUrl: latestSubmission.frontIdUrl || latestSubmission.documents?.[0] || '',
-    backIdUrl: latestSubmission.backIdUrl || latestSubmission.documents?.[1] || '',
-    selfieUrl: latestSubmission.selfieUrl || latestSubmission.documents?.[2] || '',
-    status: latestSubmission.status || 'pending',
-    rejectionReason: latestSubmission.rejectionReason || ''
+  // Active submission strictly prioritizes the newest resolved submission record
+  const activeSubmission = latestSubmission || (resolveUserSubmissions(user)[0]) || null;
+
+  const displayData = activeSubmission ? {
+    firstName: activeSubmission.name?.split(' ')[0] || user?.name?.split(' ')[0] || '',
+    lastName: activeSubmission.name?.split(' ').slice(1).join(' ') || user?.name?.split(' ').slice(1).join(' ') || '',
+    dob: activeSubmission.personalInfo?.dob || '',
+    nationality: activeSubmission.personalInfo?.nationality || 'United States',
+    phone: activeSubmission.personalInfo?.phone || '',
+    address: activeSubmission.address?.street || '',
+    city: activeSubmission.address?.city || '',
+    state: activeSubmission.address?.state || '',
+    postalCode: activeSubmission.address?.postalCode || '',
+    idType: activeSubmission.idType || 'Passport',
+    frontIdUrl: activeSubmission.frontIdUrl || activeSubmission.frontIdOriginalUrl || activeSubmission.documents?.[0] || '',
+    backIdUrl: activeSubmission.backIdUrl || activeSubmission.backIdOriginalUrl || activeSubmission.documents?.[1] || '',
+    selfieUrl: activeSubmission.selfieUrl || activeSubmission.selfieOriginalUrl || activeSubmission.documents?.[2] || '',
+    status: activeSubmission.status || user?.kycStatus || 'pending',
+    rejectionReason: activeSubmission.rejectionReason || ''
   } : {
     firstName: formData.firstName || user?.name?.split(' ')[0] || '',
     lastName: formData.lastName || user?.name?.split(' ').slice(1).join(' ') || '',
@@ -368,12 +512,23 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     state: formData.state || '',
     postalCode: formData.postalCode || '',
     idType: formData.idType || 'Passport',
-    frontIdUrl: formData.frontIdUrl || '',
-    backIdUrl: formData.backIdUrl || '',
-    selfieUrl: formData.selfieUrl || '',
+    frontIdUrl: formData.frontIdUrl || formData.frontIdOriginalUrl || '',
+    backIdUrl: formData.backIdUrl || formData.backIdOriginalUrl || '',
+    selfieUrl: formData.selfieUrl || formData.selfieOriginalUrl || '',
     status: user?.kycStatus || 'pending',
     rejectionReason: ''
   };
+
+  if (!user && !localStorage.getItem('aver_user_profile')) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'}`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 animate-spin" />
+          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Loading Verification Status...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen flex flex-col ${isDark ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-950'}`}>
@@ -396,7 +551,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         </div>
 
         {/* Step Progress Bar Header */}
-        {!['pending', 'verified', 'rejected', 'requires_resubmission'].includes(user?.kycStatus || '') && (
+        {!['pending', 'verified', 'rejected', 'requires_resubmission'].includes(effectiveStatus || '') && (
           <div className="hidden md:flex items-center gap-2">
             {[1, 2, 3, 4, 5, 6, 7].map((s) => (
               <div 
@@ -425,7 +580,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
             </motion.div>
           )}
 
-          {['pending', 'verified', 'rejected', 'requires_resubmission'].includes(user?.kycStatus || '') ? (
+          {['pending', 'verified', 'rejected', 'requires_resubmission'].includes(effectiveStatus || '') && !submittedSuccess ? (
             <motion.div 
               key="kyc-status-dashboard"
               initial={{ opacity: 0, y: 15 }}
@@ -434,7 +589,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
               className="space-y-8"
             >
               {/* Status Banner */}
-              {user?.kycStatus === 'pending' && (
+              {effectiveStatus === 'pending' && (
                 <div className={`p-6 rounded-3xl border border-amber-500/20 bg-amber-500/5 text-amber-500 flex flex-col md:flex-row items-start md:items-center gap-4`}>
                   <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center flex-shrink-0 border border-amber-500/20 animate-pulse">
                     <Clock className="w-6 h-6" />
@@ -449,22 +604,25 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                 </div>
               )}
 
-              {user?.kycStatus === 'verified' && (
-                <div className={`p-6 rounded-3xl border border-emerald-500/20 bg-emerald-500/5 text-emerald-500 flex flex-col md:flex-row items-start md:items-center gap-4 shadow-xl shadow-emerald-500/5`}>
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center flex-shrink-0 border border-emerald-500/20 shadow-inner">
-                    <CheckCircle2 className="w-6 h-6" />
+              {effectiveStatus === 'verified' && (
+                <div className={`p-8 rounded-[2.5rem] border border-emerald-500/30 bg-emerald-500/5 text-emerald-500 flex flex-col items-center text-center gap-6 shadow-2xl shadow-emerald-500/10`}>
+                  <div className="w-20 h-20 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center border border-emerald-500/30 animate-bounce">
+                    <CheckCircle2 className="w-10 h-10" />
                   </div>
-                  <div className="space-y-1">
-                    <h3 className="text-lg font-black tracking-tight">Verification Approved</h3>
-                    <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Congratulations! Your Level-1 KYC regulatory verification has been approved. 
-                      You have unlocked high limits and premium platform access.
+                  <div className="space-y-2">
+                    <h3 className="text-3xl font-black tracking-tight">Verification Approved!</h3>
+                    <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'} max-w-sm mx-auto leading-relaxed`}>
+                      Your identity has been verified successfully. Your high-limit access and premium features are now active.
                     </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                    Redirecting to Bonus Center...
                   </div>
                 </div>
               )}
 
-              {user?.kycStatus === 'rejected' && (
+              {effectiveStatus === 'rejected' && (
                 <div className={`p-6 rounded-3xl border border-rose-500/20 bg-rose-500/5 text-rose-500 flex flex-col md:flex-row items-start md:items-center gap-4`}>
                   <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center flex-shrink-0 border border-rose-500/20">
                     <XCircle className="w-6 h-6" />
@@ -484,7 +642,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                 </div>
               )}
 
-              {user?.kycStatus === 'requires_resubmission' && (
+              {effectiveStatus === 'requires_resubmission' && (
                 <div className={`p-6 rounded-3xl border border-blue-500/20 bg-blue-500/5 text-blue-400 flex flex-col md:flex-row items-start md:items-center gap-4`}>
                   <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center flex-shrink-0 border border-blue-500/20">
                     <RefreshCw className="w-6 h-6" />
@@ -588,7 +746,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
               {/* Action Buttons */}
               <div className="flex flex-col md:flex-row items-center gap-4 pt-4">
-                {['rejected', 'requires_resubmission'].includes(user?.kycStatus || '') && (
+                {['rejected', 'requires_resubmission'].includes(effectiveStatus || '') && (
                   <button 
                     onClick={handleRestartVerification}
                     disabled={submitting}
@@ -600,19 +758,19 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                 <button 
                   onClick={onBack}
                   className={`w-full md:w-auto px-8 py-4 rounded-2xl border font-bold text-sm text-center ${
-                    ['rejected', 'requires_resubmission'].includes(user?.kycStatus || '') 
+                    ['rejected', 'requires_resubmission'].includes(effectiveStatus || '') 
                       ? 'border-slate-300 hover:bg-slate-100 text-slate-700 dark:border-white/10 dark:hover:bg-white/5 dark:text-slate-300 md:flex-initial'
                       : 'bg-emerald-500 text-slate-950 font-black hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 flex-1'
                   }`}
                 >
-                  {['rejected', 'requires_resubmission'].includes(user?.kycStatus || '') ? 'Close' : 'Return to Bonus Center'}
+                  {['rejected', 'requires_resubmission'].includes(effectiveStatus || '') ? 'Close' : 'Return to Bonus Center'}
                 </button>
               </div>
             </motion.div>
           ) : (
             <>
               {/* STEP 1: WELCOME */}
-              {step === 1 && (
+              {(!effectiveStatus || effectiveStatus === 'unverified') && step === 1 && (
             <motion.div 
               key="step1"
               initial={{ opacity: 0, x: 20 }}
@@ -1200,7 +1358,10 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
               </div>
 
               <button
-                onClick={onComplete}
+                onClick={() => {
+                  setSubmittedSuccess(false);
+                  onComplete();
+                }}
                 className="w-full py-4 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20"
               >
                 Return to Bonus Center

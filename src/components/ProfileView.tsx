@@ -6,6 +6,7 @@ import { multiFactor, TotpMultiFactorGenerator } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { authenticator } from '@otplib/preset-default';
 import { safeStorage } from '../utils/storage';
+import { getTierState } from '../utils/tierManager';
 import UserAvatar from './UserAvatar';
 import { getAvatarDataUrl } from '../utils/avatarGenerator';
 import { linkedWalletService } from '../services/linkedWalletService';
@@ -67,6 +68,9 @@ export default function ProfileView({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
+
+  const tierState = getTierState(user);
+  const activeTier = tierState.currentTier;
 
   // Modal states
   const [activeModal, setActiveModal] = useState<string | null>(null);
@@ -959,11 +963,16 @@ export default function ProfileView({
         {/* Membership Tier Badge */}
         <div className="mt-4 flex justify-center">
           <button 
-            onClick={onOpenBonusCenter}
-            className="flex items-center space-x-2 px-4 py-1.5 rounded-full border border-[#cd7f32]/30 bg-gradient-to-r from-[#cd7f32]/20 to-[#cd7f32]/5 hover:from-[#cd7f32]/30 hover:to-[#cd7f32]/10 transition-colors shadow-[0_0_15px_rgba(205,127,50,0.15)] cursor-pointer backdrop-blur-sm"
+            onClick={() => {
+              safeStorage.setItem('aver_dashboard_tab', 'profile');
+              if (onOpenBonusCenter) onOpenBonusCenter();
+            }}
+            className={`flex items-center space-x-2 px-4 py-1.5 rounded-full border ${activeTier.badgeBorder} ${activeTier.badgeBg} ${activeTier.badgeGlow} transition-all cursor-pointer backdrop-blur-sm active:scale-95`}
           >
-            <span className="text-lg">🥉</span>
-            <span className="text-xs font-bold text-[#e6a865] uppercase tracking-wider">Bronze Member</span>
+            <span className="text-lg">{activeTier.badge}</span>
+            <span className={`text-xs font-bold ${activeTier.badgeText} uppercase tracking-wider`}>
+              {activeTier.name}
+            </span>
           </button>
         </div>
       </div>

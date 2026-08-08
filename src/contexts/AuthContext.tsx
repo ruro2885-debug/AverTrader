@@ -300,6 +300,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let unsubPortfolioCurrent: (() => void) | null = null;
     let unsubWallet: (() => void) | null = null;
 
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
       
@@ -317,6 +319,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       cleanup();
 
       const setupSubscriptions = (uid: string, email: string | null) => {
+        progressionService.updateProgress(uid, 'login').catch(() => {});
         notificationManagerRef.current = new NotificationManager(uid);
         notificationManagerRef.current.subscribe(setNotifications);
 
@@ -658,6 +661,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           consecutiveLosses: 0
         },
         riskPreference: 'Moderate',
+        level: 1,
+        xp: 0,
+        winRun: 0,
+        aiTradesCount: 0,
+        insignias: [],
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
@@ -687,6 +695,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         snapshots: [],
         watchlist: []
       };
+
+      // Always sanitize and clear any legacy local/guest state for the new user ID
+      await sanitizeAndResetUserData(targetUid, 0);
+      safeStorage.removeItem(`aver_session_${targetUid}`);
+      safeStorage.removeItem(`aver_trades_${targetUid}`);
+      safeStorage.removeItem(`aver_positions_${targetUid}`);
+      safeStorage.removeItem(`aver_activity_${targetUid}`);
+      safeStorage.removeItem('aver_session_guest_user');
+      safeStorage.removeItem('aver_trades_guest_user');
+      safeStorage.removeItem('aver_positions_guest_user');
+      safeStorage.removeItem('aver_activity_guest_user');
 
       if (userCredential && !isFirebaseRestricted) {
         // Firebase Auth account successfully created, write to Firestore
@@ -1670,10 +1689,30 @@ function dataURLtoBlob(dataurl: string): Blob {
         console.warn("Firestore withdrawals write error:", e);
       }
 
-      // Save to local store immediately
-      saveLocalWithdrawal(withdrawalData);
+      // 2. Record in Transaction History collection immediately
+      try {
+        await transactionService.recordTransaction({
+          id: txId,
+          userId: userRef.current.uid,
+          type: 'withdrawal',
+          category: 'transactions',
+          title: `${cleanAsset} Withdrawal`,
+          amount: -amount, // Negative for withdrawal
+          asset: cleanAsset,
+          cryptoAmount: -cryptoAmount,
+          cryptoSymbol: cleanAsset,
+          network: network || 'TRC20',
+          destination: destination || 'N/A',
+          status: 'Pending',
+          timestamp,
+          txHash,
+          refId
+        });
+      } catch (e) {
+        console.warn("Failed to record withdrawal in transactions history:", e);
+      }
 
-      // Update user doc in Firestore
+      // Update user doc in Firestore - STATUS ONLY, NO BALANCE DEDUCTION
       if (!userRef.current.uid.startsWith('local-')) {
         await updateDoc(doc(db, 'users', userRef.current.uid), {
           withdrawals: arrayUnion({
@@ -1685,11 +1724,12 @@ function dataURLtoBlob(dataurl: string): Blob {
             asset: cleanAsset,
             network: network || 'TRC20',
             destination: destination || 'N/A',
-            status: 'pending',
+            status: 'Pending',
             timestamp,
             date: timestamp,
             txHash
-          })
+          }),
+          lastUpdated: serverTimestamp()
         }).catch(() => {});
       }
 
@@ -1708,7 +1748,7 @@ function dataURLtoBlob(dataurl: string): Blob {
             asset: cleanAsset,
             network: network || 'TRC20',
             destination: destination || 'N/A',
-            status: 'pending',
+            status: 'Pending',
             timestamp,
             date: timestamp,
             txHash
@@ -1716,28 +1756,9 @@ function dataURLtoBlob(dataurl: string): Blob {
         ]
       };
       setUser(updatedUser as any);
+      userRef.current = updatedUser as any;
       safeStorage.setItem('aver_active_user', JSON.stringify(updatedUser));
       safeStorage.setItem(`user_profile_${userRef.current.uid}`, JSON.stringify(updatedUser));
-
-      // 2. Record in Transaction History with status = 'Pending'
-      await transactionService.recordTransaction({
-        id: txId,
-        userId: userRef.current.uid,
-        type: 'withdrawal',
-        category: 'transactions',
-        title: `${cleanAsset} Withdrawal`,
-        amount,
-        cryptoAmount,
-        cryptoSymbol: cleanAsset,
-        asset: cleanAsset,
-        symbol: cleanAsset,
-        network: network || 'TRC20',
-        destination: destination || 'N/A',
-        status: 'Pending',
-        refId,
-        txHash,
-        timestamp
-      });
 
       window.dispatchEvent(new CustomEvent('aver_transaction_created', { detail: txId }));
       window.dispatchEvent(new CustomEvent('withdrawal_updated', { detail: txId }));

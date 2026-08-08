@@ -3,6 +3,7 @@ import { Save, Shield, Sliders, CheckCircle2, RefreshCw, AlertCircle, Target, Gl
 import { aiTradingService } from '../../services/aiTradingService';
 import { useAuth } from '../../contexts/AuthContext';
 import { AiConfiguration, RiskRating } from '../../types/aiTrading';
+import CoinLogo from '../CoinLogo';
 
 interface AiSettingsViewProps {
   config: AiConfiguration | null;
@@ -373,17 +374,18 @@ export default function AiSettingsView({ config, onSaveConfig, isDark }: AiSetti
                 <Globe className="w-4 h-4 text-[#00D09C]" /> Target Assets
               </h3>
               <div className="flex flex-wrap gap-2">
-                {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'AAPL', 'TSLA', 'NVDA', 'SPY'].map(m => (
+                {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'SPY', 'GLD'].map(m => (
                   <button
                     key={m}
                     type="button"
                     onClick={() => toggleMarket(m)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${
+                    className={`px-3 py-2 rounded-xl text-[10px] font-black border transition-all flex items-center gap-2 ${
                       preferredMarkets.includes(m)
                         ? 'bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]'
                         : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300'
                     }`}
                   >
+                    <CoinLogo symbol={m} size={20} />
                     {m}
                   </button>
                 ))}

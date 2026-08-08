@@ -295,7 +295,15 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Fallback defaults if user profile isn't fully loaded or is null
   const { totalNetBalance, activeTradingBalance, aiTradingCapital, homeNetBalance, walletData } = useFinancials();
   
-  // Active AI Session Profit/Loss
+  const resetTime = useMemo(() => {
+    if (user?.resetPnL && user?.pnlResetAt) {
+      const parsed = new Date(user.pnlResetAt).getTime();
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  }, [user?.resetPnL, user?.pnlResetAt]);
+
+  // Active AI Session Profit/Loss (inside active session)
   const activeSessionPnL = useMemo(() => {
     if (session?.status === 'ACTIVE') {
       const closedSessionPnL = (session.tradingCapital || 0) - (session.initialCapital || 0);
@@ -305,17 +313,33 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   }, [session, totalFloatingPnl]);
 
   const closedTradesPnL = useMemo(() => {
-    // 1. First check actual closed trades in state
-    const fromTrades = trades.filter(t => t.status === 'CLOSED').reduce((sum, t) => sum + (t.pnl || 0), 0);
+    // 1. Check actual closed trades in state after resetTime
+    const filteredTrades = trades.filter((t: any) => {
+      if (t.status !== 'CLOSED') return false;
+      if (!resetTime) return true;
+      const tTime = t.closedAt ? (t.closedAt.toDate ? t.closedAt.toDate().getTime() : new Date(t.closedAt).getTime()) : (t.timestamp ? new Date(t.timestamp).getTime() : 0);
+      return tTime >= resetTime;
+    });
+
+    const fromTrades = filteredTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
     if (fromTrades !== 0) return fromTrades;
 
-    // 2. Check completed sessions
+    // 2. Check completed sessions ended after resetTime
     if (completedSessions && completedSessions.length > 0) {
-      const fromSessions = completedSessions.reduce((sum, s) => sum + (s.totalPnl || 0), 0);
+      const filteredSessions = completedSessions.filter((s: any) => {
+        if (!resetTime) return true;
+        const sTime = s.endTime ? (typeof s.endTime === 'number' ? s.endTime : new Date(s.endTime).getTime()) : (s.startTime ? (typeof s.startTime === 'number' ? s.startTime : new Date(s.startTime).getTime()) : 0);
+        return sTime >= resetTime;
+      });
+      const fromSessions = filteredSessions.reduce((sum, s) => sum + (s.totalPnl || 0), 0);
       if (fromSessions !== 0) return fromSessions;
     }
     
-    // 3. Check total profit minus total loss
+    if (resetTime > 0) {
+      return 0;
+    }
+
+    // 3. Fallbacks if no resetTime set
     if (user?.totalProfit !== undefined || user?.totalLoss !== undefined) {
       const diff = (user?.totalProfit || 0) - (user?.totalLoss || 0);
       if (diff !== 0) return diff;
@@ -327,7 +351,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     }
     
     return 0;
-  }, [trades, completedSessions, user]);
+  }, [trades, completedSessions, user, resetTime]);
 
   // Net value displayed on Home Net Balance card (represents available money, decreases immediately on session start by active trading capital)
   const totalValue = useMemo(() => {
@@ -349,23 +373,23 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const totalPlAmount = useMemo(() => {
     if (session?.status === 'ACTIVE') {
       const allocated = session.initialCapital || session.tradingCapital || 0;
-      return -allocated;
-    }
-    if (user?.resetPnL) {
-      const resetTime = user.pnlResetAt ? new Date(user.pnlResetAt).getTime() : 0;
-      const recentTrades = trades.filter((t: any) => t.status === 'CLOSED' && t.closedAt && new Date(t.closedAt).getTime() > resetTime);
-      if (recentTrades.length === 0) {
-        return 0;
-      }
+      // While active, allocated capital was deducted from net balance.
+      // Net balance effect = activeSessionPnL - allocated + closedTradesPnL
+      return activeSessionPnL - allocated + closedTradesPnL;
     }
     if (closedTradesPnL !== 0 || totalFloatingPnl !== 0) {
       return closedTradesPnL + totalFloatingPnl;
     }
-    if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
-      return user.portfolio.overallReturn;
+    if (!resetTime) {
+      if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
+        return user.portfolio.overallReturn;
+      }
+      if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) {
+        return user.portfolio.todayPnL;
+      }
     }
     return 0;
-  }, [totalValue, session, closedTradesPnL, totalFloatingPnl, user?.portfolio?.overallReturn, user?.resetPnL, user?.pnlResetAt, trades]);
+  }, [session, activeSessionPnL, closedTradesPnL, totalFloatingPnl, user?.portfolio?.overallReturn, user?.portfolio?.todayPnL, resetTime]);
 
   // Performance indicator percentage beneath Net Balance
   const totalPlPercent = useMemo(() => {
@@ -411,30 +435,34 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   }, [notifications, preferences?.notifications, user?.notificationSettings]);
 
   const referralCount = user?.referralCount || 0;
-  const completedAiTrades = trades.length || 0;
+  const closedTradesCount = trades.filter((t: any) => t.status === 'CLOSED').length;
+  const totalAiTradesCount = Math.max(user?.aiTradesCount || 0, closedTradesCount);
   
   const loginStreak = user?.loginStreak || 0;
   const winRun = user?.winRun || 0;
-  const aiTradesCount = user?.aiTradesCount || 0;
   
-  const currentLevel = user?.level || 1;
-  const totalXp = user?.xp || 0;
-  const nextLevelXp = 5000 * currentLevel;
-  const xpProgressPercent = Math.min(100, Math.round((totalXp / nextLevelXp) * 100));
+  // Calculate XP and level based strictly on real activity
+  const calculatedActivityXp = (totalAiTradesCount * 20) + (winRun * 15) + (loginStreak * 10) + (referralCount * 50) + (user?.emailVerified ? 20 : 0) + (user?.kycStatus === 'verified' ? 35 : 0);
+  const totalXp = Math.max(user?.xp || 0, calculatedActivityXp);
+  const currentLevel = Math.max(1, Math.floor(totalXp / 1000) + 1);
+  const nextLevelXp = currentLevel * 1000;
+  const xpProgressPercent = Math.min(100, Math.round(((totalXp % 1000) / 1000) * 100));
 
-  const accountAgeDays = user?.createdAt ? Math.floor((Date.now() - new Date(user.createdAt).getTime()) / 86400000) : 0;
+  const createdAtTime = (user?.createdAt && !isNaN(new Date(user.createdAt).getTime())) ? new Date(user.createdAt).getTime() : 0;
+  const accountAgeDays = createdAtTime > 0 ? Math.floor((Date.now() - createdAtTime) / 86400000) : 0;
+
+  const realDeposits = Number(user?.totalDeposits) || 0;
 
   const badges = [
-    { name: 'Pioneer', unlocked: accountAgeDays >= 7 || completedAiTrades >= 20, icon: '🚀', desc: '7+ Days Member or 20 Trades' },
-    { name: 'AI Pilot', unlocked: aiTradesCount >= 10 || completedAiTrades >= 10, icon: '🤖', desc: 'Executed 10+ AI Trades' },
+    { name: 'Pioneer', unlocked: accountAgeDays >= 7 || totalAiTradesCount >= 20, icon: '🚀', desc: '7+ Days Member or 20 Trades' },
+    { name: 'AI Pilot', unlocked: totalAiTradesCount >= 10, icon: '🤖', desc: 'Executed 10+ AI Trades' },
     { name: 'Alpha', unlocked: referralCount >= 2, icon: '👑', desc: 'Referred 2 Active Users' },
-    { name: 'VIP Vault', unlocked: (Number(user?.totalDeposits) || 0) >= 10000, icon: '💎', desc: 'Deposited $10,000+' }
+    { name: 'VIP Vault', unlocked: realDeposits >= 10000, icon: '💎', desc: 'Deposited $10,000+' }
   ];
 
-  if (user?.insignias && user.insignias.length > 0) {
-    user.insignias.forEach((insignia: string) => {
-      badges.push({ name: insignia, unlocked: true, icon: '🎖️', desc: 'Level Milestone' });
-    });
+  if (currentLevel >= 5) {
+    const milestoneLevel = Math.floor(currentLevel / 5) * 5;
+    badges.push({ name: `Level ${milestoneLevel} Vanguard`, unlocked: true, icon: '🎖️', desc: 'Level Milestone' });
   }
   
   // HELPER METHODS FOR ACCOUNT ACTIVITY AND SMART ASSISTANT
@@ -842,20 +870,20 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   {totalValueFormatted}
                 </h2>
                 
-                <div className="flex flex-wrap items-center gap-3 mb-6">
+                <div className="flex items-center gap-2 sm:gap-3 mb-6 flex-nowrap overflow-x-auto no-scrollbar">
                   <div 
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border whitespace-nowrap shrink-0"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl border whitespace-nowrap shrink-0"
                     style={{
                       backgroundColor: totalPlAmount >= 0 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                       borderColor: totalPlAmount >= 0 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
                       color: totalPlAmount >= 0 ? '#22c55e' : '#ef4444'
                     }}
                   >
-                    {totalPlAmount >= 0 ? <TrendingUp className="w-4 h-4 shrink-0" /> : <TrendingDown className="w-4 h-4 shrink-0" />}
-                    <span className="text-sm font-black whitespace-nowrap">{todayPnLFormatted}</span>
-                    <span className="text-xs font-bold opacity-90 whitespace-nowrap">({todayPnLPercentFormatted})</span>
+                    {totalPlAmount >= 0 ? <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" /> : <TrendingDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />}
+                    <span className="text-xs sm:text-sm font-black whitespace-nowrap">{todayPnLFormatted}</span>
+                    <span className="text-[11px] sm:text-xs font-bold opacity-90 whitespace-nowrap">({todayPnLPercentFormatted})</span>
                   </div>
-                  <div className={`text-xs font-semibold whitespace-nowrap ${textSecondary}`}>
+                  <div className={`text-xs font-semibold whitespace-nowrap shrink-0 ${textSecondary}`}>
                     Overall: <span className="font-bold whitespace-nowrap" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
                   </div>
                 </div>
@@ -1042,7 +1070,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <Brain className="w-4 h-4 text-blue-400 mx-auto mb-1" />
                           <p className={`text-[10px] font-bold ${textSecondary}`}>AI Trades</p>
-                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{completedAiTrades}</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{totalAiTradesCount}</p>
                         </div>
                       </div>
 
@@ -1164,7 +1192,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             onClose={() => setShowWithdrawModal(false)}
             onOpenHistory={() => {
               setShowWithdrawModal(false);
-              setShowHistoryModal(true);
+              if (onNavigate) {
+                onNavigate('history');
+              }
             }}
             theme={theme}
           />

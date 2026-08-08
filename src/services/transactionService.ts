@@ -88,7 +88,6 @@ export const transactionService = {
         serverCreatedAt: serverTimestamp()
       };
       await setDoc(doc(db, 'transactions', id), firestoreDoc);
-      await addDoc(collection(db, 'user_transactions'), firestoreDoc).catch(() => {});
     } catch (err) {
       console.warn("Failed saving transaction to Firestore:", err);
     }

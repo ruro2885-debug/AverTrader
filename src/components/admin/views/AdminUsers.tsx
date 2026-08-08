@@ -312,26 +312,12 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
         userId: uid,
         type: fundActionType === 'add' ? 'deposit' : 'withdrawal',
         category: 'transactions',
-        title: fundActionType === 'add' ? 'Admin Credit' : 'Admin Deduction',
-        amount: Math.abs(amount),
+        title: fundActionType === 'add' ? 'Administrative Credit (+)' : 'Administrative Deduction (-)',
+        amount: fundActionType === 'add' ? rawAmount : -rawAmount,
         asset: 'USD',
         network: 'Internal',
         status: 'Completed',
         timestamp: new Date().toISOString()
-      });
-
-      // Log admin adjustment in admin_deposits for internal tracking
-      await safeAddDoc(collection(db, 'admin_deposits'), {
-        userId: uid || 'admin',
-        email: email || 'user@aver.com',
-        userName: fundingUser.displayName || fundingUser.username || fundingUser.fullName || 'User',
-        amount: Math.abs(amount),
-        currency: 'USD',
-        fundingMethod: fundActionType === 'add' ? 'admin_funding' : 'admin_deduction',
-        status: 'completed',
-        network: fundActionType === 'add' ? 'Admin Credit' : 'Admin Deduction',
-        timestamp: new Date().toISOString(),
-        createdAt: serverTimestamp()
       });
       
       const updatePromises = Array.from(targetUids).map(async (targetUid) => {

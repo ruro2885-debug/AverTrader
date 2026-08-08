@@ -25,10 +25,12 @@ import {
   BadgeCheck,
   Check,
   X,
-  Smartphone
+  Smartphone,
+  Cpu
 } from 'lucide-react';
 
 import { safeStorage } from '../utils/storage';
+import { getTierState, completePlatinumTask, TaskItem, TIERS_DATA } from '../utils/tierManager';
 
 // --- TYPES ---
 type SubView = 'main' | 'history' | 'task-details' | 'membership-details';
@@ -42,7 +44,7 @@ interface Task {
   icon: any;
   actionLabel: string;
   targetTab?: string;
-  customAction?: 'deposit' | 'profile' | 'verify_email' | 'claim_welcome' | 'enable_2fa' | 'kyc';
+  customAction?: 'deposit' | 'profile' | 'verify_email' | 'claim_welcome' | 'enable_2fa' | 'kyc' | 'deposit_1000' | 'trade_500' | 'copy_10' | 'strat_2' | string;
   description?: string;
   requirements?: { label: string; done: boolean }[];
   isMission?: boolean;
@@ -135,17 +137,18 @@ export default function BonusCenter({
 }) {
   const { user, addNotification, updateProfile, addDeposit } = useAuth();
   const { session } = useTradingEngine();
+  const uid = user?.uid || '';
   const profileProgress = (user as any)?.profileProgress ?? 0;
-  const welcomeBonusClaimed = !!(user as any)?.welcomeBonusClaimed || safeStorage.getItem('aver_welcome_bonus_claimed') === 'true';
+  const welcomeBonusClaimed = !!(user as any)?.welcomeBonusClaimed || (uid ? safeStorage.getItem(`aver_welcome_bonus_claimed_${uid}`) === 'true' : false);
   const [currentView, setCurrentView] = useState<SubView>('main');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   // Core Computed State
-  const isEmailVerified = !!(user as any)?.emailVerified || safeStorage.getItem('aver_email_verified') === 'true' || auth.currentUser?.emailVerified === true;
-  const isTwoFactorEnabled = safeStorage.getItem('aver_twoFactorEnabled') === 'true' || !!(user as any)?.preferences?.twoFactorEnabled;
+  const isEmailVerified = !!(user as any)?.emailVerified || (uid ? safeStorage.getItem(`aver_email_verified_${uid}`) === 'true' : false) || auth.currentUser?.emailVerified === true;
+  const isTwoFactorEnabled = (uid ? safeStorage.getItem(`aver_twoFactorEnabled_${uid}`) === 'true' : false) || !!(user as any)?.preferences?.twoFactorEnabled;
   const isDeposited = (user?.totalDeposits || 0) > 0;
-  const tradesCount = user?.trades?.length || 0;
-  const isTraded = tradesCount > 0 || session !== null;
+  const tradesCount = user?.trades?.length || user?.aiTradesCount || 0;
+  const isTraded = (tradesCount > 0 || (session !== null && session.status === 'ACTIVE' && (session.tradingCapital || 0) > 0)) && isDeposited;
   const referralCount = user?.referralCount || 0;
   const isKycVerified = user?.kycStatus === 'verified';
 
@@ -205,118 +208,66 @@ export default function BonusCenter({
     }
   };
 
-  // XP & Tier Calculation
-  const xp = useMemo(() => {
-    let total = 0;
-    if (isEmailVerified) total += 20;
-    if (isTwoFactorEnabled) total += 25;
-    if (isDeposited) total += 25;
-    if (isKycVerified) total += 35;
-    if (isTraded) total += 15;
-    if (referralCount > 0) total += Math.min(referralCount * 15, 60);
-    return total;
-  }, [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, referralCount]);
+  // XP & Tier Calculation via tierManager
+  const tierState = useMemo(() => {
+    return getTierState(user, session);
+  }, [user, session]);
 
-  const { currentTier, nextTier, membershipProgress } = useMemo(() => {
-    let tierIdx = 0;
-    let progress = xp;
-    if (xp >= 100) { tierIdx = 1; progress = xp - 100; }
-    if (xp >= 300) { tierIdx = 2; progress = xp - 300; }
-    
-    const tierMax = tierIdx === 0 ? 100 : tierIdx === 1 ? 200 : 300;
+  const currentTier = useMemo(() => {
+    const t = tierState.currentTier;
     return {
-      currentTier: TIERS[Math.min(tierIdx, TIERS.length - 1)],
-      nextTier: TIERS[tierIdx + 1] || null,
-      membershipProgress: Math.min(100, Math.floor((progress / tierMax) * 100))
+      id: t.id,
+      name: t.name,
+      icon: t.id === 'bronze' ? Trophy : t.id === 'platinum' ? Star : Crown,
+      requirements: t.requirements,
+      benefits: t.benefits,
+      color: t.color
     };
-  }, [xp]);
+  }, [tierState.currentTier]);
 
-  const isPlatinumOrHigher = currentTier.id === 'platinum' || currentTier.id === 'gold' || xp >= 100 || isKycVerified;
+  const nextTier = useMemo(() => {
+    if (!tierState.nextTier) return null;
+    const t = tierState.nextTier;
+    return {
+      id: t.id,
+      name: t.name,
+      icon: t.id === 'platinum' ? Star : Crown,
+      requirements: t.requirements,
+      benefits: t.benefits,
+      color: t.color
+    };
+  }, [tierState.nextTier]);
 
-  // Master Task definitions
-  const allTasks: Task[] = useMemo(() => {
-    const list: Task[] = [
-      { 
-        id: 'email_verify', 
-        title: 'Verify Email Address', 
-        progress: isEmailVerified ? 100 : 0, 
-        increment: 20, 
-        status: isEmailVerified ? 'completed' : 'pending', 
-        icon: CheckCircle2, 
-        actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
-        customAction: 'verify_email',
-        description: 'Verify your email address to secure your account and unlock trading notifications and bonus rewards.'
-      },
-      { 
-        id: '2fa', 
-        title: 'Enable 2FA Authenticator', 
-        progress: isTwoFactorEnabled ? 100 : 0, 
-        increment: 25, 
-        status: isTwoFactorEnabled ? 'completed' : 'pending', 
-        icon: ShieldCheck, 
-        actionLabel: isTwoFactorEnabled ? 'Enabled' : 'Enable 2FA',
-        customAction: 'enable_2fa',
-        description: 'Secure your account with an Authenticator app. Enter a 6-character code with double numbers (like 44, 55, 99) and at least one letter.'
-      },
-      { 
-        id: 'deposit', 
-        title: 'First Deposit', 
-        progress: isDeposited ? 100 : 0, 
-        increment: 25, 
-        status: isDeposited ? 'completed' : 'pending', 
-        icon: Wallet, 
-        actionLabel: 'Deposit',
-        customAction: 'deposit',
-        description: 'Fund your trading wallet with cryptocurrency or fiat to start trading.'
-      },
-      { 
-        id: 'kyc', 
-        title: 'Identity Verification (KYC)', 
-        progress: isKycVerified ? 100 : 0, 
-        increment: 35, 
-        status: isKycVerified ? 'completed' : 'pending', 
-        icon: ShieldCheck, 
-        actionLabel: 'Verify ID',
-        customAction: 'kyc',
-        description: 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
-      },
-      { 
-        id: 'trade', 
-        title: 'First Trade', 
-        progress: isTraded ? 100 : 0, 
-        increment: 15, 
-        status: isTraded ? 'completed' : 'pending', 
-        icon: TrendingUp, 
-        actionLabel: 'Trade',
-        targetTab: 'ai',
-        description: 'Execute your first crypto purchase or sell order on our advanced trading match engine.'
-      },
-      { 
-        id: 'referral', 
-        title: 'Invite Friends', 
-        progress: referralCount > 0 ? 100 : 0, 
-        increment: 15, 
-        status: referralCount > 0 ? 'completed' : 'pending', 
-        icon: Users, 
-        actionLabel: 'Invite',
-        customAction: 'profile',
-        description: 'Share your referral code and invite friends to earn commission and progress bonuses.'
-      }
-    ];
+  const membershipProgress = tierState.progress;
+  const isPlatinumOrHigher = currentTier.id === 'platinum' || currentTier.id === 'gold';
 
-    if (isPlatinumOrHigher) {
-      return list.filter(t => t.id !== 'kyc');
-    }
-    return list;
-  }, [isEmailVerified, isTwoFactorEnabled, isDeposited, isKycVerified, isTraded, user?.phoneNumber, referralCount, isPlatinumOrHigher]);
+  const tasks: Task[] = useMemo(() => {
+    return tierState.activeTasks.map(t => {
+      let IconComponent = CheckCircle2;
+      if (t.iconKey === 'shield') IconComponent = ShieldCheck;
+      if (t.iconKey === 'wallet') IconComponent = Wallet;
+      if (t.iconKey === 'trade') IconComponent = TrendingUp;
+      if (t.iconKey === 'users') IconComponent = Users;
+      if (t.iconKey === 'copy') IconComponent = Users;
+      if (t.iconKey === 'cpu') IconComponent = Cpu;
+      if (t.iconKey === 'sparkles') IconComponent = Sparkles;
 
-  // Dynamic active tasks selection
-  const tasks = useMemo(() => {
-    let active = allTasks.filter(t => t.status !== 'completed');
-    
-    // Return the first 4 incomplete, available tasks
-    return active.slice(0, 4);
-  }, [allTasks]);
+      return {
+        id: t.id,
+        title: t.title,
+        progress: t.progress,
+        increment: t.increment,
+        status: t.status,
+        icon: IconComponent,
+        actionLabel: t.actionLabel,
+        customAction: t.customAction as any,
+        targetTab: t.targetTab,
+        description: t.description,
+        requirements: t.requirements,
+        isMission: t.isMission
+      };
+    });
+  }, [tierState.activeTasks]);
 
   const welcomeBonusUnlocked = profileProgress >= 100 || (profileProgress === 100 && isTwoFactorEnabled && isDeposited && isTraded);
 
@@ -411,10 +362,31 @@ export default function BonusCenter({
       if (welcomeBonusUnlocked && !welcomeBonusClaimed) {
         await handleClaimWelcomeBonus();
       }
+    } else if (task.customAction === 'deposit_1000') {
+      if (onOpenDeposit) {
+        onOpenDeposit();
+      } else {
+        safeStorage.setItem('aver_auto_open_deposit', 'true');
+        safeStorage.setItem('aver_dashboard_tab', 'home');
+        onNavigate?.('dashboard');
+      }
+    } else if (task.customAction === 'trade_500' || task.targetTab === 'ai') {
+      safeStorage.setItem('aver_dashboard_tab', 'ai');
+      onNavigate?.('ai');
+    } else if (task.customAction === 'copy_10' || task.targetTab === 'copy-trading') {
+      safeStorage.setItem('aver_dashboard_tab', 'copy-trading');
+      onNavigate?.('copy-trading');
+    } else if (task.customAction === 'strat_2') {
+      safeStorage.setItem('aver_dashboard_tab', 'discover');
+      onNavigate?.('discover');
     } else if (task.customAction === 'deposit') {
-      safeStorage.setItem('aver_auto_open_deposit', 'true');
-      safeStorage.setItem('aver_dashboard_tab', 'home');
-      onNavigate?.('dashboard');
+      if (onOpenDeposit) {
+        onOpenDeposit();
+      } else {
+        safeStorage.setItem('aver_auto_open_deposit', 'true');
+        safeStorage.setItem('aver_dashboard_tab', 'home');
+        onNavigate?.('dashboard');
+      }
     } else if (task.customAction === 'profile' || task.id === 'referral') {
       if (task.id === 'referral') {
         onNavigate?.('referral-centre');
@@ -444,7 +416,10 @@ export default function BonusCenter({
     <header className="flex justify-between items-center px-5 py-4 sticky top-0 bg-slate-950/80 backdrop-blur-xl z-20 border-b border-white/5">
       <div className="flex items-center gap-3">
         <button 
-          onClick={onBack} 
+          onClick={() => {
+            safeStorage.setItem('aver_dashboard_tab', 'profile');
+            onBack();
+          }} 
           className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-all active:scale-95 text-emerald-500"
           aria-label="Go back"
         >
@@ -466,7 +441,10 @@ export default function BonusCenter({
           </button>
         )}
         <button 
-          onClick={onBack}
+          onClick={() => {
+            safeStorage.setItem('aver_dashboard_tab', 'profile');
+            onBack();
+          }}
           className="p-2.5 bg-rose-500/10 rounded-xl border border-rose-500/20 text-rose-500 hover:bg-rose-500/20 transition-all active:scale-95"
           aria-label="Close"
         >
@@ -687,15 +665,31 @@ export default function BonusCenter({
                 <p className="text-emerald-500 font-black text-sm">Reward already claimed and progress added.</p>
               </div>
             ) : selectedTask?.id !== '2fa' && selectedTask?.id !== 'email_verify' ? (
-              <button 
-                onClick={() => handleTaskAction(selectedTask)}
-                disabled={selectedTask.status === 'locked'}
-                className={`w-full py-5 rounded-[28px] font-black text-lg shadow-xl hover:scale-[1.02] active:scale-95 transition-all ${
-                  selectedTask.status === 'locked' ? 'bg-white/5 text-gray-500 cursor-not-allowed shadow-none hover:scale-100' : 'bg-emerald-500 text-slate-950 shadow-emerald-500/20'
-                }`}
-              >
-                {selectedTask.actionLabel}
-              </button>
+              <div className="space-y-3">
+                <button 
+                  onClick={() => handleTaskAction(selectedTask)}
+                  disabled={selectedTask.status === 'locked'}
+                  className={`w-full py-5 rounded-[28px] font-black text-lg shadow-xl hover:scale-[1.02] active:scale-95 transition-all cursor-pointer ${
+                    selectedTask.status === 'locked' ? 'bg-white/5 text-gray-500 cursor-not-allowed shadow-none hover:scale-100' : 'bg-emerald-500 text-slate-950 shadow-emerald-500/20'
+                  }`}
+                >
+                  {selectedTask.actionLabel}
+                </button>
+
+                {['deposit_1000', 'trade_500', 'copy_10', 'strat_2'].includes(selectedTask.id) && (
+                  <button
+                    onClick={() => {
+                      completePlatinumTask(selectedTask.id);
+                      addNotification('rewards', 'high', `${selectedTask.title} Completed!`, `Successfully earned +${selectedTask.increment}% progress toward your membership tier!`);
+                      setSelectedTask(null);
+                      setCurrentView('main');
+                    }}
+                    className="w-full py-4 rounded-[24px] font-bold text-sm bg-white/10 text-white hover:bg-white/20 border border-white/10 transition-all active:scale-95 cursor-pointer"
+                  >
+                    Mark as Completed & Claim (+{selectedTask.increment}% Progress)
+                  </button>
+                )}
+              </div>
             ) : null}
             {!isCompleted && selectedTask.status === 'locked' && (
               <p className="text-center text-xs text-rose-500 font-bold mt-4">Requirements not yet completed.</p>
@@ -728,7 +722,7 @@ export default function BonusCenter({
                   <currentTier.icon className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-white">{currentTier.id === 'bronze' ? '🥉' : currentTier.id === 'platinum' ? '💎' : '🥇'} {currentTier.name}</h3>
+                  <h3 className="text-2xl font-black text-white">{currentTier.id === 'bronze' ? '🥉' : currentTier.id === 'platinum' ? '🥈' : '🥇'} {currentTier.name}</h3>
                   <p className="text-[11px] text-gray-400 font-bold">Trading Fees: {currentTier.id === 'bronze' ? '0.1%' : currentTier.id === 'platinum' ? '0.08%' : '0.05%'}</p>
                 </div>
               </div>
@@ -736,7 +730,7 @@ export default function BonusCenter({
             {nextTier && (
               <div className="text-right">
                 <span className="text-xs font-black text-white/40 uppercase tracking-widest">Next Tier</span>
-                <p className="text-sm font-black text-emerald-500">{nextTier.id === 'platinum' ? '💎' : '🥇'} {nextTier.name.split(' ')[0]}</p>
+                <p className="text-sm font-black text-emerald-500">{nextTier.id === 'platinum' ? '🥈' : '🥇'} {nextTier.name.split(' ')[0]}</p>
               </div>
             )}
           </div>
@@ -832,31 +826,37 @@ export default function BonusCenter({
       <section className="px-6 py-6">
         <h2 className="text-lg font-black text-white mb-6">How To Level Up</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[
-            { label: 'Complete profile', value: '+15%', icon: Users },
-            { label: 'Verify email', value: '+20%', icon: BadgeCheck },
-            { label: 'Enable 2FA security', value: '+20%', icon: ShieldCheck },
-            { label: 'Complete first deposit', value: '+25%', icon: Wallet },
-            { label: 'Complete KYC', value: '+30%', icon: ShieldCheck },
-            { label: 'Complete first trade', value: '+20%', icon: TrendingUp },
-            { label: 'Invite an active friend', value: '+15%', icon: Users }
-          ].filter(item => !isPlatinumOrHigher || !item.label.toLowerCase().includes('kyc')).map((item, idx) => (
+          {(currentTier.id === 'platinum' ? [
+            { label: 'Deposit $1000', value: '+25%', icon: Wallet, dest: 'deposit' },
+            { label: 'Trade $500 in one session', value: '+25%', icon: TrendingUp, dest: 'ai' },
+            { label: 'Copy trade 10 traders', value: '+25%', icon: Users, dest: 'copy-trading' },
+            { label: 'Use 2 strategies from engine', value: '+25%', icon: Cpu, dest: 'discover' },
+            { label: 'Invite an active friend', value: '+15%', icon: Users, dest: 'referral-centre' }
+          ] : [
+            { label: 'Verify email address', value: '+20%', icon: BadgeCheck, dest: 'profile' },
+            { label: 'Enable 2FA security', value: '+25%', icon: ShieldCheck, dest: 'profile' },
+            { label: 'Complete first deposit', value: '+25%', icon: Wallet, dest: 'deposit' },
+            { label: 'Complete KYC verification', value: '+35%', icon: ShieldCheck, dest: 'kyc-verification' },
+            { label: 'Execute first trade', value: '+15%', icon: TrendingUp, dest: 'ai' },
+            { label: 'Invite an active friend', value: '+15%', icon: Users, dest: 'referral-centre' }
+          ]).map((item, idx) => (
             <div 
               key={`level-up-${item.label}-${idx}`}
               onClick={() => {
-                if (item.label.toLowerCase().includes('invite')) {
+                if (item.dest === 'deposit') {
+                  if (onOpenDeposit) onOpenDeposit();
+                  else {
+                    safeStorage.setItem('aver_auto_open_deposit', 'true');
+                    safeStorage.setItem('aver_dashboard_tab', 'home');
+                    onNavigate?.('dashboard');
+                  }
+                } else if (item.dest === 'referral-centre') {
                   onNavigate?.('referral-centre');
-                } else if (item.label.toLowerCase().includes('deposit')) {
-                  safeStorage.setItem('aver_dashboard_tab', 'home');
-                  onNavigate?.('home');
-                } else if (item.label.toLowerCase().includes('trade')) {
-                  safeStorage.setItem('aver_dashboard_tab', 'markets');
-                  onNavigate?.('markets');
-                } else if (item.label.toLowerCase().includes('kyc')) {
+                } else if (item.dest === 'kyc-verification') {
                   onNavigate?.('kyc-verification');
-                } else if (item.label.toLowerCase().includes('2fa') || item.label.toLowerCase().includes('profile') || item.label.toLowerCase().includes('email')) {
-                  safeStorage.setItem('aver_dashboard_tab', 'profile');
-                  onNavigate?.('profile');
+                } else {
+                  safeStorage.setItem('aver_dashboard_tab', item.dest);
+                  onNavigate?.(item.dest);
                 }
               }}
               className="flex items-center justify-between p-4 rounded-[24px] bg-slate-900 border border-white/5 group hover:border-emerald-500/20 transition-all cursor-pointer"

@@ -79,21 +79,20 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       const userTheme = user.theme as Theme;
       const userCurrency = user.currency as Currency;
 
-      let savedNotifs = user.notificationSettings;
-      if (!savedNotifs) {
-        try {
-          const raw = safeStorage.getItem('aver_notifications');
-          if (raw) savedNotifs = JSON.parse(raw);
-        } catch (e) {}
+      // Force English fallback and clear translation cookies if stuck in incorrect locale
+      const finalLanguage = validLanguages.includes(userLang) ? userLang : 'EN';
+      if (finalLanguage === 'EN') {
+        document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${window.location.hostname}; path=/;`;
       }
 
       setPreferences({
-        language: validLanguages.includes(userLang) ? userLang : 'EN',
+        language: finalLanguage,
         theme: validThemes.includes(userTheme) ? userTheme : 'dark',
         currency: validCurrencies.includes(userCurrency) ? userCurrency : 'USD',
         biometricsEnabled: user.biometricEnabled,
         rememberMeEnabled: user.rememberMeEnabled,
-        notifications: savedNotifs,
+        notifications: user.notificationSettings,
       });
     } else {
       const savedLanguage = safeStorage.getItem('aver_language') as Language;

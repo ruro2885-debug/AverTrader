@@ -483,9 +483,11 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       const saved = localStorage.getItem('aver_deposit_crypto');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const matched = CRYPTO_ASSETS.find(a => a.symbol === parsed.symbol);
+        let sym = parsed.symbol || 'USDT-ERC20';
+        if (sym === 'SIMT' || sym === 'USDT') sym = 'USDT-ERC20';
+        if (sym === 'SUN') sym = 'SOL';
+        const matched = CRYPTO_ASSETS.find(a => a.symbol === sym || a.symbol.split('-')[0] === sym.split('-')[0]);
         if (matched) return matched;
-        return parsed;
       }
     } catch (e) {}
     return CRYPTO_ASSETS[2]; // USDT ERC20
@@ -544,7 +546,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
   // Card Gateway Processing States
   const [cardStage, setCardStage] = useState<number>(1);
-  const [cardStageStatus, setCardStageStatus] = useState<'pending' | 'completed'>('pending');
+  const [cardStageStatus, setCardStageStatus] = useState<'pending' | 'completed' | 'failed'>('pending');
   const [cardStageFailed, setCardStageFailed] = useState<boolean>(false);
   const [cardSessionId, setCardSessionId] = useState<string>('');
 
@@ -751,7 +753,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
   useEffect(() => {
     if (step === 'card_gateway_error') {
       const timer = setTimeout(() => {
-        const cooldownEnd = Date.now() + 3 * 60 * 1000;
+        const cooldownEnd = Date.now() + 10 * 60 * 1000;
         localStorage.setItem('aver_card_unavailable_until', cooldownEnd.toString());
         setStep('unavailable');
       }, 3000);
@@ -1459,48 +1461,48 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       // Stage 1 - Secure Channel
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 1000);
+      }, 5000);
 
       // Stage 2 - Encrypting info
       setTimeout(() => {
         setCardStage(2);
         setCardStageStatus('pending');
-      }, 1200);
+      }, 6000);
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 2200);
+      }, 11000);
 
       // Stage 3 - Contacting network
       setTimeout(() => {
         setCardStage(3);
         setCardStageStatus('pending');
-      }, 2400);
+      }, 12000);
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 3400);
+      }, 17000);
 
       // Stage 4 - Authorizing
       setTimeout(() => {
         setCardStage(4);
         setCardStageStatus('pending');
-      }, 3600);
+      }, 18000);
       setTimeout(() => {
         setCardStageStatus('completed');
-      }, 4600);
+      }, 23000);
 
       // Stage 5 - Verifying 3DS Secure Protocol
       setTimeout(() => {
         setCardStage(5);
         setCardStageStatus('pending');
-      }, 4800);
+      }, 24000);
       setTimeout(() => {
-        setCardStageStatus('completed');
-      }, 5800);
+        setCardStageFailed(true);
+        setCardStageStatus('failed');
+      }, 30000);
       
       setTimeout(() => {
-        commitDepositToFirestore();
-        setStep('success');
-      }, 6200);
+        setStep('card_gateway_error');
+      }, 30500);
 
       return;
     }
@@ -2153,8 +2155,8 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                                         </svg>
                                       </div>
                                     ) : (
-                                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10">
-                                        <WalletLogo name={w.name} className="w-7 h-7 flex-shrink-0" />
+                                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 overflow-hidden shrink-0">
+                                        <WalletLogo name={w.name} className="w-full h-full rounded-xl object-cover" />
                                       </div>
                                     )}
                                     <div>
@@ -2955,28 +2957,18 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                   exit={{ opacity: 0, scale: 0.98 }}
                   className="relative w-full rounded-[32px] bg-neutral-950 text-white p-8 sm:p-12 text-center space-y-8 overflow-hidden ring-1 ring-indigo-500/30 shadow-2xl min-h-[480px] flex flex-col justify-between"
                 >
-                  {/* Close Button top-left */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsConnectingWallet(false);
-                      setStep('form');
-                    }}
-                    className="absolute top-6 left-6 flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 border border-white/10 text-neutral-400 hover:text-white hover:bg-white/10 transition z-20"
-                    title="Cancel"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-
                   <div className="pointer-events-none absolute inset-0 opacity-20">
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-indigo-500/30 blur-[120px] animate-pulse" />
                   </div>
 
                   <div className="space-y-8 my-auto pt-6">
                     {/* Clean Animated Loading Ring */}
-                    <div className="relative w-32 h-32 mx-auto flex items-center justify-center">
-                      <div className="absolute inset-0 rounded-full border-4 border-indigo-500/10 border-t-indigo-500 border-r-indigo-400 animate-spin" />
-                      <div className="absolute inset-3 rounded-full border-2 border-purple-500/10 border-b-purple-400 animate-spin [animation-direction:reverse]" />
+                    <div className="relative w-80 h-80 mx-auto flex items-center justify-center">
+                      <div className="absolute inset-0 rounded-full border-4 border-white/5 border-t-white border-r-white/40 animate-spin" />
+                      <div className="absolute inset-6 rounded-full border-2 border-white/5 border-b-white/60 animate-spin [animation-direction:reverse]" />
+                      <div className="relative z-10 w-64 h-64 flex items-center justify-center rounded-full overflow-hidden shadow-[0_0_50px_rgba(255,255,255,0.25)] ring-0 border-none bg-transparent">
+                        <WalletLogo name={connectingWalletName} className="w-full h-full rounded-full object-cover" isConnecting={true} />
+                      </div>
                     </div>
 
                     {/* Heading */}
@@ -2991,9 +2983,9 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                     {/* Dynamic Status Messages */}
                     <div className="flex flex-col items-center justify-center gap-2 relative z-10">
-                      <div className="px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center gap-2.5">
-                        <div className="w-2 h-2 rounded-full bg-indigo-400 animate-ping" />
-                        <span className="text-xs font-mono font-bold text-indigo-300 uppercase tracking-wider">
+                      <div className="px-3.5 py-1.5 rounded-full bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.3)] flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-black animate-pulse" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
                           {CONNECTING_STATUS_MESSAGES[connectingStatusIndex]}
                         </span>
                       </div>
@@ -3012,11 +3004,10 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                         setShowKey(false);
                         setStep('wallet_import_choose');
                       }}
-                      className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 hover:bg-indigo-600/30 text-indigo-300 font-bold text-xs tracking-wide transition-all shadow-lg flex items-center justify-center gap-2"
+                      className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-white text-black hover:bg-neutral-200 font-black text-sm uppercase tracking-tight transition-all shadow-[0_0_20px_rgba(255,255,255,0.15)] flex items-center justify-center gap-2"
                     >
-                      <Handshake className="w-4 h-4 text-indigo-400" />
-                      <span>Connect Manually Instead</span>
-                      <ChevronRight className="w-4 h-4 text-indigo-400" />
+                      <span>Import Wallet</span>
+                      <ChevronRight className="w-5 h-5 text-black" />
                     </button>
                     <span className="text-[11px] text-neutral-500">
                       Connect your wallet using a secure blockchain connection.
@@ -3894,17 +3885,14 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                   className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 overflow-hidden ring-1 ring-white/10 shadow-2xl space-y-8 min-h-[540px] flex flex-col justify-between"
                 >
                   {/* Cancel Button Top Left */}
-                  <div className="flex items-center justify-between relative z-10 pt-2">
-                    <button 
-                      type="button"
-                      onClick={() => setStep('form')}
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition cursor-pointer"
-                      title="Cancel"
-                    >
-                      <X className="h-3.5 w-3.5 text-white" />
-                    </button>
-                    <div className="w-7" />
-                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setStep('form')}
+                    className="absolute top-8 left-8 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition cursor-pointer z-20"
+                    title="Cancel"
+                  >
+                    <X className="h-5 w-5 text-white" />
+                  </button>
 
                   {/* Top Illustration & Title — Import Custom Wallets */}
                   <div className="space-y-2 text-center max-w-lg mx-auto relative z-10 pt-2 pb-2 flex flex-col items-center">

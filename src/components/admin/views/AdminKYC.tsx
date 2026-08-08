@@ -148,12 +148,24 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
 
       let data = Array.from(dataMap.values());
 
+      const getTimestamp = (sub: any): number => {
+        if (!sub) return 0;
+        const timeVal = sub.submittedAt || sub.createdAt || sub.timestamp || sub.reviewedAt;
+        if (typeof timeVal === 'number' && !isNaN(timeVal)) return timeVal;
+        if (typeof timeVal === 'string') {
+          const parsed = new Date(timeVal).getTime();
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+        if (sub.id && typeof sub.id === 'string') {
+          const parts = sub.id.split('_');
+          const num = Number(parts[parts.length - 1]);
+          if (!isNaN(num) && num > 1000000000) return num;
+        }
+        return 0;
+      };
+
       // Memory sort by submittedAt descending (Newest first)
-      data.sort((a, b) => {
-        const timeA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
-        const timeB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
-        return timeB - timeA;
-      });
+      data.sort((a, b) => getTimestamp(b) - getTimestamp(a));
 
       console.log("[AdminKYC DEBUG] Total unique KYC submission cards to render:", data.length, data.map(s => ({ id: s.id, status: s.status, user: s.userId })));
 

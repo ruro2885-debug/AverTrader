@@ -83,8 +83,8 @@ export const WalletSelector: React.FC<WalletSelectorProps> = ({ onSelectWallet }
                   </svg>
                 </div>
               ) : (
-                <div className="w-11 h-11 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center p-1 group-hover:border-blue-500/30 transition-colors shadow-inner overflow-hidden flex-shrink-0">
-                  <WalletLogo name={wallet.name} className="w-7 h-7 flex-shrink-0" />
+                <div className="w-11 h-11 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center group-hover:border-blue-500/30 transition-colors shadow-inner overflow-hidden flex-shrink-0">
+                  <WalletLogo name={wallet.name} className="w-full h-full rounded-xl object-cover" />
                 </div>
               )}
               <div>

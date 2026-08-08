@@ -20,8 +20,14 @@ const COMPLETED_SESSIONS_COLLECTION = 'completedSessions';
 export const equityService = {
   async recordEquity(record: Omit<EquityHistoryRecord, 'id'>): Promise<void> {
     try {
+      const cacheKey = `aver_equity_history_${record.userId}`;
+      const existingStr = localStorage.getItem(cacheKey);
+      const existing: EquityHistoryRecord[] = existingStr ? JSON.parse(existingStr) : [];
+      const newRec = { id: `eq-${Date.now()}`, ...record };
+      const updated = [...existing, newRec].slice(-200);
+      localStorage.setItem(cacheKey, JSON.stringify(updated));
+
       if (record.userId.startsWith('local-')) {
-        console.log('[equityService] Skipping record for local user');
         return;
       }
       const colRef = collection(db, 'users', record.userId, COLLECTION_NAME);
@@ -31,6 +37,16 @@ export const equityService = {
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `users/${record.userId}/${COLLECTION_NAME}`);
+    }
+  },
+
+  getHistoryLocally(userId: string): EquityHistoryRecord[] {
+    try {
+      const cacheKey = `aver_equity_history_${userId}`;
+      const existingStr = localStorage.getItem(cacheKey);
+      return existingStr ? JSON.parse(existingStr) : [];
+    } catch {
+      return [];
     }
   },
 
@@ -117,8 +133,9 @@ export const equityService = {
   },
 
   subscribeHistory(userId: string, range: '1D' | '1W' | '1M', callback: (records: EquityHistoryRecord[]) => void) {
+    const localRecords = equityService.getHistoryLocally(userId);
     if (userId.startsWith('local-')) {
-      callback([]);
+      callback(localRecords);
       return () => {};
     }
 
@@ -139,9 +156,14 @@ export const equityService = {
         id: doc.id,
         ...doc.data()
       })) as EquityHistoryRecord[];
-      callback(records);
+      if (records.length === 0 && localRecords.length > 0) {
+        callback(localRecords);
+      } else {
+        callback(records);
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `users/${userId}/${COLLECTION_NAME}`);
+      callback(localRecords);
     });
   }
 };

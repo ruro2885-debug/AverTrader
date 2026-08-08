@@ -17,6 +17,15 @@ const isWithinSchedule = (schedule?: TradingSchedule, isSessionActive?: boolean)
   return state === 'RUNNING' || state === 'SESSION_SCANNING';
 };
 
+const parseTimestamp = (ts: any): number => {
+  if (!ts) return 0;
+  if (typeof ts.toDate === 'function') {
+    try { return ts.toDate().getTime(); } catch { return 0; }
+  }
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+};
+
 interface TradingEngineContextType {
   configs: AiConfiguration[];
   config: AiConfiguration | null;
@@ -260,26 +269,50 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         } catch (err) {}
     }
     
-    // Try to restore active session from localStorage on initial boot
-    const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
-    if (cachedSession) {
-      setSession(cachedSession);
-      sessionRefVal.current = cachedSession;
+    // Reset session, positions, trades state whenever active user changes
+    setSession(null);
+    sessionRefVal.current = null;
+    setPositions([]);
+    setTrades([]);
+    tradesRefVal.current = [];
+    setActivity([]);
+    setRecommendations([]);
+
+    // Check if user is a new user with zero balance and zero deposits
+    const isNewZeroUser = (user.totalDeposits || 0) === 0 && (user.availableBalance || 0) === 0 && (user.portfolioBalance || 0) === 0;
+    
+    // Try to restore active session from localStorage on initial boot if not a zero-balance user
+    if (!isNewZeroUser) {
+      const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
+      if (cachedSession) {
+        setSession(cachedSession);
+        sessionRefVal.current = cachedSession;
+      }
+      
+      const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
+      if (cachedPositions.length > 0) {
+        setPositions(cachedPositions);
+      }
+      
+      const cachedTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
+      if (cachedTrades.length > 0) {
+        setTrades(cachedTrades);
+      }
+    } else {
+      // Purge any stale session or trades key for zero balance user
+      safeStorage.removeItem(`aver_session_${user.uid}`);
+      safeStorage.removeItem(`aver_positions_${user.uid}`);
+      safeStorage.removeItem(`aver_trades_${user.uid}`);
     }
     
-    const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
-    if (cachedPositions.length > 0) {
-      setPositions(cachedPositions);
-    }
-    
-    const cachedTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
-    if (cachedTrades.length > 0) {
-      setTrades(cachedTrades);
-    }
-    
+    const clearedAt = Number(getLocalStorageItem(`aver_activity_cleared_at_${user.uid}`, 0));
     const cachedActivity = getLocalStorageItem(`aver_activity_${user.uid}`, []);
     if (cachedActivity.length > 0) {
-      setActivity(cachedActivity);
+      const filtered = cachedActivity.filter((item: any) => {
+        const t = parseTimestamp(item.timestamp);
+        return t > clearedAt;
+      });
+      setActivity(filtered);
     }
     
     const cachedRecommendations = getLocalStorageItem(`aver_recommendations_${user.uid}`, []);
@@ -445,12 +478,14 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     });
 
     const unsubActivity = onSnapshot(activityRef, (snap) => {
+        const clearedAt = Number(getLocalStorageItem(`aver_activity_cleared_at_${user.uid}`, 0));
         const fetchedActivity = snap.docs.map(d => ({ id: d.id, ...d.data() })) as ActivityEvent[];
-        setActivity(prev => {
-          const merged = deduplicateActivities([...fetchedActivity, ...prev]).slice(0, 100);
-          if (merged.length > 0) setLocalStorageItem(`aver_activity_${user.uid}`, merged);
-          return merged;
+        const filteredActivity = fetchedActivity.filter(item => {
+          const itemTime = parseTimestamp(item.timestamp);
+          return itemTime > clearedAt;
         });
+        setActivity(filteredActivity);
+        setLocalStorageItem(`aver_activity_${user.uid}`, filteredActivity);
     }, (error) => {
       console.warn("[TradingEngineContext] activity subscription restricted/denied. Running locally:", error);
     });
@@ -540,12 +575,19 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const activeConfig = configs.find(c => c.id === configId) || config;
     if (!activeConfig) return;
 
-    const allocationAmount = activeConfig.sessionSetup.amountToAllocate;
+    let allocationAmount = activeConfig.sessionSetup.amountToAllocate;
     const fundingSource = activeConfig.sessionSetup.fundingSource;
     
     // Validate funds
     const currentAvailableCash = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.availableBalance ?? (typeof user?.portfolioBalance === 'number' ? user.portfolioBalance : 0);
     
+    if (currentAvailableCash <= 0) {
+      console.warn("[TradingEngineContext] Insufficient funds: balance is $0.00. Deposit required to trade.");
+      const err = new Error('INSUFFICIENT_FUNDS');
+      (err as any).code = 'INSUFFICIENT_FUNDS';
+      throw err;
+    }
+
     if (allocationAmount > currentAvailableCash) {
       console.warn("[TradingEngineContext] Insufficient funds: allocated amount exceeds available balance", { allocationAmount, currentAvailableCash });
       const err = new Error('INSUFFICIENT_FUNDS');
@@ -1059,6 +1101,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     // Clear local state
     setActivity([]);
     setLocalStorageItem(`aver_activity_${user.uid}`, []);
+    setLocalStorageItem(`aver_activity_cleared_at_${user.uid}`, Date.now());
     
     // Clear Firestore collection
     try {
@@ -1128,37 +1171,29 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
      // 2. We DO NOT update tokenBalance or availableBalance here anymore.
     // Profits/Losses stay within the session until endSession is called.
+    const isProfitable = pnl > 0;
+    let currentWinRun = user?.winRun || 0;
+    if (isProfitable) {
+      currentWinRun += 1;
+    } else {
+      currentWinRun = 0;
+    }
+    
+    const currentAiTrades = ((user?.aiTradesCount || 0) + 1);
+
+    const xpGain = 5 + (isProfitable ? 5 : 0) + (isProfitable ? Math.min(currentWinRun, 5) * 2 : 0);
+    const calculatedXp = (currentAiTrades * 20) + (currentWinRun * 15) + ((user?.loginStreak || 1) * 10);
+    let currentXp = Math.max((user?.xp || 0) + xpGain, calculatedXp);
+    let currentLevel = Math.max(1, Math.floor(currentXp / 1000) + 1);
+    
+    let insignias: string[] = [];
+    if (currentLevel >= 5) {
+      const milestone = Math.floor(currentLevel / 5) * 5;
+      insignias.push(`Level ${milestone} Vanguard`);
+    }
+
     try {
       const userId = user.uid;
-      
-      // Calculate XP and Progression based on trade result
-      const isProfitable = pnl > 0;
-      let currentWinRun = user.winRun || 0;
-      if (isProfitable) {
-        currentWinRun += 1;
-      } else {
-        currentWinRun = 0;
-      }
-      
-      const currentAiTrades = (user.aiTradesCount || 0) + 1;
-
-      const xpGain = 5 + (isProfitable ? 5 : 0) + (isProfitable ? Math.min(currentWinRun, 5) * 2 : 0);
-      let currentXp = (user.xp || 0) + xpGain;
-      let currentLevel = user.level || 1;
-      let insignias = user.insignias ? [...user.insignias] : [];
-      
-      let nextLevelXp = 5000 * currentLevel;
-      while (currentXp >= nextLevelXp) {
-        currentLevel += 1;
-        currentXp -= nextLevelXp;
-        if (currentLevel % 5 === 0) {
-          const newInsignia = `Level ${currentLevel} Vanguard`;
-          if (!insignias.includes(newInsignia)) {
-            insignias.push(newInsignia);
-          }
-        }
-        nextLevelXp = 5000 * currentLevel;
-      }
 
       // We still update historical stats and overall portfolio tracking for charts
       const userUpdate = {
@@ -1208,6 +1243,11 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         const uObj = JSON.parse(cachedUserStr);
         uObj.totalProfit = pnl > 0 ? (uObj.totalProfit || 0) + pnl : (uObj.totalProfit || 0);
         uObj.totalLoss = pnl < 0 ? (uObj.totalLoss || 0) + Math.abs(pnl) : (uObj.totalLoss || 0);
+        uObj.winRun = currentWinRun;
+        uObj.aiTradesCount = currentAiTrades;
+        uObj.level = currentLevel;
+        uObj.xp = currentXp;
+        uObj.insignias = insignias;
         if (uObj.portfolio) {
           uObj.portfolio.todayPnL = (uObj.portfolio.todayPnL || 0) + pnl;
           uObj.portfolio.overallReturn = (uObj.portfolio.overallReturn || 0) + pnl;
@@ -1459,6 +1499,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             addNotification('trading', 'high', 'Stop Loss Limit', `AI Risk management triggered at -${lossLimitPercent}% session limit.`);
           }
         }
+      }
+
+      // Automatic termination if allocated money is gone ($0 remaining or P/L <= -100%)
+      if (currentTotalSessionCapital <= 0 || currentPnLPercent <= -100 || (currentTradingCapital <= 0 && openTrades.length === 0)) {
+        console.log(`[TradingEngineContext] Allocated session capital depleted ($${currentTotalSessionCapital.toFixed(2)}, P/L: ${currentPnLPercent.toFixed(2)}%). Automatically ending session.`);
+        if (addNotification) {
+          addNotification('trading', 'high', 'Session Auto-Terminated', 'All allocated session capital has been depleted ($0 remaining / -100% P/L). Session ended.');
+        }
+        endSessionRef.current();
+        return;
       }
 
       console.log("[TradingEngineContext] Position management, open trades:", openTrades.length);
@@ -1715,6 +1765,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         const equity = Math.max(0, initialCap + realizedPnl + floatingPnl);
         const totalPnl = equity - initialCap;
         const pnlPercent = (totalPnl / initialCap) * 100;
+
+        // Auto-terminate session if allocated money reaches $0 or P/L reaches -100%
+        if (equity <= 0 || pnlPercent <= -100 || (currentSession.tradingCapital <= 0 && openTrades.length === 0)) {
+          console.log("[TradingEngineContext] Allocated capital depleted ($0 remaining / -100% P/L). Auto-terminating AI session.");
+          if (addNotification) {
+            addNotification('trading', 'high', 'Session Capital Depleted', 'Your allocated session capital has reached $0 (-100% P/L). Session terminated.');
+          }
+          endSessionRef.current();
+          return;
+        }
         
         if (equity > peakEquityRef.current) {
           peakEquityRef.current = equity;

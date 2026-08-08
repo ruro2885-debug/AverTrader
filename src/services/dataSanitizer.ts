@@ -74,7 +74,7 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
       vaultBalance: 0,
       aiTradingCapital: 0,
       portfolioValue: realBalance,
-      totalDeposits: realBalance,
+      totalDeposits: 0,
       totalWithdrawals: 0,
       cashBalance: realBalance,
       tokenBalance: realBalance,
@@ -105,7 +105,7 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
         availableBalance: realBalance,
         vaultBalance: 0,
         activeOffset: 0,
-        totalDeposits: realBalance,
+        totalDeposits: 0,
         totalWithdrawals: 0,
         totalProfit: 0,
         totalLoss: 0,
@@ -148,6 +148,14 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
     safeStorage.removeItem(positionsKey);
     safeStorage.removeItem(`aver_activity_${uid}`);
     safeStorage.removeItem(`aver_trades_${uid}`);
+    safeStorage.removeItem(`aver_email_verified_${uid}`);
+    safeStorage.removeItem(`aver_twoFactorEnabled_${uid}`);
+    safeStorage.removeItem(`aver_bronze_completed_${uid}`);
+    safeStorage.removeItem(`aver_welcome_bonus_claimed_${uid}`);
+    safeStorage.removeItem('aver_email_verified');
+    safeStorage.removeItem('aver_twoFactorEnabled');
+    safeStorage.removeItem('aver_bronze_completed');
+    safeStorage.removeItem('aver_welcome_bonus_claimed');
 
     // Sanitize User Profile in Local Storage
     const cachedProfileRaw = safeStorage.getItem(profileKey);
@@ -187,7 +195,7 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
     const portfolioDocRef = doc(db, 'users', uid, 'portfolio', 'current');
 
     // Reset user doc
-    await updateDoc(userDocRef, {
+    await setDoc(userDocRef, {
       vaultBalance: 0,
       portfolioBalance: realBalance,
       availableBalance: realBalance,
@@ -195,6 +203,7 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
       cashBalance: realBalance,
       aiTradingCapital: 0,
       holdings: [],
+      trades: [],
       level: 1,
       xp: 0,
       winRun: 0,
@@ -202,11 +211,24 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
       insignias: [],
       totalProfit: 0,
       totalLoss: 0,
-      'portfolio.totalValue': realBalance,
-      'portfolio.todayPnL': 0,
-      'portfolio.overallReturn': 0,
+      portfolio: {
+        totalValue: realBalance,
+        todayPnL: 0,
+        todayPnLPercent: 0,
+        overallReturn: 0,
+        realizedPnL: 0,
+        unrealizedPnL: 0,
+        healthScore: 0,
+        diversificationScore: 0,
+        volatility: 0,
+        sharpeRatio: 0,
+        winRate: 0,
+        maxDrawdown: 0,
+        recoveryFactor: 0,
+        riskAdjustedReturn: 0
+      },
       lastUpdated: serverTimestamp()
-    }).catch(() => {});
+    }, { merge: true }).catch(() => {});
 
     // Reset wallet doc
     await setDoc(walletDocRef, {
@@ -216,7 +238,7 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
       vaultBalance: 0,
       aiTradingCapital: 0,
       portfolioValue: realBalance,
-      totalDeposits: realBalance,
+      totalDeposits: 0,
       totalWithdrawals: 0,
       cashBalance: realBalance,
       tokenBalance: realBalance,

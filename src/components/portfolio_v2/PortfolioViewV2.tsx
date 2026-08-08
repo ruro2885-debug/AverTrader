@@ -417,6 +417,18 @@ export default function PortfolioViewV2({
     ETH: 3450.20,
     SOL: 145.60,
     AAPL: 172.50,
+    TSLA: 254.30,
+    NVDA: 128.20,
+    MSFT: 442.10,
+    AMZN: 198.20,
+    META: 512.40,
+    NFLX: 685.20,
+    AMD: 172.40,
+    INTC: 32.50,
+    SPY: 542.10,
+    QQQ: 482.50,
+    ARKK: 42.10,
+    GLD: 224.20,
     Gold: 2035.00,
     ETFs: 450.00
   });

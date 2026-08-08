@@ -3,6 +3,7 @@ import { Settings, Save, Shield, Target, Globe, Sliders, Bell, RefreshCw } from 
 import { AiPreferenceProfile, RiskRating } from '../../types/aiTrading';
 import { aiTradingService } from '../../services/aiTradingService';
 import { useAuth } from '../../contexts/AuthContext';
+import CoinLogo from '../CoinLogo';
 
 interface AiProfileEditorProps {
   initialPrefs: AiPreferenceProfile | null;
@@ -82,16 +83,17 @@ export default function AiProfileEditor({ initialPrefs, onSave, isDark }: AiProf
           <div className="space-y-4">
             <p className={`text-xs font-bold ${textSecondary}`}>Preferred Markets</p>
             <div className="flex flex-wrap gap-2">
-              {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'AAPL', 'TSLA', 'NVDA'].map(m => (
+              {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'SPY', 'GLD'].map(m => (
                 <button
                   key={m}
                   onClick={() => toggleMarket(m)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${
+                  className={`px-3 py-2 rounded-xl text-[10px] font-black border transition-all flex items-center gap-2 ${
                     prefs.preferredMarkets.includes(m)
                       ? 'bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]'
                       : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300'
                   }`}
                 >
+                  <CoinLogo symbol={m} size={20} />
                   {m}
                 </button>
               ))}
