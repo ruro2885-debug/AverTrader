@@ -6,6 +6,10 @@
       "source": "/preview.png",
       "headers": [
         {
+          "key": "Content-Type",
+          "value": "image/png"
+        },
+        {
           "key": "Access-Control-Allow-Origin",
           "value": "*"
         },
@@ -17,10 +21,6 @@
     }
   ],
   "rewrites": [
-    {
-      "source": "/preview.png",
-      "destination": "/api/preview.png"
-    },
     {
       "source": "/api/(.*)",
       "destination": "/api/$1"
