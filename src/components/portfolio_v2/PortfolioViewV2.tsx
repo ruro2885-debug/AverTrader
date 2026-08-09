@@ -311,6 +311,7 @@ export default function PortfolioViewV2({
     vaultBalance,
     totalHoldingsValue,
     updateVaultBalance, 
+    addFundsToActiveBalance,
   } = useFinancials();
 
   // Placeholders for removed functionality to satisfy existing component props
@@ -830,18 +831,38 @@ export default function PortfolioViewV2({
   }, [user?.uid, timeframe]);
 
   const tvChartData = useMemo(() => {
-    if (sessionEquityPoints && sessionEquityPoints.length > 0) {
-      return sessionEquityPoints.map(point => ({
-        time: Math.floor(point.timestamp / 1000) as any,
-        value: point.equity
-      }));
+    const points: Array<{ time: number; value: number }> = [];
+
+    // Add historical equity records
+    if (equityHistory && equityHistory.length > 0) {
+      equityHistory.forEach(record => {
+        const timeSec = record.timestamp && typeof record.timestamp.seconds === 'number' 
+          ? record.timestamp.seconds 
+          : Math.floor((record.timestamp?.toMillis ? record.timestamp.toMillis() : Date.now()) / 1000);
+        points.push({
+          time: timeSec,
+          value: record.totalNetBalance ?? record.equity ?? 0
+        });
+      });
     }
-    return equityHistory.map(record => {
-      return {
-        time: record.timestamp.seconds as any,
-        value: record.totalNetBalance
-      };
-    });
+
+    // Add session equity points without overwriting history
+    if (sessionEquityPoints && sessionEquityPoints.length > 0) {
+      sessionEquityPoints.forEach(point => {
+        points.push({
+          time: Math.floor(point.timestamp / 1000),
+          value: point.equity
+        });
+      });
+    }
+
+    // Sort chronologically by time and deduplicate by time
+    points.sort((a, b) => a.time - b.time);
+    const uniquePoints = points.filter((p, index, self) => 
+      index === 0 || p.time !== self[index - 1].time
+    );
+
+    return uniquePoints;
   }, [sessionEquityPoints, equityHistory]);
 
   const mergedChartData = tvChartData;
@@ -2390,8 +2411,7 @@ export default function PortfolioViewV2({
                           }
                           const nextBal = vaultBalance + amt;
                           updateVaultBalance(nextBal);
-                          const nextOffset = activeBalanceOffset - amt;
-                          updateActiveBalanceOffset(nextOffset);
+                          addFundsToActiveBalance(-amt).catch(() => {});
                           showNotification(`Successfully protected $${amt.toLocaleString()} inside Vault.`);
                           setVaultActionType(null);
                           setVaultActionAmount('');
@@ -2486,14 +2506,18 @@ export default function PortfolioViewV2({
                             showNotification("Please enter a valid withdrawal amount.");
                             return;
                           }
+                          const currentTarget = Number(safeStorage.getItem('vault_target')) || 0;
+                          if (currentTarget > 0 && vaultBalance < currentTarget) {
+                            showNotification(`Withdrawal locked: You cannot withdraw until you reach your savings target of $${currentTarget.toLocaleString()} (Current balance: $${vaultBalance.toLocaleString()}).`);
+                            return;
+                          }
                           if (amt > vaultBalance) {
                             showNotification("Withdrawal exceeds current protected savings balance.");
                             return;
                           }
                           const nextBal = vaultBalance - amt;
                           updateVaultBalance(nextBal);
-                          const nextOffset = activeBalanceOffset + amt;
-                          updateActiveBalanceOffset(nextOffset);
+                          addFundsToActiveBalance(amt).catch(() => {});
                           showNotification(`Successfully unlocked $${amt.toLocaleString()} back to Active Pool.`);
                           setVaultActionType(null);
                           setVaultActionAmount('');

@@ -329,7 +329,7 @@ export default function EventDetailsPage({
               </div>
               <div>
                 <p className="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 tracking-tight">
-                  ${event.totalRewardPool.toLocaleString()} <span className="text-lg text-amber-200">{event.rewardToken}</span>
+                  ${(event?.totalRewardPool || 0).toLocaleString()} <span className="text-lg text-amber-200">{event?.rewardToken || 'USDT'}</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1">Guaranteed distribution directly to participant wallets</p>
               </div>
@@ -733,7 +733,7 @@ export default function EventDetailsPage({
                 >
                   <p className="text-[10px] font-extrabold text-emerald-400 uppercase">{rel.category}</p>
                   <h4 className="text-sm font-black text-white group-hover:text-emerald-400 transition-colors mt-0.5 truncate">{rel.title}</h4>
-                  <p className="text-xs font-bold text-amber-400 mt-2">${rel.totalRewardPool.toLocaleString()} {rel.rewardToken}</p>
+                  <p className="text-xs font-bold text-amber-400 mt-2">${(rel?.totalRewardPool || 0).toLocaleString()} {rel?.rewardToken || 'USDT'}</p>
                 </div>
               ))}
             </div>

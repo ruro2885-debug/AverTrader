@@ -309,7 +309,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                w.id === id ? { ...w, status: 'Successful' } : w
+                (w.id === id || w.refId === id || (withdrawalData.refId && (w.id === withdrawalData.refId || w.refId === withdrawalData.refId))) ? { ...w, status: 'Successful' } : w
               );
             }
           }
@@ -366,7 +366,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               const updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                w.id === id ? { ...w, status: 'Failed' } : w
+                (w.id === id || w.refId === id || (withdrawalData.refId && (w.id === withdrawalData.refId || w.refId === withdrawalData.refId))) ? { ...w, status: 'Failed' } : w
               );
               await safeSetDoc(userRef, {
                 withdrawals: updatedUserWithdrawals,
@@ -385,7 +385,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                w.id === id ? { ...w, status: 'Reversed', reversalReason: reason || 'Administrative Reversal' } : w
+                (w.id === id || w.refId === id || (withdrawalData.refId && (w.id === withdrawalData.refId || w.refId === withdrawalData.refId))) ? { ...w, status: 'Reversed', reversalReason: reason || 'Administrative Reversal' } : w
               );
             }
           }

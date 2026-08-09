@@ -74,9 +74,10 @@ export function getLocalWithdrawals(): any[] {
 export function saveLocalWithdrawal(withdrawal: any) {
   try {
     const current = getLocalWithdrawals();
+    const rawStatus = (withdrawal.status || 'pending').toLowerCase();
     const cleanWithdrawal = {
       ...withdrawal,
-      status: (withdrawal.status || 'pending').toLowerCase(),
+      status: rawStatus,
       createdAt: typeof withdrawal.createdAt === 'string' ? withdrawal.createdAt : new Date().toISOString(),
       updatedAt: typeof withdrawal.updatedAt === 'string' ? withdrawal.updatedAt : new Date().toISOString()
     };
@@ -84,6 +85,45 @@ export function saveLocalWithdrawal(withdrawal: any) {
     current.forEach(w => map.set(w.id, w));
     map.set(cleanWithdrawal.id, cleanWithdrawal);
     localStorage.setItem(WITHDRAWALS_STORAGE_KEY, JSON.stringify(Array.from(map.values())));
+
+    // Determine normalized transaction status for history display
+    const txStatus = (rawStatus === 'completed' || rawStatus === 'approved' || rawStatus === 'successful') ? 'Completed' :
+                     (rawStatus === 'failed' || rawStatus === 'rejected') ? 'Failed' :
+                     (rawStatus === 'reversed') ? 'Reversed' : 'Pending';
+
+    // Synchronize status across all aver_txs_* transaction keys in localStorage
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('aver_txs_') || key.startsWith('aver_transactions') || key.startsWith('aver_user_transactions_'))) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              let updated = false;
+              const newList = parsed.map((item: any) => {
+                if (item && (item.id === cleanWithdrawal.id || item.refId === cleanWithdrawal.id || (cleanWithdrawal.refId && item.refId === cleanWithdrawal.refId))) {
+                  updated = true;
+                  return {
+                    ...item,
+                    status: txStatus,
+                    ...(cleanWithdrawal.reversalReason ? { reversalReason: cleanWithdrawal.reversalReason } : {}),
+                    updatedAt: new Date().toISOString()
+                  };
+                }
+                return item;
+              });
+              if (updated) {
+                localStorage.setItem(key, JSON.stringify(newList));
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed syncing local transaction keys:", e);
+    }
+
     window.dispatchEvent(new CustomEvent('withdrawal_updated', { detail: cleanWithdrawal.id }));
     window.dispatchEvent(new CustomEvent('aver_transaction_created', { detail: cleanWithdrawal.id }));
     window.dispatchEvent(new Event('storage'));

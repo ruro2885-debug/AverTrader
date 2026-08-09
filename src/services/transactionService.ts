@@ -13,6 +13,7 @@ import {
 import { db } from '../lib/firebase';
 import { TransactionRecord, TransactionType } from '../types';
 import { getLocalDeposits } from '../lib/depositStore';
+import { getLocalWithdrawals } from '../lib/withdrawalStore';
 
 export const getExplorerUrl = (txHash?: string, network?: string): string | undefined => {
   if (!txHash) return undefined;
@@ -187,6 +188,7 @@ export const transactionService = {
     const normalizeStatus = (s?: string): TransactionRecord['status'] => {
       const lower = (s || '').toLowerCase();
       if (lower === 'completed' || lower === 'approved' || lower === 'success' || lower === 'successful') return 'Completed';
+      if (lower === 'reversed') return 'Reversed';
       if (lower === 'rejected' || lower === 'declined' || lower === 'failed' || lower === 'expired' || lower === 'cancelled') return 'Failed';
       if (lower === 'processing') return 'Processing';
       return 'Pending';
@@ -238,6 +240,45 @@ export const transactionService = {
       });
     } catch (e) {}
 
+    // 2b. Read from local admin_withdrawals store (aver_admin_withdrawals_local)
+    try {
+      const localAdminWithdrawals = getLocalWithdrawals();
+      localAdminWithdrawals.forEach(w => {
+        const matchesUser = w.userId === userId || (!w.userId && userId === 'anonymous') || (userProfile?.email && w.email && w.email.toLowerCase() === userProfile.email.toLowerCase());
+        if (matchesUser) {
+          const id = w.id;
+          const status = normalizeStatus(w.status);
+          const existing = map.get(id);
+          if (existing) {
+            existing.status = status;
+            if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
+            if (w.amount) existing.amount = -Math.abs(Number(w.amount));
+            if (w.cryptoAmount) existing.cryptoAmount = -Math.abs(Number(w.cryptoAmount));
+            if (w.cryptoSymbol || w.asset) existing.asset = w.cryptoSymbol || w.asset;
+            if (w.txHash) existing.txHash = w.txHash;
+          } else {
+            map.set(id, {
+              id,
+              userId,
+              type: 'withdrawal',
+              category: 'transactions',
+              title: `${w.cryptoSymbol || w.asset || 'USDT'} Withdrawal`,
+              amount: -Math.abs(Number(w.amount) || 0),
+              cryptoAmount: w.cryptoAmount ? -Math.abs(Number(w.cryptoAmount)) : undefined,
+              asset: w.cryptoSymbol || w.asset || 'USDT',
+              network: w.network || w.cryptoNetwork || 'TRC20',
+              destination: w.destination || w.address || 'N/A',
+              status,
+              reversalReason: w.reversalReason || w.reason || undefined,
+              timestamp: w.timestamp || w.createdAt || w.date || new Date().toISOString(),
+              txHash: w.txHash || undefined,
+              refId: w.refId || w.id
+            });
+          }
+        }
+      });
+    } catch (e) {}
+
     // 3. Map user legacy arrays (deposits, withdrawals, trades, history)
     if (userProfile) {
       if (Array.isArray(userProfile.deposits)) {
@@ -273,19 +314,28 @@ export const transactionService = {
           const id = w.id || `wd-${w.timestamp || w.date || idx}`;
           const asset = w.asset || w.symbol || 'USDT';
           const network = w.network || w.cryptoNetwork || 'TRC20';
-          if (!map.has(id)) {
+          const status = normalizeStatus(w.status || 'Processing');
+          const existing = map.get(id);
+          if (existing) {
+            existing.status = status;
+            if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
+            if (w.txHash) existing.txHash = w.txHash || w.hash;
+          } else {
             map.set(id, {
               id,
               userId,
               type: 'withdrawal',
               category: 'transactions',
               title: `${asset} Withdrawal`,
-              amount: Number(w.amount) || 0,
+              amount: -Math.abs(Number(w.amount) || 0),
               asset,
               network,
-              status: normalizeStatus(w.status || 'Processing'),
+              destination: w.destination || w.address || 'N/A',
+              status,
+              reversalReason: w.reversalReason || w.reason || undefined,
               timestamp: w.timestamp || w.date || new Date().toISOString(),
-              txHash: w.txHash || w.hash || undefined
+              txHash: w.txHash || w.hash || undefined,
+              refId: w.refId || w.id
             });
           }
         });
@@ -344,7 +394,13 @@ export const transactionService = {
       snap.forEach(d => {
         const data = d.data() as TransactionRecord;
         const normalized = normalizeStatus(data.status);
-        map.set(d.id, { ...data, id: d.id, status: normalized });
+        const existing = map.get(d.id);
+        if (existing) {
+          existing.status = normalized;
+          if (data.txHash) existing.txHash = data.txHash;
+        } else {
+          map.set(d.id, { ...data, id: d.id, status: normalized });
+        }
       });
     } catch (err) {
       console.warn("Firestore transactions query notice:", err);
@@ -383,6 +439,79 @@ export const transactionService = {
       });
     } catch (err) {
       console.warn("Firestore admin_deposits sync notice:", err);
+    }
+
+    // 6. Query Firestore 'admin_withdrawals' & 'withdrawals' for instant sync with Admin approvals/rejections
+    try {
+      const qAdminWth = query(collection(db, 'admin_withdrawals'), where('userId', '==', userId));
+      const snapAdminWth = await getDocs(qAdminWth);
+      snapAdminWth.forEach(docSnap => {
+        const w = docSnap.data();
+        const id = docSnap.id;
+        const status = normalizeStatus(w.status);
+        const existing = map.get(id);
+        if (existing) {
+          existing.status = status;
+          if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
+          if (w.txHash) existing.txHash = w.txHash;
+        } else {
+          map.set(id, {
+            id,
+            userId,
+            type: 'withdrawal',
+            category: 'transactions',
+            title: `${w.cryptoSymbol || w.asset || 'USDT'} Withdrawal`,
+            amount: -Math.abs(Number(w.amount) || 0),
+            cryptoAmount: w.cryptoAmount ? -Math.abs(Number(w.cryptoAmount)) : undefined,
+            asset: w.cryptoSymbol || w.asset || 'USDT',
+            network: w.network || w.cryptoNetwork || 'TRC20',
+            destination: w.destination || w.address || 'N/A',
+            status,
+            reversalReason: w.reversalReason || w.reason || undefined,
+            timestamp: w.timestamp || w.createdAt || w.date || new Date().toISOString(),
+            txHash: w.txHash || undefined,
+            refId: w.refId || w.id
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("Firestore admin_withdrawals sync notice:", err);
+    }
+
+    try {
+      const qWth = query(collection(db, 'withdrawals'), where('userId', '==', userId));
+      const snapWth = await getDocs(qWth);
+      snapWth.forEach(docSnap => {
+        const w = docSnap.data();
+        const id = docSnap.id;
+        const status = normalizeStatus(w.status);
+        const existing = map.get(id);
+        if (existing) {
+          existing.status = status;
+          if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
+          if (w.txHash) existing.txHash = w.txHash;
+        } else {
+          map.set(id, {
+            id,
+            userId,
+            type: 'withdrawal',
+            category: 'transactions',
+            title: `${w.cryptoSymbol || w.asset || 'USDT'} Withdrawal`,
+            amount: -Math.abs(Number(w.amount) || 0),
+            cryptoAmount: w.cryptoAmount ? -Math.abs(Number(w.cryptoAmount)) : undefined,
+            asset: w.cryptoSymbol || w.asset || 'USDT',
+            network: w.network || w.cryptoNetwork || 'TRC20',
+            destination: w.destination || w.address || 'N/A',
+            status,
+            reversalReason: w.reversalReason || w.reason || undefined,
+            timestamp: w.timestamp || w.createdAt || w.date || new Date().toISOString(),
+            txHash: w.txHash || undefined,
+            refId: w.refId || w.id
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("Firestore withdrawals sync notice:", err);
     }
 
     const list = Array.from(map.values());
@@ -470,12 +599,13 @@ export const transactionService = {
     // Initial fetch
     fetchAndCallback();
 
-    // Event listener for local updates & deposit state updates
+    // Event listener for local updates & deposit/withdrawal state updates
     const handleLocalUpdate = () => {
       fetchAndCallback();
     };
     window.addEventListener('aver_transaction_created', handleLocalUpdate);
     window.addEventListener('deposit_updated', handleLocalUpdate);
+    window.addEventListener('withdrawal_updated', handleLocalUpdate);
     window.addEventListener('storage', handleLocalUpdate);
 
     // Firestore listener on transactions
@@ -500,12 +630,25 @@ export const transactionService = {
       });
     } catch (err) {}
 
+    // Firestore listener on admin_withdrawals
+    let unsubWithdrawals = () => {};
+    try {
+      const qWth = query(collection(db, 'admin_withdrawals'), where('userId', '==', userId));
+      unsubWithdrawals = onSnapshot(qWth, () => {
+        fetchAndCallback();
+      }, (err) => {
+        console.warn("Realtime admin_withdrawals listener notice:", err);
+      });
+    } catch (err) {}
+
     return () => {
       window.removeEventListener('aver_transaction_created', handleLocalUpdate);
       window.removeEventListener('deposit_updated', handleLocalUpdate);
+      window.removeEventListener('withdrawal_updated', handleLocalUpdate);
       window.removeEventListener('storage', handleLocalUpdate);
       unsubTransactions();
       unsubDeposits();
+      unsubWithdrawals();
     };
   }
 };

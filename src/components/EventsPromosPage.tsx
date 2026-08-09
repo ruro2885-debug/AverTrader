@@ -329,14 +329,14 @@ export default function EventsPromosPage({
             {/* Hero Card Stage */}
             <div 
               className="relative rounded-[32px] overflow-hidden border border-white/15 bg-slate-900/80 shadow-2xl min-h-[420px] sm:min-h-[460px] flex items-end group cursor-pointer"
-              onClick={() => setSelectedEventId(activeHero.id)}
+              onClick={() => activeHero?.id && setSelectedEventId(activeHero.id)}
             >
               {/* Background Trading Image with Multi-layer Vignette */}
               <div 
                 className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 group-hover:scale-105"
-                style={{ backgroundImage: `url('${activeHero.bannerUrl}')` }}
+                style={{ backgroundImage: `url('${activeHero?.bannerUrl || ''}')` }}
               />
-              <div className={`absolute inset-0 bg-gradient-to-t ${activeHero.heroGradient || 'from-[#03060D] via-[#03060D]/80 to-transparent'}`} />
+              <div className={`absolute inset-0 bg-gradient-to-t ${activeHero?.heroGradient || 'from-[#03060D] via-[#03060D]/80 to-transparent'}`} />
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-transparent via-[#03060D]/60 to-[#03060D]" />
 
               {/* Glowing Background Accent Light */}
@@ -350,7 +350,7 @@ export default function EventsPromosPage({
                   
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      {activeHero.category}
+                      {activeHero?.category}
                     </span>
                     <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
                       Live Championship
@@ -358,10 +358,10 @@ export default function EventsPromosPage({
                   </div>
 
                   <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight group-hover:text-emerald-300 transition-colors">
-                    {activeHero.title}
+                    {activeHero?.title}
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-300 max-w-xl font-normal leading-relaxed line-clamp-2">
-                    {activeHero.subtitle}
+                    {activeHero?.subtitle}
                   </p>
 
                   {/* Countdown Timer Strip */}
@@ -376,7 +376,7 @@ export default function EventsPromosPage({
 
                     <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
                       <Users className="w-4 h-4 text-blue-400" />
-                      <span className="text-xs font-black text-white">{activeHero.participantCount.toLocaleString()}</span>
+                      <span className="text-xs font-black text-white">{(activeHero?.participantCount || 0).toLocaleString()}</span>
                       <span className="text-[10px] font-bold text-slate-400">Traders Enrolled</span>
                     </div>
                   </div>
@@ -386,7 +386,7 @@ export default function EventsPromosPage({
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedEventId(activeHero.id);
+                        if (activeHero?.id) setSelectedEventId(activeHero.id);
                       }}
                       className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/25 flex items-center gap-2 group-hover:scale-105"
                     >
@@ -406,13 +406,13 @@ export default function EventsPromosPage({
 
                   <div>
                     <p className="text-2xl sm:text-3xl font-black text-amber-400 tracking-tight">
-                      ${activeHero.totalRewardPool.toLocaleString()} <span className="text-sm text-amber-200">{activeHero.rewardToken}</span>
+                      ${(activeHero?.totalRewardPool || 0).toLocaleString()} <span className="text-sm text-amber-200">{activeHero?.rewardToken || 'USDT'}</span>
                     </p>
                     <p className="text-[11px] text-slate-400 mt-1">Guaranteed distribution directly to user wallet</p>
                   </div>
 
                   {/* Top Reward Card Sample */}
-                  {activeHero.rewardCards && activeHero.rewardCards[0] && (
+                  {activeHero?.rewardCards && activeHero.rewardCards[0] && (
                     <div className="p-3 rounded-2xl bg-white/5 border border-white/5 flex items-center space-x-3">
                       <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
                         <Award className="w-4 h-4" />
@@ -478,7 +478,7 @@ export default function EventsPromosPage({
                     {/* Reward Pool Highlight */}
                     <div className="absolute bottom-3 left-3 right-3 bg-slate-950/80 backdrop-blur-md p-2.5 rounded-2xl border border-white/10 flex items-center justify-between">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">Reward Pool</span>
-                      <span className="text-sm font-black text-amber-400">${item.totalRewardPool.toLocaleString()} {item.rewardToken}</span>
+                      <span className="text-sm font-black text-amber-400">${(item.totalRewardPool || 0).toLocaleString()} {item.rewardToken || 'USDT'}</span>
                     </div>
                   </div>
 
@@ -497,7 +497,7 @@ export default function EventsPromosPage({
                     <div className="space-y-1.5">
                       <div className="flex justify-between text-[10px] font-bold text-slate-400">
                         <span>Participants Enrolled</span>
-                        <span className="text-white">{item.participantCount.toLocaleString()} {item.maxParticipants ? `/ ${item.maxParticipants.toLocaleString()}` : ''}</span>
+                        <span className="text-white">{(item.participantCount || 0).toLocaleString()} {item.maxParticipants ? `/ ${item.maxParticipants.toLocaleString()}` : ''}</span>
                       </div>
                       <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full" style={{ width: `${capacityPct}%` }} />
@@ -550,7 +550,7 @@ export default function EventsPromosPage({
                           Final Hours
                         </span>
                         <h4 className="font-black text-sm text-white group-hover:text-amber-300 transition-colors mt-1">{item.title}</h4>
-                        <p className="text-xs font-extrabold text-amber-400 mt-0.5">${item.totalRewardPool.toLocaleString()} {item.rewardToken} Pool</p>
+                        <p className="text-xs font-extrabold text-amber-400 mt-0.5">${(item.totalRewardPool || 0).toLocaleString()} {item.rewardToken || 'USDT'} Pool</p>
                       </div>
                     </div>
 
@@ -601,13 +601,13 @@ export default function EventsPromosPage({
                         <h4 className="font-black text-base text-white group-hover:text-blue-300 transition-colors mt-0.5">{item.title}</h4>
                       </div>
                     </div>
-                    <span className="text-sm font-black text-amber-400">${item.totalRewardPool.toLocaleString()} {item.rewardToken}</span>
+                    <span className="text-sm font-black text-amber-400">${(item.totalRewardPool || 0).toLocaleString()} {item.rewardToken || 'USDT'}</span>
                   </div>
 
                   <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{item.subtitle}</p>
 
                   <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-medium">Pre-Registered: <strong className="text-white">{item.participantCount.toLocaleString()}</strong></span>
+                    <span className="text-slate-400 font-medium">Pre-Registered: <strong className="text-white">{(item.participantCount || 0).toLocaleString()}</strong></span>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -652,13 +652,13 @@ export default function EventsPromosPage({
                     </div>
                     <div>
                       <h4 className="font-bold text-sm text-white">{item.title}</h4>
-                      <p className="text-xs text-slate-400 mt-0.5">{item.participantCount.toLocaleString()} Participants • Settled & Distributed</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{(item.participantCount || 0).toLocaleString()} Participants • Settled & Distributed</p>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-4 text-right">
                     <div>
-                      <p className="text-xs font-extrabold text-emerald-400">${item.totalRewardPool.toLocaleString()} {item.rewardToken}</p>
+                      <p className="text-xs font-extrabold text-emerald-400">${(item.totalRewardPool || 0).toLocaleString()} {item.rewardToken || 'USDT'}</p>
                       <span className="text-[10px] font-bold text-slate-500 uppercase">Verified Payout</span>
                     </div>
                     <ArrowRight className="w-4 h-4 text-slate-500" />

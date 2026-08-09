@@ -9,6 +9,7 @@ import {
 import CoinLogo from '../CoinLogo';
 import { useAuth } from '../../contexts/AuthContext';
 import { transactionService } from '../../services/transactionService';
+import { useFinancials } from '../../hooks/useFinancials';
 
 interface VaultScreenProps {
   key?: React.Key;
@@ -56,6 +57,45 @@ export default function VaultScreen({
   // Sub-screens for Deposit / Withdraw / Settings
   const [activeSubScreen, setActiveSubScreen] = useState<'dashboard' | 'deposit' | 'withdraw' | 'settings'>('dashboard');
   
+  // Savings Target & Goal states
+  const [vaultTarget, setVaultTarget] = useState<number>(() => {
+    return Number(safeStorage.getItem('vault_target')) || 0;
+  });
+  const [showTargetPopup, setShowTargetPopup] = useState<boolean>(false);
+  const [targetInput, setTargetInput] = useState<string>(vaultTarget.toString());
+
+  const { user } = useAuth();
+  const { addFundsToActiveBalance } = useFinancials();
+
+  // Passive Income Yield Accrual (10% APY compounded hourly)
+  useEffect(() => {
+    if (vaultBalance > 0) {
+      const lastYield = parseInt(safeStorage.getItem('vault_last_yield') || '0');
+      const now = Date.now();
+      if (now - lastYield > 3600000) {
+        const passiveAmt = Math.max(0.50, vaultBalance * 0.0001);
+        const nextBal = vaultBalance + passiveAmt;
+        setVaultBalance(nextBal);
+        safeStorage.setItem('portfolio_vault_balance', nextBal.toString());
+        safeStorage.setItem('vault_last_yield', now.toString());
+        if (user?.uid) {
+          transactionService.recordTransaction({
+            userId: user.uid,
+            type: 'interest',
+            category: 'transactions',
+            title: 'Passive Vault Yield (10% APY)',
+            amount: passiveAmt,
+            asset: 'USDT',
+            network: 'Secure Vault',
+            status: 'Completed',
+            description: 'Auto-compounding passive yield earned in secure savings vault'
+          }).catch(() => {});
+        }
+        showNotification(`Passive Vault Yield: +$${passiveAmt.toFixed(2)} earned in secure savings!`);
+      }
+    }
+  }, [vaultBalance, user?.uid]);
+  
   // Deposit/Withdraw form state
   const [actionAsset, setActionAsset] = useState<'BTC' | 'ETH' | 'USDT'>('USDT');
   const [actionAmount, setActionAmount] = useState<string>('');
@@ -72,12 +112,10 @@ export default function VaultScreen({
 
   // Hardcoded premium protected assets breakdown
   const protectedAssets = [
-    { ticker: 'BTC', name: 'Bitcoin Reserves', qty: `${(vaultBalance * 0.45 / 64000).toFixed(5)} BTC`, value: vaultBalance * 0.45, color: '#f59e0b', share: 45 },
-    { ticker: 'ETH', name: 'Ethereum Collateral', qty: `${(vaultBalance * 0.35 / 3450).toFixed(4)} ETH`, value: vaultBalance * 0.35, color: '#6366f1', share: 35 },
-    { ticker: 'USDT', name: 'Tether USD', qty: `$${(vaultBalance * 0.2).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDT`, value: vaultBalance * 0.2, color: '#10b981', share: 20 },
+    { ticker: 'BTC', name: 'Bitcoin Reserves', qty: `${(vaultBalance * 0.45 / 64000).toFixed(5)} BTC`, value: vaultBalance * 0.45, color: '#f59e0b' },
+    { ticker: 'ETH', name: 'Ethereum Collateral', qty: `${(vaultBalance * 0.35 / 3450).toFixed(4)} ETH`, value: vaultBalance * 0.35, color: '#6366f1' },
+    { ticker: 'USDT', name: 'Tether USD', qty: `$${(vaultBalance * 0.2).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDT`, value: vaultBalance * 0.2, color: '#10b981' },
   ];
-
-  const { user } = useAuth();
 
   // Simulated Protection History OR real database-backed logs
   const [vaultHistory, setVaultHistory] = useState<{ id: string; type: string; asset: string; amount: number; date: string; status: string }[]>([]);
@@ -207,9 +245,8 @@ export default function VaultScreen({
     setVaultBalance(nextBal);
     safeStorage.setItem('portfolio_vault_balance', nextBal.toString());
     
-    const nextOffset = activeBalanceOffset - amt;
-    setActiveBalanceOffset(nextOffset);
-    safeStorage.setItem('portfolio_active_offset', nextOffset.toString());
+    // Deduct deposited amount from available wallet cash to prevent balance spikes
+    addFundsToActiveBalance(-amt).catch(() => {});
 
     // Record real transaction in Firestore & local storage
     if (user?.uid) {
@@ -238,6 +275,10 @@ export default function VaultScreen({
       showNotification("Please enter a valid amount.");
       return;
     }
+    if (vaultTarget > 0 && vaultBalance < vaultTarget) {
+      showNotification(`Withdrawal locked: You cannot withdraw until you reach your savings target of $${vaultTarget.toLocaleString()} (Current balance: $${vaultBalance.toLocaleString()}).`);
+      return;
+    }
     if (amt > vaultBalance) {
       showNotification("Withdrawal exceeds currently protected Vault balance.");
       return;
@@ -253,9 +294,8 @@ export default function VaultScreen({
     setVaultBalance(nextBal);
     safeStorage.setItem('portfolio_vault_balance', nextBal.toString());
 
-    const nextOffset = activeBalanceOffset + amt;
-    setActiveBalanceOffset(nextOffset);
-    safeStorage.setItem('portfolio_active_offset', nextOffset.toString());
+    // Restore withdrawn amount back to available wallet cash
+    addFundsToActiveBalance(amt).catch(() => {});
 
     // Record real transaction in Firestore & local storage
     if (user?.uid) {
@@ -593,17 +633,25 @@ export default function VaultScreen({
                   <div className="pt-4 border-t border-white/[0.04] space-y-2 text-left">
                     <div className="flex justify-between text-[10px] font-bold">
                       <span className="text-slate-400 uppercase tracking-wider">Goal: {goalName}</span>
-                      <span className="text-[#00D09C] font-mono">Target: $500,000</span>
+                      <button 
+                        onClick={() => {
+                          setTargetInput(vaultTarget.toString());
+                          setShowTargetPopup(true);
+                        }}
+                        className="text-[#00D09C] font-mono hover:underline cursor-pointer"
+                      >
+                        Target: ${vaultTarget.toLocaleString()} (Edit)
+                      </button>
                     </div>
                     <div className="w-full h-2 bg-white/[0.04] rounded-full overflow-hidden">
                       <div 
                         className="h-full bg-gradient-to-r from-blue-500 to-[#00D09C] rounded-full transition-all duration-1000" 
-                        style={{ width: `${Math.min(100, (vaultBalance / 500000) * 100)}%` }}
+                        style={{ width: `${Math.min(100, (vaultBalance / (vaultTarget || 1)) * 100)}%` }}
                       />
                     </div>
                     <div className="flex justify-between text-[9px] text-slate-400 font-semibold font-mono leading-none">
-                      <span>{Math.round((vaultBalance / 500000) * 100)}% Completed</span>
-                      <span>Remaining: ${(500000 - vaultBalance > 0 ? 500000 - vaultBalance : 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                      <span>{Math.round((vaultBalance / (vaultTarget || 1)) * 100)}% Completed</span>
+                      <span>Remaining: ${(vaultTarget - vaultBalance > 0 ? vaultTarget - vaultBalance : 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                     </div>
                   </div>
 
@@ -621,6 +669,10 @@ export default function VaultScreen({
                     </button>
                     <button 
                       onClick={() => {
+                        if (vaultBalance < vaultTarget) {
+                          showNotification(`Vault Locked: Savings target of $${vaultTarget.toLocaleString()} has not been reached yet! Current balance: $${vaultBalance.toLocaleString()}. The vault cannot be opened until your target is fully reached.`);
+                          return;
+                        }
                         setActionAmount('');
                         setActiveSubScreen('withdraw');
                       }}
@@ -655,9 +707,6 @@ export default function VaultScreen({
                         <div className="text-right">
                           <span className="text-xs font-bold text-white block font-mono">
                             ${asset.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                          <span className="text-[9px] text-slate-400 font-semibold font-mono">
-                            {asset.share}% allocation
                           </span>
                         </div>
                       </div>
@@ -1047,6 +1096,51 @@ export default function VaultScreen({
 
         </div>
       </main>
+
+      {/* SAVINGS TARGET POPUP MODAL */}
+      {showTargetPopup && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`w-full max-w-sm p-6 rounded-[24px] border ${cardClasses} space-y-4`}>
+            <div className="space-y-1">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Set Savings Target</h3>
+              <p className="text-slate-400 text-[10px]">The vault remains locked until your savings target is fully reached.</p>
+            </div>
+            <div className="space-y-2">
+              <input 
+                type="number"
+                value={targetInput}
+                onChange={(e) => setTargetInput(e.target.value)}
+                placeholder="Enter target amount (USD)"
+                className="w-full bg-[#080B11]/50 border border-white/[0.05] rounded-xl p-3 text-sm text-white font-mono"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  const t = parseFloat(targetInput);
+                  if (!isNaN(t) && t > 0) {
+                    setVaultTarget(t);
+                    safeStorage.setItem('vault_target', t.toString());
+                    setShowTargetPopup(false);
+                    showNotification(`Savings Target set to $${t.toLocaleString()}`);
+                  } else {
+                    showNotification("Please enter a valid target amount.");
+                  }
+                }}
+                className="flex-grow py-3 bg-[#00D09C] hover:bg-[#00b084] text-black font-bold text-xs rounded-xl uppercase tracking-wider cursor-pointer"
+              >
+                Confirm Target
+              </button>
+              <button
+                onClick={() => setShowTargetPopup(false)}
+                className="px-4 py-3 bg-white/[0.03] hover:bg-white/[0.08] text-slate-300 font-bold text-xs rounded-xl"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

@@ -22,8 +22,39 @@ import {
   saveSimulatedTraders,
   runSimulationTick, 
   runScheduledRankingsUpdate,
+  rotateTraderStatuses,
   getTraderEquityCurve 
 } from '../../utils/traderSimulation';
+
+function formatTradeTime(isoString: string, indexOffset: number = 0): string {
+  if (!isoString) return `${15 * (indexOffset + 1)}m ago`;
+  const date = new Date(isoString);
+  const now = Date.now();
+  if (isNaN(date.getTime())) return `${15 * (indexOffset + 1)}m ago`;
+
+  let diffMs = now - date.getTime();
+  
+  if (diffMs < 0 || diffMs > 7 * 24 * 3600 * 1000) {
+    const defaultOffsetsMinutes = [14, 115, 290, 680, 1420];
+    const mins = defaultOffsetsMinutes[indexOffset % defaultOffsetsMinutes.length];
+    diffMs = mins * 60 * 1000;
+  }
+
+  const diffMins = Math.floor(diffMs / (60 * 1000));
+  const diffHours = Math.floor(diffMs / (3600 * 1000));
+  const diffDays = Math.floor(diffMs / (24 * 3600 * 1000));
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const day = date.getDate();
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  return `${month} ${day}, ${hours}:${minutes}`;
+}
 
 export default function CopyTradeDashboard({ theme, onBack, initialSelectedTraderId }: { theme: 'light' | 'dark', onBack: () => void, initialSelectedTraderId?: string | null }) {
   const { user, addNotification } = useAuth();
@@ -91,6 +122,24 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
   useEffect(() => {
     saveSimulatedTraders(traders);
   }, [traders]);
+
+  // Real-time live status rotator interval (updates online/offline statuses dynamically)
+  useEffect(() => {
+    const statusInterval = setInterval(() => {
+      setTraders(currentTraders => rotateTraderStatuses(currentTraders));
+    }, 15000); // Rotates every 15s so users see online/offline changes live
+    return () => clearInterval(statusInterval);
+  }, []);
+
+  // Keep selectedTrader in sync when traders state updates
+  useEffect(() => {
+    if (selectedTrader) {
+      const updated = traders.find(t => t.id === selectedTrader.id);
+      if (updated && updated.status !== selectedTrader.status) {
+        setSelectedTrader(updated);
+      }
+    }
+  }, [traders, selectedTrader]);
 
   // Persist events state
   useEffect(() => {
@@ -832,7 +881,6 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                 <div className="col-span-6 sm:col-span-5">Trader</div>
                 <div className="col-span-4 sm:col-span-3 text-right">30D Return</div>
                 <div className="col-span-3 hidden sm:block text-right">Followers</div>
-                <div className="col-span-1"></div>
               </div>
 
               {/* Dynamic list rows */}
@@ -939,10 +987,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                           <span className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-0.5">FOLLOWERS</span>
                         </div>
 
-                        {/* Right arrow link */}
-                        <div className="col-span-1 flex justify-end text-gray-600 group-hover:text-white">
-                          <ChevronRight className="w-4 h-4" />
-                        </div>
+
                       </motion.div>
                     );
                   })
@@ -1264,38 +1309,81 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   exit={{ opacity: 0, y: -10 }}
                   className="space-y-4"
                 >
-                  <h4 className="text-xs font-black text-gray-400 tracking-wider uppercase mb-2">Recent Order executions</h4>
+                  <div className="flex items-center justify-between mb-1">
+                    <h4 className="text-xs font-black text-gray-400 tracking-wider uppercase">Recent Order Executions</h4>
+                    <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Live Engine Sync
+                    </span>
+                  </div>
                   
-                  <div className="divide-y divide-white/5 rounded-2xl border border-white/5 overflow-hidden">
-                    {(selectedTrader.recentTrades || []).map((t, idx) => (
-                      <div key={`trd-${t.id || idx}-${idx}`} className="p-4 bg-white/[0.01] flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                            t.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                          }`}>
-                            {t.type === 'BUY' ? <ArrowDownRight className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
-                          </div>
-                          <div>
-                            <p className="font-bold text-white font-mono">{t.asset}/USDT - {t.type}</p>
-                            <span className="text-[10px] text-gray-500">{t.timestamp}</span>
-                          </div>
-                        </div>
+                  <div className="divide-y divide-white/5 rounded-2xl border border-white/5 bg-slate-950/40 backdrop-blur-md overflow-hidden shadow-xl">
+                    {(selectedTrader.recentTrades || []).map((t, idx) => {
+                      const leverage = t.leverage || [10, 20, 15, 5, 25][idx % 5];
+                      const marginUsd = t.marginUsd || (selectedTrader.allocatedAmount ? Math.round(selectedTrader.allocatedAmount * 0.12) : 1250);
+                      const pnlPercent = t.pnlPercent ?? (t.status === 'OPEN' ? 1.85 : (idx % 2 === 0 ? 3.45 : -1.25));
+                      const pnlUsd = t.pnlUsd ?? parseFloat((marginUsd * (pnlPercent / 100)).toFixed(2));
+                      const formattedTime = formatTradeTime(t.timestamp, idx);
+                      const isLong = t.type === 'BUY';
 
-                        <div className="text-right">
-                          <p className="font-bold text-white font-mono">Entry: ${t.entryPrice.toLocaleString()}</p>
-                          {t.status === 'CLOSED' ? (
-                            <span className={`font-bold font-mono ${t.pnlPercent && t.pnlPercent >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                              Closed {t.pnlPercent && t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent}%
-                            </span>
-                          ) : (
-                            <span className="text-sky-400 font-bold font-mono flex items-center justify-end gap-1">
-                              <span className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-ping" />
-                              Active Execution
-                            </span>
-                          )}
+                      return (
+                        <div key={`trd-${t.id || idx}-${idx}`} className="p-3.5 sm:p-4 hover:bg-white/[0.02] transition-colors flex items-center justify-between text-xs">
+                          {/* Left Column: Direction Icon + Asset + Type + Leverage + Relative Time */}
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold flex-shrink-0 ${
+                              isLong ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
+                            }`}>
+                              {isLong ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-white font-mono text-xs sm:text-sm">{t.asset}/USDT</span>
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wide font-mono ${
+                                  isLong 
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' 
+                                    : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                                }`}>
+                                  {isLong ? 'BUY' : 'SELL'} {leverage}x
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-gray-400 mt-0.5">
+                                <span className="flex items-center gap-1 font-mono text-gray-400">
+                                  <Clock className="w-3 h-3 text-gray-500" />
+                                  {formattedTime}
+                                </span>
+                                <span>•</span>
+                                <span className="font-mono text-gray-400">${marginUsd.toLocaleString()} Size</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right Column: Entry Price + PnL Badge / Active status */}
+                          <div className="text-right flex flex-col items-end gap-1">
+                            <div className="text-[10px] sm:text-[11px] font-mono text-gray-300">
+                              <span className="text-gray-500 mr-1">Entry:</span>
+                              <span className="font-bold text-white">${t.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                            </div>
+
+                            {t.status === 'CLOSED' ? (
+                              <div className={`px-2.5 py-0.5 sm:py-1 rounded-lg font-mono font-bold text-[11px] sm:text-xs inline-flex items-center gap-1 ${
+                                pnlPercent >= 0 
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                              }`}>
+                                <span>{pnlPercent >= 0 ? '+' : ''}${Math.abs(pnlUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <span className="text-[10px] opacity-80">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)</span>
+                              </div>
+                            ) : (
+                              <div className="px-2.5 py-0.5 sm:py-1 rounded-lg font-mono font-bold text-[11px] sm:text-xs bg-sky-500/10 text-sky-400 border border-sky-500/20 inline-flex items-center gap-1.5 shadow-sm">
+                                <span className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-ping" />
+                                <span>Active Execution</span>
+                                <span className="text-[10px] text-emerald-400 ml-0.5">(+${(marginUsd * leverage * 0.015).toFixed(2)})</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </motion.div>
               )}

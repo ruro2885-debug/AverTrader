@@ -1,6 +1,6 @@
 import { TradingSchedule, RiskControls, RecommendationRules } from '../types/aiTrading';
 import { safeStorage } from './storage';
-import { getAvatarDataUrl } from './avatarGenerator';
+import { getAvatarDataUrl, isFemaleName } from './avatarGenerator';
 
 export interface SimulatedTrade {
   id: string;
@@ -11,6 +11,10 @@ export interface SimulatedTrade {
   pnlPercent?: number; // percentage pnl, e.g. 2.45 for +2.45%
   status: 'OPEN' | 'CLOSED';
   timestamp: string; // ISO string
+  leverage?: number;
+  marginUsd?: number;
+  sizeUnits?: number;
+  pnlUsd?: number;
 }
 
 export interface SimulatedTrader {
@@ -29,6 +33,18 @@ export interface SimulatedTrader {
   bio: string;
   avatarSeed: string;
   avatarUrl?: string;
+  avatarConfig?: {
+    avatarId: string;
+    skinTone: string;
+    hairStyle: number;
+    hairColor: string;
+    faceShape: string;
+    facialHair: number;
+    eyewear: number;
+    clothing: string;
+    background: string;
+    isFemaleFace: boolean;
+  };
   strategyName: string;
   pnlHistory30D: number[]; // 10 points for sparkline
   avgTradeDuration: string;
@@ -143,7 +159,7 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
   // Determine seed-based choices for repeatability
   const rand = seededRandom("copytrade_procedural_seed_41");
 
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 20; i++) {
     const isMale = rand() > 0.5;
     const firstName = isMale 
       ? MALE_NAMES[Math.floor(rand() * MALE_NAMES.length)] 
@@ -313,9 +329,10 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
     const baseAUM = tier === 'Platinum' ? 12000000 : tier === 'Gold' ? 2500000 : 150000;
     const aum = baseAUM + (i * 54321) % 5000000;
 
-    // Status: Online / Offline / Trading
-    const statuses: ('Trading' | 'Analyzing' | 'Online' | 'Offline')[] = ['Trading', 'Analyzing', 'Online', 'Offline'];
-    const status = statuses[i % statuses.length];
+    // Status: Most traders start Offline; only 2-3 active at any time
+    const initialActiveState: 'Trading' | 'Analyzing' | 'Online' | 'Offline' = 
+      i === 0 ? 'Trading' : i === 3 ? 'Analyzing' : i === 7 ? 'Online' : 'Offline';
+    const status = initialActiveState;
 
     // Advanced behavior
     const enableDeepAnalysis = i % 2 === 0 || tier === 'Platinum';
@@ -329,9 +346,30 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       'SWING_TRADING': `Monitors multi-day macro structures and weekly support blocks. Accumulates spots and low-leverage futures positions in strong trend corridors, letting profits run over major structural expansions.`
     };
 
-    // Unique Avatar Seed for every trader
+    // Unique Avatar Seed & Configuration for every trader (0 to 23 hairstyles distributed cleanly)
     const uniqueSeed = `trader_seed_${username}_${i}_${(i + 1) * 31}`;
-    const avatarUrl = getAvatarDataUrl(uniqueSeed);
+    const hairStyle = (i * 7 + (i % 3)) % 24;
+    const isFemaleFace = isFemaleName(username) || i % 3 === 0;
+    const skinTonePalette = ['#FFDBAC', '#F1C27D', '#E0AC69', '#C68642', '#8D5524', '#5A3311', '#3D0C02', '#D2A679', '#E5C298'];
+    const hairColorPalette = ['#111827', '#262626', '#3B2F2F', '#5C4033', '#8B3A2B', '#E6C875', '#CBD5E1', '#4A3728', '#78350F'];
+    
+    const skinTone = skinTonePalette[(i * 3 + 1) % skinTonePalette.length];
+    const hairColor = hairColorPalette[(i * 5 + 2) % hairColorPalette.length];
+    
+    const avatarConfig = {
+      avatarId: `avatar_${username.toLowerCase()}_${i}`,
+      skinTone,
+      hairStyle,
+      hairColor,
+      faceShape: isFemaleFace ? 'round' : 'angular',
+      facialHair: !isFemaleFace && i % 4 === 0 ? (i % 4) : -1,
+      eyewear: i % 4 === 1 ? (i % 4) : -1,
+      clothing: 'standard',
+      background: 'default',
+      isFemaleFace
+    };
+
+    const avatarUrl = getAvatarDataUrl(uniqueSeed, undefined, avatarConfig);
 
     // Unique Schedules
     const SESSIONS_LIST = [
@@ -392,6 +430,7 @@ export function generateProceduralTradersSpecs(): Partial<SimulatedTrader>[] {
       bio,
       avatarSeed: uniqueSeed,
       avatarUrl,
+      avatarConfig,
       strategyName,
       avgTradeDuration: avgDuration,
       followers,
@@ -799,7 +838,42 @@ export function calculateTraderMetrics(trader: SimulatedTrader): SimulatedTrader
 
   const openTrades = trader.trades.filter(t => t.status === 'OPEN');
   const sortedClosed = [...closedTrades].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  trader.recentTrades = [...openTrades, ...sortedClosed.slice(0, 4)];
+  
+  const rawRecent = [...openTrades, ...sortedClosed.slice(0, 4)];
+  const defaultMarkets = trader.preferredMarkets && trader.preferredMarkets.length > 0 
+    ? trader.preferredMarkets 
+    : ['BTC', 'ETH', 'SOL', 'AVR', 'INJ', 'XRP', 'LINK', 'NEAR'];
+
+  trader.recentTrades = rawRecent.map((t, idx) => {
+    // Relative realistic spacing (12m ago, 1h 45m ago, 4h 30m ago, 11h ago, 26h ago)
+    const offsetMinutes = t.status === 'OPEN' 
+      ? 12 + (idx * 14)
+      : idx === 0 ? 95 : idx === 1 ? 285 : idx === 2 ? 680 : 1350;
+
+    const freshTime = new Date(nowMs - offsetMinutes * 60 * 1000).toISOString();
+    
+    // Rotate assets to avoid exact duplicate pairs in a row
+    const asset = (idx > 0 && t.asset === rawRecent[idx - 1]?.asset)
+      ? defaultMarkets[(idx + 1) % defaultMarkets.length]
+      : t.asset || defaultMarkets[idx % defaultMarkets.length];
+
+    const leverage = t.leverage || [10, 20, 15, 5, 25][idx % 5];
+    const marginUsd = t.marginUsd || Math.round((trader.allocatedAmount ? trader.allocatedAmount * 0.12 : 1250) * (0.85 + (idx % 3) * 0.15));
+    const pnlPercent = t.pnlPercent ?? (t.status === 'OPEN' ? 1.85 : (idx % 2 === 0 ? 3.45 : -1.25));
+    const pnlUsd = t.pnlUsd ?? parseFloat((marginUsd * (pnlPercent / 100)).toFixed(2));
+    const sizeUnits = parseFloat(((marginUsd * leverage) / t.entryPrice).toFixed(4));
+
+    return {
+      ...t,
+      asset,
+      leverage,
+      marginUsd,
+      sizeUnits,
+      pnlPercent,
+      pnlUsd,
+      timestamp: freshTime
+    };
+  });
 
   // 13. Performance Score
   const score = (trader.return30D * 0.40) + 
@@ -837,7 +911,80 @@ export function compactTradersForStorage(traders: SimulatedTrader[]): SimulatedT
 
 export function saveSimulatedTraders(traders: SimulatedTrader[]) {
   const compacted = compactTradersForStorage(traders);
-  safeStorage.setItem('aver_sim_traders_v9', JSON.stringify(compacted));
+  safeStorage.setItem('aver_sim_traders_v14', JSON.stringify(compacted));
+}
+
+/**
+ * Realistically rotates trader statuses.
+ * Ensures:
+ * - Total traders = 20.
+ * - Most traders are Offline (~16-19 out of 20).
+ * - Rarely are more than 4 traders active/online at the same time (MAX = 4).
+ * - Active traders stay active for a short period before going back Offline.
+ * - Offline traders occasionally log on ('Trading', 'Analyzing', 'Online').
+ */
+export function rotateTraderStatuses(traders: SimulatedTrader[]): SimulatedTrader[] {
+  if (!traders || traders.length === 0) return traders;
+
+  const activeStatuses: ('Trading' | 'Analyzing' | 'Online')[] = ['Trading', 'Analyzing', 'Online'];
+  
+  // Clone array
+  const updated = traders.map(t => ({ ...t }));
+
+  // Count current active traders
+  const currentActive = updated.filter(t => t.status !== 'Offline');
+
+  // Rule 1: Strict Cap - If more than 4 traders are active, force surplus back to Offline
+  if (currentActive.length > 4) {
+    const overflowCount = currentActive.length - 4;
+    const candidates = [...currentActive].sort(() => Math.random() - 0.5);
+    for (let i = 0; i < overflowCount; i++) {
+      const traderToOff = updated.find(u => u.id === candidates[i].id);
+      if (traderToOff) {
+        traderToOff.status = 'Offline';
+      }
+    }
+  }
+
+  // Rule 2: Active Decay - Active traders have ~20% chance per tick to log off (go Offline)
+  updated.forEach(t => {
+    if (t.status !== 'Offline') {
+      if (Math.random() < 0.20) {
+        t.status = 'Offline';
+      } else if (Math.random() < 0.25) {
+        // Shift between active states (e.g. Analyzing -> Trading)
+        const otherActives = activeStatuses.filter(s => s !== t.status);
+        t.status = otherActives[Math.floor(Math.random() * otherActives.length)];
+      }
+    }
+  });
+
+  // Rule 3: Re-count active traders after decay
+  const remainingActive = updated.filter(t => t.status !== 'Offline');
+
+  // Rule 4: New Logins - Bring offline traders online if active count < 4
+  // We want active count to fluctuate naturally between 1 and 4 (rarely 4, mostly 1, 2, or 3)
+  const targetActiveCount = remainingActive.length === 0 
+    ? (1 + Math.floor(Math.random() * 2)) // 1 or 2 if none currently online
+    : (Math.random() < 0.35 ? remainingActive.length + 1 : remainingActive.length);
+  
+  const clampedTarget = Math.min(4, Math.max(1, targetActiveCount));
+
+  if (remainingActive.length < clampedTarget) {
+    const needed = clampedTarget - remainingActive.length;
+    const offlineTraders = updated.filter(t => t.status === 'Offline');
+    const shuffledOffline = [...offlineTraders].sort(() => Math.random() - 0.5);
+
+    for (let i = 0; i < Math.min(needed, shuffledOffline.length); i++) {
+      const traderToOn = updated.find(u => u.id === shuffledOffline[i].id);
+      if (traderToOn) {
+        const r = Math.random();
+        traderToOn.status = r < 0.45 ? 'Trading' : r < 0.85 ? 'Analyzing' : 'Online';
+      }
+    }
+  }
+
+  return updated;
 }
 
 /**
@@ -931,18 +1078,35 @@ function healTradeTimestamps(trader: SimulatedTrader): SimulatedTrader {
 }
 
 export function initSimulatedTraders(): SimulatedTrader[] {
-  const saved = safeStorage.getItem('aver_sim_traders_v9');
+  const saved = safeStorage.getItem('aver_sim_traders_v14');
   if (saved) {
     try {
       const parsed = JSON.parse(saved) as SimulatedTrader[];
-      // verify we have all traders; if specs changed or we need to heal, fall back
-      if (parsed.length >= 40) {
+      // verify we have exactly 20 traders
+      if (parsed.length === 20) {
         // Heal and recalculate
         const healed = parsed.map((t, idx) => {
           if (!t.allocatedAmount) {
             const baseAlloc = t.tier === 'Platinum' ? 5000 : t.tier === 'Gold' ? 2500 : 750;
             t.allocatedAmount = Math.round((baseAlloc + ((idx * 1370 + (idx % 7) * 450 + 250) % 14500)) / 50) * 50;
           }
+          if (!t.avatarConfig) {
+            const hairStyle = (idx * 7 + (idx % 3)) % 24;
+            const isFemaleFace = idx % 3 === 0;
+            t.avatarConfig = {
+              avatarId: `avatar_${t.username?.toLowerCase() || 'trader'}_${idx}`,
+              skinTone: '#FFDBAC',
+              hairStyle,
+              hairColor: '#111827',
+              faceShape: isFemaleFace ? 'round' : 'angular',
+              facialHair: -1,
+              eyewear: -1,
+              clothing: 'standard',
+              background: 'default',
+              isFemaleFace
+            };
+          }
+          t.avatarUrl = getAvatarDataUrl(t.avatarSeed, undefined, t.avatarConfig);
           const healedTrader = healTradeTimestamps(t);
           return calculateTraderMetrics(healedTrader);
         });
@@ -953,20 +1117,30 @@ export function initSimulatedTraders(): SimulatedTrader[] {
         // Ensure ranks are clean and sequential
         healed.forEach((t, index) => {
           t.rank = index + 1;
+          if (index === 0 && t.avatarConfig) {
+            t.avatarConfig.hairStyle = 3; // #1 trader style (Messy Spikes)
+          }
+          if (t.avatarConfig) {
+            t.avatarUrl = getAvatarDataUrl(t.avatarSeed, undefined, t.avatarConfig);
+          }
         });
         
-        saveSimulatedTraders(healed);
-        return healed;
+        const statusAdjusted = rotateTraderStatuses(healed);
+        saveSimulatedTraders(statusAdjusted);
+        return statusAdjusted;
       }
     } catch (e) {
       console.error("Failed to parse saved simulated copytraders, regenerating...", e);
     }
   }
 
-  // Generate brand new simulation database!
-  console.log("Simulating 40 full-fidelity historical trader profiles with elite performance seeding...");
+  // Generate brand new 20 simulation database!
+  console.log("Simulating 20 full-fidelity historical trader profiles with elite performance seeding...");
   const traders = BASE_TRADERS_SPECS.map((spec, index) => {
     const fullTrader = { ...spec } as SimulatedTrader;
+    if (fullTrader.avatarConfig) {
+      fullTrader.avatarUrl = getAvatarDataUrl(fullTrader.avatarSeed, undefined, fullTrader.avatarConfig);
+    }
     // Inject intended rank for initialization to seed elite returns
     fullTrader.trades = generateHistoricalTradesForTrader(fullTrader, index < 10 ? index + 1 : undefined);
     return calculateTraderMetrics(fullTrader);
@@ -982,6 +1156,13 @@ export function initSimulatedTraders(): SimulatedTrader[] {
     t.prev30DReturn = t.return30D || 0;
     t.lastFollowerUpdate = new Date(Date.now() - Math.floor(Math.random() * 6 * 3600000)).toISOString();
     
+    if (index === 0 && t.avatarConfig) {
+      t.avatarConfig.hairStyle = 3; // #1 trader style (Messy Spikes)
+    }
+    if (t.avatarConfig) {
+      t.avatarUrl = getAvatarDataUrl(t.avatarSeed, undefined, t.avatarConfig);
+    }
+    
     // We generated followers procedurally earlier, keep them unless they are lower than a realistic floor for rank
     const minimumRankFollowers = Math.floor(50000 * Math.pow(0.97, index));
     if (t.followers < minimumRankFollowers) {
@@ -989,8 +1170,9 @@ export function initSimulatedTraders(): SimulatedTrader[] {
     }
   });
 
-  saveSimulatedTraders(traders);
-  return traders;
+  const finalTraders = rotateTraderStatuses(traders);
+  saveSimulatedTraders(finalTraders);
+  return finalTraders;
 }
 
 /**
@@ -1120,11 +1302,8 @@ export function runSimulationTick(traders: SimulatedTrader[]): {
       calculateTraderMetrics(t);
     }
 
-    // 3. Status Rotator (Online/Offline)
-    if (rand() < 0.05) {
-      const statuses: ('Trading' | 'Analyzing' | 'Online' | 'Offline')[] = ['Trading', 'Analyzing', 'Online', 'Offline'];
-      t.status = statuses[Math.floor(rand() * statuses.length)];
-    }
+  // 3. Status Rotator (Online/Offline) - Enforces realistic max 4 online traders
+  tradersList = rotateTraderStatuses(tradersList);
 
     return t;
   });

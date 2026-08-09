@@ -152,6 +152,11 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
     }
     const unsub = transactionService.subscribeUserTransactions(user.uid, (data) => {
       setTransactions(data);
+      setSelectedReceipt(prev => {
+        if (!prev) return null;
+        const updated = data.find(t => t.id === prev.id || t.refId === prev.id || (prev.refId && t.refId === prev.refId));
+        return updated ? { ...prev, ...updated } : prev;
+      });
       setLoading(false);
       setIsRefreshing(false);
     }, user);
@@ -792,8 +797,9 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                 const isWithdrawal = selectedReceipt.type.toLowerCase().includes('withdrawal');
                 const isReversed = (selectedReceipt.status || '').toLowerCase() === 'reversed';
                 const tokenPrice = selectedReceipt.asset === 'BTC' ? 64000 : selectedReceipt.asset === 'ETH' ? 3400 : selectedReceipt.asset === 'SOL' ? 145 : 1;
-                const tokenAmountDisplay = selectedReceipt.cryptoAmount 
-                  ? Number(selectedReceipt.cryptoAmount).toLocaleString(undefined, { maximumFractionDigits: 8 })
+                const rawCryptoAmount = selectedReceipt.cryptoAmount ? Math.abs(Number(selectedReceipt.cryptoAmount)) : null;
+                const tokenAmountDisplay = rawCryptoAmount !== null 
+                  ? rawCryptoAmount.toLocaleString(undefined, { maximumFractionDigits: 8 })
                   : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(6);
                 const tokenSymbol = selectedReceipt.cryptoSymbol || selectedReceipt.asset || 'USDT';
 
@@ -833,24 +839,26 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                           </h2>
                           {(selectedReceipt.cryptoAmount || (selectedReceipt.asset !== 'USD' && selectedReceipt.asset !== 'USDT' && selectedReceipt.asset !== 'USDC')) && (
                             <p className="text-xs text-neutral-400 font-medium mb-3">
-                              ~{selectedReceipt.cryptoAmount ? Number(selectedReceipt.cryptoAmount).toLocaleString(undefined, { maximumFractionDigits: 6 }) : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(4)} {selectedReceipt.asset}
+                              ~{selectedReceipt.cryptoAmount ? Math.abs(Number(selectedReceipt.cryptoAmount)).toLocaleString(undefined, { maximumFractionDigits: 6 }) : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(4)} {selectedReceipt.asset}
                             </p>
                           )}
                         </>
                       )}
                       
-                      <div className="flex justify-center items-center gap-2">
+                      <div className="flex flex-col items-center gap-1.5">
+                        {isReversed && (
+                          <button
+                            type="button"
+                            onClick={() => setShowReasonPopup(true)}
+                            className="px-3 py-1 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-bold text-[11px] border border-amber-500/30 transition-colors cursor-pointer flex items-center gap-1 shadow-sm"
+                          >
+                            <span>Reason</span>
+                            <AlertCircle className="w-3 h-3" />
+                          </button>
+                        )}
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(selectedReceipt.status)}`}>
                           {getStatusLabel(selectedReceipt.status)}
                         </span>
-                        {isReversed && (
-                          <button
-                            onClick={() => setShowReasonPopup(true)}
-                            className="text-emerald-400 hover:text-emerald-300 font-bold text-xs underline cursor-pointer transition-colors"
-                          >
-                            Reason
-                          </button>
-                        )}
                       </div>
                     </div>
 
@@ -866,14 +874,6 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                           }`}>
                             {getStatusLabel(selectedReceipt.status)}
                           </span>
-                          {isReversed && (
-                            <button
-                              onClick={() => setShowReasonPopup(true)}
-                              className="text-emerald-400 hover:text-emerald-300 font-bold text-xs underline cursor-pointer transition-colors"
-                            >
-                              Reason
-                            </button>
-                          )}
                         </div>
                       </div>
 
@@ -972,7 +972,7 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
               }`}
             >
               <div className="space-y-1">
-                <div className="w-12 h-12 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 mx-auto flex items-center justify-center mb-3">
+                <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 mx-auto flex items-center justify-center mb-3">
                   <AlertCircle className="w-6 h-6" />
                 </div>
                 <h3 className="text-lg font-black tracking-tight">Withdrawal Reversal</h3>
@@ -984,7 +984,7 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
               <div className={`p-4 rounded-2xl border text-left space-y-1.5 ${
                 isDark ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-slate-200'
               }`}>
-                <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">Admin Reason</span>
+                <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">Reason</span>
                 <p className="text-xs leading-relaxed font-medium text-neutral-200">
                   {selectedReceipt.reversalReason || 'Administrative correction and compliance review.'}
                 </p>

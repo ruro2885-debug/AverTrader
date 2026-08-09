@@ -4,6 +4,7 @@ import { Trophy, ShieldCheck } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { TraderProfile } from '../../types/trading';
+import { getAvatarDataUrl } from '../../utils/avatarGenerator';
 
 export default function CopyTrading({ theme }: { theme: 'light' | 'dark' }) {
   const [traders, setTraders] = useState<TraderProfile[]>([]);
@@ -43,7 +44,14 @@ export default function CopyTrading({ theme }: { theme: 'light' | 'dark' }) {
             >
               <div className="flex items-center gap-4">
                 <span className="text-xl font-black text-gray-500 w-8">#{trader.rank}</span>
-                <img src={trader.avatar} alt={trader.username} className="w-12 h-12 rounded-full" />
+                <img 
+                  src={trader.avatar || getAvatarDataUrl(trader.username || trader.id)} 
+                  alt={trader.username} 
+                  className="w-12 h-12 rounded-full object-cover shadow-sm" 
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = getAvatarDataUrl(trader.username || trader.id);
+                  }}
+                />
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold">{trader.username}</span>

@@ -114,8 +114,8 @@ export default function EventCard({
               Total Prize Pool
             </span>
             <span className="text-xl font-black tracking-tight text-white flex items-center gap-1 text-shadow">
-              ${event.totalRewardPool.toLocaleString()}
-              <span className="text-xs font-extrabold text-amber-400">{event.rewardToken}</span>
+              ${(event?.totalRewardPool || 0).toLocaleString()}
+              <span className="text-xs font-extrabold text-amber-400">{event?.rewardToken || 'USDT'}</span>
             </span>
           </div>
 

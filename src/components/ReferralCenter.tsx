@@ -7,7 +7,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'dark', onBack: () => void }) {
-  const { user } = useAuth();
+  const { user, updateProfile, addNotification } = useAuth();
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showAllReferrals, setShowAllReferrals] = useState(false);
@@ -48,12 +48,16 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
             snap.docs.forEach(docSnap => {
               const d = docSnap.data();
               if (d.uid !== user.uid) {
+                const isPlat = d.membershipTier === 'platinum' || d.membershipTier === 'gold' || d.kycStatus === 'verified' || (d.totalDeposits || 0) > 0 || (d.trades && d.trades.length > 0) || (d.aiTradesCount || 0) > 0;
                 foundMap.set(d.uid || docSnap.id, {
                   uid: d.uid || docSnap.id,
                   name: d.username || d.displayName || d.email?.split('@')[0] || 'Referred Member',
                   email: d.email,
                   joinedAt: d.createdAt || new Date().toISOString(),
-                  photoURL: d.profilePhotoURL || d.avatarUrl
+                  photoURL: d.profilePhotoURL || d.avatarUrl,
+                  membershipTier: d.membershipTier || (isPlat ? 'platinum' : 'bronze'),
+                  platinumReached: isPlat,
+                  rewarded: d.rewarded || isPlat
                 });
               }
             });
@@ -72,13 +76,48 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
   }, [user, referralCode]);
 
   const profileReferredList = Array.isArray((user as any)?.referredUsers) ? (user as any).referredUsers : [];
-  const referredUsersList = liveReferredUsers.length > 0 ? liveReferredUsers : profileReferredList;
+  const rawList = liveReferredUsers.length > 0 ? liveReferredUsers : profileReferredList;
+
+  const referredUsersList = rawList.map((refUser: any) => {
+    const reachedPlatinum = refUser.membershipTier === 'platinum' || refUser.membershipTier === 'gold' || refUser.platinumReached || (refUser.totalDeposits || 0) > 0 || (refUser.trades && refUser.trades.length > 0);
+    return {
+      ...refUser,
+      platinumReached: reachedPlatinum,
+      rewarded: refUser.rewarded || reachedPlatinum
+    };
+  });
 
   const totalReferrals = Math.max(referredUsersList.length, (user as any)?.totalReferrals ?? user?.referralCount ?? 0);
-  const totalReferralEarnings = totalReferrals * 10;
+  const platinumReachedCount = referredUsersList.filter((u: any) => u.platinumReached).length;
+  const totalReferralEarnings = platinumReachedCount * 10;
+  const lockedReferralEarnings = (totalReferrals - platinumReachedCount) * 10;
   const referralLevel = (user as any)?.referralLevel || Math.floor(totalReferrals / 5) + 1;
   const [showLockModal, setShowLockModal] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user || referredUsersList.length === 0) return;
+    const unrewardedPlat = referredUsersList.filter((u: any) => u.platinumReached && !u.rewarded);
+    if (unrewardedPlat.length > 0 && updateProfile) {
+      const bonus = unrewardedPlat.length * 10;
+      const updatedList = referredUsersList.map((u: any) => u.platinumReached ? { ...u, rewarded: true } : u);
+      const currentAvail = Number(user.availableBalance) || 0;
+      const currentPort = Number(user.portfolioBalance) || 0;
+      updateProfile({
+        availableBalance: currentAvail + bonus,
+        portfolioBalance: currentPort + bonus,
+        referredUsers: updatedList
+      }).catch(() => {});
+      if (addNotification) {
+        addNotification(
+          'rewards',
+          'high',
+          'Referral Reward Credited!',
+          `+$${bonus}.00 USDT has been added to your balance as your referee(s) reached Platinum Tier!`
+        ).catch(() => {});
+      }
+    }
+  }, [user?.uid, referredUsersList.length]);
 
   const formatJoinedDate = (dateVal: any) => {
     if (!dateVal) return 'Aug, 2026';
@@ -278,8 +317,11 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
                     )}
                   </div>
                   <div className="flex-1">
-                    <div className="font-bold text-white text-sm">
-                      {refUser.name || refUser.displayName || 'Anonymous User'}
+                    <div className="font-bold text-white text-sm flex items-center justify-between">
+                      <span>{refUser.name || refUser.displayName || 'Anonymous User'}</span>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${refUser.platinumReached ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                        {refUser.platinumReached ? '🥈 Platinum (+$10)' : '🥉 Bronze (Pending)'}
+                      </span>
                     </div>
                     <div className="text-xs text-gray-400">
                       Joined {formatJoinedDate(refUser.joinedAt)}
