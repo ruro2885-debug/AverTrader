@@ -333,7 +333,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ...prev,
               portfolioBalance: wData.portfolioBalance ?? prev.portfolioBalance,
               availableBalance: wData.availableBalance ?? prev.availableBalance,
-              vaultBalance: 0, // Enforce 0 vault balance (no fake $310k reserves)
+              vaultBalance: typeof wData.vaultBalance === 'number' ? wData.vaultBalance : (prev.vaultBalance ?? 0),
               totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
               totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
               tokenBalance: wData.tokenBalance ?? prev.tokenBalance,
@@ -357,7 +357,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ...prev,
               portfolioBalance: pState.walletState.portfolioBalance ?? prev.portfolioBalance,
               availableBalance: pState.walletState.availableBalance ?? prev.availableBalance,
-              vaultBalance: 0, // Enforce 0 vault balance
+              vaultBalance: typeof pState.walletState.vaultBalance === 'number' ? pState.walletState.vaultBalance : (prev.vaultBalance ?? 0),
               totalDeposits: pState.walletState.totalDeposits ?? prev.totalDeposits,
               totalWithdrawals: pState.walletState.totalWithdrawals ?? prev.totalWithdrawals,
               totalProfit: pState.walletState.totalProfit ?? prev.totalProfit,
@@ -391,7 +391,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 ...userData,
                 portfolioBalance: typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : (prev?.portfolioBalance ?? 0),
                 availableBalance: typeof userData.availableBalance === 'number' ? userData.availableBalance : (prev?.availableBalance ?? 0),
-                vaultBalance: 0,
+                vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (prev?.vaultBalance ?? 0),
                 holdings: userData.holdings || prev?.holdings || [],
                 trades: userData.trades || prev?.trades || [],
                 snapshots: userData.snapshots || prev?.snapshots || []
@@ -1788,6 +1788,7 @@ function dataURLtoBlob(dataurl: string): Blob {
       } as User;
 
       // 1. Optimistically update local React state and cache storage
+      userRef.current = updatedUser;
       setUser(updatedUser);
       safeStorage.setItem(`user_profile_${oldProfile.uid}`, JSON.stringify(updatedUser));
       safeStorage.setItem('aver_active_user', JSON.stringify(updatedUser));

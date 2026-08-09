@@ -57,15 +57,61 @@ export default function VaultScreen({
   // Sub-screens for Deposit / Withdraw / Settings
   const [activeSubScreen, setActiveSubScreen] = useState<'dashboard' | 'deposit' | 'withdraw' | 'settings'>('dashboard');
   
-  // Savings Target & Goal states
+  const { user, updateProfile } = useAuth();
+  const { addFundsToActiveBalance, updateVaultBalance, executeVaultTransfer } = useFinancials();
+
+  // Target lock state (Target can only be configured ONCE)
+  const [isTargetConfigured, setIsTargetConfigured] = useState<boolean>(() => {
+    const configured = safeStorage.getItem('vault_target_configured');
+    if (configured === 'true') return true;
+    if ((user as any)?.isVaultTargetConfigured) return true;
+    const existingTarget = Number(safeStorage.getItem('vault_target')) || (user as any)?.vaultTarget || 0;
+    return existingTarget > 0;
+  });
+
   const [vaultTarget, setVaultTarget] = useState<number>(() => {
-    return Number(safeStorage.getItem('vault_target')) || 0;
+    return Number(safeStorage.getItem('vault_target')) || (user as any)?.vaultTarget || 0;
   });
   const [showTargetPopup, setShowTargetPopup] = useState<boolean>(false);
   const [targetInput, setTargetInput] = useState<string>(vaultTarget.toString());
 
-  const { user } = useAuth();
-  const { addFundsToActiveBalance } = useFinancials();
+  // Vault assets state breakdown
+  const [vaultAssets, setVaultAssets] = useState<{ BTC: number; ETH: number; USDT: number }>(() => {
+    const stored = safeStorage.getItem('vault_assets');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (typeof parsed.BTC === 'number' && typeof parsed.ETH === 'number' && typeof parsed.USDT === 'number') {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    const currentBal = vaultBalance || Number(safeStorage.getItem('portfolio_vault_balance')) || 0;
+    if (currentBal > 0) {
+      return {
+        BTC: currentBal * 0.45,
+        ETH: currentBal * 0.35,
+        USDT: currentBal * 0.20
+      };
+    }
+    return { BTC: 0, ETH: 0, USDT: 0 };
+  });
+
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Sync vault assets with vault balance safely
+  useEffect(() => {
+    const sum = (vaultAssets.BTC || 0) + (vaultAssets.ETH || 0) + (vaultAssets.USDT || 0);
+    if (vaultBalance > 0 && sum === 0) {
+      const seedAssets = {
+        BTC: vaultBalance * 0.45,
+        ETH: vaultBalance * 0.35,
+        USDT: vaultBalance * 0.20
+      };
+      setVaultAssets(seedAssets);
+      safeStorage.setItem('vault_assets', JSON.stringify(seedAssets));
+    }
+  }, [vaultAssets, vaultBalance]);
 
   // Passive Income Yield Accrual (10% APY compounded hourly)
   useEffect(() => {
@@ -110,11 +156,11 @@ export default function VaultScreen({
 
   const activeCapital = Math.max(0, activeTradingBalance);
 
-  // Hardcoded premium protected assets breakdown
+  // Protected assets breakdown dynamically computed from vaultAssets
   const protectedAssets = [
-    { ticker: 'BTC', name: 'Bitcoin Reserves', qty: `${(vaultBalance * 0.45 / 64000).toFixed(5)} BTC`, value: vaultBalance * 0.45, color: '#f59e0b' },
-    { ticker: 'ETH', name: 'Ethereum Collateral', qty: `${(vaultBalance * 0.35 / 3450).toFixed(4)} ETH`, value: vaultBalance * 0.35, color: '#6366f1' },
-    { ticker: 'USDT', name: 'Tether USD', qty: `$${(vaultBalance * 0.2).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDT`, value: vaultBalance * 0.2, color: '#10b981' },
+    { ticker: 'BTC', name: 'Bitcoin Reserves', qty: `${((vaultAssets.BTC || 0) / 64000).toFixed(5)} BTC`, value: vaultAssets.BTC || 0, color: '#f59e0b' },
+    { ticker: 'ETH', name: 'Ethereum Collateral', qty: `${((vaultAssets.ETH || 0) / 3450).toFixed(4)} ETH`, value: vaultAssets.ETH || 0, color: '#6366f1' },
+    { ticker: 'USDT', name: 'Tether USD', qty: `$${(vaultAssets.USDT || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDT`, value: vaultAssets.USDT || 0, color: '#10b981' },
   ];
 
   // Simulated Protection History OR real database-backed logs
@@ -230,7 +276,7 @@ export default function VaultScreen({
   };
 
   // Execute Deposit
-  const handleConfirmDeposit = () => {
+  const handleConfirmDeposit = async () => {
     const amt = parseFloat(actionAmount);
     if (isNaN(amt) || amt <= 0) {
       showNotification("Please enter a valid amount.");
@@ -241,27 +287,22 @@ export default function VaultScreen({
       return;
     }
 
-    const nextBal = vaultBalance + amt;
-    setVaultBalance(nextBal);
-    safeStorage.setItem('portfolio_vault_balance', nextBal.toString());
-    
-    // Deduct deposited amount from available wallet cash to prevent balance spikes
-    addFundsToActiveBalance(-amt).catch(() => {});
-
-    // Record real transaction in Firestore & local storage
-    if (user?.uid) {
-      transactionService.recordTransaction({
-        userId: user.uid,
-        type: 'internal_transfer',
-        category: 'transactions',
-        title: `Vault Deposit`,
-        amount: amt,
-        asset: actionAsset,
-        network: 'Secure Vault',
-        status: 'Completed',
-        description: `Protected capital in private vault for goal: ${goalName}`
-      }).catch(err => console.error("Error recording vault deposit:", err));
+    const success = await executeVaultTransfer(amt, 'deposit');
+    if (!success) {
+      showNotification("Deposit failed. Insufficient active capital.");
+      return;
     }
+
+    const nextBal = vaultBalance + amt;
+    const selectedAssetKey = (actionAsset as 'BTC' | 'ETH' | 'USDT') || 'USDT';
+    const nextVaultAssets = {
+      ...vaultAssets,
+      [selectedAssetKey]: (vaultAssets[selectedAssetKey] || 0) + amt
+    };
+
+    setVaultAssets(nextVaultAssets);
+    safeStorage.setItem('vault_assets', JSON.stringify(nextVaultAssets));
+    setVaultBalance(nextBal);
 
     setActionAmount('');
     setActiveSubScreen('dashboard');
@@ -269,7 +310,7 @@ export default function VaultScreen({
   };
 
   // Execute Withdrawal
-  const handleConfirmWithdrawal = () => {
+  const handleConfirmWithdrawal = async () => {
     const amt = parseFloat(actionAmount);
     if (isNaN(amt) || amt <= 0) {
       showNotification("Please enter a valid amount.");
@@ -287,36 +328,43 @@ export default function VaultScreen({
     // Verify PIN for withdraw
     if (withdrawPINInput !== vaultPasscode) {
       setWithdrawPINError("Incorrect Security PIN. Authorization denied.");
+      triggerShake();
       return;
     }
 
-    const nextBal = vaultBalance - amt;
-    setVaultBalance(nextBal);
-    safeStorage.setItem('portfolio_vault_balance', nextBal.toString());
-
-    // Restore withdrawn amount back to available wallet cash
-    addFundsToActiveBalance(amt).catch(() => {});
-
-    // Record real transaction in Firestore & local storage
-    if (user?.uid) {
-      transactionService.recordTransaction({
-        userId: user.uid,
-        type: 'internal_transfer',
-        category: 'transactions',
-        title: `Vault Withdrawal`,
-        amount: amt,
-        asset: actionAsset,
-        network: 'Secure Vault',
-        status: 'Completed',
-        description: `Unlocked capital back to active trading pool`
-      }).catch(err => console.error("Error recording vault withdrawal:", err));
+    const success = await executeVaultTransfer(amt, 'withdraw');
+    if (!success) {
+      showNotification("Withdrawal failed. Check vault balance.");
+      return;
     }
+
+    const nextBal = Math.max(0, vaultBalance - amt);
+    const selectedAssetKey = (actionAsset as 'BTC' | 'ETH' | 'USDT') || 'USDT';
+    const currentAssetVal = vaultAssets[selectedAssetKey] || 0;
+    
+    let nextVaultAssets = { ...vaultAssets };
+    if (currentAssetVal >= amt) {
+      nextVaultAssets[selectedAssetKey] = currentAssetVal - amt;
+    } else {
+      const remainingToDeduct = amt - currentAssetVal;
+      nextVaultAssets[selectedAssetKey] = 0;
+      const otherKeys = (['BTC', 'ETH', 'USDT'] as const).filter(k => k !== selectedAssetKey);
+      const otherSum = (nextVaultAssets[otherKeys[0]] || 0) + (nextVaultAssets[otherKeys[1]] || 0);
+      if (otherSum > 0) {
+        nextVaultAssets[otherKeys[0]] = Math.max(0, nextVaultAssets[otherKeys[0]] - (remainingToDeduct * (nextVaultAssets[otherKeys[0]] / otherSum)));
+        nextVaultAssets[otherKeys[1]] = Math.max(0, nextVaultAssets[otherKeys[1]] - (remainingToDeduct * (nextVaultAssets[otherKeys[1]] / otherSum)));
+      }
+    }
+
+    setVaultAssets(nextVaultAssets);
+    safeStorage.setItem('vault_assets', JSON.stringify(nextVaultAssets));
+    setVaultBalance(nextBal);
 
     setActionAmount('');
     setWithdrawPINInput('');
     setWithdrawPINError(null);
     setActiveSubScreen('dashboard');
-    showNotification(`Unlocked $${amt.toLocaleString()} back to Active Trading Pool.`);
+    showNotification(`Unlocked $${amt.toLocaleString()} back to Active Trading Capital.`);
   };
 
   const textPrimary = isDark ? "text-white" : "text-slate-900";
@@ -633,15 +681,21 @@ export default function VaultScreen({
                   <div className="pt-4 border-t border-white/[0.04] space-y-2 text-left">
                     <div className="flex justify-between text-[10px] font-bold">
                       <span className="text-slate-400 uppercase tracking-wider">Goal: {goalName}</span>
-                      <button 
-                        onClick={() => {
-                          setTargetInput(vaultTarget.toString());
-                          setShowTargetPopup(true);
-                        }}
-                        className="text-[#00D09C] font-mono hover:underline cursor-pointer"
-                      >
-                        Target: ${vaultTarget.toLocaleString()} (Edit)
-                      </button>
+                      {isTargetConfigured ? (
+                        <span className="text-slate-400 font-mono">
+                          Target: ${vaultTarget.toLocaleString()} <span className="text-slate-500 text-[9px]">(Locked)</span>
+                        </span>
+                      ) : (
+                        <button 
+                          onClick={() => {
+                            setTargetInput(vaultTarget.toString());
+                            setShowTargetPopup(true);
+                          }}
+                          className="text-[#00D09C] font-mono hover:underline cursor-pointer"
+                        >
+                          Target: ${vaultTarget.toLocaleString()} (Set Target)
+                        </button>
+                      )}
                     </div>
                     <div className="w-full h-2 bg-white/[0.04] rounded-full overflow-hidden">
                       <div 
@@ -843,22 +897,6 @@ export default function VaultScreen({
                     </p>
                   </div>
 
-                  {/* Asset Select */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Select Reserve Asset</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['USDT', 'BTC', 'ETH'] as const).map(a => (
-                        <button 
-                          key={a}
-                          onClick={() => setActionAsset(a)}
-                          className={`py-2.5 border rounded-xl font-mono text-xs cursor-pointer transition-all ${actionAsset === a ? 'bg-[#00D09C]/10 border-[#00D09C]/30 text-[#00D09C] font-semibold' : 'bg-[#080B11]/40 border-white/[0.04] text-slate-400 hover:text-white'}`}
-                        >
-                          {a}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Order Input */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
@@ -870,8 +908,8 @@ export default function VaultScreen({
                         type="number" 
                         value={actionAmount}
                         onChange={(e) => setActionAmount(e.target.value)}
-                        placeholder="Enter amount (USD equivalent)"
-                        className="w-full bg-[#080B11]/50 border border-white/[0.05] rounded-xl p-3 text-white outline-none font-semibold text-sm focus:border-[#00D09C] focus:ring-1 focus:ring-[#00D09C]/20 transition-all font-mono"
+                        placeholder="Enter amount"
+                        className="w-full bg-[#080B11]/50 border border-white/[0.05] rounded-xl p-3 pr-12 text-white outline-none font-semibold text-sm focus:border-[#00D09C] focus:ring-1 focus:ring-[#00D09C]/20 transition-all font-mono"
                       />
                       <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] text-[#00D09C] font-semibold font-mono">USD</span>
                     </div>
@@ -942,22 +980,6 @@ export default function VaultScreen({
                     </p>
                   </div>
 
-                  {/* Asset Select */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">Select Reserve Asset</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['USDT', 'BTC', 'ETH'] as const).map(a => (
-                        <button 
-                          key={a}
-                          onClick={() => setActionAsset(a)}
-                          className={`py-2.5 border rounded-xl font-mono text-xs cursor-pointer transition-all ${actionAsset === a ? 'bg-[#00D09C]/10 border-[#00D09C]/30 text-[#00D09C] font-semibold' : 'bg-[#080B11]/40 border-white/[0.04] text-slate-400 hover:text-white'}`}
-                        >
-                          {a}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Order Input */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
@@ -969,8 +991,8 @@ export default function VaultScreen({
                         type="number" 
                         value={actionAmount}
                         onChange={(e) => setActionAmount(e.target.value)}
-                        placeholder="Enter amount (USD equivalent)"
-                        className="w-full bg-[#080B11]/50 border border-white/[0.05] rounded-xl p-3 text-white outline-none font-semibold text-sm focus:border-[#00D09C] focus:ring-1 focus:ring-[#00D09C]/20 transition-all font-mono"
+                        placeholder="Enter amount"
+                        className="w-full bg-[#080B11]/50 border border-white/[0.05] rounded-xl p-3 pr-12 text-white outline-none font-semibold text-sm focus:border-[#00D09C] focus:ring-1 focus:ring-[#00D09C]/20 transition-all font-mono"
                       />
                       <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] text-[#00D09C] font-semibold font-mono">USD</span>
                     </div>
@@ -1119,17 +1141,27 @@ export default function VaultScreen({
                 onClick={() => {
                   const t = parseFloat(targetInput);
                   if (!isNaN(t) && t > 0) {
+                    if (isTargetConfigured) {
+                      showNotification("Emergency Reserve Target is permanently locked and cannot be edited.");
+                      setShowTargetPopup(false);
+                      return;
+                    }
                     setVaultTarget(t);
+                    setIsTargetConfigured(true);
                     safeStorage.setItem('vault_target', t.toString());
+                    safeStorage.setItem('vault_target_configured', 'true');
+                    if (updateProfile) {
+                      updateProfile({ vaultTarget: t, isVaultTargetConfigured: true } as any, undefined, undefined, true).catch(() => {});
+                    }
                     setShowTargetPopup(false);
-                    showNotification(`Savings Target set to $${t.toLocaleString()}`);
+                    showNotification(`Emergency Reserve Target set to $${t.toLocaleString()} and permanently locked.`);
                   } else {
                     showNotification("Please enter a valid target amount.");
                   }
                 }}
                 className="flex-grow py-3 bg-[#00D09C] hover:bg-[#00b084] text-black font-bold text-xs rounded-xl uppercase tracking-wider cursor-pointer"
               >
-                Confirm Target
+                Confirm & Lock Target
               </button>
               <button
                 onClick={() => setShowTargetPopup(false)}

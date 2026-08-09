@@ -239,8 +239,8 @@ function AverPortfolioChart({
   }, [data]);
 
   useEffect(() => {
-    if (seriesRef.current && executionEvents && executionEvents.length > 0) {
-      const markers = executionEvents
+    if (seriesRef.current) {
+      const markers = (executionEvents || [])
         .filter(evt => evt.timestamp)
         .map(evt => ({
           time: evt.timestamp,
@@ -265,8 +265,12 @@ function AverPortfolioChart({
           } else if (createSeriesMarkers && seriesRef.current) {
             markersPluginRef.current = createSeriesMarkers(seriesRef.current, markers as any);
           }
-        } else if (markersPluginRef.current) {
-          markersPluginRef.current.setMarkers([]);
+        } else {
+          if (markersPluginRef.current) {
+            markersPluginRef.current.setMarkers([]);
+          } else if (typeof (seriesRef.current as any).setMarkers === 'function') {
+            (seriesRef.current as any).setMarkers([]);
+          }
         }
       } catch (err) {
         console.warn("[Chart] Error setting markers:", err);
@@ -312,6 +316,7 @@ export default function PortfolioViewV2({
     totalHoldingsValue,
     updateVaultBalance, 
     addFundsToActiveBalance,
+    executeVaultTransfer,
   } = useFinancials();
 
   // Placeholders for removed functionality to satisfy existing component props
@@ -869,6 +874,12 @@ export default function PortfolioViewV2({
 
   // Live execution events mapped directly to timestamps in tvChartData
   const executionEvents = useMemo(() => {
+    // Markers are LIVE SESSION UI markers ONLY.
+    // When session is NOT ACTIVE/RUNNING (ENDED/STOPPED/INACTIVE), immediately return empty list to remove all markers.
+    if (!session || (session.status !== 'ACTIVE' && session.status !== 'RUNNING')) {
+      return [];
+    }
+
     if (tvChartData.length === 0 || !trades || trades.length === 0) return [];
 
     const nowMs = Date.now();
@@ -952,7 +963,7 @@ export default function PortfolioViewV2({
 
     list.sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime());
     return list;
-  }, [tvChartData, trades, timeframe, formatCurrency]);
+  }, [tvChartData, trades, timeframe, formatCurrency, session]);
 
   const watchlistRef = useRef<WatchlistItem[]>([]);
   useEffect(() => {
@@ -2398,7 +2409,7 @@ export default function PortfolioViewV2({
                       )}
 
                       <button 
-                        onClick={() => {
+                        onClick={async () => {
                           const amt = parseFloat(vaultActionAmount);
                           if (isNaN(amt) || amt <= 0) {
                             showNotification("Please enter a valid deposit amount.");
@@ -2409,13 +2420,15 @@ export default function PortfolioViewV2({
                             showNotification("Insufficient active capital available for deposit.");
                             return;
                           }
-                          const nextBal = vaultBalance + amt;
-                          updateVaultBalance(nextBal);
-                          addFundsToActiveBalance(-amt).catch(() => {});
-                          showNotification(`Successfully protected $${amt.toLocaleString()} inside Vault.`);
-                          setVaultActionType(null);
-                          setVaultActionAmount('');
-                          setVaultGoalName('');
+                          const success = await executeVaultTransfer(amt, 'deposit');
+                          if (success) {
+                            showNotification(`Successfully protected $${amt.toLocaleString()} inside Vault.`);
+                            setVaultActionType(null);
+                            setVaultActionAmount('');
+                            setVaultGoalName('');
+                          } else {
+                            showNotification("Deposit failed. Insufficient active capital.");
+                          }
                         }}
                         className="w-full bg-[#00D09C] hover:bg-[#00b084] text-black font-semibold py-3.5 rounded-xl uppercase tracking-wider transition-all cursor-pointer touch-manipulation min-h-[44px] shadow-md text-center"
                       >
@@ -2500,7 +2513,7 @@ export default function PortfolioViewV2({
                       )}
 
                       <button 
-                        onClick={() => {
+                        onClick={async () => {
                           const amt = parseFloat(vaultActionAmount);
                           if (isNaN(amt) || amt <= 0) {
                             showNotification("Please enter a valid withdrawal amount.");
@@ -2515,12 +2528,14 @@ export default function PortfolioViewV2({
                             showNotification("Withdrawal exceeds current protected savings balance.");
                             return;
                           }
-                          const nextBal = vaultBalance - amt;
-                          updateVaultBalance(nextBal);
-                          addFundsToActiveBalance(amt).catch(() => {});
-                          showNotification(`Successfully unlocked $${amt.toLocaleString()} back to Active Pool.`);
-                          setVaultActionType(null);
-                          setVaultActionAmount('');
+                          const success = await executeVaultTransfer(amt, 'withdraw');
+                          if (success) {
+                            showNotification(`Successfully unlocked $${amt.toLocaleString()} back to Active Pool.`);
+                            setVaultActionType(null);
+                            setVaultActionAmount('');
+                          } else {
+                            showNotification("Withdrawal failed.");
+                          }
                         }}
                         className="w-full bg-[#00D09C] hover:bg-[#00b084] text-black font-semibold py-3.5 rounded-xl uppercase tracking-wider transition-all cursor-pointer touch-manipulation min-h-[44px] shadow-md text-center"
                       >

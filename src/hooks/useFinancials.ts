@@ -1,12 +1,13 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency } from '../lib/utils';
-import { doc, updateDoc, increment, serverTimestamp, collection, query, where, limit, onSnapshot, Timestamp } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, increment, serverTimestamp, collection, query, where, limit, onSnapshot, Timestamp } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService, WalletData } from '../services/walletService';
 import { equityService } from '../services/equityService';
+import { transactionService } from '../services/transactionService';
 
 export interface UnifiedFinancials {
   totalNetBalance: number;
@@ -168,7 +169,11 @@ export const useFinancials = () => {
     tokenBalance = Math.max(0, tokenBalance);
 
     // 4. Vault Balance
-    const vaultBalance = user?.vaultBalance ?? walletData?.vaultBalance ?? 0;
+    const savedVaultBalStr = safeStorage.getItem('portfolio_vault_balance');
+    const savedVaultBal = savedVaultBalStr !== null && savedVaultBalStr !== undefined && !isNaN(parseFloat(savedVaultBalStr)) ? parseFloat(savedVaultBalStr) : null;
+    const vaultBalance = (user?.vaultBalance !== undefined && user?.vaultBalance !== null) 
+      ? user.vaultBalance 
+      : (savedVaultBal !== null ? savedVaultBal : (walletData?.vaultBalance ?? 0));
 
     // 5. Unified Total Portfolio Balance Calculations
     // Consolidated portfolio net balance is the sum of available wallet cash + active AI trading capital + vault reserves + asset holdings.
@@ -198,6 +203,8 @@ export const useFinancials = () => {
   const updateVaultBalance = useCallback(async (newBalance: number) => {
     const uid = user?.uid || auth.currentUser?.uid || 'local-user';
     
+    safeStorage.setItem('portfolio_vault_balance', newBalance.toString());
+
     // Optimistically write to profile state & localStorage
     if (updateProfile) {
       updateProfile({ vaultBalance: newBalance }, undefined, undefined, true).catch(() => {});
@@ -333,10 +340,150 @@ export const useFinancials = () => {
     });
   }, [auth.currentUser, user?.uid, user?.portfolioBalance, user?.availableBalance, user?.tokenBalance, user?.cashBalance, updateProfile]);
 
+  // Atomic & Idempotent Vault Transfer (Deposit / Withdraw)
+  const executeVaultTransfer = useCallback(async (amount: number, direction: 'deposit' | 'withdraw'): Promise<boolean> => {
+    if (isNaN(amount) || amount <= 0) return false;
+    
+    const uid = user?.uid || auth.currentUser?.uid || 'local-user';
+    
+    // Read current vault balance
+    const currentVault = (user?.vaultBalance !== undefined && user?.vaultBalance !== null) 
+      ? user.vaultBalance 
+      : (Number(safeStorage.getItem('portfolio_vault_balance')) || walletData?.vaultBalance || 0);
+
+    // Read current cash balance accurately
+    const currentCash = (typeof user?.tokenBalance === 'number' && user.tokenBalance > 0)
+      ? user.tokenBalance
+      : ((typeof user?.availableBalance === 'number' && user.availableBalance > 0)
+        ? user.availableBalance
+        : ((typeof user?.portfolioBalance === 'number' && user.portfolioBalance > 0)
+          ? user.portfolioBalance
+          : (walletData?.tokenBalance || walletData?.availableBalance || walletData?.portfolioBalance || 0)));
+
+    let newVaultBal = currentVault;
+    let newCashBal = currentCash;
+
+    if (direction === 'deposit') {
+      if (amount > currentCash) {
+        return false;
+      }
+      newVaultBal = currentVault + amount;
+      newCashBal = Math.max(0, currentCash - amount);
+    } else {
+      if (amount > currentVault) {
+        return false;
+      }
+      newVaultBal = Math.max(0, currentVault - amount);
+      newCashBal = currentCash + amount;
+    }
+
+    // 1. Synchronously update localStorage
+    safeStorage.setItem('portfolio_vault_balance', newVaultBal.toString());
+    
+    const localWalletKey = `aver_wallet_${uid}`;
+
+    try {
+      const cachedWalletStr = safeStorage.getItem(localWalletKey);
+      if (cachedWalletStr) {
+        const w = JSON.parse(cachedWalletStr);
+        w.vaultBalance = newVaultBal;
+        w.portfolioBalance = newCashBal;
+        w.availableBalance = newCashBal;
+        w.tokenBalance = newCashBal;
+        w.cashBalance = newCashBal;
+        safeStorage.setItem(localWalletKey, JSON.stringify(w));
+      }
+    } catch (e) {}
+
+    // 2. Single ATOMIC updateProfile call
+    if (updateProfile) {
+      await updateProfile({
+        vaultBalance: newVaultBal,
+        portfolioBalance: newCashBal,
+        availableBalance: newCashBal,
+        tokenBalance: newCashBal,
+        cashBalance: newCashBal,
+        portfolio: {
+          ...(user?.portfolio || {}),
+          totalValue: newCashBal + newVaultBal
+        }
+      }, undefined, undefined, true).catch(() => {});
+    }
+
+    // 3. Sync to Firestore
+    if (auth.currentUser && !uid.startsWith('local-')) {
+      try {
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+          vaultBalance: newVaultBal,
+          portfolioBalance: newCashBal,
+          availableBalance: newCashBal,
+          tokenBalance: newCashBal,
+          cashBalance: newCashBal,
+          'portfolio.totalValue': newCashBal + newVaultBal,
+          lastUpdated: serverTimestamp()
+        });
+      } catch (e) {
+        console.warn("Failed to sync vault transfer to Firestore users doc", e);
+      }
+
+      try {
+        await setDoc(doc(db, 'wallets', auth.currentUser.uid), {
+          userId: auth.currentUser.uid,
+          vaultBalance: newVaultBal,
+          portfolioBalance: newCashBal,
+          availableBalance: newCashBal,
+          tokenBalance: newCashBal,
+          cashBalance: newCashBal,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (e) {
+        console.warn("Failed to sync vault transfer to Firestore wallets doc", e);
+      }
+    }
+
+    // 4. Update portfolio persistence service
+    await portfolioPersistenceService.updateWalletState(uid, {
+      vaultBalance: newVaultBal,
+      portfolioBalance: newCashBal,
+      availableBalance: newCashBal,
+      tokenBalance: newCashBal
+    });
+
+    // 5. Record internal transfer transaction
+    if (uid) {
+      await transactionService.recordTransaction({
+        userId: uid,
+        type: 'internal_transfer',
+        category: 'transactions',
+        title: direction === 'deposit' ? 'Vault Deposit' : 'Vault Withdrawal',
+        amount: direction === 'deposit' ? amount : -amount,
+        asset: 'USDT',
+        network: 'Secure Vault',
+        status: 'Completed',
+        description: direction === 'deposit' ? 'Protected capital transferred into secure savings vault' : 'Unlocked savings transferred back to active balance'
+      }).catch(err => console.error("Error recording vault transaction:", err));
+    }
+
+    // Record historical balance
+    await equityService.recordEquity({
+      userId: uid,
+      timestamp: Timestamp.now(),
+      totalNetBalance: newCashBal + newVaultBal,
+      trigger: direction === 'deposit' ? 'MANUAL_ADJUSTMENT' : 'WITHDRAW'
+    }).catch(() => {});
+
+    // Notify listeners
+    window.dispatchEvent(new Event('aver_user_updated'));
+    window.dispatchEvent(new Event('storage'));
+
+    return true;
+  }, [user, walletData, updateProfile]);
+
   return {
     ...financials,
     updateVaultBalance,
     addFundsToActiveBalance,
+    executeVaultTransfer,
     formatCurrency
   };
 };
