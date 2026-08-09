@@ -18,6 +18,10 @@
   ],
   "rewrites": [
     {
+      "source": "/preview.png",
+      "destination": "/api/preview.png"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
