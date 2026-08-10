@@ -132,22 +132,15 @@ export const equityService = {
     }
   },
 
-  subscribeHistory(userId: string, range: '1D' | '1W' | '1M', callback: (records: EquityHistoryRecord[]) => void) {
+  subscribeHistory(userId: string, callback: (records: EquityHistoryRecord[]) => void) {
     const localRecords = equityService.getHistoryLocally(userId);
     if (userId.startsWith('local-')) {
       callback(localRecords);
       return () => {};
     }
 
-    const now = new Date();
-    let startTime = new Date();
-    if (range === '1D') startTime.setDate(now.getDate() - 1);
-    else if (range === '1W') startTime.setDate(now.getDate() - 7);
-    else if (range === '1M') startTime.setMonth(now.getMonth() - 1);
-
     const q = query(
       collection(db, 'users', userId, COLLECTION_NAME),
-      where('timestamp', '>=', Timestamp.fromDate(startTime)),
       orderBy('timestamp', 'asc')
     );
 
@@ -156,11 +149,23 @@ export const equityService = {
         id: doc.id,
         ...doc.data()
       })) as EquityHistoryRecord[];
-      if (records.length === 0 && localRecords.length > 0) {
-        callback(localRecords);
-      } else {
-        callback(records);
-      }
+
+      // Merge with localRecords to ensure complete master history persistence
+      const mergedMap = new Map<string, EquityHistoryRecord>();
+      localRecords.forEach(r => mergedMap.set(r.id, r));
+      records.forEach(r => mergedMap.set(r.id, r));
+      const combined = Array.from(mergedMap.values()).sort((a, b) => {
+        const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : (typeof a.timestamp === 'number' ? a.timestamp : 0));
+        const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : (typeof b.timestamp === 'number' ? b.timestamp : 0));
+        return timeA - timeB;
+      });
+
+      try {
+        const cacheKey = `aver_equity_history_${userId}`;
+        localStorage.setItem(cacheKey, JSON.stringify(combined));
+      } catch {}
+
+      callback(combined);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `users/${userId}/${COLLECTION_NAME}`);
       callback(localRecords);

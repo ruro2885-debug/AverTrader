@@ -48,7 +48,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
             snap.docs.forEach(docSnap => {
               const d = docSnap.data();
               if (d.uid !== user.uid) {
-                const isPlat = d.membershipTier === 'platinum' || d.membershipTier === 'gold' || d.kycStatus === 'verified' || (d.totalDeposits || 0) > 0 || (d.trades && d.trades.length > 0) || (d.aiTradesCount || 0) > 0;
+                const isPlat = d.membershipTier === 'platinum' || d.membershipTier === 'premium' || d.platinumReached === true;
                 foundMap.set(d.uid || docSnap.id, {
                   uid: d.uid || docSnap.id,
                   name: d.username || d.displayName || d.email?.split('@')[0] || 'Referred Member',
@@ -57,7 +57,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
                   photoURL: d.profilePhotoURL || d.avatarUrl,
                   membershipTier: d.membershipTier || (isPlat ? 'platinum' : 'bronze'),
                   platinumReached: isPlat,
-                  rewarded: d.rewarded || isPlat
+                  rewardedToMain: d.rewardedToMain || false
                 });
               }
             });
@@ -79,28 +79,28 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
   const rawList = liveReferredUsers.length > 0 ? liveReferredUsers : profileReferredList;
 
   const referredUsersList = rawList.map((refUser: any) => {
-    const reachedPlatinum = refUser.membershipTier === 'platinum' || refUser.membershipTier === 'gold' || refUser.platinumReached || (refUser.totalDeposits || 0) > 0 || (refUser.trades && refUser.trades.length > 0);
+    const isPremiumOrPlatinum = refUser.membershipTier === 'platinum' || refUser.membershipTier === 'premium' || refUser.platinumReached === true;
     return {
       ...refUser,
-      platinumReached: reachedPlatinum,
-      rewarded: refUser.rewarded || reachedPlatinum
+      platinumReached: isPremiumOrPlatinum,
+      rewardedToMain: refUser.rewardedToMain || false
     };
   });
 
   const totalReferrals = Math.max(referredUsersList.length, (user as any)?.totalReferrals ?? user?.referralCount ?? 0);
-  const platinumReachedCount = referredUsersList.filter((u: any) => u.platinumReached).length;
-  const totalReferralEarnings = platinumReachedCount * 10;
-  const lockedReferralEarnings = (totalReferrals - platinumReachedCount) * 10;
+  const totalReferralEarnings = totalReferrals * 10;
+  const premiumUsersCount = referredUsersList.filter((u: any) => u.platinumReached).length;
   const referralLevel = (user as any)?.referralLevel || Math.floor(totalReferrals / 5) + 1;
   const [showLockModal, setShowLockModal] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
+  // Automatically credit $10 to main balance when a referee reaches Premium/Platinum
   useEffect(() => {
     if (!user || referredUsersList.length === 0) return;
-    const unrewardedPlat = referredUsersList.filter((u: any) => u.platinumReached && !u.rewarded);
-    if (unrewardedPlat.length > 0 && updateProfile) {
-      const bonus = unrewardedPlat.length * 10;
-      const updatedList = referredUsersList.map((u: any) => u.platinumReached ? { ...u, rewarded: true } : u);
+    const uncreditedPremium = referredUsersList.filter((u: any) => u.platinumReached && !u.rewardedToMain);
+    if (uncreditedPremium.length > 0 && updateProfile) {
+      const bonus = uncreditedPremium.length * 10;
+      const updatedList = referredUsersList.map((u: any) => u.platinumReached ? { ...u, rewardedToMain: true } : u);
       const currentAvail = Number(user.availableBalance) || 0;
       const currentPort = Number(user.portfolioBalance) || 0;
       updateProfile({
@@ -112,8 +112,8 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
         addNotification(
           'rewards',
           'high',
-          'Referral Reward Credited!',
-          `+$${bonus}.00 USDT has been added to your balance as your referee(s) reached Platinum Tier!`
+          'Premium Referral Reward Added to Main Balance!',
+          `+$${bonus}.00 USDT credited directly to your main balance for Premium referee(s)!`
         ).catch(() => {});
       }
     }
@@ -320,7 +320,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
                     <div className="font-bold text-white text-sm flex items-center justify-between">
                       <span>{refUser.name || refUser.displayName || 'Anonymous User'}</span>
                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${refUser.platinumReached ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-                        {refUser.platinumReached ? '🥈 Platinum (+$10)' : '🥉 Bronze (Pending)'}
+                        {refUser.platinumReached ? '🥈 Premium (+$10 Credited)' : '🥉 Standard'}
                       </span>
                     </div>
                     <div className="text-xs text-gray-400">

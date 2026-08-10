@@ -9,7 +9,7 @@ import {
   ArrowUpRight, ArrowDownRight, BarChart3, Wallet, Menu, Vault, KeyRound,
   ShieldAlert
 } from 'lucide-react';
-import { createChart, IChartApi, ISeriesApi, AreaSeries, createSeriesMarkers } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, AreaSeries, BaselineSeries, createSeriesMarkers } from 'lightweight-charts';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePreferences } from '../../contexts/PreferencesContext';
 import { useFinancials } from '../../hooks/useFinancials';
@@ -104,181 +104,754 @@ function generateCatherineCommentary(
   return commentaries[index];
 }
 
-// --- TRADINGVIEW LIGHTWEIGHT CHART COMPONENT WITH HOVER CAPABILITIES ---
+// --- FINANCIAL TIME-SERIES EQUITY CURVE CHART WITH DYNAMIC MULTI-COLOR SEGMENTS ---
+/**
+ * Intelligently downsamples a chronological array of equity points to a target max count (e.g. 50-60 points),
+ * strictly preserving:
+ * - First point & Last point (current live equity)
+ * - Global Min & Global Max
+ * - Local Peaks (maximums) & Local Troughs (minimums)
+ * - Direction reversals (UP -> DOWN, DOWN -> UP)
+ * - Strict chronological order
+ */
+function smartDownsample(
+  rawData: Array<{ time: any; value: number }>,
+  maxPoints: number = 55
+): Array<{ time: any; value: number }> {
+  if (!rawData || rawData.length <= maxPoints) {
+    return rawData;
+  }
+
+  const n = rawData.length;
+  const resultIndices = new Set<number>();
+
+  // Always include boundary points
+  resultIndices.add(0);
+  resultIndices.add(n - 1);
+
+  // Global min & max
+  let minIdx = 0;
+  let maxIdx = 0;
+  for (let i = 1; i < n; i++) {
+    const v = Number(rawData[i].value) || 0;
+    if (v < (Number(rawData[minIdx].value) || 0)) minIdx = i;
+    if (v > (Number(rawData[maxIdx].value) || 0)) maxIdx = i;
+  }
+  resultIndices.add(minIdx);
+  resultIndices.add(maxIdx);
+
+  // Local peaks & troughs (direction reversals)
+  for (let i = 1; i < n - 1; i++) {
+    const prev = Number(rawData[i - 1].value) || 0;
+    const curr = Number(rawData[i].value) || 0;
+    const next = Number(rawData[i + 1].value) || 0;
+
+    if ((curr > prev && curr >= next) || (curr < prev && curr <= next)) {
+      resultIndices.add(i);
+    }
+  }
+
+  let keyIndices = Array.from(resultIndices).sort((a, b) => a - b);
+
+  // If we extracted more key feature points than maxPoints, bucket chunk-by-chunk preserving peak/trough
+  if (keyIndices.length > maxPoints) {
+    const bucketed = new Set<number>([0, n - 1, minIdx, maxIdx]);
+    const numBuckets = maxPoints - 4;
+    const chunkSize = (keyIndices.length - 2) / numBuckets;
+
+    for (let i = 0; i < numBuckets; i++) {
+      const startKey = Math.floor(i * chunkSize) + 1;
+      const endKey = Math.min(keyIndices.length - 1, Math.floor((i + 1) * chunkSize) + 1);
+
+      let localMinKey = startKey;
+      let localMaxKey = startKey;
+
+      for (let k = startKey; k < endKey; k++) {
+        const idx = keyIndices[k];
+        const val = Number(rawData[idx].value) || 0;
+        if (val < (Number(rawData[keyIndices[localMinKey]].value) || 0)) localMinKey = k;
+        if (val > (Number(rawData[keyIndices[localMaxKey]].value) || 0)) localMaxKey = k;
+      }
+
+      bucketed.add(keyIndices[localMinKey]);
+      bucketed.add(keyIndices[localMaxKey]);
+    }
+
+    keyIndices = Array.from(bucketed).sort((a, b) => a - b);
+  } else if (keyIndices.length < maxPoints) {
+    // If fewer peaks/troughs exist, evenly fill intermediate points so horizontal spacing is smooth
+    const needed = maxPoints - keyIndices.length;
+    const step = (n - 1) / (needed + 1);
+    for (let i = 1; i <= needed; i++) {
+      const sampleIdx = Math.round(i * step);
+      if (sampleIdx >= 0 && sampleIdx < n) {
+        resultIndices.add(sampleIdx);
+      }
+    }
+    keyIndices = Array.from(resultIndices).sort((a, b) => a - b);
+  }
+
+  return keyIndices.map(idx => rawData[idx]);
+}
+
 function AverPortfolioChart({ 
   data, 
+  baselineValue,
   isDark,
   onHover,
-  executionEvents
+  executionEvents,
+  onSelectEvent
 }: { 
   data: { time: any; value: number; }[], 
+  baselineValue: number,
   isDark: boolean,
   onHover: (hoverData: HoverData | null) => void,
-  executionEvents: any[]
+  executionEvents: any[],
+  onSelectEvent?: (eventId: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
-  const markersPluginRef = useRef<any>(null);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 600, height: 260 });
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  // Viewport windowing & pan state
+  const [viewMode, setViewMode] = useState<'live' | 'all'>('live');
+  const [panIndex, setPanIndex] = useState<number>(0); // 0 = latest points
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartXRef = useRef<number>(0);
+  const dragStartPanRef = useRef<number>(0);
+
+  const MAX_VIEWPORT_POINTS = 55;
 
   useEffect(() => {
     if (!containerRef.current) return;
-
-    const width = containerRef.current.clientWidth || 320;
-    const height = 260; 
-
-    const chart = createChart(containerRef.current, {
-      width,
-      height,
-      layout: {
-        background: { color: 'transparent' },
-        textColor: isDark ? '#94a3b8' : '#64748b',
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: 10,
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { color: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)' },
-      },
-      crosshair: {
-        vertLine: {
-          width: 1,
-          color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
-          style: 2, 
-          labelVisible: false,
-        },
-        horzLine: {
-          width: 1,
-          color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
-          style: 2,
-          labelVisible: false,
-        },
-      },
-      rightPriceScale: {
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-        visible: false,
-      },
-      timeScale: {
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-      },
-      handleScale: {
-        axisPressedMouseMove: true,
-        mouseWheel: true,
-        pinch: true,
-      },
-    });
-
-    const areaSeries = chart.addSeries(AreaSeries, {
-      lineColor: '#00D09C',
-      topColor: 'rgba(0, 208, 156, 0.25)',
-      bottomColor: 'rgba(0, 208, 156, 0.0)',
-      lineWidth: 2,
-      priceLineVisible: false,
-      crosshairMarkerVisible: true,
-      crosshairMarkerRadius: 4,
-      crosshairMarkerBorderColor: '#fff',
-      crosshairMarkerBackgroundColor: '#00D09C',
-    });
-
-    seriesRef.current = areaSeries;
-    chartRef.current = chart;
-
-    chart.subscribeCrosshairMove((param) => {
-      if (param.time && param.seriesData.size > 0 && data.length > 0) {
-        const seriesData = param.seriesData.get(areaSeries) as any;
-        if (seriesData) {
-          const currentIndex = data.findIndex(d => d.time === param.time);
-          const currentVal = seriesData.value;
-          let prevVal = currentVal;
-          
-          if (currentIndex > 0) {
-            prevVal = data[currentIndex - 1].value;
-          } else if (data.length > 0) {
-            prevVal = data[0].value;
-          }
-
-          const change = currentVal - prevVal;
-          const changePercent = prevVal !== 0 ? (change / prevVal) * 100 : 0;
-
-          onHover({
-            time: param.time as number,
-            value: currentVal,
-            change: change,
-            changePercent: changePercent,
-          });
-          return;
-        }
-      }
-      onHover(null);
-    });
-
-    const handleResize = () => {
-      if (containerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+    const updateSize = () => {
+      if (containerRef.current) {
+        const w = containerRef.current.clientWidth || 600;
+        setDimensions({ width: w, height: 260 });
       }
     };
-    window.addEventListener('resize', handleResize);
+    updateSize();
+    const observer = new ResizeObserver(() => updateSize());
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
-  }, []); 
-
-  useEffect(() => {
-    if (seriesRef.current && data.length > 0) {
-      seriesRef.current.setData(data);
-      chartRef.current?.timeScale().fitContent();
+  // Compute the current visible window dataset from complete stored history
+  const { visibleData, isWindowed, totalCount, startIdx, endIdx } = useMemo(() => {
+    if (!data || data.length === 0) {
+      return { visibleData: [], isWindowed: false, totalCount: 0, startIdx: 0, endIdx: 0 };
     }
-  }, [data]);
 
-  useEffect(() => {
-    if (seriesRef.current) {
-      const markers = (executionEvents || [])
-        .filter(evt => evt.timestamp)
-        .map(evt => ({
-          time: evt.timestamp,
-          position: evt.markerPosition === 'aboveBar' ? 'aboveBar' : 'belowBar',
-          color: evt.color,
-          shape: evt.markerShape,
-          text: evt.label,
-          id: evt.id
-        }))
-        .sort((a, b) => {
-          if (a.time < b.time) return -1;
-          if (a.time > b.time) return 1;
-          return 0;
-        });
+    const total = data.length;
+    if (total <= MAX_VIEWPORT_POINTS) {
+      return { visibleData: data, isWindowed: false, totalCount: total, startIdx: 0, endIdx: total };
+    }
+
+    if (viewMode === 'live') {
+      const end = Math.max(MAX_VIEWPORT_POINTS, total - panIndex);
+      const start = Math.max(0, end - MAX_VIEWPORT_POINTS);
+      return {
+        visibleData: data.slice(start, end),
+        isWindowed: true,
+        totalCount: total,
+        startIdx: start,
+        endIdx: end
+      };
+    } else {
+      const downsampled = smartDownsample(data, MAX_VIEWPORT_POINTS);
+      return {
+        visibleData: downsampled,
+        isWindowed: true,
+        totalCount: total,
+        startIdx: 0,
+        endIdx: total
+      };
+    }
+  }, [data, viewMode, panIndex]);
+
+  const { width, height } = dimensions;
+  const paddingLeft = 12;
+  const paddingRight = 64; // Dedicated margin for crisp right price scale
+  const paddingTop = 22;
+  const paddingBottom = 26; // Dedicated margin for bottom time scale
+
+  const chartLeft = paddingLeft;
+  const chartRight = Math.max(chartLeft + 50, width - paddingRight);
+  const chartWidth = chartRight - chartLeft;
+
+  const chartTop = paddingTop;
+  const chartBottom = height - paddingBottom;
+  const chartHeight = chartBottom - chartTop;
+
+  // Derive mathematical coordinate mapping strictly from visible window points
+  const { displayMin, displayMax, displayRange, points, segments } = useMemo(() => {
+    if (!visibleData || visibleData.length === 0) {
+      return { displayMin: 0, displayMax: 100, displayRange: 100, points: [], segments: [] };
+    }
+
+    const values = visibleData.map(d => Number(d.value) || 0);
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
+    const rawRange = maxVal - minVal;
+
+    // Proportional 10-12% padding above and below so points never touch bounding box edges
+    const pad = rawRange > 0.001 
+      ? Math.max(rawRange * 0.12, 0.25)
+      : Math.max(1.0, Math.abs(minVal || 100) * 0.05);
+
+    const dMin = minVal - pad;
+    const dMax = maxVal + pad;
+    const dRange = Math.max(0.001, dMax - dMin);
+
+    // Map each visible point to physical coordinates inside chart box
+    const pts = visibleData.map((d, i) => {
+      const x = visibleData.length > 1
+        ? chartLeft + (i / (visibleData.length - 1)) * chartWidth
+        : chartLeft + chartWidth / 2;
+
+      const normY = (Number(d.value) - dMin) / dRange;
+      const y = chartBottom - (normY * chartHeight);
+
+      return {
+        x,
+        y: Math.max(chartTop, Math.min(chartBottom, y)),
+        value: Number(d.value),
+        time: d.time,
+        index: i
+      };
+    });
+
+    // Consecutive segments: UP delta => GREEN (#00D09C), DOWN delta => RED (#FF6B6B)
+    const segs = [];
+    for (let i = 1; i < pts.length; i++) {
+      const pPrev = pts[i - 1];
+      const pCurr = pts[i];
+      const delta = pCurr.value - pPrev.value;
+      const isUp = delta >= 0;
+      const color = isUp ? '#00D09C' : '#FF6B6B';
+
+      segs.push({
+        pPrev,
+        pCurr,
+        delta,
+        isUp,
+        color,
+        key: `seg-${i}`
+      });
+    }
+
+    return {
+      displayMin: dMin,
+      displayMax: dMax,
+      displayRange: dRange,
+      points: pts,
+      segments: segs
+    };
+  }, [visibleData, chartLeft, chartRight, chartWidth, chartTop, chartBottom, chartHeight]);
+
+  // Y-axis horizontal gridlines and price labels (4 evenly spaced levels)
+  const yAxisTicks = useMemo(() => {
+    const count = 4;
+    const ticks = [];
+    for (let i = 0; i < count; i++) {
+      const ratio = i / (count - 1);
+      const val = displayMin + ratio * displayRange;
+      const y = chartBottom - (ratio * chartHeight);
+      ticks.push({ val, y });
+    }
+    return ticks;
+  }, [displayMin, displayRange, chartBottom, chartHeight]);
+
+  // Format time label for X-axis
+  const formatTimeLabel = (timestamp: any) => {
+    if (!timestamp) return '';
+    try {
+      const timeMs = typeof timestamp === 'number'
+        ? (timestamp > 1e11 ? timestamp : timestamp * 1000)
+        : Date.now();
+      const d = new Date(timeMs);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return '';
+    }
+  };
+
+  // X-axis time ticks
+  const xAxisTicks = useMemo(() => {
+    if (points.length === 0) return [];
+    if (points.length <= 4) {
+      return points.map(p => ({ x: p.x, label: formatTimeLabel(p.time) }));
+    }
+    const step = (points.length - 1) / 3;
+    const indices = [0, Math.round(step), Math.round(step * 2), points.length - 1];
+    const uniqueIndices = Array.from(new Set(indices));
+    return uniqueIndices.map(idx => ({
+      x: points[idx].x,
+      label: formatTimeLabel(points[idx].time)
+    }));
+  }, [points]);
+
+  // Map execution markers to exact point coordinates
+  const mappedEvents = useMemo(() => {
+    if (!executionEvents || executionEvents.length === 0 || points.length === 0) return [];
+    return executionEvents.map(evt => {
+      const evtTimeSec = typeof evt.timestamp === 'number' 
+        ? (evt.timestamp > 1e11 ? Math.floor(evt.timestamp / 1000) : evt.timestamp)
+        : Math.floor(Date.now() / 1000);
       
-      try {
-        if (markers.length > 0) {
-          if (markersPluginRef.current) {
-            markersPluginRef.current.setMarkers(markers as any);
-          } else if (typeof (seriesRef.current as any).setMarkers === 'function') {
-            (seriesRef.current as any).setMarkers(markers as any);
-          } else if (createSeriesMarkers && seriesRef.current) {
-            markersPluginRef.current = createSeriesMarkers(seriesRef.current, markers as any);
-          }
-        } else {
-          if (markersPluginRef.current) {
-            markersPluginRef.current.setMarkers([]);
-          } else if (typeof (seriesRef.current as any).setMarkers === 'function') {
-            (seriesRef.current as any).setMarkers([]);
-          }
+      let closestPt = points[0];
+      let minDiff = Infinity;
+      for (const p of points) {
+        const pSec = typeof p.time === 'number' ? (p.time > 1e11 ? Math.floor(p.time / 1000) : p.time) : 0;
+        const diff = Math.abs(pSec - evtTimeSec);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestPt = p;
         }
-      } catch (err) {
-        console.warn("[Chart] Error setting markers:", err);
+      }
+
+      return {
+        ...evt,
+        x: closestPt.x,
+        y: closestPt.y,
+        isBuy: evt.action === 'BUY',
+      };
+    });
+  }, [executionEvents, points]);
+
+  // Hover & Drag interaction handling
+  const handleInteraction = (clientX: number) => {
+    if (!containerRef.current || points.length === 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = clientX - rect.left;
+
+    let closestIdx = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const dist = Math.abs(points[i].x - mouseX);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIdx = i;
       }
     }
-  }, [executionEvents]);
 
-  return <div ref={containerRef} className="w-full h-[260px] relative z-10" />;
+    setHoverIndex(closestIdx);
+    const currPoint = points[closestIdx];
+    const prevPoint = closestIdx > 0 ? points[closestIdx - 1] : currPoint;
+    const change = currPoint.value - prevPoint.value;
+    const changePercent = prevPoint.value !== 0 ? (change / prevPoint.value) * 100 : 0;
+
+    onHover({
+      time: currPoint.time,
+      value: currPoint.value,
+      change,
+      changePercent
+    });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (data.length <= MAX_VIEWPORT_POINTS) return;
+    setIsDragging(true);
+    dragStartXRef.current = e.clientX;
+    dragStartPanRef.current = panIndex;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDragging) {
+      const deltaX = e.clientX - dragStartXRef.current;
+      const pointsShift = Math.round(deltaX / 8);
+      const maxPan = Math.max(0, data.length - MAX_VIEWPORT_POINTS);
+      const newPan = Math.min(maxPan, Math.max(0, dragStartPanRef.current + pointsShift));
+      setPanIndex(newPan);
+      if (viewMode !== 'live') setViewMode('live');
+      return;
+    }
+    handleInteraction(e.clientX);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (data.length <= MAX_VIEWPORT_POINTS || e.touches.length === 0) return;
+    setIsDragging(true);
+    dragStartXRef.current = e.touches[0].clientX;
+    dragStartPanRef.current = panIndex;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length > 0) {
+      if (isDragging) {
+        const deltaX = e.touches[0].clientX - dragStartXRef.current;
+        const pointsShift = Math.round(deltaX / 8);
+        const maxPan = Math.max(0, data.length - MAX_VIEWPORT_POINTS);
+        const newPan = Math.min(maxPan, Math.max(0, dragStartPanRef.current + pointsShift));
+        setPanIndex(newPan);
+        if (viewMode !== 'live') setViewMode('live');
+        return;
+      }
+      handleInteraction(e.touches[0].clientX);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    handleMouseLeave();
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+    setHoverIndex(null);
+    onHover(null);
+  };
+
+  const activeHoverPoint = hoverIndex !== null && points[hoverIndex] ? points[hoverIndex] : null;
+  const hoverPrevPoint = hoverIndex !== null && hoverIndex > 0 ? points[hoverIndex - 1] : activeHoverPoint;
+  const hoverDelta = activeHoverPoint && hoverPrevPoint ? activeHoverPoint.value - hoverPrevPoint.value : 0;
+  const hoverColor = hoverDelta >= 0 ? '#00D09C' : '#FF6B6B';
+
+  // Baseline Y position if within visible bounds
+  const baselineY = useMemo(() => {
+    if (baselineValue !== undefined && baselineValue >= displayMin && baselineValue <= displayMax && displayRange > 0) {
+      const normBase = (baselineValue - displayMin) / displayRange;
+      return chartBottom - (normBase * chartHeight);
+    }
+    return null;
+  }, [baselineValue, displayMin, displayMax, displayRange, chartBottom, chartHeight]);
+
+  return (
+    <div 
+      ref={containerRef} 
+      className="w-full h-[260px] relative select-none cursor-crosshair touch-manipulation overflow-hidden"
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Top Chart Viewport Bar for large history sets */}
+      {data && data.length > MAX_VIEWPORT_POINTS && (
+        <div className="absolute top-1 left-3 right-16 z-10 flex items-center justify-between text-[10px] font-sans pointer-events-auto">
+          <div className="flex items-center space-x-1 bg-[#080B11]/90 backdrop-blur-md px-1.5 py-0.5 rounded-md border border-white/[0.08]">
+            <button
+              onClick={() => { setViewMode('live'); setPanIndex(0); }}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${viewMode === 'live' && panIndex === 0 ? 'bg-[#00D09C] text-black shadow-sm' : 'text-slate-400 hover:text-white'}`}
+            >
+              LIVE FOCUS
+            </button>
+            <button
+              onClick={() => setViewMode('all')}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${viewMode === 'all' ? 'bg-[#00D09C] text-black shadow-sm' : 'text-slate-400 hover:text-white'}`}
+            >
+              FULL CURVE
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {viewMode === 'live' && panIndex > 0 && (
+              <button
+                onClick={() => setPanIndex(0)}
+                className="bg-[#00D09C]/20 border border-[#00D09C]/40 text-[#00D09C] hover:bg-[#00D09C]/30 px-2 py-0.5 rounded text-[9px] font-bold flex items-center space-x-1 transition-all cursor-pointer"
+              >
+                <span>⚡ RETURN TO LIVE</span>
+              </button>
+            )}
+            <span className="text-[9px] font-mono text-slate-400 bg-black/60 px-2 py-0.5 rounded border border-white/[0.05]">
+              {viewMode === 'live' 
+                ? (panIndex === 0 ? `LIVE (${visibleData.length}/${totalCount} pts)` : `HISTORICAL (${startIdx + 1}-${endIdx}/${totalCount})`)
+                : `SMART CURVE (${visibleData.length} key pts of ${totalCount})`
+              }
+            </span>
+          </div>
+        </div>
+      )}
+
+      <svg width={width} height={height} className="w-full h-full block overflow-visible">
+        <defs>
+          {/* Green Upward Area Gradient */}
+          <linearGradient id="upAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#00D09C" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="#00D09C" stopOpacity="0.01" />
+          </linearGradient>
+          {/* Red Downward Area Gradient */}
+          <linearGradient id="downAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FF6B6B" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="#FF6B6B" stopOpacity="0.01" />
+          </linearGradient>
+          {/* Subtle Glow Filters */}
+          <filter id="glowGreen" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#00D09C" floodOpacity="0.4" />
+          </filter>
+          <filter id="glowRed" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#FF6B6B" floodOpacity="0.4" />
+          </filter>
+        </defs>
+
+        {/* 1. Horizontal Grid Lines & Price Labels */}
+        {yAxisTicks.map((tick, idx) => (
+          <g key={`ytick-${idx}`}>
+            <line 
+              x1={chartLeft} 
+              y1={tick.y} 
+              x2={chartRight} 
+              y2={tick.y} 
+              stroke={isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.06)"} 
+              strokeDasharray="3 3"
+              strokeWidth="1"
+            />
+            <text 
+              x={chartRight + 8} 
+              y={tick.y + 3.5} 
+              fill={isDark ? "#64748b" : "#94a3b8"} 
+              fontSize="10" 
+              fontFamily="monospace"
+              fontWeight="500"
+              textAnchor="start"
+            >
+              ${tick.val.toFixed(2)}
+            </text>
+          </g>
+        ))}
+
+        {/* 2. Baseline Reference Line (if active) */}
+        {baselineY !== null && (
+          <g>
+            <line 
+              x1={chartLeft} 
+              y1={baselineY} 
+              x2={chartRight} 
+              y2={baselineY} 
+              stroke="rgba(255, 255, 255, 0.15)" 
+              strokeDasharray="2 2"
+              strokeWidth="1"
+            />
+            <rect 
+              x={chartRight + 6} 
+              y={baselineY - 7} 
+              width={34} 
+              height={14} 
+              rx={3} 
+              fill={isDark ? "#0f172a" : "#e2e8f0"} 
+              stroke="rgba(255,255,255,0.1)" 
+            />
+            <text 
+              x={chartRight + 10} 
+              y={baselineY + 3} 
+              fill="#94a3b8" 
+              fontSize="8" 
+              fontFamily="monospace"
+              fontWeight="bold"
+            >
+              BASE
+            </text>
+          </g>
+        )}
+
+        {/* 3. Under-Curve Area Fills for each consecutive segment */}
+        {segments.map(seg => (
+          <polygon 
+            key={`poly-${seg.key}`}
+            points={`${seg.pPrev.x},${seg.pPrev.y} ${seg.pCurr.x},${seg.pCurr.y} ${seg.pCurr.x},${chartBottom} ${seg.pPrev.x},${chartBottom}`}
+            fill={seg.isUp ? "url(#upAreaGrad)" : "url(#downAreaGrad)"}
+          />
+        ))}
+
+        {/* 4. Multi-Color Line Segments (UP = Green #00D09C, DOWN = Red #FF6B6B) */}
+        {segments.map(seg => (
+          <line 
+            key={`line-${seg.key}`}
+            x1={seg.pPrev.x}
+            y1={seg.pPrev.y}
+            x2={seg.pCurr.x}
+            y2={seg.pCurr.y}
+            stroke={seg.color}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+
+        {/* 5. Smooth Vertex Dots at Connection Points */}
+        {points.map((p, idx) => {
+          const isLast = idx === points.length - 1;
+          const color = idx > 0 
+            ? (p.value >= points[idx - 1].value ? '#00D09C' : '#FF6B6B')
+            : '#00D09C';
+          return (
+            <circle 
+              key={`dot-${idx}`}
+              cx={p.x}
+              cy={p.y}
+              r={isLast ? 3.5 : 1.5}
+              fill={color}
+              stroke={isLast ? '#fff' : 'none'}
+              strokeWidth={isLast ? 1.5 : 0}
+            />
+          );
+        })}
+
+        {/* 6. Trade Execution Markers (BUY / SELL dots on the exact curve) */}
+        {mappedEvents.map((evt, idx) => (
+          <g 
+            key={`evt-${evt.id || idx}`}
+            className="cursor-pointer transition-transform hover:scale-125"
+            onClick={() => onSelectEvent && onSelectEvent(evt.id)}
+          >
+            {/* Outer Pulsing Halo */}
+            <circle 
+              cx={evt.x} 
+              cy={evt.y} 
+              r="7" 
+              fill={evt.isBuy ? "rgba(0, 208, 156, 0.2)" : "rgba(255, 107, 107, 0.2)"}
+            >
+              <animate attributeName="r" values="5;10;5" dur="2.2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.8;0.2;0.8" dur="2.2s" repeatCount="indefinite" />
+            </circle>
+            {/* Inner Solid Badge */}
+            <circle 
+              cx={evt.x} 
+              cy={evt.y} 
+              r="4" 
+              fill={evt.isBuy ? "#00D09C" : "#FF6B6B"}
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+            {/* Small Label Pill */}
+            <rect 
+              x={evt.x - 14} 
+              y={evt.y - 18} 
+              width="28" 
+              height="12" 
+              rx="3" 
+              fill="#080B11" 
+              stroke={evt.isBuy ? "#00D09C" : "#FF6B6B"} 
+              strokeWidth="0.8" 
+            />
+            <text 
+              x={evt.x} 
+              y={evt.y - 9} 
+              fill="#ffffff" 
+              fontSize="7" 
+              fontWeight="bold" 
+              fontFamily="sans-serif" 
+              textAnchor="middle"
+            >
+              {evt.action || (evt.isBuy ? 'BUY' : 'SELL')}
+            </text>
+          </g>
+        ))}
+
+        {/* 7. Interactive Crosshair & Cursor Highlight */}
+        {activeHoverPoint && (
+          <g>
+            {/* Vertical crosshair line */}
+            <line 
+              x1={activeHoverPoint.x} 
+              y1={chartTop} 
+              x2={activeHoverPoint.x} 
+              y2={chartBottom} 
+              stroke={isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.3)"} 
+              strokeDasharray="3 3"
+              strokeWidth="1"
+            />
+            {/* Horizontal crosshair line */}
+            <line 
+              x1={chartLeft} 
+              y1={activeHoverPoint.y} 
+              x2={chartRight} 
+              y2={activeHoverPoint.y} 
+              stroke={isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)"} 
+              strokeDasharray="3 3"
+              strokeWidth="1"
+            />
+            {/* Outer glowing cursor ring */}
+            <circle 
+              cx={activeHoverPoint.x} 
+              cy={activeHoverPoint.y} 
+              r="7" 
+              fill={hoverColor === '#00D09C' ? "rgba(0, 208, 156, 0.25)" : "rgba(255, 107, 107, 0.25)"} 
+            />
+            {/* Inner cursor dot */}
+            <circle 
+              cx={activeHoverPoint.x} 
+              cy={activeHoverPoint.y} 
+              r="4.5" 
+              fill="#ffffff" 
+              stroke={hoverColor} 
+              strokeWidth="2.5" 
+            />
+            {/* Active Price Badge on Right Y-Axis */}
+            <g>
+              <rect 
+                x={chartRight + 2} 
+                y={activeHoverPoint.y - 9} 
+                width="56" 
+                height="18" 
+                rx="4" 
+                fill="#080B11" 
+                stroke={hoverColor} 
+                strokeWidth="1"
+              />
+              <text 
+                x={chartRight + 6} 
+                y={activeHoverPoint.y + 3.5} 
+                fill="#ffffff" 
+                fontSize="10" 
+                fontFamily="monospace"
+                fontWeight="bold"
+                textAnchor="start"
+              >
+                ${activeHoverPoint.value.toFixed(2)}
+              </text>
+            </g>
+            {/* Active Time Badge on Bottom X-Axis */}
+            <g>
+              <rect 
+                x={Math.max(chartLeft, Math.min(chartRight - 54, activeHoverPoint.x - 27))} 
+                y={chartBottom + 3} 
+                width="54" 
+                height="16" 
+                rx="3" 
+                fill="#080B11" 
+                stroke="rgba(255, 255, 255, 0.2)" 
+                strokeWidth="0.8"
+              />
+              <text 
+                x={Math.max(chartLeft + 27, Math.min(chartRight - 27, activeHoverPoint.x))} 
+                y={chartBottom + 14} 
+                fill="#94a3b8" 
+                fontSize="8" 
+                fontFamily="monospace"
+                fontWeight="bold"
+                textAnchor="middle"
+              >
+                {formatTimeLabel(activeHoverPoint.time)}
+              </text>
+            </g>
+          </g>
+        )}
+
+        {/* 8. Bottom X-Axis Time Ticks */}
+        {xAxisTicks.map((tick, idx) => (
+          <text 
+            key={`xtick-${idx}`}
+            x={tick.x} 
+            y={height - 6} 
+            fill={isDark ? "#64748b" : "#94a3b8"} 
+            fontSize="9" 
+            fontFamily="monospace"
+            fontWeight="500"
+            textAnchor="middle"
+          >
+            {tick.label}
+          </text>
+        ))}
+      </svg>
+    </div>
+  );
 }
 
 interface RadarAsset {
@@ -828,49 +1401,117 @@ export default function PortfolioViewV2({
 
   useEffect(() => {
     if (user?.uid) {
-      const unsub = equityService.subscribeHistory(user.uid, timeframe as any, (records) => {
+      const unsub = equityService.subscribeHistory(user.uid, (records) => {
         setEquityHistory(records);
       });
       return () => unsub();
     }
-  }, [user?.uid, timeframe]);
+  }, [user?.uid]);
+
+  const filteredEquityHistory = useMemo(() => {
+    if (!equityHistory || equityHistory.length === 0) return [];
+    const now = Date.now();
+    let durationMs = 24 * 60 * 60 * 1000; // 1D default
+    if (timeframe === '1D') durationMs = 24 * 60 * 60 * 1000;
+    else if (timeframe === '1M') durationMs = 30 * 24 * 60 * 60 * 1000;
+    else if (timeframe === '1Y') durationMs = 365 * 24 * 60 * 60 * 1000;
+
+    const cutoff = now - durationMs;
+    const filtered = equityHistory.filter(record => {
+      const recordTime = record.timestamp && record.timestamp.toMillis 
+        ? record.timestamp.toMillis() 
+        : (record.timestamp?.seconds 
+          ? record.timestamp.seconds * 1000 
+          : (typeof record.timestamp === 'number' 
+            ? record.timestamp 
+            : Date.now()));
+      return recordTime >= cutoff;
+    });
+
+    if (filtered.length === 0 && equityHistory.length > 0) {
+      return [equityHistory[equityHistory.length - 1]];
+    }
+
+    return filtered;
+  }, [equityHistory, timeframe]);
 
   const tvChartData = useMemo(() => {
     const points: Array<{ time: number; value: number }> = [];
 
-    // Add historical equity records
-    if (equityHistory && equityHistory.length > 0) {
-      equityHistory.forEach(record => {
-        const timeSec = record.timestamp && typeof record.timestamp.seconds === 'number' 
-          ? record.timestamp.seconds 
-          : Math.floor((record.timestamp?.toMillis ? record.timestamp.toMillis() : Date.now()) / 1000);
-        points.push({
-          time: timeSec,
-          value: record.totalNetBalance ?? record.equity ?? 0
-        });
-      });
-    }
-
-    // Add session equity points without overwriting history
-    if (sessionEquityPoints && sessionEquityPoints.length > 0) {
+    if (session?.status === 'ACTIVE' && sessionEquityPoints && sessionEquityPoints.length > 0) {
+      // Prioritize active continuous session equity updates
       sessionEquityPoints.forEach(point => {
+        const val = point.totalAccountEquity ?? point.equity;
         points.push({
           time: Math.floor(point.timestamp / 1000),
-          value: point.equity
+          value: Number(val) || 0
         });
       });
+    } else {
+      // Add filtered historical equity records
+      if (filteredEquityHistory && filteredEquityHistory.length > 0) {
+        filteredEquityHistory.forEach(record => {
+          const timeSec = record.timestamp && typeof record.timestamp.seconds === 'number' 
+            ? record.timestamp.seconds 
+            : Math.floor((record.timestamp?.toMillis ? record.timestamp.toMillis() : Date.now()) / 1000);
+          points.push({
+            time: timeSec,
+            value: Number(record.totalNetBalance ?? record.equity ?? 0)
+          });
+        });
+      }
+
+      // Add session equity points
+      if (sessionEquityPoints && sessionEquityPoints.length > 0) {
+        sessionEquityPoints.forEach(point => {
+          const val = point.totalAccountEquity ?? point.equity;
+          points.push({
+            time: Math.floor(point.timestamp / 1000),
+            value: Number(val) || 0
+          });
+        });
+      }
     }
 
-    // Sort chronologically by time and deduplicate by time
-    points.sort((a, b) => a.time - b.time);
-    const uniquePoints = points.filter((p, index, self) => 
-      index === 0 || p.time !== self[index - 1].time
-    );
+    // Deduplicate by second timestamp (latest point in same second overwrites) and sort chronologically
+    const pointMap = new Map<number, { time: number; value: number }>();
+    points.forEach(p => {
+      if (!isNaN(p.value) && p.value !== null && p.value !== undefined) {
+        pointMap.set(p.time, p);
+      }
+    });
+    const uniquePoints = Array.from(pointMap.values()).sort((a, b) => a.time - b.time);
+
+    // If only 1 point exists, anchor a preceding point 60s earlier for initial visual line continuity
+    if (uniquePoints.length === 1) {
+      const single = uniquePoints[0];
+      return [
+        { time: single.time - 60, value: single.value },
+        single
+      ];
+    }
 
     return uniquePoints;
-  }, [sessionEquityPoints, equityHistory]);
+  }, [session?.status, sessionEquityPoints, filteredEquityHistory]);
 
   const mergedChartData = tvChartData;
+
+  const chartBaselineValue = useMemo(() => {
+    if (session?.status === 'ACTIVE' && session.initialCapital) {
+      return session.initialCapital;
+    }
+    if (sessionEquityPoints && sessionEquityPoints.length > 0) {
+      return sessionEquityPoints[0].initialCapital || sessionEquityPoints[0].equity;
+    }
+    if (filteredEquityHistory && filteredEquityHistory.length > 0) {
+      const firstRec = filteredEquityHistory[0];
+      return firstRec.totalNetBalance ?? firstRec.equity ?? 100;
+    }
+    if (mergedChartData.length > 0) {
+      return mergedChartData[0].value;
+    }
+    return 100;
+  }, [session, sessionEquityPoints, filteredEquityHistory, mergedChartData]);
 
   // Live execution events mapped directly to timestamps in tvChartData
   const executionEvents = useMemo(() => {
@@ -1233,8 +1874,8 @@ export default function PortfolioViewV2({
         <div 
           className={`${cardClasses} rounded-[24px] p-5 space-y-4`}
         >
-          <div className="flex justify-between items-center pb-3 border-b border-white/[0.05]">
-            <div className="flex items-center space-x-2">
+          <div className="flex justify-between items-end pb-3 border-b border-white/[0.05]">
+            <div className="flex items-center space-x-2 pb-0.5">
               <Activity className="w-4 h-4 text-[#00D09C]" />
               <div>
                 <h3 className="text-sm font-semibold tracking-tight text-white font-sans">
@@ -1244,19 +1885,36 @@ export default function PortfolioViewV2({
               </div>
             </div>
 
-            {/* Timeframe Selectors */}
-            <div className="flex bg-[#080B11]/80 p-0.5 rounded-lg border border-white/[0.05]">
-              {['1D', '1W', '1M'].map(t => (
-                <button 
-                  key={t}
-                  onClick={() => setTimeframe(t)}
-                  className={`px-3 py-1 rounded-md text-[10px] font-semibold tracking-wider transition-all cursor-pointer touch-manipulation ${
-                    timeframe === t ? 'bg-[#00D09C] text-black shadow-sm' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+            {/* Timeframe Selectors & Hover Value Above */}
+            <div className="flex flex-col items-end gap-1">
+              {/* Hover Value readout - rendered directly above 1D 1M 1Y timeframe selectors */}
+              <div className="min-h-[22px] flex items-center justify-end">
+                {hoveredOHLC ? (
+                  <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-black/60 border border-white/10 text-white whitespace-nowrap transition-all">
+                    {formatCurrency(hoveredOHLC.value)}
+                    <span className={`ml-1.5 text-[10px] ${hoveredOHLC.value >= chartBaselineValue ? 'text-[#00D09C]' : 'text-[#ef4444]'}`}>
+                      ({hoveredOHLC.value >= chartBaselineValue ? '+' : ''}{(hoveredOHLC.value - chartBaselineValue).toFixed(2)})
+                    </span>
+                  </span>
+                ) : (
+                  <div className="h-[22px]" />
+                )}
+              </div>
+
+              {/* Timeframe Selectors */}
+              <div className="flex bg-[#080B11]/80 p-0.5 rounded-lg border border-white/[0.05]">
+                {['1D', '1M', '1Y'].map(t => (
+                  <button 
+                    key={t}
+                    onClick={() => setTimeframe(t)}
+                    className={`px-3 py-1 rounded-md text-[10px] font-semibold tracking-wider transition-all cursor-pointer touch-manipulation ${
+                      timeframe === t ? 'bg-[#00D09C] text-black shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1271,9 +1929,11 @@ export default function PortfolioViewV2({
             ) : (
               <AverPortfolioChart 
                 data={mergedChartData} 
+                baselineValue={chartBaselineValue}
                 isDark={isDark} 
                 onHover={handleHover} 
                 executionEvents={executionEvents}
+                onSelectEvent={(id) => setSelectedEventId(id)}
               />
             )}
 

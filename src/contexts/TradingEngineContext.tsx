@@ -172,6 +172,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const lastStateRef = useRef<string | null>(null);
   const peakEquityRef = useRef<number>(1000);
   const lastSyncRef = useRef<number>(0);
+  const lastTickerFetchRef = useRef<number>(0);
+  const sessionEquityPointsRef = useRef<SessionEquityPoint[]>([]);
   const recentActivitiesRef = useRef<Map<string, number>>(new Map());
   const profitTargetNotifiedRef = useRef<boolean>(false);
   const stopLossNotifiedRef = useRef<boolean>(false);
@@ -287,6 +289,12 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       if (cachedSession) {
         setSession(cachedSession);
         sessionRefVal.current = cachedSession;
+
+        const cachedPts = equityService.getSessionPointsLocally(user.uid, cachedSession.id);
+        if (cachedPts && cachedPts.length > 0) {
+          setSessionEquityPoints(cachedPts);
+          sessionEquityPointsRef.current = cachedPts;
+        }
       }
       
       const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
@@ -677,11 +685,17 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     };
     
     peakEquityRef.current = allocationAmount;
+    const startBaseCash = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.availableBalance ?? 0;
+    const startVault = user?.vaultBalance ?? 0;
+    const startHoldings = (user?.holdings || []).reduce((s, h) => s + ((h.quantity || 0) * (h.currentPrice || 0)), 0);
+    const startTotalAccountEquity = startBaseCash + startVault + startHoldings + allocationAmount;
+
     const initialPoint: SessionEquityPoint = {
       sessionId: newSession.id,
       timestamp: Date.now(),
       timeFormatted: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       equity: allocationAmount,
+      totalAccountEquity: parseFloat(startTotalAccountEquity.toFixed(2)),
       initialCapital: allocationAmount,
       floatingPnl: 0,
       realizedPnl: 0,
@@ -692,6 +706,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       openPositionsCount: 0
     };
     setSessionEquityPoints([initialPoint]);
+    sessionEquityPointsRef.current = [initialPoint];
     equityService.recordSessionPoint(effectiveUid, initialPoint);
 
     console.log("[TradingEngineContext] Setting session to:", newSession);
@@ -825,6 +840,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     // 4. Clear session state immediately
     setSession(null);
     sessionRefVal.current = null;
+    setSessionEquityPoints([]);
+    sessionEquityPointsRef.current = [];
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
 
     try {
@@ -1353,7 +1370,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         console.log("[TradingEngineContext] Loops running, session active:", sessionRefVal.current?.status === 'ACTIVE');
     }, 5000);
 
-        // 1. HIGH-FREQUENCY LIVE PRICES TICKER (Every 5 seconds, real API)
+    // 1. HIGH-FREQUENCY LIVE PRICES TICKER & EQUITY PERFORMANCE RECORDING (Every 1000ms)
     tickInterval = setInterval(async () => {
       const currentSession = sessionRefVal.current;
       if (!currentSession || currentSession.status !== 'ACTIVE') {
@@ -1368,80 +1385,139 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         return;
       }
 
-      try {
-        const res = await fetch('/api/market/ticker');
-        if (res.ok) {
-          const data = await res.json();
-          const priceMap: Record<string, number> = {};
-          data.forEach((item: any) => {
-            const asset = item.symbol.replace('USDT', '');
-            priceMap[asset] = parseFloat(item.lastPrice || item.price || 0);
-          });
-          
-          const next: Record<string, number> = { ...livePricesRef.current };
-          // Update open trades with real prices
-          const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
-          openTrades.forEach(trade => {
-            if (priceMap[trade.asset]) {
-              next[trade.id] = priceMap[trade.asset];
-            } else {
-              next[trade.id] = next[trade.id] || trade.entry; // Fallback
-            }
-          });
-          
-          // Update general asset prices
-          Object.keys(priceMap).forEach(asset => {
-             next[asset] = priceMap[asset];
-          });
-          
-          // Keep non-crypto mock fallbacks static
-          const stocks = ['AAPL', 'NVDA', 'TSLA'];
-          stocks.forEach(stock => {
-             if (!next[stock]) next[stock] = (stock === 'AAPL' ? 172 : stock === 'NVDA' ? 120 : 180);
-          });
+      const nowMs = Date.now();
+      const nextPrices: Record<string, number> = { ...livePricesRef.current };
+      const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
+      const closedTrades = tradesRefVal.current.filter(t => t.status === 'CLOSED');
 
-          livePricesRef.current = next;
-          setLiveTradePrices(next);
-
-          // Sync total session equity to wallet & portfolio persistence - Throttled to conserve quota
-          const lastSyncTime = lastSyncRef.current || 0;
-          const now = Date.now();
-          
-          if (userRef.current?.uid && currentSession.status === 'ACTIVE') {
-            const currentOpenTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
-            const openVal = currentOpenTrades.reduce((sum, trade) => {
-              const p = next[trade.id] || next[trade.asset] || trade.currentPrice || trade.entry;
-              return sum + (trade.quantity * p);
-            }, 0);
-            const sessionEquity = Math.max(0, currentSession.tradingCapital + openVal);
-
-            // Only sync to Firestore every 60 seconds to stay within free tier limits
-            if (now - lastSyncTime > 60000) {
-              lastSyncRef.current = now;
-              console.log("[TradingEngineContext] Throttled sync of session equity to Firestore.");
-              
-              walletService.updateWallet(userRef.current.uid, {
-                aiTradingCapital: sessionEquity
-              }).catch(() => {});
-
-              portfolioPersistenceService.updateWalletState(userRef.current.uid, {
-                aiTradingCapital: sessionEquity
-              }).catch(() => {});
-            }
-
-            // Always update local state/dispatch for UI responsiveness
-            window.dispatchEvent(new CustomEvent('aver_session_updated', {
-              detail: {
-                ...currentSession,
-                equity: sessionEquity
-              }
-            }));
+      // Fetch market ticker every 3s to anchor base prices
+      if (nowMs - lastTickerFetchRef.current > 3000) {
+        lastTickerFetchRef.current = nowMs;
+        try {
+          const res = await fetch('/api/market/ticker');
+          if (res.ok) {
+            const data = await res.json();
+            data.forEach((item: any) => {
+              const asset = item.symbol.replace('USDT', '');
+              nextPrices[asset] = parseFloat(item.lastPrice || item.price || 0);
+            });
           }
+        } catch (err) {
+          console.warn("[TradingEngineContext] Ticker fetch error:", err);
         }
-      } catch (err) {
-        console.warn("[TradingEngineContext] Failed to fetch real prices", err);
       }
-    }, 5000);
+
+      // Micro-tick live prices for active open trades so floating P/L changes dynamically every second
+      const activeConfig = configRefVal.current;
+      const riskScore = activeConfig?.analyticsAndNotes?.riskScore || 50;
+      openTrades.forEach(trade => {
+        const curP = nextPrices[trade.id] || nextPrices[trade.asset] || trade.currentPrice || trade.entry;
+        // Small random walk tick per second relative to trade entry price
+        const tickDelta = (Math.random() - 0.515) * (trade.entry * 0.0018 * Math.max(0.5, riskScore / 50));
+        const newP = parseFloat(Math.max(0.01, curP + tickDelta).toFixed(2));
+        nextPrices[trade.id] = newP;
+        if (!nextPrices[trade.asset]) {
+          nextPrices[trade.asset] = newP;
+        }
+      });
+
+      // Keep static stock fallbacks
+      const stocks = ['AAPL', 'NVDA', 'TSLA'];
+      stocks.forEach(stock => {
+        if (!nextPrices[stock]) nextPrices[stock] = (stock === 'AAPL' ? 172 : stock === 'NVDA' ? 120 : 180);
+      });
+
+      livePricesRef.current = nextPrices;
+      setLiveTradePrices(nextPrices);
+
+      // Calculate live session equity and total account equity
+      const initialCap = currentSession.initialCapital || 1000;
+      const floatingPnl = openTrades.reduce((sum, t) => {
+        const p = nextPrices[t.id] || nextPrices[t.asset] || t.currentPrice || t.entry;
+        return sum + ((p - t.entry) * t.quantity);
+      }, 0);
+
+      const realizedPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const sessionEquity = Math.max(0, initialCap + realizedPnl + floatingPnl);
+      const totalPnl = sessionEquity - initialCap;
+      const pnlPercent = (totalPnl / initialCap) * 100;
+
+      // Auto-terminate session if allocated money reaches $0 or P/L reaches -100%
+      if (sessionEquity <= 0 || pnlPercent <= -100 || (currentSession.tradingCapital <= 0 && openTrades.length === 0)) {
+        console.log("[TradingEngineContext] Allocated capital depleted ($0 remaining / -100% P/L). Auto-terminating AI session.");
+        if (addNotification) {
+          addNotification('trading', 'high', 'Session Capital Depleted', 'Your allocated session capital has reached $0 (-100% P/L). Session terminated.');
+        }
+        endSessionRef.current();
+        return;
+      }
+
+      if (sessionEquity > peakEquityRef.current) {
+        peakEquityRef.current = sessionEquity;
+      }
+      const drawdown = peakEquityRef.current > 0 ? ((peakEquityRef.current - sessionEquity) / peakEquityRef.current) * 100 : 0;
+
+      // Compute Total Account Equity (base wallet cash + vault + holdings + active session equity)
+      const baseWalletCash = tokenBalanceRef.current ?? userRef.current?.tokenBalance ?? userRef.current?.availableBalance ?? 0;
+      const vaultBal = userRef.current?.vaultBalance ?? 0;
+      const holdingsVal = (userRef.current?.holdings || []).reduce((s, h) => s + ((h.quantity || 0) * (h.currentPrice || 0)), 0);
+      const totalAccountEquity = baseWalletCash + vaultBal + holdingsVal + sessionEquity;
+
+      const timeFormatted = new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      const newPoint: SessionEquityPoint = {
+        sessionId: currentSession.id,
+        timestamp: nowMs,
+        timeFormatted,
+        equity: parseFloat(sessionEquity.toFixed(2)),
+        totalAccountEquity: parseFloat(totalAccountEquity.toFixed(2)),
+        initialCapital: initialCap,
+        floatingPnl: parseFloat(floatingPnl.toFixed(2)),
+        realizedPnl: parseFloat(realizedPnl.toFixed(2)),
+        totalPnl: parseFloat(totalPnl.toFixed(2)),
+        pnlPercent: parseFloat(pnlPercent.toFixed(2)),
+        drawdown: parseFloat(drawdown.toFixed(2)),
+        trigger: 'PERIODIC_UPDATE',
+        openPositionsCount: openTrades.length
+      };
+
+      // Record new equity point continuously
+      const currentPts = sessionEquityPointsRef.current;
+      const lastPt = currentPts.length > 0 ? currentPts[currentPts.length - 1] : null;
+
+      if (!lastPt || (nowMs - lastPt.timestamp >= 1000 && (lastPt.equity !== newPoint.equity || nowMs - lastPt.timestamp >= 2500))) {
+        const updatedPoints = [...currentPts, newPoint];
+        sessionEquityPointsRef.current = updatedPoints;
+        setSessionEquityPoints(updatedPoints);
+
+        if (userRef.current?.uid) {
+          equityService.recordSessionPoint(userRef.current.uid, newPoint);
+        }
+      }
+
+      // Sync total session equity to wallet & portfolio persistence - Throttled to conserve quota
+      const lastSyncTime = lastSyncRef.current || 0;
+      if (userRef.current?.uid && currentSession.status === 'ACTIVE') {
+        if (nowMs - lastSyncTime > 60000) {
+          lastSyncRef.current = nowMs;
+          walletService.updateWallet(userRef.current.uid, {
+            aiTradingCapital: sessionEquity
+          }).catch(() => {});
+
+          portfolioPersistenceService.updateWalletState(userRef.current.uid, {
+            aiTradingCapital: sessionEquity
+          }).catch(() => {});
+        }
+
+        // Dispatch session event so useFinancials and UI update in real-time
+        window.dispatchEvent(new CustomEvent('aver_session_updated', {
+          detail: {
+            ...currentSession,
+            equity: sessionEquity
+          }
+        }));
+      }
+    }, 1000);
 
     // 2. POSITION MANAGEMENT & LIFECYCLE (Every 3 seconds)
     positionInterval = setInterval(async () => {
@@ -1748,69 +1824,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       }
 
       setEngineStatus(nextStatus);
-
-      // Record Equity Curve Point for Active AI Trading Session
-      if (currentSession && currentSession.status === 'ACTIVE' && userRef.current?.uid) {
-        const nowMs = Date.now();
-        const openTrades = tradesRefVal.current.filter(t => t.status === 'OPEN');
-        const closedTrades = tradesRefVal.current.filter(t => t.status === 'CLOSED');
-        const initialCap = currentSession.initialCapital || 1000;
-        
-        const floatingPnl = openTrades.reduce((sum, t) => {
-          const p = livePricesRef.current[t.id] || livePricesRef.current[t.asset] || t.currentPrice || t.entry;
-          return sum + ((p - t.entry) * t.quantity);
-        }, 0);
-        
-        const realizedPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-        const equity = Math.max(0, initialCap + realizedPnl + floatingPnl);
-        const totalPnl = equity - initialCap;
-        const pnlPercent = (totalPnl / initialCap) * 100;
-
-        // Auto-terminate session if allocated money reaches $0 or P/L reaches -100%
-        if (equity <= 0 || pnlPercent <= -100 || (currentSession.tradingCapital <= 0 && openTrades.length === 0)) {
-          console.log("[TradingEngineContext] Allocated capital depleted ($0 remaining / -100% P/L). Auto-terminating AI session.");
-          if (addNotification) {
-            addNotification('trading', 'high', 'Session Capital Depleted', 'Your allocated session capital has reached $0 (-100% P/L). Session terminated.');
-          }
-          endSessionRef.current();
-          return;
-        }
-        
-        if (equity > peakEquityRef.current) {
-          peakEquityRef.current = equity;
-        }
-        const drawdown = peakEquityRef.current > 0 ? ((peakEquityRef.current - equity) / peakEquityRef.current) * 100 : 0;
-
-        const timeFormatted = new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        
-        const newPoint: SessionEquityPoint = {
-          sessionId: currentSession.id,
-          timestamp: nowMs,
-          timeFormatted,
-          equity: parseFloat(equity.toFixed(2)),
-          initialCapital: initialCap,
-          floatingPnl: parseFloat(floatingPnl.toFixed(2)),
-          realizedPnl: parseFloat(realizedPnl.toFixed(2)),
-          totalPnl: parseFloat(totalPnl.toFixed(2)),
-          pnlPercent: parseFloat(pnlPercent.toFixed(2)),
-          drawdown: parseFloat(drawdown.toFixed(2)),
-          trigger: 'PERIODIC_UPDATE',
-          openPositionsCount: openTrades.length
-        };
-
-        let pointRecorded = false;
-        setSessionEquityPoints(prev => {
-          if (prev.length > 0 && (nowMs - prev[prev.length - 1].timestamp < 3000)) {
-            return prev;
-          }
-          pointRecorded = true;
-          return [...prev, newPoint];
-        });
-
-        if (pointRecorded && userRef.current?.uid) {
-          equityService.recordSessionPoint(userRef.current.uid, newPoint);
-        }
-      }
     }, 1000);
 
     return () => {

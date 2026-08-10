@@ -41,9 +41,25 @@ export default function App() {
 function AppContent() {
   const { user, loading: authLoading, signOutUser } = useAuth();
   
-  // Use state but initialize with a potential value if we already have it in localStorage to prevent flicker
-  const [currentView, setCurrentView] = useState<'home' | 'showcase' | 'auth' | 'dashboard' | 'preferences' | 'bonus-center' | 'referral-centre' | 'market-highlights' | 'events-promos' | 'kyc-verification' | 'admin' | 'history' | 'not-found'>('home');
+  // Use stack-based view navigation for robust, immediate back button behavior
+  const [viewStack, setViewStack] = useState<string[]>(['home']);
+  const currentView = viewStack[viewStack.length - 1] || 'home';
 
+  const navigateToView = (view: string) => {
+    setViewStack(prev => {
+      if (prev[prev.length - 1] === view) return prev;
+      return [...prev, view];
+    });
+  };
+
+  const goBackView = () => {
+    setViewStack(prev => {
+      if (prev.length > 1) {
+        return prev.slice(0, -1);
+      }
+      return ['home'];
+    });
+  };
 
   const { preferences, updatePreference } = usePreferences();
   const { theme, language, currency } = preferences;
@@ -60,9 +76,9 @@ function AppContent() {
     // Admin access must be triggered via the secret handshake in the NotFound view.
     if (path === '/admin' || search.includes('admin=true')) {
       // Force unauthorized admin attempts to the NotFound view for verification
-      setCurrentView('not-found');
+      navigateToView('not-found');
     } else if (path === '/404' || search.includes('404=true') || (path !== '/' && path !== '')) {
-      setCurrentView('not-found');
+      navigateToView('not-found');
     }
   }, []);
 
@@ -72,14 +88,22 @@ function AppContent() {
 
     // Handle session restoration and view management
     if (user) {
-      setCurrentView(prev => (prev === 'home' || prev === 'auth' ? 'dashboard' : prev));
+      setViewStack(prev => {
+        const top = prev[prev.length - 1];
+        if (top === 'home' || top === 'auth') {
+          return ['dashboard'];
+        }
+        return prev;
+      });
     } else {
       // If no user and we were on a protected view, go to login
-      setCurrentView(prev => (
-        prev === 'dashboard' || prev === 'referral-centre' || prev === 'preferences' || prev === 'bonus-center'
-          ? 'auth' 
-          : prev
-      ));
+      setViewStack(prev => {
+        const top = prev[prev.length - 1];
+        if (top === 'dashboard' || top === 'referral-centre' || top === 'preferences' || top === 'bonus-center' || top === 'history' || top === 'kyc-verification') {
+          return ['auth'];
+        }
+        return prev;
+      });
     }
   }, [user?.uid, authLoading]);
 
@@ -298,80 +322,80 @@ function AppContent() {
         {currentView === 'admin' ? (
           <AdminRoot theme={theme} />
         ) : currentView === 'dashboard' ? (
-          <Dashboard theme={theme} onNavigate={(view) => setCurrentView(view)} />
+          <Dashboard theme={theme} onNavigate={(view) => navigateToView(view)} />
         ) : currentView === 'preferences' ? (
-          <Preferences theme={theme} onBack={() => setCurrentView('dashboard')} />
+          <Preferences theme={theme} onBack={goBackView} />
         ) : currentView === 'bonus-center' ? (
           <BonusCenter 
             theme={theme} 
-            onBack={() => setCurrentView('dashboard')} 
+            onBack={goBackView} 
             onNavigate={(tab) => { 
               if (tab === 'preferences') {
-                setCurrentView('preferences');
+                navigateToView('preferences');
               } else if (tab === 'market-highlights') {
-                setCurrentView('market-highlights');
+                navigateToView('market-highlights');
               } else if (tab === 'events-promos') {
-                setCurrentView('events-promos');
+                navigateToView('events-promos');
               } else if (tab === 'referral-centre') {
-                setCurrentView('referral-centre');
+                navigateToView('referral-centre');
               } else if (tab === 'kyc-verification') {
-                setCurrentView('kyc-verification');
+                navigateToView('kyc-verification');
               } else {
                 if (tab === 'ai') {
                   safeStorage.setItem('aver_dashboard_tab', 'ai');
                 }
-                setCurrentView('dashboard');
+                navigateToView('dashboard');
               }
             }}
           />
         ) : currentView === 'kyc-verification' ? (
           <KycVerificationPage
             theme={theme}
-            onBack={() => setCurrentView('bonus-center')}
-            onComplete={() => setCurrentView('bonus-center')}
+            onBack={goBackView}
+            onComplete={goBackView}
           />
         ) : currentView === 'history' ? (
           <TransactionHistory 
-            onBack={() => setCurrentView('dashboard')} 
+            onBack={goBackView} 
             onOpenSupport={() => {
               safeStorage.setItem('aver_dashboard_tab', 'support');
-              setCurrentView('dashboard');
+              navigateToView('dashboard');
             }}
           />
         ) : currentView === 'referral-centre' ? (
           <ReferralCenter
             theme={theme}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={goBackView}
           />
         ) : currentView === 'market-highlights' ? (
           <MarketHighlightsPage 
             theme={theme} 
-            onBack={() => setCurrentView('dashboard')} 
+            onBack={goBackView} 
           />
         ) : currentView === 'events-promos' ? (
           <EventsPromosPage 
             theme={theme} 
-            onBack={() => setCurrentView('dashboard')} 
+            onBack={goBackView} 
           />
         ) : currentView === 'showcase' ? (
           <PlatformShowcase
             key="showcase"
             theme={theme}
-            onBack={() => setCurrentView('home')}
-            onGetStarted={() => setCurrentView('auth')}
+            onBack={goBackView}
+            onGetStarted={() => navigateToView('auth')}
           />
         ) : currentView === 'not-found' ? (
           <NotFound 
             theme={theme} 
-            onBack={() => setCurrentView('home')} 
-            onAdminAccess={() => setCurrentView('admin')}
+            onBack={goBackView} 
+            onAdminAccess={() => navigateToView('admin')}
           />
         ) : currentView === 'auth' ? (
           <AuthPage
             theme={theme}
-            onBack={() => setCurrentView('home')}
+            onBack={goBackView}
             onSuccess={() => {
-              setCurrentView('dashboard');
+              navigateToView('dashboard');
             }}
           />
         ) : (
@@ -390,8 +414,8 @@ function AppContent() {
               theme={theme}
               onNavigate={handleNavigate}
               activeSection={activeSection}
-              onShowcase={() => setCurrentView('showcase')}
-              onAdminAccess={() => setCurrentView('admin')}
+              onShowcase={() => navigateToView('showcase')}
+              onAdminAccess={() => navigateToView('admin')}
             />
 
             {/* Main Page Layout Flow */}
@@ -399,8 +423,8 @@ function AppContent() {
               {/* Hero Section */}
               <Hero
                 theme={theme}
-                onShowcase={() => setCurrentView('showcase')}
-                onGetStarted={() => setCurrentView('auth')}
+                onShowcase={() => navigateToView('showcase')}
+                onGetStarted={() => navigateToView('auth')}
               />
 
               {/* Technology Innovations */}

@@ -60,7 +60,7 @@ export default function EventCard({
     return () => clearInterval(timer);
   }, [targetDate, event.status]);
 
-  const isJoined = event.userProgress?.joined;
+  const isJoined = event.userProgress?.joined || event.userProgress?.status === 'REGISTERED' || event.userProgress?.status === 'IN_PROGRESS';
   const isClaimed = event.userProgress?.status === 'CLAIMED';
   const hasEnded = event.status === 'COMPLETED' || (event.endTime && new Date(event.endTime).getTime() <= Date.now());
   const maxParts = event.maxParticipants || 50000;

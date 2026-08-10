@@ -125,9 +125,15 @@ export default function EventDetailsPage({
     if (!event) return;
     setIsJoining(true);
     try {
-      // Add artificial delay for cinematic effect
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await joinEventService(user?.uid, event.id);
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      const newPart = await joinEventService(user?.uid, event.id);
+
+      setEvent(prev => prev ? {
+        ...prev,
+        userProgress: newPart,
+        participantCount: (prev.participantCount || 0) + 1
+      } : null);
+
       setToastMsg("Successfully registered for this campaign!");
       setTimeout(() => setToastMsg(null), 3000);
     } catch (e) {
@@ -141,7 +147,11 @@ export default function EventDetailsPage({
     if (!event) return;
     setIsClaiming(true);
     try {
-      await claimEventRewardService(user?.uid, event);
+      const res = await claimEventRewardService(user?.uid, event);
+      setEvent(prev => prev ? {
+        ...prev,
+        userProgress: res
+      } : null);
       setToastMsg(`Claimed reward successfully! Credited to your wallet balance.`);
       setTimeout(() => setToastMsg(null), 3000);
     } catch (e) {
@@ -373,18 +383,18 @@ export default function EventDetailsPage({
           <div className="flex items-center space-x-4">
             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${
               isClaimed ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
-              isJoined ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+              isJoined ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-white/5 text-slate-400 border-white/10'
             }`}>
-              {isClaimed ? <CheckCircle2 className="w-6 h-6" /> : isJoined ? <ShieldCheck className="w-6 h-6" /> : <Flame className="w-6 h-6" />}
+              {isClaimed ? <CheckCircle2 className="w-6 h-6" /> : isJoined ? <CheckCircle2 className="w-6 h-6" /> : <Flame className="w-6 h-6" />}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <p className="text-xs font-bold text-slate-400">Participation Status</p>
                 <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
                   isClaimed ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                  isJoined ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-slate-800 text-slate-400'
+                  isJoined ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
                 }`}>
-                  {isClaimed ? 'Reward Claimed' : isJoined ? 'Registered' : 'Not Registered'}
+                  {isClaimed ? 'Reward Claimed' : isJoined ? 'Already Registered' : 'Not Registered'}
                 </span>
               </div>
               <p className="text-sm font-black text-white mt-0.5">

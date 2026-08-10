@@ -236,6 +236,7 @@ export interface SessionEquityPoint {
   timestamp: number; // ms
   timeFormatted: string;
   equity: number;
+  totalAccountEquity?: number;
   initialCapital: number;
   floatingPnl: number;
   realizedPnl: number;
