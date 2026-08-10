@@ -953,7 +953,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : activeTradingBalance;
 
-    if (!loading && session?.status === 'ACTIVE' && session.tradingCapital !== undefined && session.tradingCapital <= 0) {
+    if (!loading && session?.status === 'ACTIVE' && session.initialCapital > 0 && session.tradingCapital !== undefined && session.tradingCapital <= 0 && (tradesRefVal.current.filter(t => t.status === 'OPEN').length === 0)) {
       console.log("[TradingEngineContext] Insufficient session funds detected. Terminating AI session.");
       endSessionRef.current();
     }
@@ -1577,8 +1577,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         }
       }
 
-      // Automatic termination if allocated money is gone ($0 remaining or P/L <= -100%)
-      if (currentTotalSessionCapital <= 0 || currentPnLPercent <= -100 || (currentTradingCapital <= 0 && openTrades.length === 0)) {
+      // Automatic termination if allocated money is completely depleted ($0 remaining and no open trades, or P/L <= -100%)
+      if (initialCapital > 0 && ((currentTotalSessionCapital <= 0 && openTrades.length === 0) || currentPnLPercent <= -100)) {
         console.log(`[TradingEngineContext] Allocated session capital depleted ($${currentTotalSessionCapital.toFixed(2)}, P/L: ${currentPnLPercent.toFixed(2)}%). Automatically ending session.`);
         if (addNotification) {
           addNotification('trading', 'high', 'Session Auto-Terminated', 'All allocated session capital has been depleted ($0 remaining / -100% P/L). Session ended.');
