@@ -107,7 +107,7 @@ export function getTierState(user: any, session?: any) {
   const isDeposited = (user?.totalDeposits || 0) > 0 || (user?.deposits?.length || 0) > 0;
   const isKycVerified = user?.kycStatus === 'verified';
   const tradesCount = user?.trades?.length || user?.aiTradesCount || 0;
-  const isTraded = (tradesCount > 0 || (session !== null && session.status === 'ACTIVE' && (session.tradingCapital || 0) > 0)) && isDeposited;
+  const isTraded = (tradesCount > 0 || (session?.status === 'ACTIVE' && (session?.tradingCapital || 0) > 0)) && isDeposited;
   const referralCount = user?.referralCount || 0;
 
   let bronzeXP = 0;

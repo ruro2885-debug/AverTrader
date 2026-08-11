@@ -1482,39 +1482,9 @@ export default function PortfolioViewV2({
     });
     const uniquePoints = Array.from(pointMap.values()).sort((a, b) => a.time - b.time);
 
-    // If no points or only 1 point exist (no real recorded session/history yet), generate synchronized equity curve
-    // with $5,931.43 as current equity, $6,197.05 as 1D start => -$265.62 period change
+    // If no points or only 1 point exist (no real recorded session/history yet), return uniquePoints without mock injection
     if (uniquePoints.length <= 1) {
-      const nowSec = Math.floor(Date.now() / 1000);
-      const endVal = 5931.43;
-      let startVal = 6197.05; // 1D timeframe start: -$265.62 change
-      let numSteps = 62; // 63 points total -> renders SMART CURVE (39 key pts of 63) and LIVE FOCUS / FULL CURVE controls
-      let stepSec = 1393; // ~23 min intervals for 1D (24h)
-
-      if (timeframe === '1M') {
-        startVal = 5420.00; // 1M timeframe start: +$511.43 change
-        numSteps = 62;
-        stepSec = 41806; // ~11.6h intervals for 1M (30 days)
-      } else if (timeframe === '1Y') {
-        startVal = 4800.00; // 1Y timeframe start: +$1,131.43 change
-        numSteps = 62;
-        stepSec = 508645; // ~5.9 day intervals for 1Y (365 days)
-      }
-
-      const generated: Array<{ time: number; value: number }> = [];
-      const startTimeSec = nowSec - numSteps * stepSec;
-
-      for (let i = 0; i <= numSteps; i++) {
-        const progress = i / numSteps;
-        const wave = Math.sin(progress * Math.PI * 3.5) * (Math.abs(startVal - endVal) * 0.18) * (1 - progress * 0.5);
-        const interpolated = startVal + (endVal - startVal) * progress + wave;
-        const finalVal = i === numSteps ? endVal : (i === 0 ? startVal : parseFloat(interpolated.toFixed(2)));
-        generated.push({
-          time: startTimeSec + i * stepSec,
-          value: finalVal
-        });
-      }
-      return generated;
+      return uniquePoints;
     }
 
     return uniquePoints;
@@ -1531,13 +1501,13 @@ export default function PortfolioViewV2({
     }
     if (filteredEquityHistory && filteredEquityHistory.length > 0) {
       const firstRec = filteredEquityHistory[0];
-      return firstRec.totalNetBalance ?? firstRec.equity ?? 100;
+      return firstRec.totalNetBalance ?? firstRec.equity ?? 0;
     }
     if (mergedChartData.length > 0) {
       return mergedChartData[0].value;
     }
-    return 6197.05;
-  }, [session, sessionEquityPoints, filteredEquityHistory, mergedChartData]);
+    return totalNetBalance || 0;
+  }, [session, sessionEquityPoints, filteredEquityHistory, mergedChartData, totalNetBalance]);
 
   // Synchronized header value calculations derived directly from chart dataset
   const latestChartPoint = useMemo(() => {
@@ -1556,9 +1526,9 @@ export default function PortfolioViewV2({
 
   const headerDisplayValue = hoveredOHLC
     ? hoveredOHLC.value
-    : (latestChartPoint ? latestChartPoint.value : 5931.43);
+    : (latestChartPoint ? latestChartPoint.value : (totalNetBalance || 0));
 
-  const headerBaselineValue = firstChartPoint ? firstChartPoint.value : 6197.05;
+  const headerBaselineValue = firstChartPoint ? firstChartPoint.value : (totalNetBalance || 0);
 
   const headerPeriodChange = headerDisplayValue - headerBaselineValue;
 

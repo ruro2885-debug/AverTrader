@@ -444,9 +444,19 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const unsubSession = onSnapshot(sessionRef, (snap) => {
         if (!snap.empty) {
           const fetchedSession = { id: snap.docs[0].id, ...snap.docs[0].data() } as AiSession;
+          const stoppedId = safeStorage.getItem(`aver_stopped_session_${user.uid}`);
+          if (stoppedId === fetchedSession.id || fetchedSession.status !== 'ACTIVE') {
+            console.log("[TradingEngineContext] Ignoring stopped or inactive session from snapshot:", fetchedSession.id);
+            return;
+          }
           console.log("[TradingEngineContext] Session synchronized from Firestore:", fetchedSession.id);
           setSession(fetchedSession);
           sessionRefVal.current = fetchedSession;
+        } else {
+          if (sessionRefVal.current && sessionRefVal.current.status === 'ACTIVE') {
+            setSession(null);
+            sessionRefVal.current = null;
+          }
         }
     }, (error) => {
       console.warn("[TradingEngineContext] session subscription restricted/denied. Running locally:", error);
@@ -751,6 +761,17 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const endSession = useCallback(async () => {
     const currentSession = sessionRefVal.current || session;
     if (!currentSession || !user) return;
+    if (currentSession.status !== 'ACTIVE') {
+      console.log("[TradingEngineContext] endSession ignored: session is not ACTIVE", currentSession.id);
+      return;
+    }
+
+    // Mark session stopped immediately to prevent re-entrancy / double settlement
+    currentSession.status = 'STOPPED';
+    sessionRefVal.current = null;
+    setSession(null);
+    setLocalStorageItem(`aver_session_${user.uid}`, null);
+    safeStorage.setItem(`aver_stopped_session_${user.uid}`, currentSession.id);
     
     const effectiveUid = user.uid;
     const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current || config;
