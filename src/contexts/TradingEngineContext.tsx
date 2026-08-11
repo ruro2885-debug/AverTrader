@@ -283,10 +283,11 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     // Check if user is a new user with zero balance and zero deposits
     const isNewZeroUser = (user.totalDeposits || 0) === 0 && (user.availableBalance || 0) === 0 && (user.portfolioBalance || 0) === 0;
     
-    // Try to restore active session from localStorage on initial boot if not a zero-balance user
+    // Try to restore active session from localStorage on initial boot if not a zero-balance user and not manually stopped
     if (!isNewZeroUser) {
       const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
-      if (cachedSession) {
+      const stoppedId = safeStorage.getItem(`aver_stopped_session_${user.uid}`);
+      if (cachedSession && cachedSession.status === 'ACTIVE' && stoppedId !== cachedSession.id) {
         setSession(cachedSession);
         sessionRefVal.current = cachedSession;
 
@@ -295,6 +296,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           setSessionEquityPoints(cachedPts);
           sessionEquityPointsRef.current = cachedPts;
         }
+      } else {
+        setSession(null);
+        sessionRefVal.current = null;
       }
       
       const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
@@ -866,21 +870,22 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
 
     try {
-      // 4. Calculate new balances
-      const currentTokenBal = tokenBalanceRef.current ?? user.tokenBalance ?? user.availableBalance ?? 0;
+      // 4. Calculate new balances using rigorous P/L delta on existing portfolio balance (prevents double-counting & balance inflation)
+      const sessionPnl = finalCapital - currentSession.initialCapital;
+      const currentPortfolioBalance = user.portfolioBalance ?? user.portfolio?.totalValue ?? (tokenBalanceRef.current + (user.vaultBalance || 0) + currentSession.initialCapital);
+      const newPortfolioBalance = Math.max(0, currentPortfolioBalance + sessionPnl);
       const currentVaultBal = user.vaultBalance ?? 0;
 
-      let newTokenBal = currentTokenBal;
       let newVaultBal = currentVaultBal;
-
-      if (fundingSource === 'WALLET') {
-        newTokenBal = currentTokenBal + finalCapital;
-      } else {
-        newVaultBal = currentVaultBal + finalCapital;
+      if (fundingSource === 'VAULT') {
+        newVaultBal = Math.max(0, currentVaultBal + finalCapital);
       }
 
+      const totalHoldingsVal = (user?.holdings || []).reduce((s, h) => s + ((h.quantity || 0) * (h.currentPrice || 0)), 0);
+      const newTokenBal = Math.max(0, newPortfolioBalance - newVaultBal - totalHoldingsVal);
+
       tokenBalanceRef.current = newTokenBal;
-      const totalNetBalance = newTokenBal + newVaultBal;
+      const totalNetBalance = newTokenBal + newVaultBal + totalHoldingsVal;
 
       // 5. Update wallet document and portfolio persistence state
       await walletService.updateWallet(effectiveUid, {
@@ -910,8 +915,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           lastUpdated: serverTimestamp()
         }).catch(() => {});
       }
-
-      const sessionPnl = finalCapital - currentSession.initialCapital;
 
       // 6. Update cached user profile
       try {

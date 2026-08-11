@@ -913,12 +913,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       safeStorage.removeItem('portfolio_vault_balance');
       safeStorage.removeItem('portfolio_active_offset');
       safeStorage.removeItem('aver_connected_wallet');
-      safeStorage.removeItem('aver_local_db');
       safeStorage.removeItem('aver_trading_config');
       setUser(null);
       setNotifications([]);
       setPreviewPhotoURL(null);
-      await signOut(auth);
+      if (auth) {
+        await signOut(auth).catch(() => {});
+      }
     } catch (error) {
       console.error("Error signing out:", error);
     }
