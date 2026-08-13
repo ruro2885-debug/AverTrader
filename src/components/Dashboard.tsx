@@ -365,9 +365,11 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       const starting = totalValue + allocated;
       return starting > 0 ? starting : (allocated > 0 ? allocated : 1000);
     }
-    const computedBase = totalValue - (closedTradesPnL + totalFloatingPnl);
+    // When session is inactive, baseline = current balance minus PnL (ensures starting balance is mathematically sound)
+    const pnl = closedTradesPnL !== 0 ? closedTradesPnL : (user?.portfolio?.todayPnL || 0);
+    const computedBase = totalValue - pnl;
     return computedBase > 0 ? computedBase : (totalValue > 0 ? totalValue : 1000);
-  }, [session, totalValue, closedTradesPnL, totalFloatingPnl]);
+  }, [session, totalValue, closedTradesPnL, user?.portfolio?.todayPnL]);
 
   // Total PnL dollar change for performance indicator strictly driven by trading activity
   const totalPlAmount = useMemo(() => {
@@ -380,16 +382,11 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     if (closedTradesPnL !== 0 || totalFloatingPnl !== 0) {
       return closedTradesPnL + totalFloatingPnl;
     }
-    if (!resetTime) {
-      if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
-        return user.portfolio.overallReturn;
-      }
-      if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) {
-        return user.portfolio.todayPnL;
-      }
+    if (user?.portfolio?.todayPnL !== undefined && user.portfolio.todayPnL !== 0) {
+      return user.portfolio.todayPnL;
     }
     return 0;
-  }, [session, activeSessionPnL, closedTradesPnL, totalFloatingPnl, user?.portfolio?.overallReturn, user?.portfolio?.todayPnL, resetTime]);
+  }, [session, activeSessionPnL, closedTradesPnL, totalFloatingPnl, user?.portfolio?.todayPnL]);
 
   // Performance indicator percentage beneath Net Balance
   const totalPlPercent = useMemo(() => {
@@ -399,13 +396,17 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   // Overall Return Amount & Overall Return % (strictly trading return, unaffected by deposits/withdrawals)
   const overallReturnAmount = useMemo(() => {
+    if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
+      return user.portfolio.overallReturn;
+    }
     return totalPlAmount;
-  }, [totalPlAmount]);
+  }, [user?.portfolio?.overallReturn, totalPlAmount]);
 
   const overallReturnPercent = useMemo(() => {
-    if (baselineAccountBalance <= 0) return 0;
-    return (overallReturnAmount / baselineAccountBalance) * 100;
-  }, [overallReturnAmount, baselineAccountBalance]);
+    const base = baselineAccountBalance > 0 ? baselineAccountBalance : (totalValue > 0 ? totalValue : 1000);
+    if (base <= 0) return 0;
+    return (overallReturnAmount / base) * 100;
+  }, [overallReturnAmount, baselineAccountBalance, totalValue]);
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (totalPlAmount < 0 ? '-' : '+') + formatCurrency(Math.abs(totalPlAmount));
