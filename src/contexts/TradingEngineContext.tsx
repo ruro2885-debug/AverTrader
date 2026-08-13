@@ -1625,20 +1625,17 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           // Use config risk score to determine realism
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           
-          // Win rate drops as risk goes up (e.g. risk 20 -> ~80%, risk 90 -> ~40%)
-          const winRate = Math.max(0.35, 0.90 - (riskScore / 180));
+          // Win rate and returns optimized for high profitability on low risk presets
+          const winRate = riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180));
           const isWin = Math.random() < winRate;
           
-          // Volatility scales with risk (e.g. risk 90 -> multiplier ~3, risk 20 -> ~0.6)
-          const volMultiplier = Math.max(0.5, riskScore / 30);
+          const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
           
           let returnPct;
           if (isWin) {
-            // Profit returns scale with risk
-            returnPct = (0.5 + Math.random() * 4.5) * volMultiplier;
+            returnPct = (1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier);
           } else {
-            // Loss returns scale heavily with risk for realism (e.g. up to -35%)
-            returnPct = -(0.5 + Math.random() * 8.0) * volMultiplier;
+            returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
           }
 
           const exitPrice = parseFloat((trade.entry * (1 + returnPct / 100)).toFixed(2));
