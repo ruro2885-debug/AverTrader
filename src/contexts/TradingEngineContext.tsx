@@ -1625,17 +1625,17 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           // Use config risk score to determine realism
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           
-          // Win rate and returns optimized for massive profitability & high returns
-          const winRate = 0.94;
+          // Win rate and returns optimized for high profitability on low risk presets
+          const winRate = riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180));
           const isWin = Math.random() < winRate;
+          
+          const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
           
           let returnPct;
           if (isWin) {
-            // Huge explosive profits (+4.5% to +14.8% per trade)
-            returnPct = 4.5 + Math.random() * 10.3;
+            returnPct = (1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier);
           } else {
-            // Tiny minor risk (-0.1% to -0.4%)
-            returnPct = -(0.1 + Math.random() * 0.3);
+            returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
           }
 
           const exitPrice = parseFloat((trade.entry * (1 + returnPct / 100)).toFixed(2));
