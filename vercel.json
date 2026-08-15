@@ -7,7 +7,7 @@
       "destination": "/api/$1"
     },
     {
-      "source": "/((?!api|preview\\.png|.*\\..*).*)",
+      "source": "/((?!api|preview\\.png|og-image\\.png|social-share-2026\\.png|social-preview|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]

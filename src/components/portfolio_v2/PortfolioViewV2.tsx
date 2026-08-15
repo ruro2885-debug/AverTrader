@@ -1927,19 +1927,8 @@ export default function PortfolioViewV2({
               </div>
             </div>
 
-            {/* Timeframe Selectors & Hover Value Above */}
-            <div className="flex flex-col items-end gap-1">
-              {/* Header Value readout - rendered directly above 1D 1M 1Y timeframe selectors */}
-              <div className="min-h-[22px] flex items-center justify-end">
-                <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-black/60 border border-white/10 text-white whitespace-nowrap transition-all flex items-center">
-                  {formatCurrency(headerDisplayValue)}
-                  <span className={`ml-1.5 text-[10px] font-semibold ${headerPeriodChange >= 0 ? 'text-[#00D09C]' : 'text-[#ef4444]'}`}>
-                    ({headerPeriodChange >= 0 ? '+' : '-'}{formatCurrency(Math.abs(headerPeriodChange))})
-                  </span>
-                </span>
-              </div>
-
-              {/* Timeframe Selectors */}
+            {/* Timeframe Selectors */}
+            <div className="flex items-center">
               <div className="flex bg-[#080B11]/80 p-0.5 rounded-lg border border-white/[0.05]">
                 {['1D', '1M', '1Y'].map(t => (
                   <button 

@@ -23,6 +23,17 @@ async function startServer() {
   const CACHE_TTL = 60 * 60 * 1000; // Increased to 60 minutes to preserve quota
 
   // API routes FIRST
+  app.get("/social-preview", (req, res) => {
+    const imagePath = path.join(process.cwd(), "public", "social-share-2026.png");
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(imagePath, (err) => {
+      if (err) {
+        res.status(404).send("Not found");
+      }
+    });
+  });
+
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
