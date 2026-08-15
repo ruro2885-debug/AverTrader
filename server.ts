@@ -23,7 +23,6 @@ async function startServer() {
   const CACHE_TTL = 60 * 60 * 1000; // Increased to 60 minutes to preserve quota
 
   // API routes FIRST
-
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });

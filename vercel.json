@@ -3,36 +3,12 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/social-preview",
-      "destination": "/social-share-2026.png"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
     {
-      "source": "/((?!api|preview\\.png|og-image\\.png|social-share-2026\\.png|social-preview|.*\\..*).*)",
+      "source": "/((?!api|preview\\.png|.*\\..*).*)",
       "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/social-share-2026.png",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "image/png"
-        }
-      ]
-    },
-    {
-      "source": "/social-preview",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "image/png"
-        }
-      ]
     }
   ]
 }
