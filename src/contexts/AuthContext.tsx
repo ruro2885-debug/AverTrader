@@ -10,6 +10,7 @@ import {
   setPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
+  inMemoryPersistence,
   User as FirebaseUser
 } from "firebase/auth";
 import { 
@@ -300,7 +301,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let unsubPortfolioCurrent: (() => void) | null = null;
     let unsubWallet: (() => void) | null = null;
 
-    setPersistence(auth, browserLocalPersistence).catch(() => {});
+    setPersistence(auth, browserLocalPersistence).catch(async () => {
+      try {
+        await setPersistence(auth, inMemoryPersistence);
+      } catch (e) {}
+    });
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
@@ -824,6 +829,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
       } catch (pError) {
+        try {
+          await setPersistence(auth, inMemoryPersistence);
+        } catch (e) {}
         console.warn("Failed to set auth persistence (possibly blocked in iframe):", pError);
       }
 

@@ -171,20 +171,22 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
   // Derive effective status to avoid Step 1 flicker during reload and preserve pending status across sessions
   const effectiveStatus = useMemo(() => {
-    if (submittedSuccess) return null; // Post-submission view
+    // 1. Check user.kycStatus first (instant from auth/profile)
+    if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
+
+    // 2. Check latestSubmission status
     if (latestSubmission && latestSubmission.status && latestSubmission.status !== 'unverified') {
       return latestSubmission.status;
     }
-    if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
     
-    // Check cached profile if Firestore user is still loading or doesn't have status
+    // 3. Check cached profile if Firestore user is still loading or doesn't have status
     try {
       const cached = JSON.parse(localStorage.getItem(`user_profile_${user?.uid}`) || localStorage.getItem('aver_user_profile') || '{}');
       if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
       if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
     } catch (e) {}
 
-    // Check aver_admin_kyc_local in localStorage
+    // 4. Check aver_admin_kyc_local in localStorage
     try {
       const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
       if (Array.isArray(locals) && locals.length > 0) {
@@ -192,6 +194,8 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         if (userLocal?.status && userLocal.status !== 'unverified') return userLocal.status;
       }
     } catch (e) {}
+
+    if (submittedSuccess) return 'pending';
     
     return 'unverified';
   }, [user?.kycStatus, submittedSuccess, user?.uid, latestSubmission]);
