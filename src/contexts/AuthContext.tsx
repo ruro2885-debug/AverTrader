@@ -306,7 +306,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
       
       // Cleanup existing listeners
-      const cleanup = () => {
+      let cleanup = () => {
         if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
         if (unsubNotifications) { unsubNotifications(); unsubNotifications = null; }
         if (unsubHoldings) { unsubHoldings(); unsubHoldings = null; }
@@ -320,6 +320,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       const setupSubscriptions = (uid: string, email: string | null) => {
         progressionService.updateProgress(uid, 'login').catch(() => {});
+        
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === 'visible') {
+            progressionService.updateProgress(uid, 'login').catch(() => {});
+          }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        const oldCleanup = cleanup;
+        cleanup = () => {
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
+          oldCleanup();
+        };
+
         notificationManagerRef.current = new NotificationManager(uid);
         notificationManagerRef.current.subscribe(setNotifications);
 

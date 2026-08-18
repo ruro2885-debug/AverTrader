@@ -35,14 +35,17 @@ export const progressionService = {
     const user: UserProfile = fsUser || localProfile || { uid: userId } as UserProfile;
 
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const lYear = now.getFullYear();
+    const lMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const lDay = String(now.getDate()).padStart(2, '0');
+    const todayLocalStr = `${lYear}-${lMonth}-${lDay}`;
     
     let xpGain = 0;
     let updates: any = {};
 
-    let currentWinRun = user.winRun || localProfile?.winRun || 0;
-    let currentLoginStreak = user.loginStreak || localProfile?.loginStreak || 1;
-    let currentAiTrades = user.aiTradesCount || localProfile?.aiTradesCount || 0;
+    let currentWinRun = user.winRun ?? localProfile?.winRun ?? 0;
+    let currentLoginStreak = user.loginStreak ?? localProfile?.loginStreak ?? 1;
+    let currentAiTrades = user.aiTradesCount ?? localProfile?.aiTradesCount ?? 0;
     let lastLoginDate = user.lastLoginDate || localProfile?.lastLoginDate;
 
     switch (actionType) {
@@ -67,21 +70,27 @@ export const progressionService = {
         if (!lastLoginDateOnly) {
           currentLoginStreak = 1;
           xpGain = 10;
-        } else if (lastLoginDateOnly === todayStr) {
-          // Already logged in today - keep current login streak (at least 1)
-          currentLoginStreak = Math.max(1, currentLoginStreak);
-          xpGain = 0;
         } else {
-          const yesterday = new Date();
-          yesterday.setDate(yesterday.getDate() - 1);
-          const yesterdayStr = yesterday.toISOString().split('T')[0];
+          const yesterdayLocal = new Date(now);
+          yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
+          const yYear = yesterdayLocal.getFullYear();
+          const yMonth = String(yesterdayLocal.getMonth() + 1).padStart(2, '0');
+          const yDay = String(yesterdayLocal.getDate()).padStart(2, '0');
+          const yesterdayLocalStr = `${yYear}-${yMonth}-${yDay}`;
 
-          if (lastLoginDateOnly === yesterdayStr) {
+          if (lastLoginDateOnly === todayLocalStr) {
+            // Already logged in today - keep current login streak
+            currentLoginStreak = Math.max(1, currentLoginStreak);
+            xpGain = 0;
+          } else if (lastLoginDateOnly === yesterdayLocalStr) {
             // Consecutive day!
             currentLoginStreak += 1;
             xpGain = 10;
+          } else if (lastLoginDateOnly > todayLocalStr) {
+            // Future date / clock skew
+            xpGain = 0;
           } else {
-            // Skipped a day or more
+            // Skipped a day or more -> reset streak to 1
             currentLoginStreak = 1;
             xpGain = 10;
           }

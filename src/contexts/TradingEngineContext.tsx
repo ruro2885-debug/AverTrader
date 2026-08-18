@@ -1214,12 +1214,14 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
      // 2. We DO NOT update tokenBalance or availableBalance here anymore.
     // Profits/Losses stay within the session until endSession is called.
     const isProfitable = pnl > 0;
+    const isLoss = pnl < 0;
     let currentWinRun = user?.winRun || 0;
     if (isProfitable) {
       currentWinRun += 1;
-    } else {
+    } else if (isLoss) {
       currentWinRun = 0;
     }
+    // If pnl === 0 (breakeven), currentWinRun remains unchanged
     
     const currentAiTrades = ((user?.aiTradesCount || 0) + 1);
 
@@ -1625,15 +1627,20 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           // Use config risk score to determine realism
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           
-          // Win rate and returns optimized for high profitability on low risk presets
-          const winRate = riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180));
-          const isWin = Math.random() < winRate;
+          const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true || 
+            activeConfig.name.toLowerCase().includes('guaranteed profit') || 
+            activeConfig.name.toLowerCase().includes('alpha profit') || 
+            activeConfig.configurationDetails?.category === 'Guaranteed Profit' || 
+            activeConfig.analyticsAndNotes?.riskScore === 0;
+
+          const winRate = isGuaranteedProfit ? 1.0 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
+          const isWin = isGuaranteedProfit ? true : (Math.random() < winRate);
           
           const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
           
           let returnPct;
           if (isWin) {
-            returnPct = (1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier);
+            returnPct = isGuaranteedProfit ? (2.0 + Math.random() * 4.0) : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
           } else {
             returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
           }
