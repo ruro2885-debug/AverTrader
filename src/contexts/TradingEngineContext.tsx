@@ -1628,7 +1628,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           
           const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true;
-          const isHighYield = isGuaranteedProfit || (activeConfig as any).isHighYieldProfit === true || activeConfig.name.toLowerCase().includes('copy') || activeConfig.name.toLowerCase().includes('momentum');
+          const isHighYield = (activeConfig as any).isHighYieldProfit === true || activeConfig.name.toLowerCase().includes('quantum alpha');
 
           const winRate = isHighYield ? 0.78 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
           const isWin = Math.random() < winRate;

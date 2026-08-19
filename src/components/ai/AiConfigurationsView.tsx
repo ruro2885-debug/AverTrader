@@ -315,6 +315,7 @@ export default function AiConfigurationsView({
         status: 'INACTIVE',
         createdAt: Timestamp.now(),
         lastModified: Timestamp.now(),
+        isHighYieldProfit: parsed.isHighYieldProfit !== undefined ? parsed.isHighYieldProfit : (parsed.name?.toLowerCase().includes('quantum alpha') || false),
         // Ensure new sections exist even if importing from a slightly older version of the new interface
         configurationDetails: parsed.configurationDetails || {
           description: '',
