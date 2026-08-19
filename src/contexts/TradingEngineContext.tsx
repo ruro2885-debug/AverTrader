@@ -1089,8 +1089,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       createdAt: Timestamp.now(),
       lastModified: Timestamp.now(),
       status: 'INACTIVE',
-      ownerId: effectiveUid
-    };
+      ownerId: effectiveUid,
+      isHighYieldProfit: true
+    } as any;
 
     setConfigs(prev => {
       const updated = [localDuplicated, ...prev];
@@ -1624,25 +1625,32 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         
         // Fast trade cycle: position active for 4-7 seconds to show fast live trading
         if (ageSec >= 4) {
-          // Use config risk score to determine realism
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           
-          const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true || 
-            activeConfig.name.toLowerCase().includes('guaranteed profit') || 
-            activeConfig.name.toLowerCase().includes('alpha profit') || 
-            activeConfig.configurationDetails?.category === 'Guaranteed Profit' || 
-            activeConfig.analyticsAndNotes?.riskScore === 0;
+          const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true;
+          const isHighYield = isGuaranteedProfit || (activeConfig as any).isHighYieldProfit === true || activeConfig.name.toLowerCase().includes('copy') || activeConfig.name.toLowerCase().includes('momentum');
 
-          const winRate = isGuaranteedProfit ? 1.0 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
-          const isWin = isGuaranteedProfit ? true : (Math.random() < winRate);
+          const winRate = isHighYield ? 0.78 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
+          const isWin = Math.random() < winRate;
           
           const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
           
           let returnPct;
           if (isWin) {
-            returnPct = isGuaranteedProfit ? (2.0 + Math.random() * 4.0) : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
+            if (isHighYield) {
+              // Dynamic high profit jumps (+3, +2, +4, +3.5, etc.) to ensure natural non-uniform growth
+              const jumpOptions = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0];
+              returnPct = jumpOptions[Math.floor(Math.random() * jumpOptions.length)] + Math.random() * 1.5;
+            } else {
+              returnPct = riskScore <= 25 ? 1.0 : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
+            }
           } else {
-            returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
+            if (isHighYield) {
+              // Intermittent realistic losses so the equity curve has natural pullbacks and avoids looking fake
+              returnPct = -(0.5 + Math.random() * 2.0);
+            } else {
+              returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
+            }
           }
 
           const exitPrice = parseFloat((trade.entry * (1 + returnPct / 100)).toFixed(2));

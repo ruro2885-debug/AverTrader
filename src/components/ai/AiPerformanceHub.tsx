@@ -212,7 +212,7 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
                   itemStyle={{ fontWeight: 'bold' }}
                 />
                 <Area 
-                  type="monotone" 
+                  type="linear" 
                   dataKey="pnl" 
                   stroke="#00D09C" 
                   strokeWidth={2}
