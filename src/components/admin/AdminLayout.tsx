@@ -219,8 +219,7 @@ export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dar
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-4 space-y-6 pb-12">
-                {/* Same items as desktop sidebar */}
+              <div className="flex-1 overflow-y-auto px-4 space-y-1.5 pb-12">
                 {SIDEBAR_ITEMS.map(item => (
                   <button
                     key={item.id}
@@ -228,14 +227,14 @@ export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dar
                       setActiveView(item.id);
                       setIsMobileMenuOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                       activeView === item.id 
-                        ? (isDark ? 'bg-white/10 text-white' : 'bg-slate-900 text-white')
-                        : (isDark ? 'text-slate-400' : 'text-slate-600')
+                        ? (isDark ? 'bg-white/10 text-white font-bold' : 'bg-slate-900 text-white font-bold')
+                        : (isDark ? 'text-slate-400 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
                     }`}
                   >
-                    <item.icon className="w-5 h-5" />
-                    <span className="font-semibold">{item.label}</span>
+                    <item.icon className={`w-5 h-5 flex-shrink-0 ${activeView === item.id ? 'text-emerald-500' : ''}`} />
+                    <span className="font-semibold text-sm">{item.label}</span>
                   </button>
                 ))}
               </div>

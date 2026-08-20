@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Lock, MessageSquare } from 'lucide-react';
+import { Lock, MessageCircle } from 'lucide-react';
 import Loader from './components/Loader';
 import Navbar from './components/Navbar';
 import CryptoTicker from './components/CryptoTicker';
@@ -239,7 +239,7 @@ function AppContent() {
               onClick={() => window.open('https://t.me/AverAssistancebot', '_blank')}
               className="w-full py-3.5 rounded-2xl bg-white/5 text-white border border-white/10 font-bold text-sm hover:bg-white/10 transition-all shadow-lg flex items-center justify-center gap-2"
             >
-              <MessageSquare className="w-4 h-4 text-emerald-400" />
+              <MessageCircle className="w-4 h-4 text-emerald-400" />
               Contact Support
             </button>
             <button
