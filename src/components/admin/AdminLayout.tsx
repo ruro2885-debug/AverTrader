@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, Users, Wallet, ArrowDownCircle, ArrowUpCircle, 
-  ShieldCheck, MessageSquare, Megaphone, 
+  ShieldCheck, MessageSquare, Megaphone, TrendingUp,
   LogOut, Menu, X, 
   ChevronRight, Command, Search, Globe, Shield
 } from 'lucide-react';
@@ -17,8 +17,9 @@ import AdminWithdrawals from './views/AdminWithdrawals';
 import AdminKYC from './views/AdminKYC';
 import AdminSupport from './views/AdminSupport';
 import AdminCampaigns from './views/AdminCampaigns';
+import AdminTrades from './views/AdminTrades';
 
-type ViewID = 'dashboard' | 'users' | 'wallets' | 'deposits' | 'withdrawals' | 'kyc' | 'support' | 'campaigns';
+type ViewID = 'dashboard' | 'users' | 'wallets' | 'deposits' | 'withdrawals' | 'kyc' | 'support' | 'campaigns' | 'trades';
 
 interface SidebarItem {
   id: ViewID;
@@ -38,6 +39,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'kyc', label: 'KYC Verification', icon: ShieldCheck, category: 'ops' },
   { id: 'support', label: 'Support Tickets', icon: MessageSquare, category: 'ops' },
   { id: 'campaigns', label: 'Campaigns & Events', icon: Megaphone, category: 'ops' },
+  { id: 'trades', label: 'Trades', icon: TrendingUp, category: 'ops' },
 ];
 
 export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dark', onLogout: () => void }) {
@@ -58,6 +60,7 @@ export default function AdminLayout({ theme, onLogout }: { theme: 'light' | 'dar
       case 'kyc': return <AdminKYC theme={theme} />;
       case 'support': return <AdminSupport theme={theme} />;
       case 'campaigns': return <AdminCampaigns theme={theme} />;
+      case 'trades': return <AdminTrades theme={theme} />;
       default: return <AdminDashboard theme={theme} />;
     }
   };
