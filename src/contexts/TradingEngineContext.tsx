@@ -283,38 +283,18 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     // Check if user is a new user with zero balance and zero deposits
     const isNewZeroUser = (user.totalDeposits || 0) === 0 && (user.availableBalance || 0) === 0 && (user.portfolioBalance || 0) === 0;
     
-    // Try to restore active session from localStorage on initial boot if not a zero-balance user and not manually stopped
-    if (!isNewZeroUser) {
-      const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
-      const stoppedId = safeStorage.getItem(`aver_stopped_session_${user.uid}`);
-      if (cachedSession && cachedSession.status === 'ACTIVE' && stoppedId !== cachedSession.id) {
-        setSession(cachedSession);
-        sessionRefVal.current = cachedSession;
-
-        const cachedPts = equityService.getSessionPointsLocally(user.uid, cachedSession.id);
-        if (cachedPts && cachedPts.length > 0) {
-          setSessionEquityPoints(cachedPts);
-          sessionEquityPointsRef.current = cachedPts;
-        }
-      } else {
-        setSession(null);
-        sessionRefVal.current = null;
-      }
+    // Do not auto-restore active trading sessions on refresh (keep session null until explicitly started by user)
+    setSession(null);
+    sessionRefVal.current = null;
       
-      const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
-      if (cachedPositions.length > 0) {
-        setPositions(cachedPositions);
-      }
-      
-      const cachedTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
-      if (cachedTrades.length > 0) {
-        setTrades(cachedTrades);
-      }
-    } else {
-      // Purge any stale session or trades key for zero balance user
-      safeStorage.removeItem(`aver_session_${user.uid}`);
-      safeStorage.removeItem(`aver_positions_${user.uid}`);
-      safeStorage.removeItem(`aver_trades_${user.uid}`);
+    const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
+    if (cachedPositions.length > 0) {
+      setPositions(cachedPositions);
+    }
+    
+    const cachedTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
+    if (cachedTrades.length > 0) {
+      setTrades(cachedTrades);
     }
     
     const clearedAt = Number(getLocalStorageItem(`aver_activity_cleared_at_${user.uid}`, 0));
@@ -1630,7 +1610,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true;
           const isHighYield = (activeConfig as any).isHighYieldProfit === true || activeConfig.name.toLowerCase().includes('quantum alpha');
 
-          const winRate = isHighYield ? 0.78 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
+          const winRate = isHighYield ? 0.78 : 0.48;
           const isWin = Math.random() < winRate;
           
           const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);

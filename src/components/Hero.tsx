@@ -74,17 +74,40 @@ export default function Hero({ theme, onShowcase, onGetStarted }: HeroProps) {
   const maxVal = Math.max(...points);
   const valRange = maxVal - minVal || 1;
 
-  const svgPoints = points.map((val, idx) => {
+  const baseSvgPoints = points.map((val, idx) => {
     const x = paddingX + (idx / (points.length - 1)) * (width - 2 * paddingX);
     const y = height - paddingY - ((val - minVal) / valRange) * (height - 2 * paddingY);
     return { x, y, val, label: chartLabels[idx] };
   });
 
+  const svgPoints: { x: number; y: number; val: number; label: string }[] = [];
+  if (baseSvgPoints.length > 0) {
+    svgPoints.push(baseSvgPoints[0]);
+    for (let i = 1; i < baseSvgPoints.length; i++) {
+      const pPrev = baseSvgPoints[i - 1];
+      const pCurr = baseSvgPoints[i];
+      const subSteps = 4;
+      for (let s = 1; s < subSteps; s++) {
+        const t = s / subSteps;
+        const sx = pPrev.x + t * (pCurr.x - pPrev.x);
+        const sy = pPrev.y + t * (pCurr.y - pPrev.y);
+        const offset = (s % 2 === 1 ? -1 : 1) * 6;
+        svgPoints.push({
+          x: sx,
+          y: Math.max(paddingY, Math.min(height - paddingY, sy + offset)),
+          val: pPrev.val + t * (pCurr.val - pPrev.val),
+          label: pCurr.label
+        });
+      }
+      svgPoints.push(pCurr);
+    }
+  }
+
   const pathD = svgPoints.reduce((acc, p, idx) => {
     return acc + (idx === 0 ? `M ${p.x} ${p.y}` : ` L ${p.x} ${p.y}`);
   }, '');
 
-  const areaD = pathD + ` L ${svgPoints[svgPoints.length - 1].x} ${height} L ${svgPoints[0].x} ${height} Z`;
+  const areaD = svgPoints.length > 0 ? pathD + ` L ${svgPoints[svgPoints.length - 1].x} ${height} L ${svgPoints[0].x} ${height} Z` : '';
 
   return (
     <section id="hero" className="relative min-h-[95vh] flex items-center pt-28 pb-16 overflow-hidden w-full px-6">
