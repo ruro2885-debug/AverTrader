@@ -258,7 +258,18 @@ const isPermissionError = (error: any): boolean => {
 };
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const cached = safeStorage.getItem('aver_active_user');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.uid && !parsed.uid.startsWith('local-')) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return null;
+  });
   const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -518,7 +529,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (firebaseUser) {
         setupSubscriptions(firebaseUser.uid, firebaseUser.email);
-        setLoading(false);
+        setTimeout(() => setLoading(false), 800);
       } else {
         // User is signed out from Firebase
         const activeLocalUserStr = safeStorage.getItem('aver_active_user');
@@ -545,7 +556,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setNotifications([]);
           setPreviewPhotoURL(null);
         }
-        setLoading(false);
+        setTimeout(() => setLoading(false), 800);
       }
     });
 
@@ -850,11 +861,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const st = (uData.accountStatus || uData.status || 'Active').toLowerCase();
           if (st === 'suspended') {
             await signOut(auth);
-            throw new Error("Your account has been suspended by an administrator. Please contact support.");
+            throw new Error("Your account has been suspended. Please contact support.");
           }
           if (st === 'deactivated') {
             await signOut(auth);
-            throw new Error("Your account has been deactivated by an administrator. Please contact support.");
+            throw new Error("Your account has been deactivated. Please contact support.");
           }
         }
         return;
@@ -872,10 +883,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
           const localStatus = (localRecord.profile.accountStatus || localRecord.profile.status || 'Active').toLowerCase();
           if (localStatus === 'suspended') {
-            throw new Error("Your account has been suspended by an administrator. Please contact support.");
+            throw new Error("Your account has been suspended. Please contact support.");
           }
           if (localStatus === 'deactivated') {
-            throw new Error("Your account has been deactivated by an administrator. Please contact support.");
+            throw new Error("Your account has been deactivated. Please contact support.");
           }
 
           let updatedProfile = { ...localRecord.profile };

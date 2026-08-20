@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Lock, MessageCircle } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import Loader from './components/Loader';
 import Navbar from './components/Navbar';
 import CryptoTicker from './components/CryptoTicker';
@@ -41,15 +41,8 @@ export default function App() {
 function AppContent() {
   const { user, loading: authLoading, signOutUser } = useAuth();
   
-  if (authLoading) {
-    return <Loader onComplete={() => {}} />;
-  }
-
   // Use stack-based view navigation for robust, immediate back button behavior
-  const [viewStack, setViewStack] = useState<string[]>(() => {
-    const hasLocalUser = safeStorage.getItem('aver_active_user');
-    return (hasLocalUser || user) ? ['dashboard'] : ['home'];
-  });
+  const [viewStack, setViewStack] = useState<string[]>(['home']);
   const currentView = viewStack[viewStack.length - 1] || 'home';
 
   const navigateToView = (view: string) => {
@@ -232,7 +225,7 @@ function AppContent() {
 
           <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-left text-xs space-y-2">
             <div className="flex justify-between text-slate-400">
-              <span>Account UID:</span>
+              <span>UID:</span>
               <span className="font-mono text-slate-200">{user?.uid}</span>
             </div>
             <div className="flex justify-between text-slate-400">
@@ -244,9 +237,9 @@ function AppContent() {
           <div className="flex flex-col gap-3 pt-2">
             <button
               onClick={() => window.open('https://t.me/AverAssistancebot', '_blank')}
-              className="w-full py-3.5 rounded-2xl bg-white/10 text-white font-bold text-sm hover:bg-white/20 transition-all border border-white/10 flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold text-sm hover:bg-emerald-500/30 transition-all shadow-lg flex items-center justify-center gap-2"
             >
-              <MessageCircle className="w-4 h-4 text-emerald-400" /> Contact Support
+              Contact Support
             </button>
             <button
               onClick={() => signOutUser()}

@@ -432,36 +432,16 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
     const points = dataPoints.map((val, i) => {
       const x = padding + (i / (dataPoints.length - 1)) * (width - padding * 2);
       // invert Y coordinate for SVG
-      let y = height - padding - ((val - minVal) / range) * (height - padding * 2);
+      const y = height - padding - ((val - minVal) / range) * (height - padding * 2);
       return { x, y, val };
     });
 
-    // Build short straight diagonal zig-zag segments (frequent direction changes like ╱╲╱╲)
-    const detailedPoints: { x: number; y: number }[] = [];
-    if (points.length > 0) {
-      detailedPoints.push({ x: points[0].x, y: points[0].y });
-      for (let i = 1; i < points.length; i++) {
-        const pPrev = points[i - 1];
-        const pCurr = points[i];
-        const subSteps = 4; // 4 short diagonal strokes per data interval
-        for (let s = 1; s < subSteps; s++) {
-          const t = s / subSteps;
-          const sx = pPrev.x + t * (pCurr.x - pPrev.x);
-          const sy = pPrev.y + t * (pCurr.y - pPrev.y);
-          // Frequent small directional changes / and \ strokes
-          const offset = (s % 2 === 1 ? -1 : 1) * 6;
-          detailedPoints.push({ x: sx, y: Math.max(padding, Math.min(height - padding, sy + offset)) });
-        }
-        detailedPoints.push({ x: pCurr.x, y: pCurr.y });
-      }
-    }
-
-    const pathD = detailedPoints.reduce((acc, p, i) => {
+    const pathD = points.reduce((acc, p, i) => {
       return i === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
     }, '');
 
-    const areaD = detailedPoints.length > 0
-      ? `${pathD} L ${detailedPoints[detailedPoints.length - 1].x} ${height - padding} L ${detailedPoints[0].x} ${height - padding} Z`
+    const areaD = points.length > 0
+      ? `${pathD} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`
       : '';
 
     // Calculate percentage change over this timeline

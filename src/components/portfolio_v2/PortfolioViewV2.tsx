@@ -310,16 +310,7 @@ function AverPortfolioChart({
         : chartLeft + chartWidth / 2;
 
       const normY = (Number(d.value) - dMin) / dRange;
-      let y = chartBottom - (normY * chartHeight);
-
-      // Ensure no flat horizontal plateaus: guarantee diagonal / or \ slope for every consecutive segment
-      if (i > 0) {
-        const prevNormY = (Number(visibleData[i - 1].value) - dMin) / dRange;
-        const prevY = chartBottom - (prevNormY * chartHeight);
-        if (Math.abs(y - prevY) < 0.6) {
-          y += (i % 2 === 0 ? 0.8 : -0.8);
-        }
-      }
+      const y = chartBottom - (normY * chartHeight);
 
       return {
         x,
@@ -339,38 +330,12 @@ function AverPortfolioChart({
       const isUp = delta >= 0;
       const color = isUp ? '#00D09C' : '#FF6B6B';
 
-      const subSteps = 4;
-      const subPoints = [{ x: pPrev.x, y: pPrev.y }];
-      for (let s = 1; s < subSteps; s++) {
-        const t = s / subSteps;
-        const sx = pPrev.x + t * (pCurr.x - pPrev.x);
-        const sy = pPrev.y + t * (pCurr.y - pPrev.y);
-        const offset = (s % 2 === 1 ? -1 : 1) * 6;
-        subPoints.push({
-          x: sx,
-          y: Math.max(chartTop, Math.min(chartBottom, sy + offset))
-        });
-      }
-      subPoints.push({ x: pCurr.x, y: pCurr.y });
-
-      const subLines = [];
-      for (let j = 1; j < subPoints.length; j++) {
-        subLines.push({
-          x1: subPoints[j - 1].x,
-          y1: subPoints[j - 1].y,
-          x2: subPoints[j].x,
-          y2: subPoints[j].y
-        });
-      }
-
       segs.push({
         pPrev,
         pCurr,
         delta,
         isUp,
         color,
-        subPoints,
-        subLines,
         key: `seg-${i}`
       });
     }
@@ -686,36 +651,27 @@ function AverPortfolioChart({
         )}
 
         {/* 3. Under-Curve Area Fills for each consecutive segment */}
-        {segments.map(seg => {
-          const polyPoints = [...seg.subPoints, { x: seg.pCurr.x, y: chartBottom }, { x: seg.pPrev.x, y: chartBottom }]
-            .map(p => `${p.x},${p.y}`)
-            .join(' ');
-          return (
-            <polygon 
-              key={`poly-${seg.key}`}
-              points={polyPoints}
-              fill={seg.isUp ? "url(#upAreaGrad)" : "url(#downAreaGrad)"}
-            />
-          );
-        })}
+        {segments.map(seg => (
+          <polygon 
+            key={`poly-${seg.key}`}
+            points={`${seg.pPrev.x},${seg.pPrev.y} ${seg.pCurr.x},${seg.pCurr.y} ${seg.pCurr.x},${chartBottom} ${seg.pPrev.x},${chartBottom}`}
+            fill={seg.isUp ? "url(#upAreaGrad)" : "url(#downAreaGrad)"}
+          />
+        ))}
 
         {/* 4. Multi-Color Line Segments (UP = Green #00D09C, DOWN = Red #FF6B6B) */}
         {segments.map(seg => (
-          <g key={`group-${seg.key}`}>
-            {seg.subLines.map((sub, sIdx) => (
-              <line 
-                key={`subline-${seg.key}-${sIdx}`}
-                x1={sub.x1}
-                y1={sub.y1}
-                x2={sub.x2}
-                y2={sub.y2}
-                stroke={seg.color}
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
-          </g>
+          <line 
+            key={`line-${seg.key}`}
+            x1={seg.pPrev.x}
+            y1={seg.pPrev.y}
+            x2={seg.pCurr.x}
+            y2={seg.pCurr.y}
+            stroke={seg.color}
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         ))}
 
         {/* 5. Smooth Vertex Dots at Connection Points */}

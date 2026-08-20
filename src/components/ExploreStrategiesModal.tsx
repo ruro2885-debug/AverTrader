@@ -294,7 +294,7 @@ export const ExploreStrategiesModal: React.FC<ExploreStrategiesModalProps> = ({
                   />
 
                   <Area 
-                    type="linear" 
+                    type="monotone" 
                     dataKey="strategy" 
                     name="Strategy Return"
                     stroke="#10b981" 
@@ -304,7 +304,7 @@ export const ExploreStrategiesModal: React.FC<ExploreStrategiesModalProps> = ({
                   />
 
                   <Line 
-                    type="linear" 
+                    type="monotone" 
                     dataKey="benchmark" 
                     name="Benchmark"
                     stroke="#3b82f6" 

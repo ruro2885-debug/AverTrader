@@ -44,7 +44,7 @@ export const progressionService = {
     let updates: any = {};
 
     let currentWinRun = user.winRun ?? localProfile?.winRun ?? 0;
-    let currentLoginStreak = user.loginStreak ?? localProfile?.loginStreak ?? 1;
+    let currentLoginStreak = Number(user.loginStreak ?? localProfile?.loginStreak ?? 1) || 1;
     let currentAiTrades = user.aiTradesCount ?? localProfile?.aiTradesCount ?? 0;
     let lastLoginDate = user.lastLoginDate || localProfile?.lastLoginDate;
 
@@ -66,34 +66,33 @@ export const progressionService = {
         break;
       case 'login':
         const lastLoginDateOnly = lastLoginDate ? lastLoginDate.split('T')[0] : null;
+        const lastLoginMs = lastLoginDate ? new Date(lastLoginDate).getTime() : 0;
+        const nowMs = now.getTime();
+        const diffHours = lastLoginMs ? (nowMs - lastLoginMs) / (1000 * 60 * 60) : 999999;
 
-        if (!lastLoginDateOnly) {
+        const yesterdayLocal = new Date(now);
+        yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
+        const yYear = yesterdayLocal.getFullYear();
+        const yMonth = String(yesterdayLocal.getMonth() + 1).padStart(2, '0');
+        const yDay = String(yesterdayLocal.getDate()).padStart(2, '0');
+        const yesterdayLocalStr = `${yYear}-${yMonth}-${yDay}`;
+
+        if (!lastLoginDateOnly || diffHours > 48 || (lastLoginDateOnly !== todayLocalStr && lastLoginDateOnly !== yesterdayLocalStr && diffHours > 48)) {
+          // If no last login, or logged in after 48 hours -> restart streak from 1
           currentLoginStreak = 1;
           xpGain = 10;
+        } else if (lastLoginDateOnly === todayLocalStr || diffHours < 12) {
+          // Already logged in today or within same day window -> keep current login streak
+          currentLoginStreak = Math.max(1, currentLoginStreak);
+          xpGain = 0;
+        } else if (lastLoginDateOnly === yesterdayLocalStr || (diffHours >= 12 && diffHours <= 48)) {
+          // Logged in after 24 hours (consecutive next day) -> increment streak by 1 (+2 / +1 progression)
+          currentLoginStreak = Math.max(1, currentLoginStreak) + 1;
+          xpGain = 10;
         } else {
-          const yesterdayLocal = new Date(now);
-          yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
-          const yYear = yesterdayLocal.getFullYear();
-          const yMonth = String(yesterdayLocal.getMonth() + 1).padStart(2, '0');
-          const yDay = String(yesterdayLocal.getDate()).padStart(2, '0');
-          const yesterdayLocalStr = `${yYear}-${yMonth}-${yDay}`;
-
-          if (lastLoginDateOnly === todayLocalStr) {
-            // Already logged in today - keep current login streak
-            currentLoginStreak = Math.max(1, currentLoginStreak);
-            xpGain = 0;
-          } else if (lastLoginDateOnly === yesterdayLocalStr) {
-            // Consecutive day!
-            currentLoginStreak += 1;
-            xpGain = 10;
-          } else if (lastLoginDateOnly > todayLocalStr) {
-            // Future date / clock skew
-            xpGain = 0;
-          } else {
-            // Skipped a day or more -> reset streak to 1
-            currentLoginStreak = 1;
-            xpGain = 10;
-          }
+          // Default fallback for 48h+ gap -> reset streak to 1
+          currentLoginStreak = 1;
+          xpGain = 10;
         }
         lastLoginDate = now.toISOString();
         updates.loginStreak = currentLoginStreak;

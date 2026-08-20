@@ -283,18 +283,25 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     // Check if user is a new user with zero balance and zero deposits
     const isNewZeroUser = (user.totalDeposits || 0) === 0 && (user.availableBalance || 0) === 0 && (user.portfolioBalance || 0) === 0;
     
-    // Do not auto-restore active trading sessions on refresh (keep session null until explicitly started by user)
+    // Do not auto-restore active session on refresh/boot so trading sessions do not start on their own
     setSession(null);
     sessionRefVal.current = null;
+
+    if (!isNewZeroUser) {
+      const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
+      if (cachedPositions.length > 0) {
+        setPositions(cachedPositions);
+      }
       
-    const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
-    if (cachedPositions.length > 0) {
-      setPositions(cachedPositions);
-    }
-    
-    const cachedTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
-    if (cachedTrades.length > 0) {
-      setTrades(cachedTrades);
+      const cachedTrades = getLocalStorageItem(`aver_trades_${user.uid}`, []);
+      if (cachedTrades.length > 0) {
+        setTrades(cachedTrades);
+      }
+    } else {
+      // Purge any stale session or trades key for zero balance user
+      safeStorage.removeItem(`aver_session_${user.uid}`);
+      safeStorage.removeItem(`aver_positions_${user.uid}`);
+      safeStorage.removeItem(`aver_trades_${user.uid}`);
     }
     
     const clearedAt = Number(getLocalStorageItem(`aver_activity_cleared_at_${user.uid}`, 0));
@@ -1069,9 +1076,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       createdAt: Timestamp.now(),
       lastModified: Timestamp.now(),
       status: 'INACTIVE',
-      ownerId: effectiveUid,
-      isHighYieldProfit: true
-    } as any;
+      ownerId: effectiveUid
+    };
 
     setConfigs(prev => {
       const updated = [localDuplicated, ...prev];
@@ -1605,32 +1611,25 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         
         // Fast trade cycle: position active for 4-7 seconds to show fast live trading
         if (ageSec >= 4) {
+          // Use config risk score to determine realism
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           
-          const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true;
-          const isHighYield = (activeConfig as any).isHighYieldProfit === true || activeConfig.name.toLowerCase().includes('quantum alpha');
+          const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true || 
+            activeConfig.name.toLowerCase().includes('guaranteed profit') || 
+            activeConfig.name.toLowerCase().includes('alpha profit') || 
+            activeConfig.configurationDetails?.category === 'Guaranteed Profit' || 
+            activeConfig.analyticsAndNotes?.riskScore === 0;
 
-          const winRate = isHighYield ? 0.78 : 0.48;
-          const isWin = Math.random() < winRate;
+          const winRate = isGuaranteedProfit ? 1.0 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
+          const isWin = isGuaranteedProfit ? true : (Math.random() < winRate);
           
           const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
           
           let returnPct;
           if (isWin) {
-            if (isHighYield) {
-              // Dynamic high profit jumps (+3, +2, +4, +3.5, etc.) to ensure natural non-uniform growth
-              const jumpOptions = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0];
-              returnPct = jumpOptions[Math.floor(Math.random() * jumpOptions.length)] + Math.random() * 1.5;
-            } else {
-              returnPct = riskScore <= 25 ? 1.0 : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
-            }
+            returnPct = isGuaranteedProfit ? (2.0 + Math.random() * 4.0) : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
           } else {
-            if (isHighYield) {
-              // Intermittent realistic losses so the equity curve has natural pullbacks and avoids looking fake
-              returnPct = -(0.5 + Math.random() * 2.0);
-            } else {
-              returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
-            }
+            returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
           }
 
           const exitPrice = parseFloat((trade.entry * (1 + returnPct / 100)).toFixed(2));
