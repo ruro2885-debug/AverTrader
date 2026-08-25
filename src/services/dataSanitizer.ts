@@ -1,4 +1,4 @@
-import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
 
@@ -251,15 +251,12 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
       lastUpdated: new Date().toISOString()
     }, { merge: true }).catch(() => {});
 
-    // Deactivate active AI sessions in Firestore
-    const activeSessionsQuery = query(collection(db, 'aiSessions'), where('userId', '==', uid), where('status', '==', 'ACTIVE'));
+    // Deactivate and delete active AI sessions in Firestore
+    const activeSessionsQuery = query(collection(db, 'aiSessions'), where('userId', '==', uid));
     const sessionSnaps = await getDocs(activeSessionsQuery).catch(() => null);
     if (sessionSnaps && !sessionSnaps.empty) {
       for (const sDoc of sessionSnaps.docs) {
-        await updateDoc(doc(db, 'aiSessions', sDoc.id), {
-          status: 'INACTIVE',
-          endTime: serverTimestamp()
-        }).catch(() => {});
+        await deleteDoc(doc(db, 'aiSessions', sDoc.id)).catch(() => {});
       }
     }
 

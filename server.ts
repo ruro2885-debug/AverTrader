@@ -9,7 +9,8 @@ import { generateAiRecommendation, analyzeTradeAction, generateCatherineCommenta
 
 async function startServer() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
   const PORT = 3000;
 
   // Initialize Firebase Admin
@@ -18,13 +19,113 @@ async function startServer() {
   }
   const adminDb = getFirestore();
 
+  // Support image storage (In-Memory Map with Firestore Backup)
+  const supportImagesCache = new Map<string, { buffer: Buffer; contentType: string; filename: string; timestamp: number }>();
+
   // Server-side caching for AI responses
   const cache = new Map<string, { data: any, timestamp: number }>();
-  const CACHE_TTL = 60 * 60 * 1000; // Increased to 60 minutes to preserve quota
+  const CACHE_TTL = 60 * 60 * 1000;
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Support Image Upload API
+  app.post("/api/support/upload", async (req, res) => {
+    try {
+      const { dataUrl, filename, mimeType } = req.body;
+      if (!dataUrl) {
+        return res.status(400).json({ error: "No image data provided" });
+      }
+
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      let buffer: Buffer;
+      let contentType = mimeType || "image/jpeg";
+
+      if (match) {
+        contentType = match[1] || contentType;
+        buffer = Buffer.from(match[2], "base64");
+      } else {
+        buffer = Buffer.from(dataUrl, "base64");
+      }
+
+      const imageId = "att_" + Date.now() + "_" + crypto.randomBytes(4).toString("hex");
+      const safeFilename = filename || `${imageId}.jpg`;
+
+      // Store in high-speed memory cache
+      supportImagesCache.set(imageId, {
+        buffer,
+        contentType,
+        filename: safeFilename,
+        timestamp: Date.now(),
+      });
+
+      // Persist backup to Firestore
+      try {
+        if (dataUrl.length < 850000) {
+          await adminDb.collection("support_attachments").doc(imageId).set({
+            id: imageId,
+            filename: safeFilename,
+            contentType,
+            dataUrl,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } catch (fsErr) {
+        console.warn("[Server] Firestore support_attachments backup note:", fsErr);
+      }
+
+      const url = `/api/support/image/${imageId}`;
+      return res.json({ success: true, id: imageId, url, filename: safeFilename, contentType });
+    } catch (err: any) {
+      console.error("[Server] /api/support/upload error:", err);
+      return res.status(500).json({ error: err.message || "Failed to upload attachment" });
+    }
+  });
+
+  // Support Image Direct Serving API
+  app.get("/api/support/image/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const cleanId = id.replace(/\.[^/.]+$/, ""); // strip extension if present
+      const cached = supportImagesCache.get(cleanId) || supportImagesCache.get(id);
+      if (cached) {
+        res.setHeader("Content-Type", cached.contentType);
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        return res.send(cached.buffer);
+      }
+
+      // Check Firestore backup
+      try {
+        const docSnap = await adminDb.collection("support_attachments").doc(cleanId).get();
+        if (docSnap.exists) {
+          const data = docSnap.data();
+          if (data?.dataUrl) {
+            const match = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              const buf = Buffer.from(match[2], "base64");
+              const ct = match[1] || "image/jpeg";
+              supportImagesCache.set(cleanId, {
+                buffer: buf,
+                contentType: ct,
+                filename: data.filename || `${cleanId}.jpg`,
+                timestamp: Date.now(),
+              });
+              res.setHeader("Content-Type", ct);
+              res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+              return res.send(buf);
+            }
+          }
+        }
+      } catch (fsErr) {
+        console.warn("[Server] Firestore image fetch note:", fsErr);
+      }
+
+      return res.status(404).send("Attachment not found");
+    } catch (err: any) {
+      return res.status(500).send("Error retrieving attachment");
+    }
   });
 
   app.get("/api/crypto/price", async (req, res) => {

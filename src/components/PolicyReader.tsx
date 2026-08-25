@@ -302,7 +302,7 @@ export default function PolicyReader({ initialPolicyId, theme, onClose }: Policy
                         </h2>
                       </div>
                       
-                      <p className={`text-[15px] font-sans font-medium leading-relaxed ${
+                      <p className={`text-[15px] font-sans font-medium leading-relaxed whitespace-pre-line ${
                         isDark ? 'text-gray-400' : 'text-slate-600'
                       }`}>
                         {highlightText(section.content, searchQuery)}

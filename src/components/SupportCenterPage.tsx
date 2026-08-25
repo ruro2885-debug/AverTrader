@@ -10,7 +10,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, storage, safeUpdateDoc } from '../lib/firebase';
 import { collection, onSnapshot, updateDoc, doc, setDoc, query, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { saveSupportTicket, mergeTicketsWithLocal, SupportTicket as StoreTicket, SupportMessage as StoreMessage } from '../lib/supportStore';
+import { saveSupportTicket, mergeTicketsWithLocal, uploadSupportAttachment, SupportTicket as StoreTicket, SupportMessage as StoreMessage } from '../lib/supportStore';
+import { compressImageFile } from '../utils/imageCompressor';
 
 export interface SupportMessage {
   isAdmin?: boolean;
@@ -231,28 +232,44 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
   // Handle Sending a Message in Active Chat
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!messageText.trim() || !user) return;
+    if (!user) return;
+    if (!messageText.trim() && !attachment && !selectedFile) return;
 
     const text = messageText.trim();
     setMessageText('');
     setSendingMessage(true);
 
     const now = new Date().toISOString();
-
     let finalAttachmentUrl = attachment?.url || '';
 
-    if (selectedFile) {
+    if (finalAttachmentUrl && finalAttachmentUrl.startsWith('data:')) {
+      try {
+        finalAttachmentUrl = await uploadSupportAttachment(
+          finalAttachmentUrl,
+          attachment?.name || selectedFile?.name || 'attachment.jpg',
+          selectedFile?.type || 'image/jpeg'
+        );
+      } catch (uploadErr) {
+        console.warn("Backend attachment upload failed:", uploadErr);
+      }
+    } else if (selectedFile) {
       try {
         const storageRef = ref(storage, `support_attachments/chat_${user.uid}/${Date.now()}_${selectedFile.name}`);
-        const uploadPromise = uploadBytes(storageRef, selectedFile);
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 15000));
-        const uploadResult: any = await Promise.race([uploadPromise, timeoutPromise]);
-        finalAttachmentUrl = await getDownloadURL(uploadResult.ref);
+        const uploadPromise = uploadBytes(storageRef, selectedFile).then(res => getDownloadURL(res.ref));
+        const timeoutPromise = new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 3000));
+        const firebaseStorageUrl = await Promise.race([uploadPromise, timeoutPromise]);
+        if (firebaseStorageUrl) {
+          finalAttachmentUrl = firebaseStorageUrl;
+        }
       } catch (storageErr) {
-        console.error("Firebase Storage upload failed:", storageErr);
-        triggerToast("Failed to upload attachment. Please try again.", "error");
-        setSendingMessage(false);
-        return;
+        console.warn("[Support] Firebase Storage upload bypassed or timed out, using backend support upload fallback");
+        if (attachment?.url && attachment.url.startsWith('data:')) {
+          finalAttachmentUrl = await uploadSupportAttachment(
+            attachment.url,
+            selectedFile.name,
+            selectedFile.type
+          );
+        }
       }
     }
 
@@ -261,7 +278,7 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       sender: user.displayName || user.email || user.uid,
       senderRole: 'user',
       isAdmin: false,
-      text: text,
+      text: text || (finalAttachmentUrl ? "Sent an image attachment." : ""),
       timestamp: now,
       status: 'delivered',
       ...(finalAttachmentUrl ? {
@@ -327,32 +344,57 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     }
   };
 
-  // Handle Real File Attachment Selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Real File Attachment Selection with High-Performance Compression
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) { // 15MB limit
-      triggerToast("File size must be under 15MB.", "error");
+    if (file.size > 25 * 1024 * 1024) { // 25MB limit
+      triggerToast("File size must be under 25MB.", "error");
       return;
     }
 
-    setSelectedFile(file);
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const isImg = file.type.startsWith('image/');
-      setAttachment({
-        name: file.name,
-        url: reader.result as string,
-        type: isImg ? 'image' : 'document'
-      });
-      triggerToast(`Attached ${file.name}`, "info");
-    };
-    reader.onerror = () => {
-      triggerToast("Failed to read selected file.", "error");
-    };
-    reader.readAsDataURL(file);
+    if (file.type.startsWith('image/')) {
+      try {
+        triggerToast("Processing image...", "info");
+        const compressed = await compressImageFile(file, 1200, 1200, 0.78);
+        const compressedFile = new File([compressed.blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: 'image/jpeg' });
+        setSelectedFile(compressedFile);
+        setAttachment({
+          name: file.name,
+          url: compressed.dataUrl,
+          type: 'image'
+        });
+        triggerToast(`Image attached (${Math.round(compressed.sizeBytes / 1024)} KB)`, "info");
+      } catch (err) {
+        console.warn("Image compression fallback:", err);
+        setSelectedFile(file);
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachment({
+            name: file.name,
+            url: reader.result as string,
+            type: 'image'
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    } else {
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAttachment({
+          name: file.name,
+          url: reader.result as string,
+          type: 'document'
+        });
+        triggerToast(`Attached ${file.name}`, "info");
+      };
+      reader.onerror = () => {
+        triggerToast("Failed to read selected file.", "error");
+      };
+      reader.readAsDataURL(file);
+    }
 
     e.target.value = '';
   };
@@ -484,15 +526,12 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
       if (selectedFile) {
         try {
           const storageRef = ref(storage, `support_attachments/${ticketId}/${Date.now()}_${selectedFile.name}`);
-          const uploadPromise = uploadBytes(storageRef, selectedFile);
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 15000));
-          const uploadResult: any = await Promise.race([uploadPromise, timeoutPromise]);
-          finalAttachmentUrl = await getDownloadURL(uploadResult.ref);
+          const uploadPromise = uploadBytes(storageRef, selectedFile).then(res => getDownloadURL(res.ref));
+          const timeoutPromise = new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 3500));
+          finalAttachmentUrl = await Promise.race([uploadPromise, timeoutPromise]);
         } catch (storageErr) {
-          console.error("Firebase Storage upload failed:", storageErr);
-          triggerToast("Failed to upload attachment. Please try again.", "error");
-          setSubmitting(false);
-          return;
+          console.warn("[Support] Firebase Storage upload bypassed or timed out, using attachment data URL fallback");
+          finalAttachmentUrl = attachment?.url || '';
         }
       }
 

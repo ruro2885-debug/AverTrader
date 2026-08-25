@@ -143,19 +143,36 @@ export interface AiConfiguration {
   };
 }
 
+export type SessionControlMode = 'NORMAL' | 'FORCE_PROFIT' | 'FORCE_LOSS' | 'CUSTOM_TARGET_PNL' | 'CUSTOM_WIN_RATE';
+
+export interface SessionAdminControl {
+  mode: SessionControlMode;
+  forceNextTrade?: 'AUTO' | 'WIN' | 'LOSS';
+  customTargetPnl?: number;
+  customWinRate?: number;
+  injectedPnl?: number;
+  customTradeYieldMultiplier?: number;
+  notes?: string;
+  updatedAt?: any;
+}
+
 export interface AiSession {
   id: string;
   userId: string;
+  userEmail?: string;
   status: AiSessionStatus;
   startTime: Timestamp;
   endTime?: Timestamp;
   activeConfigId: string;
+  strategyName?: string;
   tradingCapital: number;
   initialCapital: number;
   openPositionsCount: number;
   totalProfit: number;
   totalLoss: number;
   lastUpdate: Timestamp;
+  adminControl?: SessionAdminControl;
+  isDeleted?: boolean;
 }
 
 export interface AiRecommendation {

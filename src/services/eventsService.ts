@@ -544,13 +544,24 @@ export async function deleteBackendPromotion(eventId: string): Promise<void> {
 }
 
 /**
- * User: Join an event
+ * User: Join an event with payout wallet address
  */
-export async function joinEventService(userId: string | undefined, eventId: string): Promise<any> {
+export async function joinEventService(
+  userId: string | undefined, 
+  eventId: string,
+  options?: {
+    walletAddress?: string;
+    network?: string;
+    registeredToken?: string;
+  }
+): Promise<any> {
   const now = new Date().toISOString();
   const newParticipation = {
     joined: true,
     registeredAt: now,
+    walletAddress: options?.walletAddress || '',
+    network: options?.network || '',
+    registeredToken: options?.registeredToken || '',
     completedPercentage: 25,
     currentVolume: 0,
     targetVolume: 10000,

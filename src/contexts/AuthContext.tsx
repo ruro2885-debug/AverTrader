@@ -854,20 +854,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (!firebaseError && auth.currentUser) {
-        const uid = auth.currentUser.uid;
-        const uDoc = await getDoc(doc(db, 'users', uid)).catch(() => null);
-        if (uDoc && uDoc.exists()) {
-          const uData = uDoc.data();
-          const st = (uData.accountStatus || uData.status || 'Active').toLowerCase();
-          if (st === 'suspended') {
-            await signOut(auth);
-            throw new Error("Your account has been suspended. Please contact support.");
-          }
-          if (st === 'deactivated') {
-            await signOut(auth);
-            throw new Error("Your account has been deactivated. Please contact support.");
-          }
-        }
         return;
       }
 
@@ -879,14 +865,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (localRecord) {
           if (localRecord.password !== password) {
             throw new Error("Password or Email Incorrect.");
-          }
-
-          const localStatus = (localRecord.profile.accountStatus || localRecord.profile.status || 'Active').toLowerCase();
-          if (localStatus === 'suspended') {
-            throw new Error("Your account has been suspended. Please contact support.");
-          }
-          if (localStatus === 'deactivated') {
-            throw new Error("Your account has been deactivated. Please contact support.");
           }
 
           let updatedProfile = { ...localRecord.profile };
@@ -942,6 +920,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOutUser = useCallback(async () => {
     try {
+      const currentUid = userRef.current?.uid;
+      if (currentUid) {
+        safeStorage.removeItem(`aver_session_${currentUid}`);
+        safeStorage.removeItem(`aver_positions_${currentUid}`);
+        safeStorage.removeItem(`aver_trades_${currentUid}`);
+        safeStorage.removeItem(`aver_activity_${currentUid}`);
+        safeStorage.removeItem(`aver_recommendations_${currentUid}`);
+        safeStorage.removeItem(`aver_session_control_${currentUid}`);
+      }
+
+      // Clean all aver_session keys
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith('aver_session_') || k.startsWith('aver_positions_') || k.startsWith('aver_trades_'))) {
+            localStorage.removeItem(k);
+          }
+        }
+      } catch (e) {}
+
       safeStorage.removeItem('aver_active_user');
       safeStorage.removeItem('portfolio_vault_balance');
       safeStorage.removeItem('portfolio_active_offset');
@@ -950,6 +948,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(null);
       setNotifications([]);
       setPreviewPhotoURL(null);
+      window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
+      window.dispatchEvent(new Event('aver_user_updated'));
+      window.dispatchEvent(new Event('storage'));
       if (auth) {
         await signOut(auth).catch(() => {});
       }

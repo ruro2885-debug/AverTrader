@@ -1163,11 +1163,11 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       <AnimatePresence>
         {showDepositModal && (
           <motion.div 
-            initial={{ opacity: 0, y: 30 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            exit={{ opacity: 0, y: 30 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className={`fixed inset-0 z-[100] overflow-y-auto ${isDark ? 'bg-[#06080f]' : 'bg-slate-50'}`}
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className={`fixed inset-0 z-[100] ${isDark ? 'bg-black' : 'bg-slate-50'} overflow-hidden flex flex-col`}
           >
             <InstitutionalDepositPage 
               theme={theme}

@@ -239,6 +239,9 @@ export const aiTradingService = {
           trigger: 'SESSION_END'
         });
       }
+
+      // Delete active session document so it is removed from active sessions collection
+      await deleteDoc(sessionRef).catch(() => {});
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `${SESSIONS_COLLECTION}/${sessionId}`);
       throw error;

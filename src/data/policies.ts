@@ -45,8 +45,8 @@ export const policyDocuments: PolicyDocument[] = [
       {
         id: 'tos-sec-4',
         number: '4',
-        title: 'Virtual Sandbox Framework & Simulation Disclaimer',
-        content: 'The public preview of the Aver Platform is a simulated sandbox environment. All visual capital allocations, bonus credits (e.g., initial simulated capital allocations), gains, and losses are completely virtual, decoupled from external banking pipelines, physical fiat deposits, or physical cryptocurrency clearing routes. They carry absolutely no real-world monetary value.'
+        title: 'Real-Money Trading Environment',
+        content: 'The AVER Platform provides real-money financial services. Account balances, deposits, withdrawals, capital allocations, trading activity, gains, and losses displayed within the platform represent real financial activity where applicable and are not presented as simulated or virtual monetary value.\n\nAll transactions and account activity are subject to the applicable terms, verification requirements, processing procedures, and platform policies.\n\nTrading and financial markets involve risk. The value of an account or trading position can increase or decrease, and losses can occur, including the potential loss of deposited or allocated funds. Past performance does not guarantee future results.\n\nUsers should review all applicable risk disclosures and platform terms before depositing funds or initiating trading activity.'
       },
       {
         id: 'tos-sec-5',
@@ -165,8 +165,8 @@ export const policyDocuments: PolicyDocument[] = [
       {
         id: 'risk-sec-2',
         number: '2',
-        title: 'Sandbox Simulation vs. Live Market Realities',
-        content: 'All results, trade signals, execution times, and metrics demonstrated in the Aver Showcase or Sandbox environment are simulated. Backtesting models utilize historical datasets and do not account for real-time market slippage, order-book liquidity blockages, order routing latencies, or exchange API failures.'
+        title: 'Live Market Environment & Trading Reality',
+        content: 'All live trading activity conducted through the AVER Platform is based on real market conditions and real financial activity. Trade execution, account balances, capital allocations, gains, losses, and related performance metrics reflect actual activity associated with the user’s account where applicable.\n\nMarket conditions can change rapidly. Execution prices, liquidity, spreads, market volatility, network conditions, exchange availability, and execution latency may affect the outcome of individual trades.\n\nAVER’s analytical, algorithmic, and AI-assisted systems are designed to process available market information and support trading activity. However, no system can eliminate market risk or guarantee a particular trading outcome.\n\nHistorical data, backtesting, demonstrations, and illustrative performance examples may be used to explain platform functionality. Such information should not be interpreted as a guarantee of future performance.'
       },
       {
         id: 'risk-sec-3',

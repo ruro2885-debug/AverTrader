@@ -54,6 +54,9 @@ export interface FAQItem {
 export interface UserEventProgress {
   joined: boolean;
   registeredAt?: string;
+  walletAddress?: string;
+  network?: string;
+  registeredToken?: string;
   completedPercentage: number;
   currentVolume: number;
   targetVolume: number;
@@ -87,6 +90,21 @@ export interface EventItem {
   terms: string[];
   faqs: FAQItem[];
   tags: string[];
+  coverImageUrl?: string;
+  desktopBannerUrl?: string;
+  mobileBannerUrl?: string;
+  logoUrl?: string;
+  promoVideoUrl?: string;
+  galleryImages?: string[];
+  brandColor?: string;
+  ctaText?: string;
+  ctaLink?: string;
+  targetAudience?: string;
+  timezone?: string;
+  sendPush?: boolean;
+  sendEmail?: boolean;
+  inAppBanner?: boolean;
+  notificationMessage?: string;
   userProgress?: UserEventProgress;
   createdAt?: string;
   updatedAt?: string;

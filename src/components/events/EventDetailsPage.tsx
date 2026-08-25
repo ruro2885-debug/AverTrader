@@ -25,11 +25,16 @@ import {
   Check,
   TrendingUp,
   Layers,
-  Activity
+  Activity,
+  Play,
+  Image as ImageIcon
 } from 'lucide-react';
 import { EventItem } from '../../types/events';
+import { getEffectiveParticipantCount } from '../../utils/eventEnrollmentSimulator';
+
 import { joinEventService, claimEventRewardService, subscribeToEvents } from '../../services/eventsService';
 import { useAuth } from '../../contexts/AuthContext';
+import CampaignWalletModal from './CampaignWalletModal';
 
 interface EventDetailsPageProps {
   eventId: string;
@@ -65,6 +70,7 @@ export default function EventDetailsPage({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ELIGIBILITY' | 'GUIDE' | 'PRIZES' | 'TIMELINE' | 'FAQS'>('OVERVIEW');
   const [isJoining, setIsJoining] = useState(false);
+  const [showWalletModal, setShowWalletModal] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
   const [expandedFaqIndex, setExpandedFaqIndex] = useState<number | null>(0);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -75,6 +81,14 @@ export default function EventDetailsPage({
 
   // Countdown clock state
   const [countdown, setCountdown] = useState(formatCountdownDetail(event?.endTime));
+  const [runtimeTick, setRuntimeTick] = useState(0);
+
+  useEffect(() => {
+    const ticker = setInterval(() => setRuntimeTick(t => t + 1), 5000);
+    return () => clearInterval(ticker);
+  }, []);
+
+  const simulatedParts = event ? getEffectiveParticipantCount(event, runtimeTick) : { count: 0, max: 100000, percentage: 45, formattedCount: '0', formattedMax: '100,000' };
 
   // Subscribe to real-time event updates
   useEffect(() => {
@@ -121,12 +135,30 @@ export default function EventDetailsPage({
     return () => clearInterval(interval);
   }, [event]);
 
+  // Trigger loading state for a moment, then open the Wallet Address Modal
   const handleJoin = async () => {
     if (!event) return;
     setIsJoining(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      const newPart = await joinEventService(user?.uid, event.id);
+      // Brief loading indicator to verify account eligibility before prompting address
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setShowWalletModal(true);
+    } catch (e) {
+      console.error("Failed preparing registration modal", e);
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
+  // Called when user completes and saves their wallet address inside the modal
+  const handleSaveWalletAndRegister = async (walletAddress: string, network: string) => {
+    if (!event) return;
+    try {
+      const newPart = await joinEventService(user?.uid, event.id, {
+        walletAddress,
+        network,
+        registeredToken: event.rewardToken
+      });
 
       setEvent(prev => prev ? {
         ...prev,
@@ -134,12 +166,11 @@ export default function EventDetailsPage({
         participantCount: (prev.participantCount || 0) + 1
       } : null);
 
-      setToastMsg("Successfully registered for this campaign!");
-      setTimeout(() => setToastMsg(null), 3000);
+      setToastMsg(`Successfully registered! Payout wallet saved on ${network}.`);
+      setTimeout(() => setToastMsg(null), 3500);
     } catch (e) {
-      console.error("Failed to join event", e);
-    } finally {
-      setIsJoining(false);
+      console.error("Failed saving event registration", e);
+      throw e;
     }
   };
 
@@ -314,9 +345,14 @@ export default function EventDetailsPage({
             
             {/* Title & Narrative (8 Cols) */}
             <div className="lg:col-span-8 space-y-3">
-              <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
-                {event.title}
-              </h1>
+              <div className="flex items-center gap-3">
+                {event.logoUrl && (
+                  <img src={event.logoUrl} alt="Campaign Logo" className="w-12 h-12 rounded-2xl object-cover border border-white/20 shadow-lg bg-slate-800 shrink-0" />
+                )}
+                <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
+                  {event.title}
+                </h1>
+              </div>
               <p className="text-sm sm:text-base text-slate-300 max-w-2xl font-medium leading-relaxed">
                 {event.subtitle}
               </p>
@@ -328,6 +364,11 @@ export default function EventDetailsPage({
                     #{tag}
                   </span>
                 ))}
+                {event.targetAudience && (
+                  <span className="px-2.5 py-1 rounded-md bg-purple-500/10 border border-purple-500/20 text-[11px] font-bold text-purple-300">
+                    Audience: {event.targetAudience}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -397,18 +438,33 @@ export default function EventDetailsPage({
                   {isClaimed ? 'Reward Claimed' : isJoined ? 'Already Registered' : 'Not Registered'}
                 </span>
               </div>
-              <p className="text-sm font-black text-white mt-0.5">
-                {isClaimed ? `Received ${event.userProgress?.claimedAmount || 250} ${event.rewardToken}` :
-                 isJoined ? 'Task verification active. Complete requirements below.' :
-                 hasEnded ? 'This campaign has ended. Registration is closed.' :
-                 'Join this campaign to reserve your prize pool allocation.'}
-              </p>
+              <div className="text-sm font-black text-white mt-0.5">
+                {isClaimed ? (
+                  `Received ${event.userProgress?.claimedAmount || 250} ${event.rewardToken}`
+                ) : isJoined ? (
+                  event.userProgress?.walletAddress ? (
+                    <span className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-slate-300 font-medium">Payout Wallet:</span>
+                      <span className="font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-xs">
+                        {event.userProgress.walletAddress.slice(0, 6)}...{event.userProgress.walletAddress.slice(-4)}
+                      </span>
+                      <span className="text-slate-400 text-xs font-normal">({event.userProgress.network || event.rewardToken})</span>
+                    </span>
+                  ) : (
+                    'Registration active. Complete requirements below.'
+                  )
+                ) : hasEnded ? (
+                  'This campaign has ended. Registration is closed.'
+                ) : (
+                  'Join this campaign to reserve your prize pool allocation.'
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto">
             {isClaimed ? (
-              <button disabled className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-500/20 text-emerald-400 font-extrabold text-xs border border-emerald-500/30 flex items-center justify-center gap-2">
+              <button disabled className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-500/20 text-emerald-400 font-extrabold text-xs border border-emerald-500/30 flex items-center justify-center gap-2 cursor-not-allowed select-none">
                 <Check className="w-4 h-4" /> Claimed
               </button>
             ) : isJoined ? (
@@ -424,23 +480,33 @@ export default function EventDetailsPage({
               ) : (
                 <button 
                   disabled
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-emerald-500/20 text-emerald-400 font-extrabold text-xs border border-emerald-500/30 flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 text-slate-400 font-extrabold text-xs border border-white/10 cursor-not-allowed flex items-center justify-center gap-2 select-none"
                 >
-                  <CheckCircle2 className="w-4 h-4" /> Already Registered
+                  <CheckCircle2 className="w-4 h-4 text-slate-500" />
+                  <span>Already Registered</span>
                 </button>
               )
             ) : hasEnded ? (
-              <button disabled className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 text-slate-500 font-extrabold text-xs border border-white/5 flex items-center justify-center gap-2">
+              <button disabled className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 text-slate-500 font-extrabold text-xs border border-white/5 flex items-center justify-center gap-2 cursor-not-allowed select-none">
                 Ended
               </button>
             ) : (
               <button 
+                id="register-for-campaign-btn"
                 onClick={handleJoin}
                 disabled={isJoining}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-xs transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-75 cursor-pointer"
               >
-                {isJoining ? <RotateCw className="w-4 h-4 animate-spin" /> : null}
-                <span>{event.status === 'UPCOMING' ? 'Pre-Register for Event' : 'Register for Campaign'}</span>
+                {isJoining ? (
+                  <>
+                    <RotateCw className="w-4 h-4 animate-spin" />
+                    <span>Verifying Qualification...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{event.status === 'UPCOMING' ? 'Pre-Register for Event' : (event.ctaText || 'Register for Campaign')}</span>
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -514,15 +580,55 @@ export default function EventDetailsPage({
                 </p>
               </div>
 
+              {/* Promotional Video if configured */}
+              {event.promoVideoUrl && (
+                <div className="p-6 rounded-3xl bg-slate-900/40 border border-white/10 space-y-4">
+                  <h3 className="text-lg font-black text-white flex items-center gap-2">
+                    <Play className="w-5 h-5 text-emerald-400" />
+                    Campaign Promotional Video
+                  </h3>
+                  <div className="relative rounded-2xl overflow-hidden aspect-video bg-black/60 border border-white/10">
+                    {event.promoVideoUrl.includes('youtube.com') || event.promoVideoUrl.includes('youtu.be') ? (
+                      <iframe
+                        src={event.promoVideoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'www.youtube.com/embed/')}
+                        title="Campaign Promo Video"
+                        className="w-full h-full border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    ) : (
+                      <video src={event.promoVideoUrl} controls className="w-full h-full object-cover" />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Gallery Images if configured */}
+              {event.galleryImages && event.galleryImages.length > 0 && (
+                <div className="p-6 rounded-3xl bg-slate-900/40 border border-white/10 space-y-4">
+                  <h3 className="text-lg font-black text-white flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-purple-400" />
+                    Campaign Media Gallery
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {event.galleryImages.map((imgUrl, idx) => (
+                      <div key={idx} className="rounded-2xl overflow-hidden border border-white/10 h-36 bg-slate-800">
+                        <img src={imgUrl} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Participant Statistics */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-6 rounded-3xl bg-slate-900/40 border border-white/10">
                 <div>
                   <p className="text-xs font-bold text-slate-400">Total Participants</p>
-                  <p className="text-xl font-black text-white mt-1">{event.participantCount.toLocaleString()}</p>
+                  <p className="text-xl font-black text-white mt-1">{simulatedParts.formattedCount}</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold text-slate-400">Capacity Limit</p>
-                  <p className="text-xl font-black text-white mt-1">{event.maxParticipants ? event.maxParticipants.toLocaleString() : 'Unlimited'}</p>
+                  <p className="text-xl font-black text-white mt-1">{event.maxParticipants ? event.maxParticipants.toLocaleString() : simulatedParts.formattedMax}</p>
                 </div>
                 <div>
                   <p className="text-xs font-bold text-slate-400">Reward Currency</p>
@@ -751,6 +857,18 @@ export default function EventDetailsPage({
         )}
 
       </main>
+
+      {/* CAMPAIGN WALLET REGISTRATION POPUP MODAL */}
+      {showWalletModal && (
+        <CampaignWalletModal 
+          isOpen={showWalletModal}
+          onClose={() => setShowWalletModal(false)}
+          event={event}
+          onSave={handleSaveWalletAndRegister}
+          savedWallet={event.userProgress?.walletAddress || (user as any)?.walletAddress || ''}
+        />
+      )}
+
     </div>
   );
 }

@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiTradingService } from '../services/aiTradingService';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
 import { 
   AiSession, 
@@ -303,8 +303,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
   // Session Management
   const handleStartSession = async (overrideConfigId?: string, overrideMarkets?: string[]) => {
+    console.log("[SESSION] Launch clicked");
+    console.log("[SESSION] Auth user:", { uid: user?.uid, email: user?.email, authUid: auth?.currentUser?.uid, authEmail: auth?.currentUser?.email });
     const targetConfigId = overrideConfigId || activeConfigId;
-    const targetConfig = configs.find(c => c.id === targetConfigId) || configs[0];
+    const targetConfig = configs.find(c => c.id === targetConfigId) || configs[0] || config;
     if (!targetConfig) {
       addNotification('trading', 'high', 'Error', 'No configuration selected.');
       return;
@@ -315,10 +317,13 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     }
 
     const allocationAmount = targetConfig.sessionSetup?.amountToAllocate || 0;
-    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0);
+    const fundingSource = targetConfig.sessionSetup?.fundingSource || 'WALLET';
+    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : (user?.tokenBalance ?? user?.availableBalance ?? (typeof user?.portfolioBalance === 'number' ? user.portfolioBalance : 0)));
+    const currentVaultBalance = user?.vaultBalance ?? 0;
+    const availableFunds = fundingSource === 'VAULT' ? currentVaultBalance : currentTokenBalance;
 
-    // Compare allocated amount with available wallet balance
-    if (allocationAmount > currentTokenBalance) {
+    // Compare allocated amount with available wallet/vault balance
+    if (availableFunds <= 0 || allocationAmount > availableFunds) {
       setShowInsufficientFundsModal(true);
       return;
     }
@@ -357,14 +362,18 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
       setActiveView('HOME');
 
     } catch (error: any) {
-      console.error("Error launching session:", error);
-      setEngineState('ERROR');
+      console.error("[SESSION] Launch Session failed:", error);
       if (error?.code === 'INSUFFICIENT_FUNDS' || error?.message === 'INSUFFICIENT_FUNDS') {
         setShowInsufficientFundsModal(true);
+        setEngineState('IDLE');
       } else {
+        setEngineState('ERROR');
         addActivityEvent('WARNING', `Critical initialization failure: ${error.message || 'Unknown error'}`);
-        addNotification('trading', 'high', 'Session Failed', 'Could not initialize AI session.');
+        addNotification('trading', 'high', 'Session Failed', `Could not initialize AI session: ${error.message || error}`);
       }
+    } finally {
+      // Guarantee loading state never remains stuck if session failed to activate
+      // If engineState was still stuck in preparing/loading/sync, reset to IDLE or ERROR
     }
   };
 
@@ -1016,10 +1025,14 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-400 font-medium flex items-center gap-1.5">
                       <Wallet className="w-3.5 h-3.5 text-slate-500" />
-                      Available Wallet Balance
+                      Available {config?.sessionSetup?.fundingSource === 'VAULT' ? 'Vault' : 'Wallet'} Balance
                     </span>
                     <span className={`font-mono font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                      {formatCurrency(tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0))}
+                      {formatCurrency(
+                        config?.sessionSetup?.fundingSource === 'VAULT' 
+                          ? (user?.vaultBalance || 0) 
+                          : (tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : (user?.tokenBalance ?? user?.availableBalance ?? 0)))
+                      )}
                     </span>
                   </div>
 
@@ -1029,7 +1042,15 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                       Capital Shortfall
                     </span>
                     <span className="font-mono font-bold text-amber-400">
-                      -{formatCurrency(Math.max(0, (config?.sessionSetup?.amountToAllocate || 0) - (tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : 0))))}
+                      -{formatCurrency(
+                        Math.max(
+                          0, 
+                          (config?.sessionSetup?.amountToAllocate || 0) - 
+                          (config?.sessionSetup?.fundingSource === 'VAULT' 
+                            ? (user?.vaultBalance || 0) 
+                            : (tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : (user?.tokenBalance ?? user?.availableBalance ?? 0))))
+                        )
+                      )}
                     </span>
                   </div>
                 </div>

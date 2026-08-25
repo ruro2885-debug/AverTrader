@@ -12,7 +12,8 @@ import { collection, onSnapshot, query, updateDoc, doc, setDoc } from 'firebase/
 import { db, storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
-import { saveSupportTicket, mergeTicketsWithLocal } from '@/lib/supportStore';
+import { saveSupportTicket, mergeTicketsWithLocal, uploadSupportAttachment } from '@/lib/supportStore';
+import { compressImageFile } from '@/utils/imageCompressor';
 // Force tsc cache refresh
 
 export interface SupportMessage {
@@ -96,6 +97,7 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
   const [attachment, setAttachment] = useState<{ name: string; url: string; type: 'image' | 'file' | 'pdf' } | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [sendingReply, setSendingReply] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -199,26 +201,52 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
   }, [selectedTicketId, tickets]);
 
   // Handle File Selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert("File size exceeds 15MB limit.");
+    if (file.size > 25 * 1024 * 1024) {
+      alert("File size exceeds 25MB limit.");
       return;
     }
 
-    setSelectedFile(file);
+    if (file.type.startsWith('image/')) {
+      try {
+        const compressed = await compressImageFile(file, 1200, 1200, 0.78);
+        const compressedFile = new File([compressed.blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: 'image/jpeg' });
+        setSelectedFile(compressedFile);
+        setAttachment({
+          name: file.name,
+          url: compressed.dataUrl,
+          type: 'image'
+        });
+      } catch (err) {
+        console.warn("Admin image compression fallback:", err);
+        setSelectedFile(file);
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachment({
+            name: file.name,
+            url: reader.result as string,
+            type: 'image'
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    } else {
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAttachment({
+          name: file.name,
+          url: reader.result as string,
+          type: file.type.includes('pdf') ? 'pdf' : 'file'
+        });
+      };
+      reader.readAsDataURL(file);
+    }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAttachment({
-        name: file.name,
-        url: reader.result as string,
-        type: file.type.startsWith('image/') ? 'image' : file.type.includes('pdf') ? 'pdf' : 'file'
-      });
-    };
-    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   // Grouping for Messages Tab (User Cards)
@@ -406,14 +434,34 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
     let finalAttachmentUrl = attachment?.url || '';
 
-    if (selectedFile) {
+    if (finalAttachmentUrl && finalAttachmentUrl.startsWith('data:')) {
+      try {
+        finalAttachmentUrl = await uploadSupportAttachment(
+          finalAttachmentUrl,
+          attachment?.name || selectedFile?.name || 'attachment.jpg',
+          selectedFile?.type || 'image/jpeg'
+        );
+      } catch (uploadErr) {
+        console.warn("Backend attachment upload failed:", uploadErr);
+      }
+    } else if (selectedFile) {
       try {
         const storageRef = ref(storage, `support_attachments/${ticketId}/${Date.now()}_${selectedFile.name}`);
-        const uploadResult = await uploadBytes(storageRef, selectedFile);
-        finalAttachmentUrl = await getDownloadURL(uploadResult.ref);
+        const uploadPromise = uploadBytes(storageRef, selectedFile).then(res => getDownloadURL(res.ref));
+        const timeoutPromise = new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Storage upload timeout')), 3500));
+        const firebaseStorageUrl = await Promise.race([uploadPromise, timeoutPromise]);
+        if (firebaseStorageUrl) {
+          finalAttachmentUrl = firebaseStorageUrl;
+        }
       } catch (err) {
-        console.warn("Storage upload fallback to Data URL:", err);
-        finalAttachmentUrl = attachment?.url || '';
+        console.warn("Storage upload fallback to backend upload:", err);
+        if (attachment?.url && attachment.url.startsWith('data:')) {
+          finalAttachmentUrl = await uploadSupportAttachment(
+            attachment.url,
+            selectedFile.name,
+            selectedFile.type
+          );
+        }
       }
     }
 
@@ -884,10 +932,22 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
 
                                 {msg.attachmentUrl && (
                                   <div className="mt-2 pt-2 border-t border-black/10">
-                                    {msg.attachmentType === "image" || msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) || (msg.attachmentUrl.includes("alt=media") && !msg.attachmentUrl.toLowerCase().includes(".pdf")) ? (
-                                      <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="block mt-1">
-                                        <img src={msg.attachmentUrl} alt="attachment" className="max-h-48 rounded-lg object-cover border border-white/20" />
-                                      </a>
+                                    {(msg.attachmentType === "image" || msg.attachmentUrl.startsWith("data:image/") || msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp|svg)/i) || (msg.attachmentUrl.includes("alt=media") && !msg.attachmentUrl.toLowerCase().includes(".pdf"))) ? (
+                                      <div 
+                                        className="relative group/att block mt-1.5 cursor-pointer max-w-sm" 
+                                        onClick={() => setLightboxImage(msg.attachmentUrl!)}
+                                      >
+                                        <img 
+                                          src={msg.attachmentUrl} 
+                                          alt={msg.attachmentName || "attachment"} 
+                                          className="max-h-56 w-auto rounded-xl object-contain bg-black/40 border border-white/20 shadow-md transition-all group-hover/att:scale-[1.02] group-hover/att:border-emerald-400/80" 
+                                        />
+                                        <div className="absolute inset-0 rounded-xl bg-black/30 opacity-0 group-hover/att:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[2px]">
+                                          <span className="px-3 py-1.5 rounded-lg bg-black/80 text-white text-[11px] font-bold flex items-center gap-1.5 shadow-lg border border-white/20">
+                                            <Eye className="w-3.5 h-3.5 text-emerald-400" /> Click to Enlarge
+                                          </span>
+                                        </div>
+                                      </div>
                                     ) : (
                                       <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs font-mono underline hover:opacity-80">
                                         <Paperclip className="w-3.5 h-3.5" />
@@ -907,10 +967,22 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
                           {activeTicketDetail.attachmentUrl && (
                             <div className="mt-4 pt-3 border-t border-white/10">
                               <p className="font-bold text-slate-200 mb-2">Attached File:</p>
-                              {activeTicketDetail.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) || (activeTicketDetail.attachmentUrl.includes('alt=media') && !activeTicketDetail.attachmentUrl.toLowerCase().includes('.pdf')) ? (
-                                <a href={activeTicketDetail.attachmentUrl} target="_blank" rel="noreferrer" className="block">
-                                  <img src={activeTicketDetail.attachmentUrl} alt="attachment" className="max-h-64 rounded-lg object-cover border border-white/20" />
-                                </a>
+                              {(activeTicketDetail.attachmentUrl.startsWith("data:image/") || activeTicketDetail.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp|svg)/i) || (activeTicketDetail.attachmentUrl.includes('alt=media') && !activeTicketDetail.attachmentUrl.toLowerCase().includes('.pdf'))) ? (
+                                <div 
+                                  className="relative group/att block cursor-pointer max-w-md" 
+                                  onClick={() => setLightboxImage(activeTicketDetail.attachmentUrl!)}
+                                >
+                                  <img 
+                                    src={activeTicketDetail.attachmentUrl} 
+                                    alt="attachment" 
+                                    className="max-h-64 rounded-xl object-contain bg-black/40 border border-white/20 shadow-md transition-all group-hover/att:scale-[1.02] group-hover/att:border-emerald-400/80" 
+                                  />
+                                  <div className="absolute inset-0 rounded-xl bg-black/30 opacity-0 group-hover/att:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[2px]">
+                                    <span className="px-3 py-1.5 rounded-lg bg-black/80 text-white text-[11px] font-bold flex items-center gap-1.5 shadow-lg border border-white/20">
+                                      <Eye className="w-3.5 h-3.5 text-emerald-400" /> Click to Enlarge
+                                    </span>
+                                  </div>
+                                </div>
                               ) : (
                                 <a href={activeTicketDetail.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs font-mono underline hover:opacity-80">
                                   <Paperclip className="w-3.5 h-3.5" />
@@ -973,6 +1045,44 @@ export default function AdminSupport({ theme }: { theme: 'light' | 'dark' }) {
           )}
         </div>
       </main>
+
+      {/* Lightbox Modal for Photo Attachments */}
+      <AnimatePresence>
+        {lightboxImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setLightboxImage(null)}
+            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-8"
+          >
+            <div className="relative max-w-5xl max-h-[90vh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+              <div className="absolute -top-12 right-0 flex items-center gap-3">
+                <a
+                  href={lightboxImage}
+                  download="attachment.jpg"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold flex items-center gap-1.5 border border-white/20 transition-colors"
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" /> Open Full
+                </a>
+                <button
+                  onClick={() => setLightboxImage(null)}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <img
+                src={lightboxImage}
+                alt="Enlarged Attachment"
+                className="max-h-[82vh] max-w-full object-contain rounded-2xl border border-white/20 shadow-2xl"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

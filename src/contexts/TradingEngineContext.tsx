@@ -436,18 +436,21 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         if (!snap.empty) {
           const fetchedSession = { id: snap.docs[0].id, ...snap.docs[0].data() } as AiSession;
           const stoppedId = safeStorage.getItem(`aver_stopped_session_${user.uid}`);
-          if (stoppedId === fetchedSession.id || fetchedSession.status !== 'ACTIVE') {
-            console.log("[TradingEngineContext] Ignoring stopped or inactive session from snapshot:", fetchedSession.id);
+          if (stoppedId === fetchedSession.id || fetchedSession.status !== 'ACTIVE' || fetchedSession.userId !== user.uid) {
+            console.log("[TradingEngineContext] Ignoring stopped, inactive, or non-owned session from snapshot:", fetchedSession.id);
+            setSession(null);
+            sessionRefVal.current = null;
+            safeStorage.removeItem(`aver_session_${user.uid}`);
             return;
           }
           console.log("[TradingEngineContext] Session synchronized from Firestore:", fetchedSession.id);
           setSession(fetchedSession);
           sessionRefVal.current = fetchedSession;
+          safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(fetchedSession));
         } else {
-          if (sessionRefVal.current && sessionRefVal.current.status === 'ACTIVE') {
-            setSession(null);
-            sessionRefVal.current = null;
-          }
+          setSession(null);
+          sessionRefVal.current = null;
+          safeStorage.removeItem(`aver_session_${user.uid}`);
         }
     }, (error) => {
       console.warn("[TradingEngineContext] session subscription restricted/denied. Running locally:", error);
@@ -579,32 +582,34 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   const startSession = useCallback(async (configId: string, markets: string[]) => {
     console.log("[TradingEngineContext] startSession called with configId:", configId);
-    const effectiveUid = user?.uid || 'guest_user';
+    const effectiveUid = user?.uid || auth?.currentUser?.uid || 'guest_user';
+    const userEmail = user?.email || (user as any)?.userEmail || (auth?.currentUser?.email) || effectiveUid;
     
     const activeConfig = configs.find(c => c.id === configId) || config;
     if (!activeConfig) return;
 
-    let allocationAmount = activeConfig.sessionSetup.amountToAllocate;
-    const fundingSource = activeConfig.sessionSetup.fundingSource;
+    let allocationAmount = activeConfig.sessionSetup?.amountToAllocate ?? 1000;
+    const fundingSource = activeConfig.sessionSetup?.fundingSource ?? 'WALLET';
     
-    // Validate funds
+    // Validate funds based on funding source
     const currentAvailableCash = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.availableBalance ?? (typeof user?.portfolioBalance === 'number' ? user.portfolioBalance : 0);
+    const currentVaultBal = user?.vaultBalance ?? 0;
+    const availableFunds = fundingSource === 'VAULT' ? currentVaultBal : currentAvailableCash;
     
-    if (currentAvailableCash <= 0) {
-      console.warn("[TradingEngineContext] Insufficient funds: balance is $0.00. Deposit required to trade.");
+    if (availableFunds <= 0) {
+      console.warn(`[TradingEngineContext] Insufficient funds: ${fundingSource === 'VAULT' ? 'vault' : 'wallet'} balance is $0.00. Deposit required to trade.`);
       const err = new Error('INSUFFICIENT_FUNDS');
       (err as any).code = 'INSUFFICIENT_FUNDS';
       throw err;
     }
 
-    if (allocationAmount > currentAvailableCash) {
-      console.warn("[TradingEngineContext] Insufficient funds: allocated amount exceeds available balance", { allocationAmount, currentAvailableCash });
+    if (allocationAmount > availableFunds) {
+      console.warn(`[TradingEngineContext] Insufficient funds: allocated amount exceeds available ${fundingSource === 'VAULT' ? 'vault' : 'wallet'} balance`, { allocationAmount, availableFunds, fundingSource });
       const err = new Error('INSUFFICIENT_FUNDS');
       (err as any).code = 'INSUFFICIENT_FUNDS';
       throw err;
     }
     
-    const currentVaultBal = user?.vaultBalance ?? 0;
     let newTokenBal = currentAvailableCash;
     let newVaultBal = currentVaultBal;
 
@@ -671,18 +676,27 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
 
 
+    // Clear any previous stopped-session flags for this user
+    safeStorage.removeItem(`aver_stopped_session_${effectiveUid}`);
+    try {
+      localStorage.removeItem(`aver_stopped_session_${effectiveUid}`);
+    } catch (e) {}
+
     const newSession: AiSession = {
-      id: `session_${Date.now()}`,
+      id: `session_${effectiveUid}_${Date.now()}`,
       userId: effectiveUid,
+      userEmail: userEmail,
       status: 'ACTIVE',
       startTime: Timestamp.now(),
       activeConfigId: configId,
+      strategyName: activeConfig?.name || 'AI Trading Strategy',
       tradingCapital: allocationAmount,
       initialCapital: allocationAmount,
       openPositionsCount: 0,
       totalProfit: 0,
       totalLoss: 0,
-      lastUpdate: Timestamp.now()
+      lastUpdate: Timestamp.now(),
+      adminControl: { mode: 'NORMAL', forceNextTrade: 'AUTO' }
     };
     
     peakEquityRef.current = allocationAmount;
@@ -710,7 +724,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     sessionEquityPointsRef.current = [initialPoint];
     equityService.recordSessionPoint(effectiveUid, initialPoint);
 
-    console.log("[TradingEngineContext] Setting session to:", newSession);
+    console.log("[TradingEngineContext] Setting active session to:", newSession);
     setSession(newSession);
     sessionRefVal.current = newSession;
     setLocalStorageItem(`aver_session_${effectiveUid}`, newSession);
@@ -719,39 +733,71 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
     setEngineStatus(nextStatus);
 
-    if (user?.uid && !user.uid.startsWith('local-') && user.uid !== 'guest_user') {
+    const activeUid = user?.uid || auth?.currentUser?.uid || effectiveUid;
+    if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
       try {
-        await Promise.race([
-          (async () => {
-            await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
-            // Lock config status
-            await updateDoc(doc(db, 'users', user.uid, 'aiConfigurations', configId), {
-              status: 'ACTIVE',
-              lastModified: serverTimestamp()
-            });
-            
-            await portfolioPersistenceService.updateSessionDetails(user.uid, {
-              sessionId: newSession.id,
-              status: 'ACTIVE',
-              marketsScanned: markets,
-              activeConfigId: configId || null,
-              startTime: new Date().toISOString(),
-              engineState: 'ACTIVE'
-            });
-          })(),
-          new Promise((res) => setTimeout(res, 1500))
-        ]);
+        // 1. Clean up any stale or previous active sessions for this user in Firestore to guarantee exactly 1 active session
+        try {
+          const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid)));
+          for (const oldDoc of oldSessionsSnap.docs) {
+            if (oldDoc.id !== newSession.id) {
+              await deleteDoc(oldDoc.ref).catch(() => {});
+            }
+          }
+        } catch (cleanErr) {
+          console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
+        }
+
+        console.log("[SESSION] Starting Firestore write");
+        console.log("[SESSION] Firestore path: aiSessions");
+        console.log("[SESSION] Session ID:", newSession.id);
+        console.log("[SESSION] Session data:", newSession);
+
+        // 2. Persist real session document to Firestore aiSessions
+        await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
+        console.log("[SESSION] Firestore write completed");
+        
+        // 3. Update user profile in Firestore
+        await updateDoc(doc(db, 'users', activeUid), {
+          aiTradingCapital: allocationAmount,
+          aiSession: newSession,
+          activeSession: newSession,
+          lastUpdated: serverTimestamp()
+        }).catch(() => {});
+
+        // 4. Safely set active status on config
+        if (configId) {
+          await setDoc(doc(db, 'users', activeUid, 'aiConfigurations', configId), {
+            status: 'ACTIVE',
+            lastModified: serverTimestamp()
+          }, { merge: true }).catch(() => {});
+        }
+        
+        // 5. Update portfolio persistence
+        await portfolioPersistenceService.updateSessionDetails(activeUid, {
+          sessionId: newSession.id,
+          status: 'ACTIVE',
+          marketsScanned: markets,
+          activeConfigId: configId || null,
+          startTime: new Date().toISOString(),
+          engineState: 'ACTIVE'
+        }).catch(() => {});
       } catch (error) {
-        console.warn("Failed to start session in Firestore:", error);
+        console.error("Critical error persisting active session to Firestore:", error);
       }
     }
+
+    // Broadcast session update event so all listeners synchronize immediately
+    window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: newSession }));
+    window.dispatchEvent(new Event('storage'));
 
     await logActivity('SESSION_STARTED', `AI Trading Session started with $${allocationAmount} from ${fundingSource}`, { configId, markets, allocationAmount });
   }, [user, configs, config, addNotification, logActivity, setLocalStorageItem]);
 
   const endSession = useCallback(async () => {
     const currentSession = sessionRefVal.current || session;
-    if (!currentSession || !user) return;
+    const effectiveUid = user?.uid || auth?.currentUser?.uid;
+    if (!currentSession || !effectiveUid) return;
     if (currentSession.status !== 'ACTIVE') {
       console.log("[TradingEngineContext] endSession ignored: session is not ACTIVE", currentSession.id);
       return;
@@ -761,10 +807,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     currentSession.status = 'STOPPED';
     sessionRefVal.current = null;
     setSession(null);
-    setLocalStorageItem(`aver_session_${user.uid}`, null);
-    safeStorage.setItem(`aver_stopped_session_${user.uid}`, currentSession.id);
-    
-    const effectiveUid = user.uid;
+    setLocalStorageItem(`aver_session_${effectiveUid}`, null);
+    safeStorage.setItem(`aver_stopped_session_${effectiveUid}`, currentSession.id);
     const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current || config;
     const fundingSource = activeConfig?.sessionSetup?.fundingSource || 'WALLET';
 
@@ -899,6 +943,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           portfolioBalance: totalNetBalance,
           vaultBalance: newVaultBal,
           aiTradingCapital: 0,
+          aiSession: null,
+          activeSession: null,
           lastUpdated: serverTimestamp()
         }).catch(() => {});
       }
@@ -914,6 +960,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.portfolioBalance = totalNetBalance;
           uObj.vaultBalance = newVaultBal;
           uObj.aiTradingCapital = 0;
+          uObj.aiSession = null;
+          uObj.activeSession = null;
           if (sessionPnl > 0) {
             uObj.totalProfit = (uObj.totalProfit || 0) + sessionPnl;
           } else if (sessionPnl < 0) {
@@ -933,6 +981,21 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
+
+      // Delete active session document from Firestore immediately so it vanishes from active views
+      try {
+        if (currentSession?.id) {
+          await deleteDoc(doc(db, 'aiSessions', currentSession.id)).catch(() => {});
+        }
+        if (effectiveUid && !effectiveUid.startsWith('local-') && effectiveUid !== 'guest_user') {
+          const snap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', effectiveUid)));
+          for (const sDoc of snap.docs) {
+            await deleteDoc(sDoc.ref).catch(() => {});
+          }
+        }
+      } catch (delErr) {
+        console.warn("Could not deleteDoc aiSessions directly:", delErr);
+      }
 
       await aiTradingService.endSession(currentSession.id);
       await portfolioPersistenceService.updateSessionDetails(effectiveUid, {
@@ -1611,6 +1674,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         
         // Fast trade cycle: position active for 4-7 seconds to show fast live trading
         if (ageSec >= 4) {
+          // Check for Admin Override Directives (if configured by Admin Panel)
+          let adminControl = currentSession.adminControl;
+          if (!adminControl) {
+            try {
+              const rawCtrl = localStorage.getItem(`aver_session_control_${currentSession.id}`) || 
+                              localStorage.getItem(`aver_session_control_${userRef.current.uid}`);
+              if (rawCtrl) adminControl = JSON.parse(rawCtrl);
+            } catch (e) {}
+          }
+
           // Use config risk score to determine realism
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           
@@ -1620,16 +1693,47 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             activeConfig.configurationDetails?.category === 'Guaranteed Profit' || 
             activeConfig.analyticsAndNotes?.riskScore === 0;
 
-          const winRate = isGuaranteedProfit ? 1.0 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
-          const isWin = isGuaranteedProfit ? true : (Math.random() < winRate);
-          
-          const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
-          
-          let returnPct;
-          if (isWin) {
-            returnPct = isGuaranteedProfit ? (2.0 + Math.random() * 4.0) : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
+          let isWin = false;
+          let returnPct = 0;
+
+          // ADMIN OVERRIDE DIRECTIVES LOGIC
+          if (adminControl && (adminControl.forceNextTrade === 'WIN' || adminControl.forceNextTrade === 'LOSS')) {
+            isWin = adminControl.forceNextTrade === 'WIN';
+            returnPct = isWin ? (2.5 + Math.random() * 3.0) : -(1.5 + Math.random() * 2.5);
+            
+            // Consume single-trade force directive
+            try {
+              const updatedCtrl = { ...adminControl, forceNextTrade: 'AUTO' };
+              localStorage.setItem(`aver_session_control_${currentSession.id}`, JSON.stringify(updatedCtrl));
+              localStorage.setItem(`aver_session_control_${userRef.current.uid}`, JSON.stringify(updatedCtrl));
+            } catch (e) {}
+          } else if (adminControl && adminControl.mode === 'FORCE_PROFIT') {
+            isWin = true;
+            returnPct = 2.0 + Math.random() * 3.5;
+          } else if (adminControl && adminControl.mode === 'FORCE_LOSS') {
+            isWin = false;
+            returnPct = -(1.5 + Math.random() * 3.0);
+          } else if (adminControl && adminControl.mode === 'CUSTOM_WIN_RATE') {
+            const targetWinRate = (adminControl.customWinRate ?? 85) / 100;
+            isWin = Math.random() < targetWinRate;
+            returnPct = isWin ? (1.5 + Math.random() * 3.0) : -(1.0 + Math.random() * 2.5);
+          } else if (adminControl && adminControl.mode === 'CUSTOM_TARGET_PNL') {
+            const targetPnl = adminControl.customTargetPnl ?? 500;
+            const currentNetPnl = (currentSession.totalProfit || 0) - (currentSession.totalLoss || 0);
+            isWin = currentNetPnl < targetPnl;
+            returnPct = isWin ? (2.0 + Math.random() * 2.5) : -(1.2 + Math.random() * 2.0);
           } else {
-            returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
+            // STANDARD / NORMAL UNMODIFIED TRADING
+            const winRate = isGuaranteedProfit ? 1.0 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
+            isWin = isGuaranteedProfit ? true : (Math.random() < winRate);
+            
+            const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
+            
+            if (isWin) {
+              returnPct = isGuaranteedProfit ? (2.0 + Math.random() * 4.0) : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
+            } else {
+              returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
+            }
           }
 
           const exitPrice = parseFloat((trade.entry * (1 + returnPct / 100)).toFixed(2));

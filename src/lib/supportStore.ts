@@ -38,6 +38,53 @@ export interface SupportTicket {
 const STORAGE_KEY = 'aver_support_tickets_v2';
 
 /**
+ * Deep sanitization to guarantee NO `undefined` values are ever passed to Firestore.
+ * Prevents "Unsupported field value: undefined" errors that silently drop writes.
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as any;
+  }
+  if (typeof data !== 'object') {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirestore(item)) as any;
+  }
+  const clean: Record<string, any> = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (val !== undefined) {
+      clean[key] = sanitizeForFirestore(val);
+    }
+  }
+  return clean as T;
+}
+
+/**
+ * Uploads an image or document attachment to the backend high-performance API.
+ * Returns a permanent lightweight URL (`/api/support/image/att_...`) that stores cleanly in Firestore.
+ */
+export async function uploadSupportAttachment(dataUrl: string, filename: string, mimeType = 'image/jpeg'): Promise<string> {
+  try {
+    const res = await fetch('/api/support/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataUrl, filename, mimeType }),
+      signal: AbortSignal.timeout(6000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.url) {
+        return data.url;
+      }
+    }
+  } catch (err) {
+    console.warn("[SupportStore] Backend upload fallback to compressed data URL:", err);
+  }
+  return dataUrl;
+}
+
+/**
  * Merges Firestore ticket data with local localStorage backup.
  * Deduplicates by ticket ID, preferring the newer or combined message history.
  */
@@ -61,15 +108,26 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
   const mergeTwoTickets = (t1: SupportTicket, t2: SupportTicket): SupportTicket => {
     const combinedMsgsMap = new Map<string, SupportMessage>();
     (t1.messages || []).forEach(m => {
-      if (m && (m.id || m.text)) {
-        const key = m.id || `${m.timestamp}-${m.text}`;
+      if (m && (m.id || m.text || m.attachmentUrl)) {
+        const key = m.id || `${m.timestamp || ''}-${m.text || ''}-${m.attachmentUrl ? m.attachmentUrl.slice(-20) : ''}`;
         combinedMsgsMap.set(key, m);
       }
     });
     (t2.messages || []).forEach(m => {
-      if (m && (m.id || m.text)) {
-        const key = m.id || `${m.timestamp}-${m.text}`;
-        combinedMsgsMap.set(key, m);
+      if (m && (m.id || m.text || m.attachmentUrl)) {
+        const key = m.id || `${m.timestamp || ''}-${m.text || ''}-${m.attachmentUrl ? m.attachmentUrl.slice(-20) : ''}`;
+        if (combinedMsgsMap.has(key)) {
+          const prev = combinedMsgsMap.get(key)!;
+          combinedMsgsMap.set(key, {
+            ...prev,
+            ...m,
+            attachmentUrl: m.attachmentUrl || prev.attachmentUrl,
+            attachmentName: m.attachmentName || prev.attachmentName,
+            attachmentType: m.attachmentType || prev.attachmentType
+          });
+        } else {
+          combinedMsgsMap.set(key, m);
+        }
       }
     });
 
@@ -121,7 +179,11 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
   } catch (e) {
-    // ignore
+    // Trim oldest if storage quota exceeds
+    try {
+      const trimmed = merged.slice(0, 30);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+    } catch (ignore) {}
   }
 
   return merged;
@@ -133,11 +195,14 @@ export function mergeTicketsWithLocal(firestoreTickets: SupportTicket[]): Suppor
  */
 export async function saveSupportTicket(ticket: SupportTicket): Promise<void> {
   const now = new Date().toISOString();
-  const ticketToSave: SupportTicket = {
+  const rawTicket: SupportTicket = {
     ...ticket,
     updatedAt: ticket.updatedAt || now,
     messages: ticket.messages || []
   };
+
+  // Clean all fields so Firestore never rejects with undefined
+  const ticketToSave = sanitizeForFirestore(rawTicket);
 
   // 1. Local Storage Instant Update
   try {
@@ -155,8 +220,10 @@ export async function saveSupportTicket(ticket: SupportTicket): Promise<void> {
   window.dispatchEvent(new CustomEvent('support_ticket_updated', { detail: ticketToSave.id }));
   window.dispatchEvent(new Event('storage'));
 
-  // 3. Persist to Firestore DB (fire and forget)
-  safeSetDoc(doc(db, 'support_tickets', ticketToSave.id), ticketToSave, { merge: true }).catch(err => {
+  // 3. Persist to Firestore DB with merge
+  try {
+    await safeSetDoc(doc(db, 'support_tickets', ticketToSave.id), ticketToSave, { merge: true });
+  } catch (err) {
     console.error("Firestore setDoc support ticket error:", err);
-  });
+  }
 }

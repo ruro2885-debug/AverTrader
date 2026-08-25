@@ -1660,17 +1660,11 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
   };
 
   return (
-    <div className={`min-h-screen ${isDark ? 'bg-[#06080f] text-white' : 'bg-slate-50 text-slate-900'} relative overflow-hidden font-sans`}>
-      {/* Background ambient lighting */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className={`absolute top-0 left-1/4 w-[600px] h-[600px] rounded-full blur-[140px] opacity-15 ${isDark ? 'bg-emerald-500' : 'bg-emerald-400'}`} />
-        <div className={`absolute bottom-0 right-1/4 w-[500px] h-[500px] rounded-full blur-[140px] opacity-10 ${isDark ? 'bg-blue-600' : 'bg-blue-400'}`} />
-      </div>
-
+    <div className={`fixed inset-0 z-50 ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'} flex flex-col overflow-hidden w-full h-[100dvh] font-sans`}>
       {/* Fixed Top Header Bar */}
       {step !== 'crypto_deposit_verification' && step !== 'crypto_success' && step !== 'crypto_expired' && (
-        <div className={`fixed top-0 left-0 right-0 z-50 backdrop-blur-xl border-b px-4 sm:px-6 lg:px-8 py-4 ${
-          isDark ? 'bg-[#06080f]/90 border-white/10 shadow-lg shadow-black/40' : 'bg-white/90 border-slate-200 shadow-sm'
+        <div className={`flex-shrink-0 z-40 backdrop-blur-xl border-b px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4 ${
+          isDark ? 'bg-black/95 border-white/10 shadow-lg shadow-black/40' : 'bg-white/90 border-slate-200 shadow-sm'
         }`}>
           <div className="max-w-7xl mx-auto flex items-center justify-between">
             <button 
@@ -1727,10 +1721,11 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-32 relative z-10">
-
-        {/* Main Content Flow */}
-        <div className="max-w-5xl sm:max-w-6xl mx-auto space-y-8">
+      {/* Main Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto overscroll-contain w-full">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+          {/* Main Content Flow */}
+          <div className="max-w-5xl sm:max-w-6xl mx-auto space-y-8 pb-10">
             
             <AnimatePresence mode="wait">
               {/* STEP 1: FUNDING METHODS */}
@@ -4565,6 +4560,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
         </div>
 
+        </div>
       </div>
     </div>
   );

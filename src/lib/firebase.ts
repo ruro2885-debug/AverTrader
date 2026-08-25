@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, memoryLocalCache, doc, getDocFromServer, setDoc, updateDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { initializeFirestore, memoryLocalCache, setDoc, updateDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 const firebaseConfig = {
   apiKey: "AIzaSyDA2AcnxhGzSCdNClHFpF3rn2Af0ucWF94",
@@ -15,7 +15,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+export const db = initializeFirestore(app, {
+  localCache: memoryLocalCache(),
+  experimentalAutoDetectLongPolling: true,
+});
 export const storage = getStorage(app);
 
 let quotaExceeded = false;
@@ -88,22 +91,6 @@ export async function safeDeleteDoc(reference: any) {
     console.warn("[Firebase] safeDeleteDoc failed:", err);
   }
 }
-
-// Validate connection to Firestore on initialization as recommended in skill guidelines
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error: any) {
-    const msg = (error?.message || error?.code || String(error)).toLowerCase();
-    if (msg.includes('quota') || msg.includes('resource-exhausted')) {
-      quotaExceeded = true;
-      console.warn("[Firebase] Quota limit reached on project. Operating in offline/cached mode.");
-    } else if (msg.includes('offline') || msg.includes('could not reach') || msg.includes('unavailable')) {
-      console.warn("[Firebase] Operating in offline/cached mode or backend unavailable.");
-    }
-  }
-}
-testConnection();
 
 export enum OperationType {
   CREATE = 'create',

@@ -30,6 +30,7 @@ import {
   X
 } from 'lucide-react';
 import { EventItem, EventCategory, EventStatus } from '../types/events';
+import { getEffectiveParticipantCount } from '../utils/eventEnrollmentSimulator';
 import { subscribeToEvents, joinEventService, claimEventRewardService } from '../services/eventsService';
 import { useAuth } from '../contexts/AuthContext';
 import EventDetailsPage from './events/EventDetailsPage';
@@ -170,9 +171,10 @@ export default function EventsPromosPage({
 
   // Calculate platform totals
   const totalPoolUSD = events.reduce((acc, ev) => acc + (ev.totalRewardPool || 0), 0);
-  const totalTraders = events.reduce((acc, ev) => acc + (ev.participantCount || 0), 0);
+  const totalTraders = events.reduce((acc, ev) => acc + getEffectiveParticipantCount(ev).count, 0);
 
   const activeHero = featuredEvents[heroIndex] || events[0];
+  const activeHeroSim = activeHero ? getEffectiveParticipantCount(activeHero) : { formattedCount: '0' };
   const heroTimeLeft = formatTimeLeft(activeHero?.endTime || activeHero?.startTime);
 
   return (
@@ -376,7 +378,7 @@ export default function EventsPromosPage({
 
                     <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
                       <Users className="w-4 h-4 text-blue-400" />
-                      <span className="text-xs font-black text-white">{(activeHero?.participantCount || 0).toLocaleString()}</span>
+                      <span className="text-xs font-black text-white">{activeHeroSim.formattedCount}</span>
                       <span className="text-[10px] font-bold text-slate-400">Traders Enrolled</span>
                     </div>
                   </div>
@@ -449,7 +451,8 @@ export default function EventsPromosPage({
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {livePromotions.map((item, idx) => {
-              const capacityPct = item.maxParticipants ? Math.min(100, Math.round((item.participantCount / item.maxParticipants) * 100)) : 45;
+              const simulated = getEffectiveParticipantCount(item);
+              const capacityPct = simulated.percentage;
               return (
                 <div 
                   key={`live-${item.id || idx}-${idx}`}
@@ -497,7 +500,7 @@ export default function EventsPromosPage({
                     <div className="space-y-1.5">
                       <div className="flex justify-between text-[10px] font-bold text-slate-400">
                         <span>Participants Enrolled</span>
-                        <span className="text-white">{(item.participantCount || 0).toLocaleString()} {item.maxParticipants ? `/ ${item.maxParticipants.toLocaleString()}` : ''}</span>
+                        <span className="text-white">{simulated.formattedCount} {item.maxParticipants ? `/ ${item.maxParticipants.toLocaleString()}` : `/ ${simulated.formattedMax}`}</span>
                       </div>
                       <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full" style={{ width: `${capacityPct}%` }} />
@@ -583,7 +586,9 @@ export default function EventsPromosPage({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {upcomingEvents.map((item, idx) => (
+              {upcomingEvents.map((item, idx) => {
+                const simulated = getEffectiveParticipantCount(item);
+                return (
                 <div 
                   key={`upcoming-${item.id || idx}-${idx}`}
                   onClick={() => setSelectedEventId(item.id)}
@@ -607,7 +612,7 @@ export default function EventsPromosPage({
                   <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{item.subtitle}</p>
 
                   <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-medium">Pre-Registered: <strong className="text-white">{(item.participantCount || 0).toLocaleString()}</strong></span>
+                    <span className="text-slate-400 font-medium">Pre-Registered: <strong className="text-white">{simulated.formattedCount}</strong></span>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -621,7 +626,7 @@ export default function EventsPromosPage({
                     </button>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           </section>
         )}
@@ -640,7 +645,9 @@ export default function EventsPromosPage({
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-slate-900/40 overflow-hidden divide-y divide-white/5">
-              {completedEvents.map((item, idx) => (
+              {completedEvents.map((item, idx) => {
+                const simulated = getEffectiveParticipantCount(item);
+                return (
                 <div 
                   key={`completed-${item.id || idx}-${idx}`}
                   onClick={() => setSelectedEventId(item.id)}
@@ -652,7 +659,7 @@ export default function EventsPromosPage({
                     </div>
                     <div>
                       <h4 className="font-bold text-sm text-white">{item.title}</h4>
-                      <p className="text-xs text-slate-400 mt-0.5">{(item.participantCount || 0).toLocaleString()} Participants • Settled & Distributed</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{simulated.formattedCount} Participants • Settled & Distributed</p>
                     </div>
                   </div>
 
@@ -664,7 +671,7 @@ export default function EventsPromosPage({
                     <ArrowRight className="w-4 h-4 text-slate-500" />
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           </section>
         )}

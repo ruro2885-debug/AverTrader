@@ -12,6 +12,8 @@ import {
   Gift 
 } from 'lucide-react';
 import { EventItem } from '../../types/events';
+import { getEffectiveParticipantCount } from '../../utils/eventEnrollmentSimulator';
+
 
 interface EventCardProps {
   key?: string | number;
@@ -63,8 +65,15 @@ export default function EventCard({
   const isJoined = event.userProgress?.joined || event.userProgress?.status === 'REGISTERED' || event.userProgress?.status === 'IN_PROGRESS';
   const isClaimed = event.userProgress?.status === 'CLAIMED';
   const hasEnded = event.status === 'COMPLETED' || (event.endTime && new Date(event.endTime).getTime() <= Date.now());
-  const maxParts = event.maxParticipants || 50000;
-  const progressPercent = Math.min(100, Math.round((event.participantCount / maxParts) * 100));
+
+  const [runtimeTick, setRuntimeTick] = useState(0);
+  useEffect(() => {
+    const ticker = setInterval(() => setRuntimeTick(t => t + 1), 6000);
+    return () => clearInterval(ticker);
+  }, []);
+
+  const simulatedParts = getEffectiveParticipantCount(event, runtimeTick);
+  const progressPercent = simulatedParts.percentage;
 
   return (
     <motion.div
@@ -174,7 +183,7 @@ export default function EventCard({
           <div className="flex items-center justify-between text-[11px] font-bold mb-1.5">
             <span className="text-gray-400 flex items-center gap-1">
               <Users className="w-3.5 h-3.5 text-purple-400" />
-              {event.participantCount.toLocaleString()} Joined
+              {simulatedParts.formattedCount} Joined
             </span>
             <span className="text-gray-400">
               {progressPercent}% Cap
