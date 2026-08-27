@@ -340,8 +340,26 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         }
       }
     };
+
+    const handleSessionTerminated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const effectiveUid = user?.uid || 'guest_user';
+      if (!customEvent.detail?.sessionId || customEvent.detail?.sessionId === sessionRefVal.current?.id || !sessionRefVal.current) {
+        console.log("[TradingEngineContext] Received aver_session_terminated event. Clearing active session state.");
+        setSession(null);
+        sessionRefVal.current = null;
+        setEngineStatus('OFFLINE');
+        safeStorage.removeItem(`aver_session_${effectiveUid}`);
+        safeStorage.removeItem(`aver_stopped_session_${effectiveUid}`);
+      }
+    };
+
     window.addEventListener('configs_updated', handleConfigsSync);
-    return () => window.removeEventListener('configs_updated', handleConfigsSync);
+    window.addEventListener('aver_session_terminated', handleSessionTerminated);
+    return () => {
+      window.removeEventListener('configs_updated', handleConfigsSync);
+      window.removeEventListener('aver_session_terminated', handleSessionTerminated);
+    };
   }, [user?.uid, setLocalStorageItem]);
 
   // Sync state TO localStorage on any state modification
@@ -435,9 +453,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const unsubSession = onSnapshot(sessionRef, (snap) => {
         if (!snap.empty) {
           const fetchedSession = { id: snap.docs[0].id, ...snap.docs[0].data() } as AiSession;
-          const stoppedId = safeStorage.getItem(`aver_stopped_session_${user.uid}`);
-          if (stoppedId === fetchedSession.id || fetchedSession.status !== 'ACTIVE' || fetchedSession.userId !== user.uid) {
-            console.log("[TradingEngineContext] Ignoring stopped, inactive, or non-owned session from snapshot:", fetchedSession.id);
+          if (fetchedSession.status !== 'ACTIVE' || fetchedSession.userId !== user.uid) {
+            console.log("[TradingEngineContext] Ignoring inactive or non-owned session from snapshot:", fetchedSession.id);
             setSession(null);
             sessionRefVal.current = null;
             safeStorage.removeItem(`aver_session_${user.uid}`);
@@ -734,30 +751,30 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     setEngineStatus(nextStatus);
 
     const activeUid = user?.uid || auth?.currentUser?.uid || effectiveUid;
-    if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
+    try {
+      // 1. Clean up any stale or previous active sessions for this user in Firestore to guarantee exactly 1 active session
       try {
-        // 1. Clean up any stale or previous active sessions for this user in Firestore to guarantee exactly 1 active session
-        try {
-          const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid)));
-          for (const oldDoc of oldSessionsSnap.docs) {
-            if (oldDoc.id !== newSession.id) {
-              await deleteDoc(oldDoc.ref).catch(() => {});
-            }
+        const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid)));
+        for (const oldDoc of oldSessionsSnap.docs) {
+          if (oldDoc.id !== newSession.id) {
+            await deleteDoc(oldDoc.ref).catch(() => {});
           }
-        } catch (cleanErr) {
-          console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
         }
+      } catch (cleanErr) {
+        console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
+      }
 
-        console.log("[SESSION] Starting Firestore write");
-        console.log("[SESSION] Firestore path: aiSessions");
-        console.log("[SESSION] Session ID:", newSession.id);
-        console.log("[SESSION] Session data:", newSession);
+      console.log("[SESSION] Starting Firestore write");
+      console.log("[SESSION] Firestore path: aiSessions");
+      console.log("[SESSION] Session ID:", newSession.id);
+      console.log("[SESSION] Session data:", newSession);
 
-        // 2. Persist real session document to Firestore aiSessions
-        await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
-        console.log("[SESSION] Firestore write completed");
-        
-        // 3. Update user profile in Firestore
+      // 2. Persist real session document to Firestore aiSessions
+      await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
+      console.log("[SESSION] Firestore write completed");
+      
+      // 3. Update user profile in Firestore if valid user
+      if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
         await updateDoc(doc(db, 'users', activeUid), {
           aiTradingCapital: allocationAmount,
           aiSession: newSession,
@@ -782,9 +799,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           startTime: new Date().toISOString(),
           engineState: 'ACTIVE'
         }).catch(() => {});
-      } catch (error) {
-        console.error("Critical error persisting active session to Firestore:", error);
       }
+    } catch (error) {
+      console.error("Critical error persisting active session to Firestore:", error);
     }
 
     // Broadcast session update event so all listeners synchronize immediately
@@ -808,7 +825,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     sessionRefVal.current = null;
     setSession(null);
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
-    safeStorage.setItem(`aver_stopped_session_${effectiveUid}`, currentSession.id);
+    safeStorage.removeItem(`aver_stopped_session_${effectiveUid}`);
     const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current || config;
     const fundingSource = activeConfig?.sessionSetup?.fundingSource || 'WALLET';
 

@@ -6,9 +6,11 @@ import {
   Activity, Play, Square, Zap, RefreshCw, Layers, ShieldAlert, ChevronRight,
   Sliders, Trash2, Sparkles, SlidersHorizontal
 } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, getDocs, doc, updateDoc, Timestamp, where, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDocs, doc, getDoc, updateDoc, Timestamp, where, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 import { aiTradingService } from '../../../services/aiTradingService';
+import { walletService } from '../../../services/walletService';
+import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import AdminSessionControlModal from './AdminSessionControlModal';
 import { SessionAdminControl } from '../../../types/aiTrading';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -68,6 +70,8 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
   const { user } = useAuth();
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionRecord[]>([]);
+  const [userMap, setUserMap] = useState<Record<string, { email: string }>>({});
+  const userMapRef = React.useRef<Record<string, { email: string }>>({});
   const [search, setSearch] = useState('');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [selectedControlSession, setSelectedControlSession] = useState<ActiveSessionRecord | null>(null);
@@ -77,44 +81,48 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
 
   const isDark = theme === 'dark';
 
-  // 1. Single Source of Truth: Real-time sync with Firestore `aiSessions` and `users`
+  // 1. Listen to users collection in real time to resolve emails accurately
   useEffect(() => {
-    let unsubSessions: (() => void) | null = null;
     let unsubUsers: (() => void) | null = null;
-    let unsubTradesList: (() => void)[] = [];
-
-    const userMap: Record<string, { email: string }> = {};
-
-    // Listen to users collection in real time to resolve emails accurately
     try {
       unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        const newUserMap: Record<string, { email: string }> = {};
         snap.forEach(uDoc => {
           const d = uDoc.data();
-          userMap[uDoc.id] = { email: d.email || 'user@example.com' };
+          newUserMap[uDoc.id] = { email: d.email || 'user@example.com' };
         });
+        setUserMap(newUserMap);
+        userMapRef.current = newUserMap;
       }, (err) => {
         console.warn("[AdminTrades] User map listener error:", err);
       });
     } catch (e) {}
 
-    console.log("[ADMIN] Listener mounted");
-    console.log("[ADMIN] Listening path: aiSessions");
-    // Real-time listener for active aiSessions
+    return () => {
+      if (unsubUsers) unsubUsers();
+    };
+  }, []);
+
+  // Update session emails when userMap updates without restarting session listener
+  useEffect(() => {
+    userMapRef.current = userMap;
+    setActiveSessions(prev => prev.map(s => ({
+      ...s,
+      userEmail: s.userEmail === 'trader@example.com' || s.userEmail === s.userId 
+        ? (userMap[s.userId]?.email || s.userEmail) 
+        : s.userEmail
+    })));
+  }, [userMap]);
+
+  // 2. Real-time listener for active aiSessions
+  useEffect(() => {
+    let unsubSessions: (() => void) | null = null;
+    let unsubTradesMap: Record<string, () => void> = {};
+
+    console.log("[ADMIN] Listener mounted for aiSessions");
     try {
       unsubSessions = onSnapshot(collection(db, 'aiSessions'), (snapshot) => {
-        console.log("[ADMIN] Snapshot received");
-        console.log("[ADMIN] Active sessions:", snapshot.size);
-        snapshot.docChanges().forEach(change => {
-          if (change.type === 'added') {
-            console.log("[ADMIN] Added session:", change.doc.id, change.doc.data());
-          }
-          if (change.type === 'modified') {
-            console.log("[ADMIN] Modified session:", change.doc.id, change.doc.data());
-          }
-          if (change.type === 'removed') {
-            console.log("[ADMIN] Removed session:", change.doc.id);
-          }
-        });
+        console.log("[ADMIN] aiSessions snapshot received, docs count:", snapshot.size);
 
         const sessionsList: ActiveSessionRecord[] = [];
         const seenIds = new Set<string>();
@@ -127,7 +135,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
             if (!seenIds.has(sDoc.id)) {
               seenIds.add(sDoc.id);
               const uId = data.userId || 'unknown';
-              const userEmail = data.userEmail || userMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+              const userEmail = data.userEmail || userMapRef.current[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
               
               sessionsList.push({
                 id: sDoc.id,
@@ -163,22 +171,29 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         setActiveSessions(sessionsList);
         setLoading(false);
 
-        // Subscribe to real-time trades for all active session users
-        unsubTradesList.forEach(unsub => unsub());
-        unsubTradesList = [];
-
+        // Synchronize trade listeners for active users
         const activeUserIds = Array.from(new Set(sessionsList.map(s => s.userId).filter(uid => uid && !uid.startsWith('local-'))));
-        if (activeUserIds.length > 0) {
-          activeUserIds.forEach(uId => {
+        
+        // Remove unneeded listeners
+        Object.keys(unsubTradesMap).forEach(uId => {
+          if (!activeUserIds.includes(uId)) {
+            unsubTradesMap[uId]();
+            delete unsubTradesMap[uId];
+          }
+        });
+
+        // Add missing listeners
+        activeUserIds.forEach(uId => {
+          if (!unsubTradesMap[uId]) {
             try {
-              const uTrades = onSnapshot(collection(db, 'users', uId, 'trades'), (tSnap) => {
+              unsubTradesMap[uId] = onSnapshot(collection(db, 'users', uId, 'trades'), (tSnap) => {
                 const userTrades: TradeRecord[] = [];
                 tSnap.forEach(tDoc => {
                   const tData = tDoc.data();
                   userTrades.push({
                     id: tDoc.id,
                     userId: uId,
-                    userEmail: userMap[uId]?.email || 'trader@example.com',
+                    userEmail: userMapRef.current[uId]?.email || 'trader@example.com',
                     symbol: tData.symbol || 'BTC/USDT',
                     type: tData.type || 'long',
                     amount: tData.amount || tData.size || 0,
@@ -199,12 +214,9 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
                   return combined;
                 });
               }, () => {});
-              unsubTradesList.push(uTrades);
             } catch (e) {}
-          });
-        } else {
-          setTrades([]);
-        }
+          }
+        });
       }, (err) => {
         console.warn("[AdminTrades] Error in aiSessions onSnapshot:", err);
         setLoading(false);
@@ -215,10 +227,9 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
 
     return () => {
       if (unsubSessions) unsubSessions();
-      if (unsubUsers) unsubUsers();
-      unsubTradesList.forEach(unsub => unsub());
+      Object.values(unsubTradesMap).forEach(unsub => unsub());
     };
-  }, [user?.uid, user?.email]);
+  }, []);
 
   const handleEndSession = async (session: ActiveSessionRecord, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -231,20 +242,60 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       // 1. Delete session from Firestore aiSessions collection immediately
       await deleteDoc(doc(db, 'aiSessions', session.id)).catch(() => {});
 
-      // 2. Update user profile in Firestore
-      if (session.userId && !session.userId.startsWith('local-')) {
-        await updateDoc(doc(db, 'users', session.userId), {
-          aiTradingCapital: 0,
-          aiSession: null,
-          activeSession: null,
-          lastUpdated: Timestamp.now()
-        }).catch(() => {});
+      // 2. Refund balance and update user profile in Firestore
+      if (session.userId && !session.userId.startsWith('local-') && session.userId !== 'guest_user') {
+        try {
+          const uDocRef = doc(db, 'users', session.userId);
+          const uDocSnap = await getDoc(uDocRef).catch(() => null);
+          const userData = uDocSnap?.exists() ? uDocSnap.data() : null;
+          
+          const returnCapital = Number(session.tradingCapital || session.initialCapital || 1000);
+          const currentTokenBal = Number(userData?.tokenBalance ?? userData?.availableBalance ?? 0);
+          const newTokenBal = currentTokenBal + returnCapital;
+          const currentPortfolio = Number(userData?.portfolioBalance ?? newTokenBal);
+          const newPortfolio = Math.max(newTokenBal, currentPortfolio);
+
+          await updateDoc(uDocRef, {
+            tokenBalance: newTokenBal,
+            availableBalance: newTokenBal,
+            portfolioBalance: newPortfolio,
+            aiTradingCapital: 0,
+            aiSession: null,
+            activeSession: null,
+            lastUpdated: serverTimestamp()
+          }).catch(() => {});
+
+          await walletService.updateWallet(session.userId, {
+            tokenBalance: newTokenBal,
+            availableBalance: newTokenBal,
+            portfolioBalance: newPortfolio,
+            aiTradingCapital: 0,
+            portfolioValue: newPortfolio
+          }).catch(() => {});
+
+          await portfolioPersistenceService.updateSessionDetails(session.userId, {
+            sessionId: null,
+            status: 'INACTIVE',
+            engineState: 'IDLE'
+          }).catch(() => {});
+
+          await portfolioPersistenceService.updateWalletState(session.userId, {
+            tokenBalance: newTokenBal,
+            availableBalance: newTokenBal,
+            portfolioBalance: newPortfolio,
+            aiTradingCapital: 0
+          }).catch(() => {});
+        } catch (uErr) {
+          console.warn("[AdminTrades] Error reconciling user balance on session stop:", uErr);
+        }
       }
 
       // 3. Clear local storage for user if local
       localStorage.removeItem(`aver_session_${session.userId}`);
       localStorage.removeItem(`aver_session_control_${session.id}`);
       localStorage.removeItem(`aver_session_control_${session.userId}`);
+      localStorage.removeItem(`aver_stopped_session_${session.userId}`);
+      sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
       
       window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
       window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id } }));
@@ -274,12 +325,15 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       localStorage.removeItem(`aver_session_${session.userId}`);
       localStorage.removeItem(`aver_session_control_${session.id}`);
       localStorage.removeItem(`aver_session_control_${session.userId}`);
+      localStorage.removeItem(`aver_stopped_session_${session.userId}`);
+      sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
       
       setActiveSessions(prev => prev.filter(s => s.id !== session.id));
       if (selectedControlSession?.id === session.id) {
         setSelectedControlSession(null);
       }
       window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
+      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id } }));
     } catch (e) {
       console.error("Failed to delete session tab:", e);
     } finally {
@@ -416,8 +470,49 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         )}
       </div>
 
-      {/* ACTIVE TRADING SESSIONS GRID */}
+      {/* ACTIVE TRADING SESSIONS SECTION */}
       <div className="space-y-4">
+        {/* Active Session Tabs Bar */}
+        {activeSessions.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+              <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                Active Session Tabs ({activeSessions.length})
+              </span>
+              <span className="text-[10px] text-slate-500 font-normal">Tap any tab to open outcome controls</span>
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
+              {activeSessions.map((sess) => {
+                const sPnl = (sess.totalProfit || 0) - (sess.totalLoss || 0);
+                const isPos = sPnl >= 0;
+                const isSelected = selectedControlSession?.id === sess.id;
+                return (
+                  <button
+                    key={sess.id}
+                    onClick={() => setSelectedControlSession(sess)}
+                    className={`flex-shrink-0 px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-2.5 ${
+                      isSelected
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/10'
+                        : isDark
+                          ? 'bg-slate-900/80 hover:bg-slate-800/80 border-white/10 hover:border-emerald-500/40 text-slate-300'
+                          : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-emerald-500/40 text-slate-800 shadow-sm'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="max-w-[130px] truncate">{sess.userEmail}</span>
+                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                      isPos ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                    }`}>
+                      {isPos ? '+' : ''}${sPnl.toFixed(2)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
             <RefreshCw className="w-5 h-5 animate-spin text-emerald-500" />

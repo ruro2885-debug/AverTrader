@@ -305,34 +305,37 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const handleStartSession = async (overrideConfigId?: string, overrideMarkets?: string[]) => {
     console.log("[SESSION] Launch clicked");
     console.log("[SESSION] Auth user:", { uid: user?.uid, email: user?.email, authUid: auth?.currentUser?.uid, authEmail: auth?.currentUser?.email });
+    
+    setLoading(true);
+    setEngineState('PREPARING');
+    
     const targetConfigId = overrideConfigId || activeConfigId;
     const targetConfig = configs.find(c => c.id === targetConfigId) || configs[0] || config;
-    if (!targetConfig) {
-      addNotification('trading', 'high', 'Error', 'No configuration selected.');
-      return;
-    }
-
-    if (overrideConfigId) {
-      await activateConfiguration(overrideConfigId);
-    }
-
-    const allocationAmount = targetConfig.sessionSetup?.amountToAllocate || 0;
-    const fundingSource = targetConfig.sessionSetup?.fundingSource || 'WALLET';
-    const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : (user?.tokenBalance ?? user?.availableBalance ?? (typeof user?.portfolioBalance === 'number' ? user.portfolioBalance : 0)));
-    const currentVaultBalance = user?.vaultBalance ?? 0;
-    const availableFunds = fundingSource === 'VAULT' ? currentVaultBalance : currentTokenBalance;
-
-    // Compare allocated amount with available wallet/vault balance
-    if (availableFunds <= 0 || allocationAmount > availableFunds) {
-      setShowInsufficientFundsModal(true);
-      return;
-    }
-    
-    // 1. Initializing State
-    setEngineState('PREPARING');
-    addActivityEvent('INFO', 'Neural core initializing. Checking system integrity...');
     
     try {
+      if (!targetConfig) {
+        throw new Error('No configuration selected.');
+      }
+
+      if (overrideConfigId) {
+        await activateConfiguration(overrideConfigId);
+      }
+
+      const allocationAmount = targetConfig.sessionSetup?.amountToAllocate || 0;
+      const fundingSource = targetConfig.sessionSetup?.fundingSource || 'WALLET';
+      const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : (activeTradingBalance > 0 ? activeTradingBalance : (user?.tokenBalance ?? user?.availableBalance ?? (typeof user?.portfolioBalance === 'number' ? user.portfolioBalance : 0)));
+      const currentVaultBalance = user?.vaultBalance ?? 0;
+      const availableFunds = fundingSource === 'VAULT' ? currentVaultBalance : currentTokenBalance;
+
+      // Compare allocated amount with available wallet/vault balance
+      if (availableFunds <= 0 || allocationAmount > availableFunds) {
+        setShowInsufficientFundsModal(true);
+        return;
+      }
+      
+      // 1. Initializing State
+      addActivityEvent('INFO', 'Neural core initializing. Checking system integrity...');
+      
       // 2. Loading Config State
       await new Promise(resolve => setTimeout(resolve, 300));
       setEngineState('LOADING_CONFIG');
@@ -362,7 +365,12 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
       setActiveView('HOME');
 
     } catch (error: any) {
-      console.error("[SESSION] Launch Session failed:", error);
+      console.error("[SESSION] Launch Session failed:", {
+        error: error.message,
+        code: error.code,
+        operation: 'handleStartSession',
+        uid: user?.uid
+      });
       if (error?.code === 'INSUFFICIENT_FUNDS' || error?.message === 'INSUFFICIENT_FUNDS') {
         setShowInsufficientFundsModal(true);
         setEngineState('IDLE');
@@ -372,8 +380,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
         addNotification('trading', 'high', 'Session Failed', `Could not initialize AI session: ${error.message || error}`);
       }
     } finally {
-      // Guarantee loading state never remains stuck if session failed to activate
-      // If engineState was still stuck in preparing/loading/sync, reset to IDLE or ERROR
+      setLoading(false);
     }
   };
 

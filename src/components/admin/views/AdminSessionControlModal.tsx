@@ -7,9 +7,11 @@ import {
   Sliders, Plus, Minus, Lock, Unlock, Copy, Check, ExternalLink,
   ChevronRight, Sparkles, Layers, Cpu, Compass, Flame
 } from 'lucide-react';
-import { doc, updateDoc, setDoc, getDoc, collection, addDoc, onSnapshot, Timestamp, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, getDoc, collection, addDoc, onSnapshot, Timestamp, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 import { SessionAdminControl, SessionControlMode } from '../../../types/aiTrading';
+import { walletService } from '../../../services/walletService';
+import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 
 interface ActiveSessionRecord {
   id: string;
@@ -529,21 +531,62 @@ export default function AdminSessionControlModal({
       // 1. Delete session from Firestore aiSessions collection immediately
       await deleteDoc(doc(db, 'aiSessions', session.id)).catch(() => {});
 
-      if (session.userId && !session.userId.startsWith('local-')) {
-        await updateDoc(doc(db, 'users', session.userId), {
-          aiTradingCapital: 0,
-          aiSession: null,
-          activeSession: null,
-          lastUpdated: Timestamp.now()
-        }).catch(() => {});
+      // 2. Refund balance and update user profile in Firestore
+      if (session.userId && !session.userId.startsWith('local-') && session.userId !== 'guest_user') {
+        try {
+          const uDocRef = doc(db, 'users', session.userId);
+          const uDocSnap = await getDoc(uDocRef).catch(() => null);
+          const userData = uDocSnap?.exists() ? uDocSnap.data() : null;
+          
+          const returnCapital = Number(session.tradingCapital || session.initialCapital || 1000);
+          const currentTokenBal = Number(userData?.tokenBalance ?? userData?.availableBalance ?? 0);
+          const newTokenBal = currentTokenBal + returnCapital;
+          const currentPortfolio = Number(userData?.portfolioBalance ?? newTokenBal);
+          const newPortfolio = Math.max(newTokenBal, currentPortfolio);
+
+          await updateDoc(uDocRef, {
+            tokenBalance: newTokenBal,
+            availableBalance: newTokenBal,
+            portfolioBalance: newPortfolio,
+            aiTradingCapital: 0,
+            aiSession: null,
+            activeSession: null,
+            lastUpdated: serverTimestamp()
+          }).catch(() => {});
+
+          await walletService.updateWallet(session.userId, {
+            tokenBalance: newTokenBal,
+            availableBalance: newTokenBal,
+            portfolioBalance: newPortfolio,
+            aiTradingCapital: 0,
+            portfolioValue: newPortfolio
+          }).catch(() => {});
+
+          await portfolioPersistenceService.updateSessionDetails(session.userId, {
+            sessionId: null,
+            status: 'INACTIVE',
+            engineState: 'IDLE'
+          }).catch(() => {});
+
+          await portfolioPersistenceService.updateWalletState(session.userId, {
+            tokenBalance: newTokenBal,
+            availableBalance: newTokenBal,
+            portfolioBalance: newPortfolio,
+            aiTradingCapital: 0
+          }).catch(() => {});
+        } catch (uErr) {
+          console.warn("[AdminSessionControlModal] Error reconciling user balance on terminate:", uErr);
+        }
       }
 
-      // 2. Clear Local Storage for user
+      // 3. Clear Local Storage for user
       localStorage.removeItem(`aver_session_${session.userId}`);
       localStorage.removeItem(`aver_session_control_${session.id}`);
       localStorage.removeItem(`aver_session_control_${session.userId}`);
+      localStorage.removeItem(`aver_stopped_session_${session.userId}`);
+      sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
 
-      // 3. Dispatch updates
+      // 4. Dispatch updates
       window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
       window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id } }));
 
