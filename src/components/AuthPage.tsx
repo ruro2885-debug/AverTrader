@@ -10,6 +10,7 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { ClipboardPaste, UserPlus } from 'lucide-react';
+import { safeStorage } from '../utils/storage';
 
 
 interface AuthPageProps {
@@ -24,7 +25,17 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const { signUp, signIn, forgotPassword } = useAuth();
   const { t } = usePreferences();
 
-  const [view, setView] = useState<'choice' | 'register' | 'login' | 'forgot-password' | 'forgot-password-success'>('choice');
+  const [view, setView] = useState<'choice' | 'register' | 'login' | 'forgot-password' | 'forgot-password-success'>(() => {
+    try {
+      const path = window.location.pathname.toLowerCase();
+      const urlParams = new URLSearchParams(window.location.search);
+      const hasRef = urlParams.get('ref') || urlParams.get('referral') || urlParams.get('r') || safeStorage.getItem('aver_saved_referral');
+      if (path.includes('create-account') || path.includes('signup') || path.includes('register') || urlParams.get('tab') === 'register' || urlParams.get('mode') === 'signup' || hasRef) {
+        return 'register';
+      }
+    } catch (e) {}
+    return 'choice';
+  });
   const [showPassword, setShowPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resendCountdown, setResendCountdown] = useState(0);
@@ -39,7 +50,21 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [referralCode, setReferralCode] = useState('');
+  const [referralCode, setReferralCode] = useState<string>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const codeFromUrl = urlParams.get('ref') || urlParams.get('referral') || urlParams.get('r');
+      if (codeFromUrl) {
+        const clean = codeFromUrl.trim().toUpperCase();
+        safeStorage.setItem('aver_saved_referral', clean);
+        return clean;
+      }
+      const saved = safeStorage.getItem('aver_saved_referral');
+      return saved ? saved.trim().toUpperCase() : '';
+    } catch (e) {
+      return '';
+    }
+  });
   const [referralStatus, setReferralStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
 
   // Login Form Fields
@@ -184,6 +209,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         phoneNumber,
         referralCode
       });
+      safeStorage.removeItem('aver_saved_referral');
       onSuccess();
     } catch (error: any) {
       console.error("Registration error:", error);

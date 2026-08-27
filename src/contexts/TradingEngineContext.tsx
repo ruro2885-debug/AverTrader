@@ -42,6 +42,7 @@ interface TradingEngineContextType {
   startSession: (configId: string, markets: string[]) => Promise<void>;
   endSession: () => Promise<void>;
   loading: boolean;
+  isHydrated: boolean;
   engineStatus: EngineStatus;
   liveTradePrices: Record<string, number>;
   saveConfiguration: (updatedConfig: AiConfiguration) => Promise<void>;
@@ -122,6 +123,7 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
   startSession: async () => {},
   endSession: async () => {},
   loading: true,
+  isHydrated: false,
   engineStatus: { state: 'INACTIVE', reason: 'Initializing...' },
   liveTradePrices: {},
   saveConfiguration: async () => {},
@@ -164,6 +166,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   const [recommendations, setRecommendations] = useState<AiRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [engineStatus, setEngineStatus] = useState<EngineStatus>({ state: 'INACTIVE', reason: 'Core offline' });
   const [liveTradePrices, setLiveTradePrices] = useState<Record<string, number>>({});
   const [sessionEquityPoints, setSessionEquityPoints] = useState<SessionEquityPoint[]>([]);
@@ -271,9 +274,21 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         } catch (err) {}
     }
     
-    // Reset session, positions, trades state whenever active user changes
-    setSession(null);
-    sessionRefVal.current = null;
+    // Restore cached session if present and ACTIVE so there is zero flicker on refresh/navigation
+    const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
+    if (cachedSession && cachedSession.status === 'ACTIVE') {
+      setSession(cachedSession);
+      sessionRefVal.current = cachedSession;
+      setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Active session' });
+    } else if (user.aiSession && user.aiSession.status === 'ACTIVE') {
+      setSession(user.aiSession);
+      sessionRefVal.current = user.aiSession;
+      setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Active session' });
+    } else {
+      setSession(null);
+      sessionRefVal.current = null;
+    }
+
     setPositions([]);
     setTrades([]);
     tradesRefVal.current = [];
@@ -282,10 +297,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     // Check if user is a new user with zero balance and zero deposits
     const isNewZeroUser = (user.totalDeposits || 0) === 0 && (user.availableBalance || 0) === 0 && (user.portfolioBalance || 0) === 0;
-    
-    // Do not auto-restore active session on refresh/boot so trading sessions do not start on their own
-    setSession(null);
-    sessionRefVal.current = null;
 
     if (!isNewZeroUser) {
       const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
@@ -318,8 +329,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     if (cachedRecommendations.length > 0) {
       setRecommendations(cachedRecommendations);
     }
-
-    setLoading(false);
   }, [user?.uid, getLocalStorageItem, setLocalStorageItem]);
 
   // Sync state FROM custom events (e.g., when copying a trader's AI config or saving config in external views)
@@ -416,7 +425,18 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const activityRef = query(collection(db, 'users', user.uid, 'activity'), orderBy('timestamp', 'desc'));
     const sessionRef = query(collection(db, 'aiSessions'), where('userId', '==', user.uid), where('status', '==', 'ACTIVE'), limit(1));
 
+    let sessionHydrated = false;
+    let configsHydrated = false;
+
+    const checkHydrationComplete = () => {
+      if (sessionHydrated && configsHydrated) {
+        setIsHydrated(true);
+        setLoading(false);
+      }
+    };
+
     const unsubConfigs = onSnapshot(configsRef, (snap) => {
+      configsHydrated = true;
       const fetchedConfigs = snap.docs.map(d => ({ id: d.id, ...d.data() }) as AiConfiguration);
       setConfigs(prev => {
         const mergedMap = new Map<string, AiConfiguration>();
@@ -444,33 +464,51 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
         return merged;
       });
-      setLoading(false);
+      checkHydrationComplete();
     }, (error) => {
       console.warn("[TradingEngineContext] configs subscription restricted/denied. Running in high-fidelity local state mode:", error);
-      setLoading(false);
+      configsHydrated = true;
+      checkHydrationComplete();
     });
 
     const unsubSession = onSnapshot(sessionRef, (snap) => {
+        sessionHydrated = true;
         if (!snap.empty) {
           const fetchedSession = { id: snap.docs[0].id, ...snap.docs[0].data() } as AiSession;
           if (fetchedSession.status !== 'ACTIVE' || fetchedSession.userId !== user.uid) {
             console.log("[TradingEngineContext] Ignoring inactive or non-owned session from snapshot:", fetchedSession.id);
             setSession(null);
             sessionRefVal.current = null;
+            setEngineStatus({ state: 'INACTIVE', reason: 'Core offline' });
             safeStorage.removeItem(`aver_session_${user.uid}`);
+            checkHydrationComplete();
             return;
           }
           console.log("[TradingEngineContext] Session synchronized from Firestore:", fetchedSession.id);
           setSession(fetchedSession);
           sessionRefVal.current = fetchedSession;
+          setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Live session active' });
           safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(fetchedSession));
         } else {
-          setSession(null);
-          sessionRefVal.current = null;
-          safeStorage.removeItem(`aver_session_${user.uid}`);
+          // Double check user document in case aiSession was stored in user profile
+          if (user.aiSession && user.aiSession.status === 'ACTIVE' && user.aiSession.userId === user.uid) {
+            console.log("[TradingEngineContext] Session restored from user profile:", user.aiSession.id);
+            setSession(user.aiSession);
+            sessionRefVal.current = user.aiSession;
+            setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Live session active' });
+            safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(user.aiSession));
+          } else {
+            setSession(null);
+            sessionRefVal.current = null;
+            setEngineStatus({ state: 'INACTIVE', reason: 'Core offline' });
+            safeStorage.removeItem(`aver_session_${user.uid}`);
+          }
         }
+        checkHydrationComplete();
     }, (error) => {
       console.warn("[TradingEngineContext] session subscription restricted/denied. Running locally:", error);
+      sessionHydrated = true;
+      checkHydrationComplete();
     });
 
     const unsubPositions = onSnapshot(positionsRef, (snap) => {
@@ -2081,6 +2119,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     startSession,
     endSession,
     loading,
+    isHydrated,
     engineStatus,
     liveTradePrices,
     saveConfiguration,
@@ -2110,6 +2149,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     startSession,
     endSession,
     loading,
+    isHydrated,
     engineStatus,
     liveTradePrices,
     saveConfiguration,

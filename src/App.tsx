@@ -69,14 +69,24 @@ function AppContent() {
 
   // Route detection
   useEffect(() => {
-    const path = window.location.pathname;
+    const path = window.location.pathname.toLowerCase();
     const search = window.location.search;
-    
+    const urlParams = new URLSearchParams(search);
+    const refCode = urlParams.get('ref') || urlParams.get('referral') || urlParams.get('r');
+
+    if (refCode) {
+      safeStorage.setItem('aver_saved_referral', refCode.trim().toUpperCase());
+    }
+
     // Strict admin protection: Never auto-route to admin view based on URL.
     // Admin access must be triggered via the secret handshake in the NotFound view.
     if (path === '/admin' || search.includes('admin=true')) {
       // Force unauthorized admin attempts to the NotFound view for verification
       navigateToView('not-found');
+    } else if (path === '/create-account' || path === '/signup' || path === '/register' || path === '/auth' || refCode) {
+      if (!user) {
+        setViewStack(['home', 'auth']);
+      }
     } else if (path === '/404' || search.includes('404=true') || (path !== '/' && path !== '')) {
       navigateToView('not-found');
     }
@@ -96,9 +106,18 @@ function AppContent() {
         return prev;
       });
     } else {
-      // If no user and we were on a protected view, go to login
+      // If no user, check if we came with a referral or signup route
+      const path = window.location.pathname.toLowerCase();
+      const urlParams = new URLSearchParams(window.location.search);
+      const hasRef = urlParams.get('ref') || urlParams.get('referral') || urlParams.get('r') || safeStorage.getItem('aver_saved_referral');
+      const isSignupRoute = path === '/create-account' || path === '/signup' || path === '/register' || path === '/auth' || hasRef;
+
+      // If no user and we were on a protected view or signup route, go to login / register
       setViewStack(prev => {
         const top = prev[prev.length - 1];
+        if (isSignupRoute && top !== 'auth') {
+          return ['home', 'auth'];
+        }
         if (top === 'dashboard' || top === 'referral-centre' || top === 'preferences' || top === 'bonus-center' || top === 'history' || top === 'kyc-verification') {
           return ['auth'];
         }

@@ -13,8 +13,8 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
   const [showAllReferrals, setShowAllReferrals] = useState(false);
   const [liveReferredUsers, setLiveReferredUsers] = useState<any[]>([]);
 
-  const referralCode = user?.referralCode || (user?.uid ? `AVR-${user.uid.slice(0, 6).toUpperCase()}` : '');
-  const referralLink = (user as any)?.referralLink || `https://aver.app/ref/${referralCode}`;
+  const referralCode = user?.referralCode || (user?.uid ? `AVR-${user.uid.slice(0, 6).toUpperCase()}` : 'AVR-MEMBER');
+  const referralLink = `https://avertrader.space/create-account?ref=${encodeURIComponent(referralCode)}`;
 
   useEffect(() => {
     if (!user) return;
