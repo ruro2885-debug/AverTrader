@@ -15,17 +15,29 @@ import { portfolioPersistenceService } from '../../../services/portfolioPersiste
 
 interface ActiveSessionRecord {
   id: string;
+  sessionId?: string;
   userId: string;
   userEmail: string;
+  outcomeMode?: SessionControlMode;
   status: 'ACTIVE' | 'INACTIVE';
   startTime: any;
   tradingCapital: number;
+  allocatedCapital?: number;
   initialCapital: number;
+  currentBalance?: number;
+  equity?: number;
+  sessionPnL?: number;
+  tradeCount?: number;
+  wins?: number;
+  losses?: number;
   openPositionsCount: number;
   totalProfit: number;
   totalLoss: number;
   activeConfigId?: string;
   strategyName?: string;
+  stateVersion?: number;
+  lastTradeAt?: any;
+  updatedAt?: any;
   adminControl?: SessionAdminControl;
 }
 
@@ -234,24 +246,52 @@ export default function AdminSessionControlModal({
     setIsSaving(true);
     setSaveSuccessMsg(null);
 
+    const oldMode = session.outcomeMode || session.adminControl?.mode || 'NORMAL';
+    const targetMode = overrides?.mode !== undefined ? overrides.mode : mode;
+    const targetForceNext = overrides?.forceNextTrade !== undefined ? overrides.forceNextTrade : forceNextTrade;
+    const targetPnl = overrides?.customTargetPnl !== undefined ? overrides.customTargetPnl : Number(customTargetPnl);
+    const targetWinRate = overrides?.customWinRate !== undefined ? overrides.customWinRate : Number(customWinRate);
+    const nextVersion = (session.stateVersion || 1) + 1;
+
     const updatedControl: SessionAdminControl = {
-      mode: overrides?.mode !== undefined ? overrides.mode : mode,
-      forceNextTrade: overrides?.forceNextTrade !== undefined ? overrides.forceNextTrade : forceNextTrade,
-      customTargetPnl: overrides?.customTargetPnl !== undefined ? overrides.customTargetPnl : Number(customTargetPnl),
-      customWinRate: overrides?.customWinRate !== undefined ? overrides.customWinRate : Number(customWinRate),
+      mode: targetMode,
+      forceNextTrade: targetForceNext,
+      customTargetPnl: targetPnl,
+      customWinRate: targetWinRate,
       updatedAt: new Date().toISOString()
     };
 
+    console.log(`[ADMIN MODE CHANGE]
+sessionId: ${session.id}
+oldMode: ${oldMode}
+newMode: ${targetMode}
+stateVersion: ${nextVersion}
+timestamp: ${new Date().toISOString()}`);
+
     try {
-      // 1. Update Firestore session doc
+      // 1. Update Firestore session doc atomically
       await updateDoc(doc(db, 'aiSessions', session.id), {
-        adminControl: updatedControl
+        adminControl: updatedControl,
+        outcomeMode: targetMode,
+        stateVersion: nextVersion,
+        updatedAt: serverTimestamp(),
+        lastUpdate: serverTimestamp()
       }).catch(async () => {
         // In case doc is missing or restricted, attempt setDoc with merge
         await setDoc(doc(db, 'aiSessions', session.id), {
-          adminControl: updatedControl
+          adminControl: updatedControl,
+          outcomeMode: targetMode,
+          stateVersion: nextVersion,
+          updatedAt: serverTimestamp(),
+          lastUpdate: serverTimestamp()
         }, { merge: true });
       });
+
+      console.log(`[SESSION UPDATE]
+sessionId: ${session.id}
+outcomeMode: ${targetMode}
+stateVersion: ${nextVersion}
+updatedAt: ${new Date().toISOString()}`);
 
       // 2. Update localStorage for instant zero-latency sync across tabs & local engine
       const controlKey = `aver_session_control_${session.id}`;
@@ -264,28 +304,34 @@ export default function AdminSessionControlModal({
         detail: {
           sessionId: session.id,
           userId: session.userId,
-          control: updatedControl
+          control: updatedControl,
+          outcomeMode: targetMode,
+          stateVersion: nextVersion
         }
       }));
 
       // Update local state
       setSession(prev => ({
         ...prev,
-        adminControl: updatedControl
+        adminControl: updatedControl,
+        outcomeMode: targetMode,
+        stateVersion: nextVersion
       }));
 
       setSaveSuccessMsg('Outcome directive applied successfully!');
       setTimeout(() => setSaveSuccessMsg(null), 3000);
     } catch (err) {
       console.error("Error applying outcome control:", err);
-      // Even if Firestore fails, localStorage will keep the engine instructed
+      // Fallback
       localStorage.setItem(`aver_session_control_${session.id}`, JSON.stringify(updatedControl));
       localStorage.setItem(`aver_session_control_${session.userId}`, JSON.stringify(updatedControl));
       window.dispatchEvent(new CustomEvent('aver_admin_control_updated', {
         detail: {
           sessionId: session.id,
           userId: session.userId,
-          control: updatedControl
+          control: updatedControl,
+          outcomeMode: targetMode,
+          stateVersion: nextVersion
         }
       }));
       setSaveSuccessMsg('Outcome directive applied (local sync active)!');
@@ -744,7 +790,6 @@ export default function AdminSessionControlModal({
               {mode === 'NORMAL' && <span className="text-slate-300">🟢 Natural / Standard</span>}
               {mode === 'FORCE_PROFIT' && <span className="text-emerald-400">🚀 Force Profit</span>}
               {mode === 'FORCE_LOSS' && <span className="text-rose-400">🔻 Force Drawdown</span>}
-              {mode === 'CUSTOM_TARGET_PNL' && <span className="text-cyan-400">🎯 Target ${customTargetPnl}</span>}
               {mode === 'CUSTOM_WIN_RATE' && <span className="text-purple-400">📊 Win Rate {customWinRate}%</span>}
             </div>
             <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
@@ -806,7 +851,7 @@ export default function AdminSessionControlModal({
                 <span className="text-xs text-slate-500">Changes apply immediately to this active session</span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* 1. NATURAL / STANDARD */}
                 <div
                   onClick={() => handleSelectMode('NORMAL')}
@@ -888,34 +933,7 @@ export default function AdminSessionControlModal({
                   </div>
                 </div>
 
-                {/* 4. CUSTOM TARGET PNL */}
-                <div
-                  onClick={() => handleSelectMode('CUSTOM_TARGET_PNL')}
-                  className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
-                    mode === 'CUSTOM_TARGET_PNL'
-                      ? 'bg-cyan-500/15 border-cyan-400 shadow-lg shadow-cyan-500/15 ring-1 ring-cyan-400'
-                      : 'bg-slate-900/60 border-white/10 hover:border-cyan-500/30 hover:bg-slate-900'
-                  }`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center text-cyan-400">
-                        <Target className="w-4 h-4" />
-                      </div>
-                      {mode === 'CUSTOM_TARGET_PNL' && (
-                        <span className="text-[10px] font-black uppercase text-cyan-400 bg-cyan-500/20 px-2 py-0.5 rounded">
-                          ACTIVE
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="font-bold text-sm text-cyan-400">Target P&L</h4>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      Steers session trades steadily towards an exact specified dollar P&L target.
-                    </p>
-                  </div>
-                </div>
-
-                {/* 5. CUSTOM WIN RATE */}
+                {/* 4. CUSTOM WIN RATE */}
                 <div
                   onClick={() => handleSelectMode('CUSTOM_WIN_RATE')}
                   className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
@@ -945,72 +963,41 @@ export default function AdminSessionControlModal({
             </div>
 
             {/* Custom Mode Target Configuration Inputs */}
-            {(mode === 'CUSTOM_TARGET_PNL' || mode === 'CUSTOM_WIN_RATE') && (
+            {mode === 'CUSTOM_WIN_RATE' && (
               <div className="p-5 rounded-2xl bg-slate-900/90 border border-white/10 space-y-4">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-emerald-400" />
+                  <Sliders className="w-4 h-4 text-purple-400" />
                   Configure Target Parameters
                 </h4>
 
-                {mode === 'CUSTOM_TARGET_PNL' && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                    <label className="text-xs text-slate-400 font-bold">Target P&L Amount ($):</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={customTargetPnl}
-                        onChange={(e) => setCustomTargetPnl(Number(e.target.value))}
-                        className="px-4 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-sm w-40 focus:outline-none focus:ring-2 focus:ring-cyan-400"
-                        placeholder="500"
-                      />
-                      <button
-                        onClick={() => handleSaveControl({ customTargetPnl: Number(customTargetPnl) })}
-                        disabled={isSaving}
-                        className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all"
-                      >
-                        Apply Target
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-slate-400">
-                      <span>Quick presets:</span>
-                      <button onClick={() => { setCustomTargetPnl(250); handleSaveControl({ customTargetPnl: 250 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">+$250</button>
-                      <button onClick={() => { setCustomTargetPnl(500); handleSaveControl({ customTargetPnl: 500 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">+$500</button>
-                      <button onClick={() => { setCustomTargetPnl(1000); handleSaveControl({ customTargetPnl: 1000 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">+$1,000</button>
-                      <button onClick={() => { setCustomTargetPnl(-250); handleSaveControl({ customTargetPnl: -250 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">-$250</button>
-                    </div>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <label className="text-xs text-slate-400 font-bold">Lock Win Rate (%):</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={customWinRate}
+                      onChange={(e) => setCustomWinRate(Number(e.target.value))}
+                      className="px-4 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-sm w-32 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                      placeholder="85"
+                    />
+                    <button
+                      onClick={() => handleSaveControl({ customWinRate: Number(customWinRate) })}
+                      disabled={isSaving}
+                      className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-bold text-xs transition-all"
+                    >
+                      Lock Rate
+                    </button>
                   </div>
-                )}
-
-                {mode === 'CUSTOM_WIN_RATE' && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                    <label className="text-xs text-slate-400 font-bold">Lock Win Rate (%):</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={customWinRate}
-                        onChange={(e) => setCustomWinRate(Number(e.target.value))}
-                        className="px-4 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-sm w-32 focus:outline-none focus:ring-2 focus:ring-purple-400"
-                        placeholder="85"
-                      />
-                      <button
-                        onClick={() => handleSaveControl({ customWinRate: Number(customWinRate) })}
-                        disabled={isSaving}
-                        className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-bold text-xs transition-all"
-                      >
-                        Lock Rate
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-slate-400">
-                      <span>Presets:</span>
-                      <button onClick={() => { setCustomWinRate(95); handleSaveControl({ customWinRate: 95 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">95% (Guaranteed)</button>
-                      <button onClick={() => { setCustomWinRate(75); handleSaveControl({ customWinRate: 75 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">75% (High)</button>
-                      <button onClick={() => { setCustomWinRate(50); handleSaveControl({ customWinRate: 50 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">50% (Neutral)</button>
-                      <button onClick={() => { setCustomWinRate(20); handleSaveControl({ customWinRate: 20 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">20% (Low)</button>
-                    </div>
+                  <div className="flex items-center gap-1 text-xs text-slate-400">
+                    <span>Presets:</span>
+                    <button onClick={() => { setCustomWinRate(95); handleSaveControl({ customWinRate: 95 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">95% (Guaranteed)</button>
+                    <button onClick={() => { setCustomWinRate(75); handleSaveControl({ customWinRate: 75 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">75% (High)</button>
+                    <button onClick={() => { setCustomWinRate(50); handleSaveControl({ customWinRate: 50 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">50% (Neutral)</button>
+                    <button onClick={() => { setCustomWinRate(20); handleSaveControl({ customWinRate: 20 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">20% (Low)</button>
                   </div>
-                )}
+                </div>
               </div>
             )}
 

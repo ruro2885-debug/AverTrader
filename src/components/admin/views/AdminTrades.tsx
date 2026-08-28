@@ -12,22 +12,34 @@ import { aiTradingService } from '../../../services/aiTradingService';
 import { walletService } from '../../../services/walletService';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import AdminSessionControlModal from './AdminSessionControlModal';
-import { SessionAdminControl } from '../../../types/aiTrading';
+import { SessionAdminControl, SessionControlMode } from '../../../types/aiTrading';
 import { useAuth } from '../../../contexts/AuthContext';
 
 interface ActiveSessionRecord {
   id: string;
+  sessionId?: string;
   userId: string;
   userEmail: string;
+  outcomeMode?: SessionControlMode;
   status: 'ACTIVE' | 'INACTIVE';
   startTime: string | number | any;
   tradingCapital: number;
+  allocatedCapital?: number;
   initialCapital: number;
+  currentBalance?: number;
+  equity?: number;
+  sessionPnL?: number;
+  tradeCount?: number;
+  wins?: number;
+  losses?: number;
   openPositionsCount: number;
   totalProfit: number;
   totalLoss: number;
   activeConfigId?: string;
   strategyName?: string;
+  stateVersion?: number;
+  lastTradeAt?: any;
+  updatedAt?: any;
   adminControl?: SessionAdminControl;
 }
 
@@ -139,17 +151,29 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
               
               sessionsList.push({
                 id: sDoc.id,
+                sessionId: data.sessionId || sDoc.id,
                 userId: uId,
                 userEmail: userEmail,
+                outcomeMode: data.outcomeMode || data.adminControl?.mode || 'NORMAL',
                 status: 'ACTIVE',
-                startTime: data.startTime || new Date().toISOString(),
+                startTime: data.startTime || data.startedAt || new Date().toISOString(),
                 tradingCapital: data.tradingCapital || data.initialCapital || 0,
+                allocatedCapital: data.allocatedCapital || data.initialCapital || 0,
                 initialCapital: data.initialCapital || data.tradingCapital || 0,
+                currentBalance: data.currentBalance || data.tradingCapital || 0,
+                equity: data.equity || data.tradingCapital || 0,
+                sessionPnL: data.sessionPnL !== undefined ? data.sessionPnL : ((data.totalProfit || 0) - (data.totalLoss || 0)),
+                tradeCount: data.tradeCount || 0,
+                wins: data.wins || 0,
+                losses: data.losses || 0,
                 openPositionsCount: data.openPositionsCount || 0,
                 totalProfit: data.totalProfit || 0,
                 totalLoss: data.totalLoss || 0,
                 activeConfigId: data.activeConfigId,
                 strategyName: data.strategyName || 'Algorithmic Strategy',
+                stateVersion: data.stateVersion || 1,
+                lastTradeAt: data.lastTradeAt,
+                updatedAt: data.updatedAt,
                 adminControl: data.adminControl
               });
             }

@@ -99,11 +99,26 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
   const handleDelete = async (txId: string) => {
     if (!user) return;
     try {
-      await transactionService.deleteTransaction(txId, user.uid);
+      // 1. Instantly remove item from UI list
       setTransactions(prev => prev.filter(t => t.id !== txId));
+      // 2. Persist deletion to Firestore in background
+      await transactionService.deleteTransaction(txId, user.uid);
     } catch (e) {
       console.warn("Failed to delete transaction:", e);
     }
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!confirmDeleteId) return;
+    const idToDelete = confirmDeleteId;
+    
+    // 1. CRITICAL: Reset modal state to close popup immediately
+    setConfirmDeleteId(null);
+    setSwipedItemId(null);
+    
+    // 2. Trigger deletion
+    handleDelete(idToDelete);
+    if (window.navigator.vibrate) window.navigator.vibrate([30, 50, 30]);
   };
 
   // Real-time synchronization
@@ -674,17 +689,14 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
               </p>
               <div className="flex flex-col gap-2">
                 <button
-                  onClick={async () => {
-                    await handleDelete(confirmDeleteId);
-                    setConfirmDeleteId(null);
-                    setSwipedItemId(null);
-                    if (window.navigator.vibrate) window.navigator.vibrate([30, 50, 30]);
-                  }}
-                  className="w-full py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm transition-all shadow-lg shadow-rose-600/20"
+                  type="button"
+                  onClick={handleDeleteConfirm}
+                  className="w-full py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm transition-all shadow-lg shadow-rose-600/20 active:scale-[0.98]"
                 >
                   Delete
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setConfirmDeleteId(null);
                     setSwipedItemId(null);

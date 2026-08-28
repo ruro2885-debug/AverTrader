@@ -158,19 +158,33 @@ export interface SessionAdminControl {
 
 export interface AiSession {
   id: string;
+  sessionId?: string;
   userId: string;
   userEmail?: string;
+  outcomeMode?: SessionControlMode;
   status: AiSessionStatus;
   startTime: Timestamp;
+  startedAt?: any;
   endTime?: Timestamp;
+  endedAt?: any;
   activeConfigId: string;
   strategyName?: string;
   tradingCapital: number;
+  allocatedCapital?: number;
   initialCapital: number;
+  currentBalance?: number;
+  equity?: number;
+  sessionPnL?: number;
+  tradeCount?: number;
+  wins?: number;
+  losses?: number;
   openPositionsCount: number;
   totalProfit: number;
   totalLoss: number;
+  lastTradeAt?: any;
   lastUpdate: Timestamp;
+  updatedAt?: any;
+  stateVersion?: number;
   adminControl?: SessionAdminControl;
   isDeleted?: boolean;
 }
