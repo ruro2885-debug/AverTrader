@@ -1,4 +1,4 @@
-import { SessionAdminControl, SessionControlMode } from '../types/aiTrading';
+import { SessionAdminControl, SessionControlMode, normalizeSessionMode } from '../types/aiTrading';
 
 export interface OutcomeParams {
   sessionId: string;
@@ -49,16 +49,14 @@ export function generateSimulatedOutcome(params: {
 }): GeneratedOutcome {
   const {
     sessionId,
-    mode,
+    mode: rawMode,
     forceNextTrade = 'AUTO',
-    customWinRate = 85,
-    customTargetPnl = 500,
-    currentSessionPnL = 0,
     riskScore = 50,
     entryPrice,
-    quantity,
-    asset
+    quantity
   } = params;
+
+  const { canonical: mode } = normalizeSessionMode(rawMode);
 
   let isWin = false;
   let returnPct = 0;
@@ -67,7 +65,6 @@ export function generateSimulatedOutcome(params: {
   // 1. Check for single-trade forced directives ('WIN' | 'LOSS')
   if (forceNextTrade === 'WIN') {
     isWin = true;
-    // Varied positive return
     const roll = Math.random();
     if (roll < 0.70) {
       returnPct = randomBetween(1.8, 5.2);
@@ -81,7 +78,6 @@ export function generateSimulatedOutcome(params: {
     }
   } else if (forceNextTrade === 'LOSS') {
     isWin = false;
-    // Varied negative return
     const roll = Math.random();
     if (roll < 0.70) {
       returnPct = -randomBetween(1.5, 4.8);
@@ -95,118 +91,63 @@ export function generateSimulatedOutcome(params: {
     }
   } 
   // 2. FORCE HIGH PROFIT MODE (Randomized, Weighted, Non-Staircase)
-  // Overall ~82% Win Bias, ~18% Loss / Neutral to ensure realistic non-staircase equity curve
-  else if (mode === 'FORCE_PROFIT') {
+  // Overall ~85% Win Bias, ~15% Loss / Neutral to ensure realistic non-staircase equity curve
+  else if (mode === 'force_high_profit') {
     const roll = Math.random();
 
     if (roll < 0.65) {
-      // 65%: Small/Medium Win (+1.2% to +4.8%)
+      // 65%: Medium Win (+1.5% to +5.2%)
       isWin = true;
-      returnPct = randomBetween(1.2, 4.8);
+      returnPct = randomBetween(1.5, 5.2);
       distributionBucket = 'HIGH_PROFIT_MEDIUM_WIN';
     } else if (roll < 0.80) {
-      // 15%: Small Loss (-0.6% to -2.4%) - Essential to prevent artificial 100% win streaks & staircases!
+      // 15%: Small Realistic Market Loss (-0.6% to -2.2%) - Essential to prevent artificial 100% win streaks & staircases!
       isWin = false;
-      returnPct = -randomBetween(0.6, 2.4);
+      returnPct = -randomBetween(0.6, 2.2);
       distributionBucket = 'HIGH_PROFIT_REALISTIC_LOSS';
-    } else if (roll < 0.93) {
-      // 13%: Larger Win (+5.2% to +11.8%)
+    } else if (roll < 0.94) {
+      // 14%: Large Alpha Win (+5.5% to +12.5%)
       isWin = true;
-      returnPct = randomBetween(5.2, 11.8);
+      returnPct = randomBetween(5.5, 12.5);
       distributionBucket = 'HIGH_PROFIT_LARGE_WIN';
-    } else if (roll < 0.98) {
-      // 5%: Micro Win (+0.3% to +0.9%)
-      isWin = true;
-      returnPct = randomBetween(0.3, 0.9);
-      distributionBucket = 'HIGH_PROFIT_MICRO_WIN';
     } else {
-      // 2%: Rare Surge Win (+12.5% to +19.5%)
+      // 6%: Surge Event (+12.8% to +18.5%)
       isWin = true;
-      returnPct = randomBetween(12.5, 19.5);
+      returnPct = randomBetween(12.8, 18.5);
       distributionBucket = 'HIGH_PROFIT_SURGE_EVENT';
     }
   } 
   // 3. FORCE DRAWDOWN MODE (Randomized, Weighted, Non-Reverse-Staircase)
-  // Overall ~78% Loss Bias, ~22% Win / Neutral to simulate authentic market drawdown
-  else if (mode === 'FORCE_LOSS') {
+  // Overall ~82% Loss Bias, ~18% Win / Neutral to simulate authentic market drawdown
+  else if (mode === 'force_drawdown') {
     const roll = Math.random();
 
-    if (roll < 0.62) {
-      // 62%: Small/Medium Loss (-1.2% to -4.8%)
+    if (roll < 0.65) {
+      // 65%: Small/Medium Loss (-1.5% to -5.2%)
       isWin = false;
-      returnPct = -randomBetween(1.2, 4.8);
+      returnPct = -randomBetween(1.5, 5.2);
       distributionBucket = 'DRAWDOWN_MEDIUM_LOSS';
     } else if (roll < 0.80) {
-      // 18%: Small Counter-Trend Win (+0.6% to +2.8%) - Essential to prevent artificial 100% loss streaks!
+      // 15%: Small Counter-Trend Bounce Win (+0.6% to +2.5%)
       isWin = true;
-      returnPct = randomBetween(0.6, 2.8);
+      returnPct = randomBetween(0.6, 2.5);
       distributionBucket = 'DRAWDOWN_BOUNCE_WIN';
-    } else if (roll < 0.93) {
-      // 13%: Larger Loss (-5.2% to -11.5%)
+    } else if (roll < 0.94) {
+      // 14%: Larger Loss (-5.2% to -11.8%)
       isWin = false;
-      returnPct = -randomBetween(5.2, 11.5);
+      returnPct = -randomBetween(5.2, 11.8);
       distributionBucket = 'DRAWDOWN_LARGE_LOSS';
-    } else if (roll < 0.98) {
-      // 5%: Micro Loss (-0.2% to -0.8%)
-      isWin = false;
-      returnPct = -randomBetween(0.2, 0.8);
-      distributionBucket = 'DRAWDOWN_MICRO_LOSS';
     } else {
-      // 2%: Rare Severe Breakdown Event (-12.0% to -18.5%)
+      // 6%: Severe Breakdown Event (-12.0% to -18.5%)
       isWin = false;
       returnPct = -randomBetween(12.0, 18.5);
       distributionBucket = 'DRAWDOWN_BREAKDOWN_EVENT';
     }
   } 
-  // 4. WIN RATE LOCK MODE
-  else if (mode === 'CUSTOM_WIN_RATE') {
-    const targetWinRate = Math.max(0.1, Math.min(0.95, customWinRate / 100));
-    isWin = Math.random() < targetWinRate;
-
-    if (isWin) {
-      const winRoll = Math.random();
-      if (winRoll < 0.75) {
-        returnPct = randomBetween(1.0, 4.5);
-        distributionBucket = 'LOCKED_WIN_RATE_STANDARD_WIN';
-      } else if (winRoll < 0.93) {
-        returnPct = randomBetween(4.5, 9.5);
-        distributionBucket = 'LOCKED_WIN_RATE_LARGE_WIN';
-      } else {
-        returnPct = randomBetween(9.5, 16.0);
-        distributionBucket = 'LOCKED_WIN_RATE_SURGE_WIN';
-      }
-    } else {
-      const lossRoll = Math.random();
-      if (lossRoll < 0.75) {
-        returnPct = -randomBetween(0.8, 3.8);
-        distributionBucket = 'LOCKED_WIN_RATE_STANDARD_LOSS';
-      } else if (lossRoll < 0.93) {
-        returnPct = -randomBetween(3.8, 8.2);
-        distributionBucket = 'LOCKED_WIN_RATE_LARGE_LOSS';
-      } else {
-        returnPct = -randomBetween(8.2, 14.5);
-        distributionBucket = 'LOCKED_WIN_RATE_SPIKE_LOSS';
-      }
-    }
-  } 
-  // 5. TARGET P&L MODE
-  else if (mode === 'CUSTOM_TARGET_PNL') {
-    const isBelowTarget = currentSessionPnL < customTargetPnl;
-    const targetWinRate = isBelowTarget ? 0.78 : 0.45;
-    isWin = Math.random() < targetWinRate;
-
-    if (isWin) {
-      returnPct = randomBetween(1.2, isBelowTarget ? 5.8 : 3.2);
-      distributionBucket = isBelowTarget ? 'TARGET_PNL_CATCHUP_WIN' : 'TARGET_PNL_PROTECTION_WIN';
-    } else {
-      returnPct = -randomBetween(0.6, isBelowTarget ? 2.5 : 4.2);
-      distributionBucket = isBelowTarget ? 'TARGET_PNL_MINOR_PULLBACK' : 'TARGET_PNL_PROTECTION_LOSS';
-    }
-  } 
-  // 6. NATURAL / NORMAL SIMULATION MODE
+  // 4. NATURAL / NORMAL SIMULATION MODE (Zero manipulation, real market model)
   else {
     // Calibrated natural model based on risk score
-    const baseWinProbability = Math.max(0.40, Math.min(0.72, 0.62 - ((riskScore - 50) * 0.002)));
+    const baseWinProbability = Math.max(0.42, Math.min(0.70, 0.60 - ((riskScore - 50) * 0.002)));
     isWin = Math.random() < baseWinProbability;
 
     const volatilityFactor = Math.max(0.6, Math.min(1.8, riskScore / 50));
@@ -245,14 +186,13 @@ export function generateSimulatedOutcome(params: {
   const pnl = parseFloat(rawPnl.toFixed(2));
   const reason = isWin ? 'TARGET_HIT' : 'STOP_LOSS_HIT';
 
-  console.log(`[TRADE GENERATION]
+  console.log(`[TRADE_RESULT]
 sessionId: ${sessionId}
-modeUsed: ${mode}
-forceNextTrade: ${forceNextTrade}
+executionMode: ${mode}
 isWin: ${isWin}
 returnPct: ${returnPct > 0 ? '+' : ''}${returnPct}%
-generatedPnL: ${pnl >= 0 ? '+' : ''}$${pnl}
-bucket: ${distributionBucket}
+pnl: ${pnl >= 0 ? '+' : ''}$${pnl}
+distributionBucket: ${distributionBucket}
 timestamp: ${new Date().toISOString()}`);
 
   return {

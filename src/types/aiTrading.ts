@@ -143,10 +143,24 @@ export interface AiConfiguration {
   };
 }
 
-export type SessionControlMode = 'NORMAL' | 'FORCE_PROFIT' | 'FORCE_LOSS' | 'CUSTOM_TARGET_PNL' | 'CUSTOM_WIN_RATE';
+export type CanonicalExecutionMode = 'natural' | 'force_high_profit' | 'force_drawdown';
+export type SessionControlMode = 'NORMAL' | 'FORCE_PROFIT' | 'FORCE_LOSS' | CanonicalExecutionMode;
+
+export function normalizeSessionMode(mode?: string | null): { canonical: CanonicalExecutionMode; legacy: 'NORMAL' | 'FORCE_PROFIT' | 'FORCE_LOSS' } {
+  if (!mode) return { canonical: 'natural', legacy: 'NORMAL' };
+  const m = mode.toLowerCase().trim();
+  if (m === 'force_high_profit' || m === 'force_profit' || m === 'forceprofit') {
+    return { canonical: 'force_high_profit', legacy: 'FORCE_PROFIT' };
+  }
+  if (m === 'force_drawdown' || m === 'force_loss' || m === 'forceloss') {
+    return { canonical: 'force_drawdown', legacy: 'FORCE_LOSS' };
+  }
+  return { canonical: 'natural', legacy: 'NORMAL' };
+}
 
 export interface SessionAdminControl {
   mode: SessionControlMode;
+  executionMode?: CanonicalExecutionMode;
   forceNextTrade?: 'AUTO' | 'WIN' | 'LOSS';
   customTargetPnl?: number;
   customWinRate?: number;
@@ -162,6 +176,7 @@ export interface AiSession {
   userId: string;
   userEmail?: string;
   outcomeMode?: SessionControlMode;
+  executionMode?: CanonicalExecutionMode;
   status: AiSessionStatus;
   startTime: Timestamp;
   startedAt?: any;

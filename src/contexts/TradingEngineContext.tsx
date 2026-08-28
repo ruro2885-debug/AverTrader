@@ -3,7 +3,7 @@ import { doc, onSnapshot, updateDoc, setDoc, collection, addDoc, deleteDoc, serv
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { useFinancials } from '../hooks/useFinancials';
-import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule, SessionEquityPoint, CompletedSessionData, SessionControlMode, SessionAdminControl } from '../types/aiTrading';
+import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule, SessionEquityPoint, CompletedSessionData, SessionControlMode, SessionAdminControl, normalizeSessionMode, CanonicalExecutionMode } from '../types/aiTrading';
 import { Position, ActivityEvent } from '../types/trading';
 import { seedTraders, startTraderSimulator } from '../services/traderSimulator';
 import { aiTradingService, EngineStatus } from '../services/aiTradingService';
@@ -192,28 +192,32 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       if (detail.sessionId && sessionRefVal.current && detail.sessionId !== sessionRefVal.current.id) return;
       if (detail.userId && user?.uid && detail.userId !== user.uid) return;
       
-      const targetMode: SessionControlMode = detail.outcomeMode || detail.control?.mode || 'NORMAL';
-      activeOutcomeModeRef.current = targetMode;
+      const { canonical, legacy } = normalizeSessionMode(detail.executionMode || detail.outcomeMode || detail.control?.mode || detail.control?.executionMode || 'natural');
+      activeOutcomeModeRef.current = legacy;
       if (detail.control) {
-        activeAdminControlRef.current = detail.control;
+        activeAdminControlRef.current = {
+          ...detail.control,
+          mode: legacy,
+          executionMode: canonical
+        };
       }
       
       if (sessionRefVal.current) {
         const nextVersion = detail.stateVersion || (sessionRefVal.current.stateVersion || 1) + 1;
         sessionRefVal.current = {
           ...sessionRefVal.current,
-          outcomeMode: targetMode,
+          outcomeMode: legacy,
+          executionMode: canonical,
           adminControl: detail.control || activeAdminControlRef.current,
           stateVersion: nextVersion
         };
         setSession({ ...sessionRefVal.current });
       }
 
-      console.log(`[SESSION SNAPSHOT RECEIVED - INSTANT EVENT]
+      console.log(`[SESSION_UPDATE]
 sessionId: ${detail.sessionId || sessionRefVal.current?.id}
-outcomeMode: ${targetMode}
-stateVersion: ${detail.stateVersion || sessionRefVal.current?.stateVersion || 1}
-status: ACTIVE`);
+previousMode: ${sessionRefVal.current?.executionMode || 'natural'}
+newMode: ${canonical}`);
     };
 
     window.addEventListener('aver_admin_control_updated', handleAdminControlUpdate);
@@ -526,39 +530,56 @@ status: ACTIVE`);
             return;
           }
           
-          const currentMode = fetchedSession.outcomeMode || fetchedSession.adminControl?.mode || 'NORMAL';
-          activeOutcomeModeRef.current = currentMode;
+          const { canonical, legacy } = normalizeSessionMode(fetchedSession.executionMode || fetchedSession.outcomeMode || fetchedSession.adminControl?.mode || 'natural');
+          activeOutcomeModeRef.current = legacy;
           if (fetchedSession.adminControl) {
-            activeAdminControlRef.current = fetchedSession.adminControl;
+            activeAdminControlRef.current = {
+              ...fetchedSession.adminControl,
+              mode: legacy,
+              executionMode: canonical
+            };
           }
 
-          console.log(`[SESSION SNAPSHOT RECEIVED]
+          console.log(`[SESSION_UPDATE]
 sessionId: ${fetchedSession.id}
-outcomeMode: ${currentMode}
-stateVersion: ${fetchedSession.stateVersion || 1}
-status: ${fetchedSession.status}`);
+previousMode: ${sessionRefVal.current?.executionMode || 'natural'}
+newMode: ${canonical}`);
 
-          setSession(fetchedSession);
-          sessionRefVal.current = fetchedSession;
+          const sessionObj: AiSession = {
+            ...fetchedSession,
+            outcomeMode: legacy,
+            executionMode: canonical
+          };
+
+          setSession(sessionObj);
+          sessionRefVal.current = sessionObj;
           setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Live session active' });
-          safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(fetchedSession));
+          safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(sessionObj));
         } else {
           // Double check user document in case aiSession was stored in user profile
           if (user.aiSession && user.aiSession.status === 'ACTIVE' && user.aiSession.userId === user.uid) {
-            const currentMode = user.aiSession.outcomeMode || user.aiSession.adminControl?.mode || 'NORMAL';
-            activeOutcomeModeRef.current = currentMode;
+            const { canonical, legacy } = normalizeSessionMode(user.aiSession.executionMode || user.aiSession.outcomeMode || user.aiSession.adminControl?.mode || 'natural');
+            activeOutcomeModeRef.current = legacy;
             if (user.aiSession.adminControl) {
-              activeAdminControlRef.current = user.aiSession.adminControl;
+              activeAdminControlRef.current = {
+                ...user.aiSession.adminControl,
+                mode: legacy,
+                executionMode: canonical
+              };
             }
-            console.log(`[SESSION SNAPSHOT RECEIVED]
+            console.log(`[SESSION_UPDATE]
 sessionId: ${user.aiSession.id}
-outcomeMode: ${currentMode}
-stateVersion: ${user.aiSession.stateVersion || 1}
-status: ${user.aiSession.status}`);
-            setSession(user.aiSession);
-            sessionRefVal.current = user.aiSession;
+previousMode: ${sessionRefVal.current?.executionMode || 'natural'}
+newMode: ${canonical}`);
+            const userSess: AiSession = {
+              ...user.aiSession,
+              outcomeMode: legacy,
+              executionMode: canonical
+            };
+            setSession(userSess);
+            sessionRefVal.current = userSess;
             setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Live session active' });
-            safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(user.aiSession));
+            safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(userSess));
           } else {
             setSession(null);
             sessionRefVal.current = null;
@@ -1419,12 +1440,17 @@ status: ${user.aiSession.status}`);
         stateVersion: increment(1)
       }).catch(err => console.warn("Session financial sync failed:", err));
 
-      console.log(`[TRADE SAVED]
+      console.log(`[TRADE_RESULT]
 sessionId: ${prevSession.id}
 tradeId: ${tradeId}
-PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}
-sessionPnL: ${updatedPnL >= 0 ? '+' : ''}$${updatedPnL.toFixed(2)}
-equity: $${updatedCapital.toFixed(2)}`);
+result: ${isWin ? 'WIN' : 'LOSS'}
+pnl: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`);
+
+      console.log(`[SESSION_STATE_UPDATE]
+sessionId: ${prevSession.id}
+balance: $${updatedCapital.toFixed(2)}
+currentPnl: ${updatedPnL >= 0 ? '+' : ''}$${updatedPnL.toFixed(2)}
+status: ACTIVE`);
     }
 
      // 2. We DO NOT update tokenBalance or availableBalance here anymore.
@@ -1774,14 +1800,15 @@ equity: $${updatedCapital.toFixed(2)}`);
       if (!activeConfig) return;
 
       // STRICT SCHEDULE GATE - COMPLETELY STOP IF OUTSIDE OPERATING WINDOW
-      if (!aiTradingService.isWithinOperatingWindow(activeConfig.schedule)) {
+      if (activeConfig.schedule && !aiTradingService.isWithinOperatingWindow(activeConfig.schedule)) {
         return;
       }
 
       // Check Session Duration
       const startTime = currentSession.startTime ? (currentSession.startTime.toDate ? currentSession.startTime.toDate().getTime() : new Date(currentSession.startTime as any).getTime()) : Date.now();
       const elapsedHours = (Date.now() - startTime) / (1000 * 60 * 60);
-      if (elapsedHours >= activeConfig.sessionSetup.sessionDuration) {
+      const sessionDurationLimit = activeConfig.sessionSetup?.sessionDuration ?? 24;
+      if (elapsedHours >= sessionDurationLimit) {
         console.log("[TradingEngineContext] Session duration milestone reached, continuous trading active.");
       }
       
@@ -1790,8 +1817,8 @@ equity: $${updatedCapital.toFixed(2)}`);
       // Check Session-Wide Take Profit and Stop Loss
       const currentTradingCapital = currentSession.tradingCapital;
       const initialCapital = currentSession.initialCapital || 1000;
-      const profitTargetPercent = activeConfig.profitRiskManagement.sessionTakeProfit;
-      const lossLimitPercent = activeConfig.profitRiskManagement.sessionStopLoss;
+      const profitTargetPercent = activeConfig.profitRiskManagement?.sessionTakeProfit ?? 15;
+      const lossLimitPercent = activeConfig.profitRiskManagement?.sessionStopLoss ?? 10;
 
       const openTradesVal = openTrades.reduce((sum, trade) => {
         const p = livePricesRef.current[trade.id] || livePricesRef.current[trade.asset] || trade.currentPrice || trade.entry;
@@ -1840,15 +1867,22 @@ equity: $${updatedCapital.toFixed(2)}`);
         
         // Fast trade cycle: position active for 4-7 seconds to show fast live trading
         if (ageSec >= 4) {
-          const currentMode: SessionControlMode = activeOutcomeModeRef.current || currentSession.outcomeMode || currentSession.adminControl?.mode || 'NORMAL';
-          const currentAdminControl: SessionAdminControl = activeAdminControlRef.current || currentSession.adminControl || { mode: currentMode, forceNextTrade: 'AUTO' };
+          const { canonical: currentExecMode, legacy: currentLegacyMode } = normalizeSessionMode(
+            activeOutcomeModeRef.current || currentSession.executionMode || currentSession.outcomeMode || currentSession.adminControl?.mode || 'natural'
+          );
+          const currentAdminControl: SessionAdminControl = activeAdminControlRef.current || currentSession.adminControl || { mode: currentLegacyMode, executionMode: currentExecMode, forceNextTrade: 'AUTO' };
           
           const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
           const currentNetPnl = (currentSession.totalProfit || 0) - (currentSession.totalLoss || 0);
 
+          console.log(`[EXECUTION_ENGINE]
+sessionId: ${currentSession.id}
+executionMode: ${currentExecMode}
+nextTradeId: ${trade.id}`);
+
           const outcome = generateSimulatedOutcome({
             sessionId: currentSession.id,
-            mode: currentMode,
+            mode: currentExecMode,
             forceNextTrade: currentAdminControl.forceNextTrade || 'AUTO',
             customWinRate: currentAdminControl.customWinRate,
             customTargetPnl: currentAdminControl.customTargetPnl,

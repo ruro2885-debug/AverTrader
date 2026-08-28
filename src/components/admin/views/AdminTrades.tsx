@@ -214,19 +214,26 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
                 const userTrades: TradeRecord[] = [];
                 tSnap.forEach(tDoc => {
                   const tData = tDoc.data();
+                  const getIsoTime = (val: any): string => {
+                    if (!val) return new Date().toISOString();
+                    if (typeof val.toDate === 'function') return val.toDate().toISOString();
+                    if (typeof val === 'number') return new Date(val).toISOString();
+                    if (typeof val === 'string') return val;
+                    return new Date().toISOString();
+                  };
                   userTrades.push({
                     id: tDoc.id,
                     userId: uId,
                     userEmail: userMapRef.current[uId]?.email || 'trader@example.com',
-                    symbol: tData.symbol || 'BTC/USDT',
+                    symbol: tData.symbol || tData.asset || 'BTC/USDT',
                     type: tData.type || 'long',
-                    amount: tData.amount || tData.size || 0,
-                    entryPrice: tData.entryPrice || 0,
-                    currentPrice: tData.currentPrice || tData.entryPrice || 0,
+                    amount: tData.amount || tData.size || tData.quantity || 0,
+                    entryPrice: tData.entryPrice || tData.entry || 0,
+                    currentPrice: tData.exit || tData.currentPrice || tData.entry || 0,
                     leverage: tData.leverage || 1,
                     pnl: tData.pnl || 0,
                     status: tData.status || 'OPEN',
-                    timestamp: tData.timestamp || new Date().toISOString(),
+                    timestamp: getIsoTime(tData.closedAt || tData.openedAt || tData.timestamp),
                     sessionId: tData.sessionId
                   });
                 });

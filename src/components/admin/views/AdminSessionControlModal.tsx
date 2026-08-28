@@ -3,13 +3,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Shield, Zap, TrendingUp, TrendingDown, DollarSign, 
   Clock, Activity, AlertTriangle, CheckCircle2, RefreshCw, 
-  ArrowUpRight, ArrowDownRight, Target, Percent, Play, Square,
+  ArrowUpRight, ArrowDownRight, Target, Play, Square,
   Sliders, Plus, Minus, Lock, Unlock, Copy, Check, ExternalLink,
   ChevronRight, Sparkles, Layers, Cpu, Compass, Flame
 } from 'lucide-react';
 import { doc, updateDoc, setDoc, getDoc, collection, addDoc, onSnapshot, Timestamp, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
-import { SessionAdminControl, SessionControlMode } from '../../../types/aiTrading';
+import { SessionAdminControl, SessionControlMode, normalizeSessionMode, CanonicalExecutionMode } from '../../../types/aiTrading';
 import { walletService } from '../../../services/walletService';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 
@@ -19,6 +19,7 @@ interface ActiveSessionRecord {
   userId: string;
   userEmail: string;
   outcomeMode?: SessionControlMode;
+  executionMode?: CanonicalExecutionMode;
   status: 'ACTIVE' | 'INACTIVE';
   startTime: any;
   tradingCapital: number;
@@ -82,15 +83,12 @@ export default function AdminSessionControlModal({
   const currentControl: SessionAdminControl = session.adminControl || {
     mode: 'NORMAL',
     forceNextTrade: 'AUTO',
-    customTargetPnl: 500,
-    customWinRate: 85
+    customTargetPnl: 500
   };
 
   const [mode, setMode] = useState<SessionControlMode>(currentControl.mode || 'NORMAL');
   const [forceNextTrade, setForceNextTrade] = useState<'AUTO' | 'WIN' | 'LOSS'>(currentControl.forceNextTrade || 'AUTO');
   const [customTargetPnl, setCustomTargetPnl] = useState<number>(currentControl.customTargetPnl ?? 500);
-  const [customWinRate, setCustomWinRate] = useState<number>(currentControl.customWinRate ?? 85);
-  const [injectedAmount, setInjectedAmount] = useState<string>('100');
 
   // Manual Position Form
   const [showNewPositionModal, setShowNewPositionModal] = useState(false);
@@ -158,9 +156,6 @@ export default function AdminSessionControlModal({
           setForceNextTrade(data.adminControl.forceNextTrade || 'AUTO');
           if (data.adminControl.customTargetPnl !== undefined) {
             setCustomTargetPnl(data.adminControl.customTargetPnl);
-          }
-          if (data.adminControl.customWinRate !== undefined) {
-            setCustomWinRate(data.adminControl.customWinRate);
           }
         }
       }
@@ -246,33 +241,27 @@ export default function AdminSessionControlModal({
     setIsSaving(true);
     setSaveSuccessMsg(null);
 
-    const oldMode = session.outcomeMode || session.adminControl?.mode || 'NORMAL';
-    const targetMode = overrides?.mode !== undefined ? overrides.mode : mode;
+    const oldMode = session.executionMode || normalizeSessionMode(session.outcomeMode || session.adminControl?.mode).canonical;
+    const targetModeRaw = overrides?.mode !== undefined ? overrides.mode : mode;
+    const { canonical: targetCanonical, legacy: targetLegacy } = normalizeSessionMode(targetModeRaw);
     const targetForceNext = overrides?.forceNextTrade !== undefined ? overrides.forceNextTrade : forceNextTrade;
     const targetPnl = overrides?.customTargetPnl !== undefined ? overrides.customTargetPnl : Number(customTargetPnl);
-    const targetWinRate = overrides?.customWinRate !== undefined ? overrides.customWinRate : Number(customWinRate);
     const nextVersion = (session.stateVersion || 1) + 1;
 
     const updatedControl: SessionAdminControl = {
-      mode: targetMode,
+      mode: targetLegacy,
+      executionMode: targetCanonical,
       forceNextTrade: targetForceNext,
       customTargetPnl: targetPnl,
-      customWinRate: targetWinRate,
       updatedAt: new Date().toISOString()
     };
-
-    console.log(`[ADMIN MODE CHANGE]
-sessionId: ${session.id}
-oldMode: ${oldMode}
-newMode: ${targetMode}
-stateVersion: ${nextVersion}
-timestamp: ${new Date().toISOString()}`);
 
     try {
       // 1. Update Firestore session doc atomically
       await updateDoc(doc(db, 'aiSessions', session.id), {
         adminControl: updatedControl,
-        outcomeMode: targetMode,
+        outcomeMode: targetLegacy,
+        executionMode: targetCanonical,
         stateVersion: nextVersion,
         updatedAt: serverTimestamp(),
         lastUpdate: serverTimestamp()
@@ -280,18 +269,24 @@ timestamp: ${new Date().toISOString()}`);
         // In case doc is missing or restricted, attempt setDoc with merge
         await setDoc(doc(db, 'aiSessions', session.id), {
           adminControl: updatedControl,
-          outcomeMode: targetMode,
+          outcomeMode: targetLegacy,
+          executionMode: targetCanonical,
           stateVersion: nextVersion,
           updatedAt: serverTimestamp(),
           lastUpdate: serverTimestamp()
         }, { merge: true });
       });
 
-      console.log(`[SESSION UPDATE]
+      console.log(`[ADMIN_ACTION]
 sessionId: ${session.id}
-outcomeMode: ${targetMode}
-stateVersion: ${nextVersion}
-updatedAt: ${new Date().toISOString()}`);
+requestedMode: ${targetCanonical}
+authenticatedAdmin: ${session.userEmail || 'admin'}
+firestoreWriteResult: SUCCESS`);
+
+      console.log(`[SESSION_UPDATE]
+sessionId: ${session.id}
+previousMode: ${oldMode}
+newMode: ${targetCanonical}`);
 
       // 2. Update localStorage for instant zero-latency sync across tabs & local engine
       const controlKey = `aver_session_control_${session.id}`;
@@ -305,7 +300,8 @@ updatedAt: ${new Date().toISOString()}`);
           sessionId: session.id,
           userId: session.userId,
           control: updatedControl,
-          outcomeMode: targetMode,
+          outcomeMode: targetLegacy,
+          executionMode: targetCanonical,
           stateVersion: nextVersion
         }
       }));
@@ -314,14 +310,17 @@ updatedAt: ${new Date().toISOString()}`);
       setSession(prev => ({
         ...prev,
         adminControl: updatedControl,
-        outcomeMode: targetMode,
+        outcomeMode: targetLegacy,
+        executionMode: targetCanonical,
         stateVersion: nextVersion
       }));
 
-      setSaveSuccessMsg('Outcome directive applied successfully!');
+      setSaveSuccessMsg(`Session switched to ${targetCanonical === 'force_high_profit' ? 'Force High Profit' : targetCanonical === 'force_drawdown' ? 'Force Drawdown' : 'Natural / Normal'}!`);
       setTimeout(() => setSaveSuccessMsg(null), 3000);
     } catch (err) {
-      console.error("Error applying outcome control:", err);
+      console.error(`[ADMIN_ACTION_FAILED]
+sessionId: ${session.id}
+error: ${err}`);
       // Fallback
       localStorage.setItem(`aver_session_control_${session.id}`, JSON.stringify(updatedControl));
       localStorage.setItem(`aver_session_control_${session.userId}`, JSON.stringify(updatedControl));
@@ -330,7 +329,8 @@ updatedAt: ${new Date().toISOString()}`);
           sessionId: session.id,
           userId: session.userId,
           control: updatedControl,
-          outcomeMode: targetMode,
+          outcomeMode: targetLegacy,
+          executionMode: targetCanonical,
           stateVersion: nextVersion
         }
       }));
@@ -351,68 +351,6 @@ updatedAt: ${new Date().toISOString()}`);
   const handleSelectMode = async (selectedMode: SessionControlMode) => {
     setMode(selectedMode);
     await handleSaveControl({ mode: selectedMode });
-  };
-
-  // Financial Direct Injection (Inject Profit or Loss)
-  const handleInjectPnl = async (amountDelta: number) => {
-    setIsSaving(true);
-    try {
-      const isPositive = amountDelta >= 0;
-      const currentProfit = Number(session.totalProfit || 0);
-      const currentLoss = Number(session.totalLoss || 0);
-      const currentCap = Number(session.tradingCapital || 0);
-
-      const newProfit = isPositive ? currentProfit + amountDelta : currentProfit;
-      const newLoss = !isPositive ? currentLoss + Math.abs(amountDelta) : currentLoss;
-      const newCap = Math.max(0, currentCap + amountDelta);
-
-      // 1. Update Firestore Session
-      await updateDoc(doc(db, 'aiSessions', session.id), {
-        totalProfit: newProfit,
-        totalLoss: newLoss,
-        tradingCapital: newCap,
-        lastUpdate: Timestamp.now()
-      }).catch(() => {});
-
-      // 2. Update LocalStorage Session & User
-      const sessionKey = `aver_session_${session.userId}`;
-      const existingRaw = localStorage.getItem(sessionKey);
-      if (existingRaw) {
-        try {
-          const parsed = JSON.parse(existingRaw);
-          parsed.totalProfit = newProfit;
-          parsed.totalLoss = newLoss;
-          parsed.tradingCapital = newCap;
-          localStorage.setItem(sessionKey, JSON.stringify(parsed));
-        } catch (e) {}
-      }
-
-      // Update state
-      setSession(prev => ({
-        ...prev,
-        totalProfit: newProfit,
-        totalLoss: newLoss,
-        tradingCapital: newCap
-      }));
-
-      // Broadcast update
-      window.dispatchEvent(new CustomEvent('aver_session_updated', {
-        detail: {
-          ...session,
-          totalProfit: newProfit,
-          totalLoss: newLoss,
-          tradingCapital: newCap
-        }
-      }));
-
-      setSaveSuccessMsg(`Injected ${isPositive ? '+' : ''}$${amountDelta.toFixed(2)} into session P&L!`);
-      setTimeout(() => setSaveSuccessMsg(null), 3000);
-    } catch (e) {
-      console.error("Injection error:", e);
-      alert("Failed to inject P&L adjustment.");
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   // Force Close an Individual Position with WIN or LOSS or MARKET
@@ -790,7 +728,6 @@ updatedAt: ${new Date().toISOString()}`);
               {mode === 'NORMAL' && <span className="text-slate-300">🟢 Natural / Standard</span>}
               {mode === 'FORCE_PROFIT' && <span className="text-emerald-400">🚀 Force Profit</span>}
               {mode === 'FORCE_LOSS' && <span className="text-rose-400">🔻 Force Drawdown</span>}
-              {mode === 'CUSTOM_WIN_RATE' && <span className="text-purple-400">📊 Win Rate {customWinRate}%</span>}
             </div>
             <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
               <span>Next Trade: <b className="text-white">{forceNextTrade}</b></span>
@@ -851,7 +788,7 @@ updatedAt: ${new Date().toISOString()}`);
                 <span className="text-xs text-slate-500">Changes apply immediately to this active session</span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                 {/* 1. NATURAL / STANDARD */}
                 <div
                   onClick={() => handleSelectMode('NORMAL')}
@@ -932,74 +869,8 @@ updatedAt: ${new Date().toISOString()}`);
                     </p>
                   </div>
                 </div>
-
-                {/* 4. CUSTOM WIN RATE */}
-                <div
-                  onClick={() => handleSelectMode('CUSTOM_WIN_RATE')}
-                  className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
-                    mode === 'CUSTOM_WIN_RATE'
-                      ? 'bg-purple-500/15 border-purple-400 shadow-lg shadow-purple-500/15 ring-1 ring-purple-400'
-                      : 'bg-slate-900/60 border-white/10 hover:border-purple-500/30 hover:bg-slate-900'
-                  }`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
-                        <Percent className="w-4 h-4" />
-                      </div>
-                      {mode === 'CUSTOM_WIN_RATE' && (
-                        <span className="text-[10px] font-black uppercase text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded">
-                          ACTIVE
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="font-bold text-sm text-purple-400">Win Rate Lock</h4>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      Locks exact statistical win rate percentage (e.g. 90%, 50%, 20%) for all orders.
-                    </p>
-                  </div>
-                </div>
               </div>
             </div>
-
-            {/* Custom Mode Target Configuration Inputs */}
-            {mode === 'CUSTOM_WIN_RATE' && (
-              <div className="p-5 rounded-2xl bg-slate-900/90 border border-white/10 space-y-4">
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-purple-400" />
-                  Configure Target Parameters
-                </h4>
-
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                  <label className="text-xs text-slate-400 font-bold">Lock Win Rate (%):</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={customWinRate}
-                      onChange={(e) => setCustomWinRate(Number(e.target.value))}
-                      className="px-4 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-sm w-32 focus:outline-none focus:ring-2 focus:ring-purple-400"
-                      placeholder="85"
-                    />
-                    <button
-                      onClick={() => handleSaveControl({ customWinRate: Number(customWinRate) })}
-                      disabled={isSaving}
-                      className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-bold text-xs transition-all"
-                    >
-                      Lock Rate
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1 text-xs text-slate-400">
-                    <span>Presets:</span>
-                    <button onClick={() => { setCustomWinRate(95); handleSaveControl({ customWinRate: 95 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">95% (Guaranteed)</button>
-                    <button onClick={() => { setCustomWinRate(75); handleSaveControl({ customWinRate: 75 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">75% (High)</button>
-                    <button onClick={() => { setCustomWinRate(50); handleSaveControl({ customWinRate: 50 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">50% (Neutral)</button>
-                    <button onClick={() => { setCustomWinRate(20); handleSaveControl({ customWinRate: 20 }); }} className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded font-mono text-[11px]">20% (Low)</button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Instant Next Trade Override Toolbar */}
             <div className="p-5 rounded-2xl bg-slate-900/80 border border-white/10 space-y-3">
@@ -1050,92 +921,6 @@ updatedAt: ${new Date().toISOString()}`);
                   <Shield className="w-4 h-4" />
                   Auto / Natural Next Trade
                 </button>
-              </div>
-            </div>
-
-            {/* Direct Financial Injection Row */}
-            <div className="p-5 rounded-2xl bg-slate-900/80 border border-white/10 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-emerald-400" />
-                  Direct Capital & P&L Injection
-                </h3>
-                <span className="text-xs text-slate-500">Instantly adjusts session balance and realized P&L</span>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => handleInjectPnl(50)}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-mono font-bold text-xs"
-                >
-                  + $50.00
-                </button>
-                <button
-                  onClick={() => handleInjectPnl(100)}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-mono font-bold text-xs"
-                >
-                  + $100.00
-                </button>
-                <button
-                  onClick={() => handleInjectPnl(250)}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-mono font-bold text-xs"
-                >
-                  + $250.00
-                </button>
-                <button
-                  onClick={() => handleInjectPnl(500)}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-mono font-bold text-xs"
-                >
-                  + $500.00
-                </button>
-
-                <div className="h-6 w-px bg-white/10 mx-1"></div>
-
-                <button
-                  onClick={() => handleInjectPnl(-50)}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 font-mono font-bold text-xs"
-                >
-                  - $50.00
-                </button>
-                <button
-                  onClick={() => handleInjectPnl(-100)}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 font-mono font-bold text-xs"
-                >
-                  - $100.00
-                </button>
-                <button
-                  onClick={() => handleInjectPnl(-250)}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 font-mono font-bold text-xs"
-                >
-                  - $250.00
-                </button>
-
-                <div className="flex items-center gap-1.5 ml-auto">
-                  <input
-                    type="number"
-                    value={injectedAmount}
-                    onChange={(e) => setInjectedAmount(e.target.value)}
-                    placeholder="Custom $"
-                    className="w-24 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-white font-mono text-xs focus:outline-none"
-                  />
-                  <button
-                    onClick={() => {
-                      const num = parseFloat(injectedAmount);
-                      if (!isNaN(num) && num !== 0) handleInjectPnl(num);
-                    }}
-                    disabled={isSaving}
-                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs"
-                  >
-                    Inject
-                  </button>
-                </div>
               </div>
             </div>
           </div>

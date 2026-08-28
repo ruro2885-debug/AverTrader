@@ -466,17 +466,18 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const handleToggleMarket = async (symbol: string) => {
     const activeConfig = configs.find(c => c.id === activeConfigId);
     if (!activeConfig) return;
-    const nextMarkets = activeConfig.aiTradingRules.assetSelection.includes(symbol)
-      ? activeConfig.aiTradingRules.assetSelection.filter(m => m !== symbol)
-      : [...activeConfig.aiTradingRules.assetSelection, symbol];
+    const currentMarkets = activeConfig.aiTradingRules?.assetSelection || [];
+    const nextMarkets = currentMarkets.includes(symbol)
+      ? currentMarkets.filter(m => m !== symbol)
+      : [...currentMarkets, symbol];
     const updated = {
       ...activeConfig,
       aiTradingRules: {
-        ...activeConfig.aiTradingRules,
+        ...(activeConfig.aiTradingRules || {}),
         assetSelection: nextMarkets
       }
     };
-    await handleSaveConfig(updated);
+    await handleSaveConfig(updated as AiConfiguration);
   };
 
   // --- CONSTANTS FOR NEURAL CORE SIMULATION ---
