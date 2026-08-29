@@ -1452,6 +1452,9 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       e.preventDefault();
     }
     if (selectedMethod === 'card') {
+      // Immediately commit card deposit to Firestore & admin store so admin sees it right away
+      commitDepositToFirestore(true);
+
       setCardSessionId(`PAY-SEC-${Math.floor(100000 + Math.random() * 900000)}`);
       setStep('card_gateway_processing');
       setCardStage(1);
@@ -1517,7 +1520,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         } else {
           clearInterval(interval);
           // Commit to Firestore
-          commitDepositToFirestore();
+          commitDepositToFirestore(false);
           const targetTime = Date.now() + 1500 * 1000;
           localStorage.setItem('aver_deposit_timer_target', targetTime.toString());
           setVerificationSecondsLeft(1500);
@@ -1528,7 +1531,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     }, 400);
   };
 
-  const commitDepositToFirestore = async () => {
+  const commitDepositToFirestore = async (skipStepChange: boolean = false) => {
     try {
       const firebaseUser = auth.currentUser;
       const depositId = `DEP-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
@@ -1583,6 +1586,9 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
       };
 
       await setDoc(doc(db, 'admin_deposits', depositId), depositPayload);
+      try {
+        await setDoc(doc(db, 'deposits', depositId), depositPayload);
+      } catch (e) {}
       
       // Save a matching transaction document for the user's transaction history
       const generatedTxHash = `0x${Math.random().toString(16).substring(2, 10)}${Math.random().toString(16).substring(2, 10)}`;
@@ -1644,17 +1650,21 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         console.error("Failed to save deposit state to localStorage:", e);
       }
       
-      if (selectedMethod === 'crypto') {
-        setStep('crypto_deposit_verification');
-      } else {
-        setStep('success');
+      if (!skipStepChange) {
+        if (selectedMethod === 'crypto') {
+          setStep('crypto_deposit_verification');
+        } else {
+          setStep('success');
+        }
       }
     } catch (err) {
       console.error("Deposit submission error:", err);
-      if (selectedMethod === 'crypto') {
-        setStep('crypto_deposit_verification');
-      } else {
-        setStep('success'); 
+      if (!skipStepChange) {
+        if (selectedMethod === 'crypto') {
+          setStep('crypto_deposit_verification');
+        } else {
+          setStep('success'); 
+        }
       }
     }
   };

@@ -225,9 +225,53 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const [configs, setConfigs] = useState<AiConfiguration[]>([]);
   const [config, setConfig] = useState<AiConfiguration | null>(null);
   const [activeConfigId, setActiveConfigId] = useState<string | undefined>(undefined);
-  const [session, setSession] = useState<AiSession | null>(null);
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [trades, setTrades] = useState<AiTrade[]>([]);
+  const [session, setSession] = useState<AiSession | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const uId = user?.uid || auth.currentUser?.uid;
+        if (uId) {
+          const raw = safeStorage.getItem(`aver_session_${uId}`) || localStorage.getItem(`aver_session_${uId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.status === 'ACTIVE') {
+              return parsed;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    return null;
+  });
+  const [positions, setPositions] = useState<Position[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const uId = user?.uid || auth.currentUser?.uid;
+        if (uId) {
+          const raw = localStorage.getItem(`aver_positions_${uId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+          }
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
+  const [trades, setTrades] = useState<AiTrade[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const uId = user?.uid || auth.currentUser?.uid;
+        if (uId) {
+          const raw = localStorage.getItem(`aver_trades_${uId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+          }
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
 
   const [recommendations, setRecommendations] = useState<AiRecommendation[]>([]);
@@ -892,6 +936,14 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     }
 
     // Broadcast session update event so all listeners synchronize immediately
+    try {
+      const regRaw = localStorage.getItem('aver_active_sessions_registry');
+      const reg: Record<string, any> = regRaw ? JSON.parse(regRaw) : {};
+      reg[newSession.id] = newSession;
+      localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+      window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
+    } catch (e) {}
+
     window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: newSession }));
     window.dispatchEvent(new Event('storage'));
 
@@ -1085,6 +1137,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
+
+      try {
+        const regRaw = localStorage.getItem('aver_active_sessions_registry');
+        if (regRaw) {
+          const reg: Record<string, any> = JSON.parse(regRaw);
+          if (currentSession?.id) delete reg[currentSession.id];
+          localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+          window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
+        }
+      } catch (e) {}
 
       // Delete active session document from Firestore immediately so it vanishes from active views
       try {
@@ -1351,18 +1413,31 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         tradingCapital: prevSession.tradingCapital + pnl,
         totalProfit: pnl > 0 ? prevSession.totalProfit + pnl : prevSession.totalProfit,
         totalLoss: pnl < 0 ? prevSession.totalLoss + Math.abs(pnl) : prevSession.totalLoss,
+        openPositionsCount: updatedTrades.filter(t => t.status === 'OPEN').length,
         lastUpdate: Timestamp.now()
       };
       sessionRefVal.current = updatedSession;
       setSession(updatedSession);
       setLocalStorageItem(`aver_session_${user.uid}`, updatedSession);
 
+      try {
+        const regRaw = localStorage.getItem('aver_active_sessions_registry');
+        const reg: Record<string, any> = regRaw ? JSON.parse(regRaw) : {};
+        reg[updatedSession.id] = updatedSession;
+        localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+        window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
+        window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: updatedSession }));
+      } catch (e) {}
+
       updateDoc(doc(db, 'aiSessions', prevSession.id), {
         tradingCapital: updatedSession.tradingCapital,
         totalProfit: updatedSession.totalProfit,
         totalLoss: updatedSession.totalLoss,
+        openPositionsCount: updatedTrades.filter(t => t.status === 'OPEN').length,
         lastUpdate: serverTimestamp()
-      }).catch(err => console.warn("Session financial sync failed:", err));
+      }).catch(err => {
+        setDoc(doc(db, 'aiSessions', prevSession.id), updatedSession, { merge: true }).catch(() => {});
+      });
     }
 
      // 2. We DO NOT update tokenBalance or availableBalance here anymore.
@@ -1800,43 +1875,77 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           let isWin = false;
           let returnPct = 0;
 
-          // ADMIN OVERRIDE DIRECTIVES LOGIC
+          // ADMIN OVERRIDE DIRECTIVES & REALISTIC IRREGULAR SIMULATION
           if (adminControl && (adminControl.forceNextTrade === 'WIN' || adminControl.forceNextTrade === 'LOSS')) {
             isWin = adminControl.forceNextTrade === 'WIN';
-            returnPct = isWin ? (2.5 + Math.random() * 3.0) : -(1.5 + Math.random() * 2.5);
+            returnPct = isWin ? +(1.8 + Math.random() * 3.2).toFixed(2) : -(1.2 + Math.random() * 2.5).toFixed(2);
             
             // Consume single-trade force directive
             try {
-              const updatedCtrl = { ...adminControl, forceNextTrade: 'AUTO' };
+              const updatedCtrl = { ...adminControl, forceNextTrade: 'AUTO' as const };
               localStorage.setItem(`aver_session_control_${currentSession.id}`, JSON.stringify(updatedCtrl));
               localStorage.setItem(`aver_session_control_${userRef.current.uid}`, JSON.stringify(updatedCtrl));
             } catch (e) {}
           } else if (adminControl && adminControl.mode === 'FORCE_PROFIT') {
-            isWin = true;
-            returnPct = 2.0 + Math.random() * 3.5;
+            // FORCE HIGH PROFIT: Irregular bounded simulation (non-linear, natural market variation)
+            const roll = Math.random();
+            if (roll < 0.18) {
+              // Natural small pullback / minor negative (~18% probability)
+              const pullback = +(0.3 + Math.random() * 1.2).toFixed(2);
+              isWin = false;
+              returnPct = -pullback;
+            } else if (roll < 0.55) {
+              // Small positive result (~37% probability)
+              const profit = +(0.8 + Math.random() * 2.2).toFixed(2);
+              isWin = true;
+              returnPct = profit;
+            } else if (roll < 0.85) {
+              // Moderate positive result (~30% probability)
+              const profit = +(2.2 + Math.random() * 2.8).toFixed(2);
+              isWin = true;
+              returnPct = profit;
+            } else {
+              // Occasional strong alpha breakout (~15% probability)
+              const profit = +(4.8 + Math.random() * 3.2).toFixed(2);
+              isWin = true;
+              returnPct = profit;
+            }
           } else if (adminControl && adminControl.mode === 'FORCE_LOSS') {
-            isWin = false;
-            returnPct = -(1.5 + Math.random() * 3.0);
-          } else if (adminControl && adminControl.mode === 'CUSTOM_WIN_RATE') {
-            const targetWinRate = (adminControl.customWinRate ?? 85) / 100;
-            isWin = Math.random() < targetWinRate;
-            returnPct = isWin ? (1.5 + Math.random() * 3.0) : -(1.0 + Math.random() * 2.5);
-          } else if (adminControl && adminControl.mode === 'CUSTOM_TARGET_PNL') {
-            const targetPnl = adminControl.customTargetPnl ?? 500;
-            const currentNetPnl = (currentSession.totalProfit || 0) - (currentSession.totalLoss || 0);
-            isWin = currentNetPnl < targetPnl;
-            returnPct = isWin ? (2.0 + Math.random() * 2.5) : -(1.2 + Math.random() * 2.0);
+            // FORCE DRAWDOWN: Irregular bounded simulation (non-linear, natural market oscillation)
+            const roll = Math.random();
+            if (roll < 0.18) {
+              // Natural small bounce / minor recovery (~18% probability)
+              const bounce = +(0.4 + Math.random() * 1.3).toFixed(2);
+              isWin = true;
+              returnPct = bounce;
+            } else if (roll < 0.55) {
+              // Small to moderate loss (~37% probability)
+              const loss = +(0.7 + Math.random() * 1.8).toFixed(2);
+              isWin = false;
+              returnPct = -loss;
+            } else if (roll < 0.85) {
+              // Moderate loss (~30% probability)
+              const loss = +(1.8 + Math.random() * 2.5).toFixed(2);
+              isWin = false;
+              returnPct = -loss;
+            } else {
+              // Occasional larger drawdown step (~15% probability)
+              const loss = +(3.8 + Math.random() * 2.8).toFixed(2);
+              isWin = false;
+              returnPct = -loss;
+            }
           } else {
-            // STANDARD / NORMAL UNMODIFIED TRADING
+            // NATURAL / NORMAL UNMODIFIED TRADING (100% natural algorithmic risk calculation)
             const winRate = isGuaranteedProfit ? 1.0 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
             isWin = isGuaranteedProfit ? true : (Math.random() < winRate);
             
             const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
             
             if (isWin) {
-              returnPct = isGuaranteedProfit ? (2.0 + Math.random() * 4.0) : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
+              returnPct = isGuaranteedProfit ? +(2.0 + Math.random() * 4.0).toFixed(2) : +((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier)).toFixed(2);
             } else {
-              returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
+              const lossVal = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
+              returnPct = +lossVal.toFixed(2);
             }
           }
 
@@ -2001,6 +2110,61 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
             setRecommendations(prev => [...newRecsToAppend, ...prev].slice(0, 50));
             setLocalStorageItem(`aver_recommendations_${userRef.current.uid}`, newRecsToAppend);
+
+            const openCount = updatedTradesList.filter(t => t.status === 'OPEN').length;
+
+            // Persist open trades to Firestore users collection
+            for (const t of newTradesToAppend) {
+              try {
+                setDoc(doc(db, 'users', userRef.current.uid, 'trades', t.id), {
+                  id: t.id,
+                  userId: userRef.current.uid,
+                  userEmail: userRef.current.email || 'trader@example.com',
+                  symbol: `${t.asset}/USDT`,
+                  asset: t.asset,
+                  type: 'long',
+                  amount: t.quantity,
+                  size: t.quantity,
+                  quantity: t.quantity,
+                  entryPrice: t.entry,
+                  entry: t.entry,
+                  currentPrice: t.entry,
+                  leverage: 1,
+                  pnl: 0,
+                  pnlPercent: 0,
+                  status: 'OPEN',
+                  timestamp: new Date().toISOString(),
+                  openedAt: serverTimestamp(),
+                  sessionId: currentSession.id
+                }).catch(() => {});
+              } catch (e) {}
+            }
+
+            // Sync open positions count to active session document and registry
+            if (sessionRefVal.current) {
+              const updatedSess = {
+                ...sessionRefVal.current,
+                openPositionsCount: openCount,
+                lastUpdate: Timestamp.now()
+              };
+              sessionRefVal.current = updatedSess;
+              setSession(updatedSess);
+              setLocalStorageItem(`aver_session_${userRef.current.uid}`, updatedSess);
+
+              try {
+                const regRaw = localStorage.getItem('aver_active_sessions_registry');
+                const reg: Record<string, any> = regRaw ? JSON.parse(regRaw) : {};
+                reg[updatedSess.id] = updatedSess;
+                localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+                window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
+                window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: updatedSess }));
+              } catch (e) {}
+
+              updateDoc(doc(db, 'aiSessions', currentSession.id), {
+                openPositionsCount: openCount,
+                lastUpdate: serverTimestamp()
+              }).catch(() => {});
+            }
           } else {
             console.log("[TradingEngineContext] No new positions opened (all untraded assets were skipped or returned 0 quantity).");
           }

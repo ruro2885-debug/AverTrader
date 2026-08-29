@@ -107,59 +107,139 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     let unsubTradesList: (() => void)[] = [];
 
     console.log("[ADMIN] Listener mounted");
-    console.log("[ADMIN] Listening path: aiSessions");
+    console.log("[ADMIN] Initializing multi-source live active sessions listener");
+
+    const syncSessions = (firestoreDocs?: any[]) => {
+      const sessionsMap = new Map<string, ActiveSessionRecord>();
+
+      // 1. Process Firestore collection docs
+      if (firestoreDocs && firestoreDocs.length > 0) {
+        firestoreDocs.forEach(sDoc => {
+          const data = typeof sDoc.data === 'function' ? sDoc.data() : sDoc;
+          const docId = sDoc.id || data.id;
+          const statusVal = String(data.status || '').toUpperCase();
+          if ((statusVal === 'ACTIVE' || statusVal === 'RUNNING') && data.isDeleted !== true) {
+            const uId = data.userId || 'unknown';
+            const userEmail = data.userEmail || userMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+            
+            sessionsMap.set(docId, {
+              id: docId,
+              userId: uId,
+              userEmail: userEmail,
+              status: 'ACTIVE',
+              startTime: data.startTime || new Date().toISOString(),
+              tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
+              initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
+              openPositionsCount: data.openPositionsCount || 0,
+              totalProfit: data.totalProfit || 0,
+              totalLoss: data.totalLoss || 0,
+              activeConfigId: data.activeConfigId,
+              strategyName: data.strategyName || 'Algorithmic Strategy',
+              adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
+            });
+          }
+        });
+      }
+
+      // 2. Merge local active sessions registry for zero-delay instant sync
+      try {
+        const regRaw = localStorage.getItem('aver_active_sessions_registry');
+        if (regRaw) {
+          const reg = JSON.parse(regRaw);
+          Object.values(reg).forEach((data: any) => {
+            if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && !data.isDeleted) {
+              const docId = data.id;
+              if (docId) {
+                const uId = data.userId || 'unknown';
+                const userEmail = data.userEmail || userMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+                const existing = sessionsMap.get(docId);
+                
+                sessionsMap.set(docId, {
+                  id: docId,
+                  userId: uId,
+                  userEmail: userEmail,
+                  status: 'ACTIVE',
+                  startTime: data.startTime || existing?.startTime || new Date().toISOString(),
+                  tradingCapital: data.tradingCapital ?? existing?.tradingCapital ?? data.initialCapital ?? 0,
+                  initialCapital: data.initialCapital ?? existing?.initialCapital ?? data.tradingCapital ?? 1000,
+                  openPositionsCount: data.openPositionsCount ?? existing?.openPositionsCount ?? 0,
+                  totalProfit: data.totalProfit ?? existing?.totalProfit ?? 0,
+                  totalLoss: data.totalLoss ?? existing?.totalLoss ?? 0,
+                  activeConfigId: data.activeConfigId || existing?.activeConfigId,
+                  strategyName: data.strategyName || existing?.strategyName || 'Algorithmic Strategy',
+                  adminControl: data.adminControl || existing?.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
+                });
+              }
+            }
+          });
+        }
+      } catch (e) {}
+
+      // 3. Check individual local session keys
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('aver_session_') && !key.startsWith('aver_session_control_')) {
+            const rawVal = localStorage.getItem(key);
+            if (rawVal) {
+              const data = JSON.parse(rawVal);
+              if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && data.id && !data.isDeleted) {
+                if (!sessionsMap.has(data.id)) {
+                  const uId = data.userId || key.replace('aver_session_', '');
+                  const userEmail = data.userEmail || userMap[uId]?.email || (uId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+                  sessionsMap.set(data.id, {
+                    id: data.id,
+                    userId: uId,
+                    userEmail: userEmail,
+                    status: 'ACTIVE',
+                    startTime: data.startTime || new Date().toISOString(),
+                    tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
+                    initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
+                    openPositionsCount: data.openPositionsCount || 0,
+                    totalProfit: data.totalProfit || 0,
+                    totalLoss: data.totalLoss || 0,
+                    activeConfigId: data.activeConfigId,
+                    strategyName: data.strategyName || 'Algorithmic Strategy',
+                    adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {}
+
+      const sessionsList = Array.from(sessionsMap.values());
+
+      // Sort by start time descending
+      sessionsList.sort((a, b) => {
+        const getMs = (t: any) => {
+          if (!t) return 0;
+          if (typeof t.toDate === 'function') return t.toDate().getTime();
+          if (typeof t.seconds === 'number') return t.seconds * 1000;
+          const parsed = new Date(t).getTime();
+          return isNaN(parsed) ? 0 : parsed;
+        };
+        return getMs(b.startTime) - getMs(a.startTime);
+      });
+
+      setActiveSessions(sessionsList);
+      setLoading(false);
+
+      // Keep selectedControlSession continuously updated with live mirror
+      setSelectedControlSession(prev => {
+        if (!prev) return null;
+        const updated = sessionsList.find(s => s.id === prev.id);
+        return updated || prev;
+      });
+
+      return sessionsList;
+    };
+
     // Real-time listener for active aiSessions
     try {
       unsubSessions = onSnapshot(collection(db, 'aiSessions'), (snapshot) => {
-        console.log("[ADMIN] Snapshot received");
-        console.log("[ADMIN] Active sessions:", snapshot.size);
-
-        const sessionsList: ActiveSessionRecord[] = [];
-        const seenIds = new Set<string>();
-
-        snapshot.docs.forEach(sDoc => {
-          const data = sDoc.data();
-          // Filter strictly active sessions
-          const statusVal = String(data.status || '').toUpperCase();
-          if ((statusVal === 'ACTIVE' || statusVal === 'RUNNING') && data.isDeleted !== true) {
-            if (!seenIds.has(sDoc.id)) {
-              seenIds.add(sDoc.id);
-              const uId = data.userId || 'unknown';
-              const userEmail = data.userEmail || userMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-              
-              sessionsList.push({
-                id: sDoc.id,
-                userId: uId,
-                userEmail: userEmail,
-                status: 'ACTIVE',
-                startTime: data.startTime || new Date().toISOString(),
-                tradingCapital: data.tradingCapital || data.initialCapital || 0,
-                initialCapital: data.initialCapital || data.tradingCapital || 0,
-                openPositionsCount: data.openPositionsCount || 0,
-                totalProfit: data.totalProfit || 0,
-                totalLoss: data.totalLoss || 0,
-                activeConfigId: data.activeConfigId,
-                strategyName: data.strategyName || 'Algorithmic Strategy',
-                adminControl: data.adminControl
-              });
-            }
-          }
-        });
-
-        // Sort by start time descending
-        sessionsList.sort((a, b) => {
-          const getMs = (t: any) => {
-            if (!t) return 0;
-            if (typeof t.toDate === 'function') return t.toDate().getTime();
-            if (typeof t.seconds === 'number') return t.seconds * 1000;
-            const parsed = new Date(t).getTime();
-            return isNaN(parsed) ? 0 : parsed;
-          };
-          return getMs(b.startTime) - getMs(a.startTime);
-        });
-
-        setActiveSessions(sessionsList);
-        setLoading(false);
+        const sessionsList = syncSessions(snapshot.docs);
 
         // Subscribe to real-time trades for all active session users
         unsubTradesList.forEach(unsub => unsub());
@@ -205,15 +285,30 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         }
       }, (err) => {
         console.warn("[AdminTrades] Error in aiSessions onSnapshot:", err);
+        syncSessions();
         setLoading(false);
       });
     } catch (e) {
+      syncSessions();
       setLoading(false);
     }
+
+    const handleStorageUpdate = () => {
+      syncSessions();
+    };
+
+    window.addEventListener('storage', handleStorageUpdate);
+    window.addEventListener('aver_sessions_registry_updated', handleStorageUpdate);
+    window.addEventListener('aver_session_updated', handleStorageUpdate);
+    window.addEventListener('aver_admin_control_updated', handleStorageUpdate);
 
     return () => {
       if (unsubSessions) unsubSessions();
       unsubTradesList.forEach(unsub => unsub());
+      window.removeEventListener('storage', handleStorageUpdate);
+      window.removeEventListener('aver_sessions_registry_updated', handleStorageUpdate);
+      window.removeEventListener('aver_session_updated', handleStorageUpdate);
+      window.removeEventListener('aver_admin_control_updated', handleStorageUpdate);
     };
   }, [user?.uid, user?.email, userMap]);
 

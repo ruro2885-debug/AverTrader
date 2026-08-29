@@ -418,13 +418,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             
             setUser(prev => {
               const updatedUser = {
+                ...(prev || {}),
                 ...userData,
                 portfolioBalance: typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : (prev?.portfolioBalance ?? 0),
                 availableBalance: typeof userData.availableBalance === 'number' ? userData.availableBalance : (prev?.availableBalance ?? 0),
                 vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (prev?.vaultBalance ?? 0),
+                tokenBalance: typeof userData.tokenBalance === 'number' ? userData.tokenBalance : (prev?.tokenBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
+                aiTradingCapital: typeof userData.aiTradingCapital === 'number' ? userData.aiTradingCapital : (prev?.aiTradingCapital ?? 0),
+                cashBalance: typeof userData.cashBalance === 'number' ? userData.cashBalance : (prev?.cashBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
                 holdings: userData.holdings || prev?.holdings || [],
                 trades: userData.trades || prev?.trades || [],
-                snapshots: userData.snapshots || prev?.snapshots || []
+                snapshots: userData.snapshots || prev?.snapshots || [],
+                portfolio: {
+                  ...(prev?.portfolio || {}),
+                  ...(userData.portfolio || {})
+                }
               } as User;
               
               // Only cache essential profile info

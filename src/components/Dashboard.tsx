@@ -353,16 +353,17 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return 0;
   }, [trades, completedSessions, user, resetTime]);
 
-  // Net value displayed on Home Net Balance card (represents available money, decreases immediately on session start by active trading capital)
+  // Net value displayed on Home Net Balance card (represents consolidated total net asset balance)
   const totalValue = useMemo(() => {
-    return homeNetBalance;
-  }, [homeNetBalance]);
+    return totalNetBalance;
+  }, [totalNetBalance]);
 
   // Account baseline for trading return calculations (independent of cash deposits/withdrawals)
   const baselineAccountBalance = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      const allocated = session.initialCapital || session.tradingCapital || 0;
-      const starting = totalValue + allocated;
+      const allocated = session.initialCapital || session.tradingCapital || 1000;
+      const unallocated = Math.max(0, totalValue - (session.tradingCapital || allocated));
+      const starting = unallocated + allocated;
       return starting > 0 ? starting : (allocated > 0 ? allocated : 1000);
     }
     // When session is inactive, baseline = current balance minus PnL (ensures starting balance is mathematically sound)
@@ -374,10 +375,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Total PnL dollar change for performance indicator strictly driven by trading activity
   const totalPlAmount = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      const allocated = session.initialCapital || session.tradingCapital || 0;
-      // While active, allocated capital was deducted from net balance.
-      // Net balance effect = activeSessionPnL - allocated + closedTradesPnL
-      return activeSessionPnL - allocated + closedTradesPnL;
+      // While active, trading PnL is the active session PnL + closed trades PnL
+      return activeSessionPnL + closedTradesPnL;
     }
     if (closedTradesPnL !== 0 || totalFloatingPnl !== 0) {
       return closedTradesPnL + totalFloatingPnl;
@@ -396,17 +395,25 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   // Overall Return Amount & Overall Return % (strictly trading return, unaffected by deposits/withdrawals)
   const overallReturnAmount = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      return activeSessionPnL + closedTradesPnL;
+    }
     if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
       return user.portfolio.overallReturn;
     }
     return totalPlAmount;
-  }, [user?.portfolio?.overallReturn, totalPlAmount]);
+  }, [session?.status, activeSessionPnL, closedTradesPnL, user?.portfolio?.overallReturn, totalPlAmount]);
 
   const overallReturnPercent = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      const sessionInitial = session.initialCapital || session.tradingCapital || 1000;
+      const base = baselineAccountBalance > 0 ? baselineAccountBalance : sessionInitial;
+      return (overallReturnAmount / base) * 100;
+    }
     const base = baselineAccountBalance > 0 ? baselineAccountBalance : (totalValue > 0 ? totalValue : 1000);
     if (base <= 0) return 0;
     return (overallReturnAmount / base) * 100;
-  }, [overallReturnAmount, baselineAccountBalance, totalValue]);
+  }, [session, overallReturnAmount, baselineAccountBalance, totalValue]);
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (totalPlAmount < 0 ? '-' : '+') + formatCurrency(Math.abs(totalPlAmount));
