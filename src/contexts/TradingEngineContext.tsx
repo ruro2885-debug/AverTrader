@@ -3,14 +3,13 @@ import { doc, onSnapshot, updateDoc, setDoc, collection, addDoc, deleteDoc, serv
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { useFinancials } from '../hooks/useFinancials';
-import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule, SessionEquityPoint, CompletedSessionData, SessionControlMode, SessionAdminControl, normalizeSessionMode, CanonicalExecutionMode } from '../types/aiTrading';
+import { AiConfiguration, AiTrade, AiSession, AiRecommendation, TradingSchedule, SessionEquityPoint, CompletedSessionData } from '../types/aiTrading';
 import { Position, ActivityEvent } from '../types/trading';
 import { seedTraders, startTraderSimulator } from '../services/traderSimulator';
 import { aiTradingService, EngineStatus } from '../services/aiTradingService';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService } from '../services/walletService';
 import { equityService } from '../services/equityService';
-import { generateSimulatedOutcome } from '../services/outcomeEngine';
 import { safeStorage } from '../utils/storage';
 
 const isWithinSchedule = (schedule?: TradingSchedule, isSessionActive?: boolean): boolean => {
@@ -43,7 +42,6 @@ interface TradingEngineContextType {
   startSession: (configId: string, markets: string[]) => Promise<void>;
   endSession: () => Promise<void>;
   loading: boolean;
-  isHydrated: boolean;
   engineStatus: EngineStatus;
   liveTradePrices: Record<string, number>;
   saveConfiguration: (updatedConfig: AiConfiguration) => Promise<void>;
@@ -124,7 +122,6 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
   startSession: async () => {},
   endSession: async () => {},
   loading: true,
-  isHydrated: false,
   engineStatus: { state: 'INACTIVE', reason: 'Initializing...' },
   liveTradePrices: {},
   saveConfiguration: async () => {},
@@ -139,6 +136,74 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
   toggleEmergencyStop: async () => {},
   clearActivityHistory: async () => {},
 });
+
+export function normalizeAiConfig(raw: any, fallbackOwnerId?: string): AiConfiguration {
+  const effectiveOwnerId = raw?.ownerId || fallbackOwnerId || 'guest_user';
+  return {
+    id: raw?.id || `cfg_${Date.now()}`,
+    ownerId: effectiveOwnerId,
+    name: raw?.name || 'Alpha Quant Momentum',
+    createdAt: raw?.createdAt || Timestamp.now(),
+    lastModified: raw?.lastModified || Timestamp.now(),
+    status: raw?.status || 'INACTIVE',
+    sessionSetup: {
+      amountToAllocate: 1000,
+      fundingSource: 'WALLET',
+      sessionDuration: 24,
+      ...(raw?.sessionSetup || {})
+    },
+    profitRiskManagement: {
+      sessionTakeProfit: 5,
+      sessionStopLoss: 2,
+      maxRiskPerTrade: 1,
+      maxPositionSize: 500,
+      ...(raw?.profitRiskManagement || {})
+    },
+    aiTradingRules: {
+      minConfidence: 85,
+      maxSimultaneousPositions: 3,
+      assetSelection: Array.isArray(raw?.aiTradingRules?.assetSelection) && raw.aiTradingRules.assetSelection.length > 0 
+        ? raw.aiTradingRules.assetSelection 
+        : ['BTC', 'ETH', 'SOL'],
+      tradingStrategy: 'NEURAL_MOMENTUM',
+      ...(raw?.aiTradingRules || {})
+    },
+    schedule: {
+      enabled: false,
+      operatingWindows: [],
+      coolingBreaks: [],
+      marketCalendar: {
+        Stocks: { excludeHolidays: true },
+        Forex: { excludeHolidays: true },
+        Crypto: { excludeHolidays: false },
+        Indices: { excludeHolidays: true },
+        Commodities: { excludeHolidays: true }
+      },
+      monitorOutsideWindow: true,
+      ...(raw?.schedule || {})
+    },
+    configurationDetails: raw?.configurationDetails || {
+      description: 'Aggressive alpha-capture strategy targeting neural momentum patterns.',
+      category: 'Scalping',
+      version: '1.2.0'
+    },
+    analyticsAndNotes: raw?.analyticsAndNotes || {
+      riskScore: 50,
+      strategyNotes: '',
+      performanceStats: {
+        winRate: 0,
+        totalReturn: 0,
+        drawdown: 0
+      },
+      executionHistory: []
+    },
+    notificationPreferences: raw?.notificationPreferences || {
+      newRecommendations: true,
+      tradeExecutions: true,
+      marketAlerts: false
+    }
+  };
+}
 
 export const TradingEngineProvider = ({ children }: { children: React.ReactNode }) => {
   const { user, updateProfile, addNotification } = useAuth();
@@ -167,7 +232,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   const [recommendations, setRecommendations] = useState<AiRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isHydrated, setIsHydrated] = useState(false);
   const [engineStatus, setEngineStatus] = useState<EngineStatus>({ state: 'INACTIVE', reason: 'Core offline' });
   const [liveTradePrices, setLiveTradePrices] = useState<Record<string, number>>({});
   const [sessionEquityPoints, setSessionEquityPoints] = useState<SessionEquityPoint[]>([]);
@@ -181,50 +245,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const recentActivitiesRef = useRef<Map<string, number>>(new Map());
   const profitTargetNotifiedRef = useRef<boolean>(false);
   const stopLossNotifiedRef = useRef<boolean>(false);
-  const activeOutcomeModeRef = useRef<SessionControlMode>('NORMAL');
-  const activeAdminControlRef = useRef<SessionAdminControl>({ mode: 'NORMAL', forceNextTrade: 'AUTO', customTargetPnl: 500, customWinRate: 85 });
-
-  // Real-time synchronization for admin session control directives
-  useEffect(() => {
-    const handleAdminControlUpdate = (event: any) => {
-      const detail = event?.detail;
-      if (!detail) return;
-      if (detail.sessionId && sessionRefVal.current && detail.sessionId !== sessionRefVal.current.id) return;
-      if (detail.userId && user?.uid && detail.userId !== user.uid) return;
-      
-      const { canonical, legacy } = normalizeSessionMode(detail.executionMode || detail.outcomeMode || detail.control?.mode || detail.control?.executionMode || 'natural');
-      activeOutcomeModeRef.current = legacy;
-      if (detail.control) {
-        activeAdminControlRef.current = {
-          ...detail.control,
-          mode: legacy,
-          executionMode: canonical
-        };
-      }
-      
-      if (sessionRefVal.current) {
-        const nextVersion = detail.stateVersion || (sessionRefVal.current.stateVersion || 1) + 1;
-        sessionRefVal.current = {
-          ...sessionRefVal.current,
-          outcomeMode: legacy,
-          executionMode: canonical,
-          adminControl: detail.control || activeAdminControlRef.current,
-          stateVersion: nextVersion
-        };
-        setSession({ ...sessionRefVal.current });
-      }
-
-      console.log(`[SESSION_UPDATE]
-sessionId: ${detail.sessionId || sessionRefVal.current?.id}
-previousMode: ${sessionRefVal.current?.executionMode || 'natural'}
-newMode: ${canonical}`);
-    };
-
-    window.addEventListener('aver_admin_control_updated', handleAdminControlUpdate);
-    return () => {
-      window.removeEventListener('aver_admin_control_updated', handleAdminControlUpdate);
-    };
-  }, [user?.uid]);
 
   // Helper to load/save state from/to localStorage if Firestore is unavailable/offline
   const getLocalStorageItem = useCallback((key: string, defaultValue: any) => {
@@ -248,7 +268,8 @@ newMode: ${canonical}`);
   useEffect(() => {
     if (!user) return;
     
-    const cachedConfigs = getLocalStorageItem(`aver_configs_${user.uid}`, []);
+    const rawCachedConfigs = getLocalStorageItem(`aver_configs_${user.uid}`, []);
+    const cachedConfigs = rawCachedConfigs.map((c: any) => normalizeAiConfig(c, user.uid));
     
     // Prioritize cached configs but don't seed if it's already in localStorage
     if (cachedConfigs.length > 0) {
@@ -319,21 +340,9 @@ newMode: ${canonical}`);
         } catch (err) {}
     }
     
-    // Restore cached session if present and ACTIVE so there is zero flicker on refresh/navigation
-    const cachedSession = getLocalStorageItem(`aver_session_${user.uid}`, null);
-    if (cachedSession && cachedSession.status === 'ACTIVE') {
-      setSession(cachedSession);
-      sessionRefVal.current = cachedSession;
-      setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Active session' });
-    } else if (user.aiSession && user.aiSession.status === 'ACTIVE') {
-      setSession(user.aiSession);
-      sessionRefVal.current = user.aiSession;
-      setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Active session' });
-    } else {
-      setSession(null);
-      sessionRefVal.current = null;
-    }
-
+    // Reset session, positions, trades state whenever active user changes
+    setSession(null);
+    sessionRefVal.current = null;
     setPositions([]);
     setTrades([]);
     tradesRefVal.current = [];
@@ -342,6 +351,10 @@ newMode: ${canonical}`);
 
     // Check if user is a new user with zero balance and zero deposits
     const isNewZeroUser = (user.totalDeposits || 0) === 0 && (user.availableBalance || 0) === 0 && (user.portfolioBalance || 0) === 0;
+    
+    // Do not auto-restore active session on refresh/boot so trading sessions do not start on their own
+    setSession(null);
+    sessionRefVal.current = null;
 
     if (!isNewZeroUser) {
       const cachedPositions = getLocalStorageItem(`aver_positions_${user.uid}`, []);
@@ -374,6 +387,8 @@ newMode: ${canonical}`);
     if (cachedRecommendations.length > 0) {
       setRecommendations(cachedRecommendations);
     }
+
+    setLoading(false);
   }, [user?.uid, getLocalStorageItem, setLocalStorageItem]);
 
   // Sync state FROM custom events (e.g., when copying a trader's AI config or saving config in external views)
@@ -385,8 +400,11 @@ newMode: ${canonical}`);
         if (customEvent.detail.configs && Array.isArray(customEvent.detail.configs)) {
           setConfigs(prev => {
             const mergedMap = new Map<string, AiConfiguration>();
-            prev.forEach(c => mergedMap.set(c.id, c));
-            customEvent.detail.configs.forEach((c: AiConfiguration) => mergedMap.set(c.id, c));
+            prev.forEach(c => mergedMap.set(c.id, normalizeAiConfig(c, effectiveUid)));
+            customEvent.detail.configs.forEach((c: AiConfiguration) => {
+              const norm = normalizeAiConfig(c, effectiveUid);
+              mergedMap.set(norm.id, norm);
+            });
             const merged = Array.from(mergedMap.values());
             setLocalStorageItem(`aver_configs_${effectiveUid}`, merged);
             return merged;
@@ -408,11 +426,26 @@ newMode: ${canonical}`);
       }
     };
 
+    const handleAdminControlUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const detail = customEvent.detail;
+      const effectiveUid = user?.uid || 'guest_user';
+      if (detail && (detail.sessionId === sessionRefVal.current?.id || detail.userId === effectiveUid)) {
+        console.log("[TradingEngineContext] Received aver_admin_control_updated:", detail.adminControl);
+        if (sessionRefVal.current) {
+          sessionRefVal.current.adminControl = detail.adminControl;
+        }
+        setSession(prev => prev ? { ...prev, adminControl: detail.adminControl } : prev);
+      }
+    };
+
     window.addEventListener('configs_updated', handleConfigsSync);
     window.addEventListener('aver_session_terminated', handleSessionTerminated);
+    window.addEventListener('aver_admin_control_updated', handleAdminControlUpdated);
     return () => {
       window.removeEventListener('configs_updated', handleConfigsSync);
       window.removeEventListener('aver_session_terminated', handleSessionTerminated);
+      window.removeEventListener('aver_admin_control_updated', handleAdminControlUpdated);
     };
   }, [user?.uid, setLocalStorageItem]);
 
@@ -470,23 +503,12 @@ newMode: ${canonical}`);
     const activityRef = query(collection(db, 'users', user.uid, 'activity'), orderBy('timestamp', 'desc'));
     const sessionRef = query(collection(db, 'aiSessions'), where('userId', '==', user.uid), where('status', '==', 'ACTIVE'), limit(1));
 
-    let sessionHydrated = false;
-    let configsHydrated = false;
-
-    const checkHydrationComplete = () => {
-      if (sessionHydrated && configsHydrated) {
-        setIsHydrated(true);
-        setLoading(false);
-      }
-    };
-
     const unsubConfigs = onSnapshot(configsRef, (snap) => {
-      configsHydrated = true;
-      const fetchedConfigs = snap.docs.map(d => ({ id: d.id, ...d.data() }) as AiConfiguration);
+      const fetchedConfigs = snap.docs.map(d => normalizeAiConfig({ id: d.id, ...d.data() }, user.uid));
       setConfigs(prev => {
         const mergedMap = new Map<string, AiConfiguration>();
         // Keep local configs that aren't in Firestore yet
-        prev.forEach(c => mergedMap.set(c.id, c));
+        prev.forEach(c => mergedMap.set(c.id, normalizeAiConfig(c, user.uid)));
         // Add or overwrite with Firestore configs
         fetchedConfigs.forEach(c => mergedMap.set(c.id, c));
         
@@ -509,89 +531,33 @@ newMode: ${canonical}`);
 
         return merged;
       });
-      checkHydrationComplete();
+      setLoading(false);
     }, (error) => {
       console.warn("[TradingEngineContext] configs subscription restricted/denied. Running in high-fidelity local state mode:", error);
-      configsHydrated = true;
-      checkHydrationComplete();
+      setLoading(false);
     });
 
     const unsubSession = onSnapshot(sessionRef, (snap) => {
-        sessionHydrated = true;
         if (!snap.empty) {
           const fetchedSession = { id: snap.docs[0].id, ...snap.docs[0].data() } as AiSession;
           if (fetchedSession.status !== 'ACTIVE' || fetchedSession.userId !== user.uid) {
             console.log("[TradingEngineContext] Ignoring inactive or non-owned session from snapshot:", fetchedSession.id);
             setSession(null);
             sessionRefVal.current = null;
-            setEngineStatus({ state: 'INACTIVE', reason: 'Core offline' });
             safeStorage.removeItem(`aver_session_${user.uid}`);
-            checkHydrationComplete();
             return;
           }
-          
-          const { canonical, legacy } = normalizeSessionMode(fetchedSession.executionMode || fetchedSession.outcomeMode || fetchedSession.adminControl?.mode || 'natural');
-          activeOutcomeModeRef.current = legacy;
-          if (fetchedSession.adminControl) {
-            activeAdminControlRef.current = {
-              ...fetchedSession.adminControl,
-              mode: legacy,
-              executionMode: canonical
-            };
-          }
-
-          console.log(`[SESSION_UPDATE]
-sessionId: ${fetchedSession.id}
-previousMode: ${sessionRefVal.current?.executionMode || 'natural'}
-newMode: ${canonical}`);
-
-          const sessionObj: AiSession = {
-            ...fetchedSession,
-            outcomeMode: legacy,
-            executionMode: canonical
-          };
-
-          setSession(sessionObj);
-          sessionRefVal.current = sessionObj;
-          setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Live session active' });
-          safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(sessionObj));
+          console.log("[TradingEngineContext] Session synchronized from Firestore:", fetchedSession.id);
+          setSession(fetchedSession);
+          sessionRefVal.current = fetchedSession;
+          safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(fetchedSession));
         } else {
-          // Double check user document in case aiSession was stored in user profile
-          if (user.aiSession && user.aiSession.status === 'ACTIVE' && user.aiSession.userId === user.uid) {
-            const { canonical, legacy } = normalizeSessionMode(user.aiSession.executionMode || user.aiSession.outcomeMode || user.aiSession.adminControl?.mode || 'natural');
-            activeOutcomeModeRef.current = legacy;
-            if (user.aiSession.adminControl) {
-              activeAdminControlRef.current = {
-                ...user.aiSession.adminControl,
-                mode: legacy,
-                executionMode: canonical
-              };
-            }
-            console.log(`[SESSION_UPDATE]
-sessionId: ${user.aiSession.id}
-previousMode: ${sessionRefVal.current?.executionMode || 'natural'}
-newMode: ${canonical}`);
-            const userSess: AiSession = {
-              ...user.aiSession,
-              outcomeMode: legacy,
-              executionMode: canonical
-            };
-            setSession(userSess);
-            sessionRefVal.current = userSess;
-            setEngineStatus({ state: 'SESSION_SCANNING', reason: 'Live session active' });
-            safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(userSess));
-          } else {
-            setSession(null);
-            sessionRefVal.current = null;
-            setEngineStatus({ state: 'INACTIVE', reason: 'Core offline' });
-            safeStorage.removeItem(`aver_session_${user.uid}`);
-          }
+          setSession(null);
+          sessionRefVal.current = null;
+          safeStorage.removeItem(`aver_session_${user.uid}`);
         }
-        checkHydrationComplete();
     }, (error) => {
       console.warn("[TradingEngineContext] session subscription restricted/denied. Running locally:", error);
-      sessionHydrated = true;
-      checkHydrationComplete();
     });
 
     const unsubPositions = onSnapshot(positionsRef, (snap) => {
@@ -820,39 +786,22 @@ newMode: ${canonical}`);
       localStorage.removeItem(`aver_stopped_session_${effectiveUid}`);
     } catch (e) {}
 
-    const newSessionId = `session_${effectiveUid}_${Date.now()}`;
     const newSession: AiSession = {
-      id: newSessionId,
-      sessionId: newSessionId,
+      id: `session_${effectiveUid}_${Date.now()}`,
       userId: effectiveUid,
       userEmail: userEmail,
-      outcomeMode: 'NORMAL',
       status: 'ACTIVE',
       startTime: Timestamp.now(),
-      startedAt: Timestamp.now(),
       activeConfigId: configId,
       strategyName: activeConfig?.name || 'AI Trading Strategy',
       tradingCapital: allocationAmount,
-      allocatedCapital: allocationAmount,
       initialCapital: allocationAmount,
-      currentBalance: allocationAmount,
-      equity: allocationAmount,
-      sessionPnL: 0,
-      tradeCount: 0,
-      wins: 0,
-      losses: 0,
       openPositionsCount: 0,
       totalProfit: 0,
       totalLoss: 0,
-      lastTradeAt: null,
       lastUpdate: Timestamp.now(),
-      updatedAt: serverTimestamp(),
-      stateVersion: 1,
-      adminControl: { mode: 'NORMAL', forceNextTrade: 'AUTO', customTargetPnl: 500, customWinRate: 85 }
+      adminControl: { mode: 'NORMAL', forceNextTrade: 'AUTO' }
     };
-    
-    activeOutcomeModeRef.current = 'NORMAL';
-    activeAdminControlRef.current = { mode: 'NORMAL', forceNextTrade: 'AUTO', customTargetPnl: 500, customWinRate: 85 };
     
     peakEquityRef.current = allocationAmount;
     const startBaseCash = tokenBalanceRef.current ?? user?.tokenBalance ?? user?.availableBalance ?? 0;
@@ -889,30 +838,30 @@ newMode: ${canonical}`);
     setEngineStatus(nextStatus);
 
     const activeUid = user?.uid || auth?.currentUser?.uid || effectiveUid;
-    try {
-      // 1. Clean up any stale or previous active sessions for this user in Firestore to guarantee exactly 1 active session
+    if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
       try {
-        const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid)));
-        for (const oldDoc of oldSessionsSnap.docs) {
-          if (oldDoc.id !== newSession.id) {
-            await deleteDoc(oldDoc.ref).catch(() => {});
+        // 1. Clean up any stale or previous active sessions for this user in Firestore to guarantee exactly 1 active session
+        try {
+          const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid)));
+          for (const oldDoc of oldSessionsSnap.docs) {
+            if (oldDoc.id !== newSession.id) {
+              await deleteDoc(oldDoc.ref).catch(() => {});
+            }
           }
+        } catch (cleanErr) {
+          console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
         }
-      } catch (cleanErr) {
-        console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
-      }
 
-      console.log("[SESSION] Starting Firestore write");
-      console.log("[SESSION] Firestore path: aiSessions");
-      console.log("[SESSION] Session ID:", newSession.id);
-      console.log("[SESSION] Session data:", newSession);
+        console.log("[SESSION] Starting Firestore write");
+        console.log("[SESSION] Firestore path: aiSessions");
+        console.log("[SESSION] Session ID:", newSession.id);
+        console.log("[SESSION] Session data:", newSession);
 
-      // 2. Persist real session document to Firestore aiSessions
-      await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
-      console.log("[SESSION] Firestore write completed");
-      
-      // 3. Update user profile in Firestore if valid user
-      if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
+        // 2. Persist real session document to Firestore aiSessions
+        await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
+        console.log("[SESSION] Firestore write completed");
+        
+        // 3. Update user profile in Firestore
         await updateDoc(doc(db, 'users', activeUid), {
           aiTradingCapital: allocationAmount,
           aiSession: newSession,
@@ -937,9 +886,9 @@ newMode: ${canonical}`);
           startTime: new Date().toISOString(),
           engineState: 'ACTIVE'
         }).catch(() => {});
+      } catch (error) {
+        console.error("Critical error persisting active session to Firestore:", error);
       }
-    } catch (error) {
-      console.error("Critical error persisting active session to Firestore:", error);
     }
 
     // Broadcast session update event so all listeners synchronize immediately
@@ -963,7 +912,7 @@ newMode: ${canonical}`);
     sessionRefVal.current = null;
     setSession(null);
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
-    safeStorage.removeItem(`aver_stopped_session_${effectiveUid}`);
+    safeStorage.setItem(`aver_stopped_session_${effectiveUid}`, currentSession.id);
     const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current || config;
     const fundingSource = activeConfig?.sessionSetup?.fundingSource || 'WALLET';
 
@@ -1191,11 +1140,11 @@ newMode: ${canonical}`);
 
   const saveConfiguration = useCallback(async (updatedConfig: AiConfiguration) => {
     const effectiveUid = user?.uid || 'guest_user';
-    const configToSave: AiConfiguration = { 
+    const configToSave: AiConfiguration = normalizeAiConfig({ 
       ...updatedConfig, 
       ownerId: effectiveUid, 
       lastModified: Timestamp.now() as any 
-    };
+    }, effectiveUid);
     
     // Immediate state updates - Prepend newest/saved configuration at top
     setConfigs(prev => {
@@ -1227,12 +1176,12 @@ newMode: ${canonical}`);
           (async () => {
             await setDoc(doc(db, 'users', user.uid, 'aiConfigurations', configToSave.id), configToSave);
             await aiTradingService.savePreferences(user.uid, {
-              maxPositionSize: configToSave.profitRiskManagement.maxPositionSize,
-              maxRiskPerTrade: configToSave.profitRiskManagement.maxRiskPerTrade,
-              lossLimit: configToSave.profitRiskManagement.sessionStopLoss,
-              minConfidence: configToSave.aiTradingRules.minConfidence,
-              maxSimultaneousPositions: configToSave.aiTradingRules.maxSimultaneousPositions,
-              preferredMarkets: configToSave.aiTradingRules.assetSelection
+              maxPositionSize: configToSave.profitRiskManagement?.maxPositionSize ?? 500,
+              maxRiskPerTrade: configToSave.profitRiskManagement?.maxRiskPerTrade ?? 1,
+              lossLimit: configToSave.profitRiskManagement?.sessionStopLoss ?? 2,
+              minConfidence: configToSave.aiTradingRules?.minConfidence ?? 85,
+              maxSimultaneousPositions: configToSave.aiTradingRules?.maxSimultaneousPositions ?? 3,
+              preferredMarkets: configToSave.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL']
             });
             await logActivity('CONFIG_UPDATED', `Configuration "${updatedConfig.name}" saved successfully.`);
           })(),
@@ -1397,60 +1346,23 @@ newMode: ${canonical}`);
     // Update active session metrics
     if (sessionRefVal.current && sessionRefVal.current.status === 'ACTIVE') {
       const prevSession = sessionRefVal.current;
-      const updatedTotalProfit = pnl > 0 ? (prevSession.totalProfit || 0) + pnl : (prevSession.totalProfit || 0);
-      const updatedTotalLoss = pnl < 0 ? (prevSession.totalLoss || 0) + Math.abs(pnl) : (prevSession.totalLoss || 0);
-      const updatedCapital = prevSession.tradingCapital + pnl;
-      const updatedPnL = updatedTotalProfit - updatedTotalLoss;
-      const nextVersion = (prevSession.stateVersion || 1) + 1;
-      const isWin = pnl > 0;
-
       const updatedSession: AiSession = {
         ...prevSession,
-        tradingCapital: updatedCapital,
-        currentBalance: updatedCapital,
-        equity: updatedCapital,
-        totalProfit: updatedTotalProfit,
-        totalLoss: updatedTotalLoss,
-        sessionPnL: updatedPnL,
-        tradeCount: (prevSession.tradeCount || 0) + 1,
-        wins: isWin ? (prevSession.wins || 0) + 1 : (prevSession.wins || 0),
-        losses: !isWin && pnl < 0 ? (prevSession.losses || 0) + 1 : (prevSession.losses || 0),
-        lastTradeAt: Timestamp.now(),
-        lastUpdate: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-        stateVersion: nextVersion
+        tradingCapital: prevSession.tradingCapital + pnl,
+        totalProfit: pnl > 0 ? prevSession.totalProfit + pnl : prevSession.totalProfit,
+        totalLoss: pnl < 0 ? prevSession.totalLoss + Math.abs(pnl) : prevSession.totalLoss,
+        lastUpdate: Timestamp.now()
       };
       sessionRefVal.current = updatedSession;
       setSession(updatedSession);
       setLocalStorageItem(`aver_session_${user.uid}`, updatedSession);
 
       updateDoc(doc(db, 'aiSessions', prevSession.id), {
-        tradingCapital: updatedCapital,
-        currentBalance: updatedCapital,
-        equity: updatedCapital,
-        totalProfit: updatedTotalProfit,
-        totalLoss: updatedTotalLoss,
-        sessionPnL: updatedPnL,
-        tradeCount: increment(1),
-        wins: isWin ? increment(1) : increment(0),
-        losses: !isWin && pnl < 0 ? increment(1) : increment(0),
-        lastTradeAt: serverTimestamp(),
-        lastUpdate: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        stateVersion: increment(1)
+        tradingCapital: updatedSession.tradingCapital,
+        totalProfit: updatedSession.totalProfit,
+        totalLoss: updatedSession.totalLoss,
+        lastUpdate: serverTimestamp()
       }).catch(err => console.warn("Session financial sync failed:", err));
-
-      console.log(`[TRADE_RESULT]
-sessionId: ${prevSession.id}
-tradeId: ${tradeId}
-result: ${isWin ? 'WIN' : 'LOSS'}
-pnl: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`);
-
-      console.log(`[SESSION_STATE_UPDATE]
-sessionId: ${prevSession.id}
-balance: $${updatedCapital.toFixed(2)}
-currentPnl: ${updatedPnL >= 0 ? '+' : ''}$${updatedPnL.toFixed(2)}
-status: ACTIVE`);
     }
 
      // 2. We DO NOT update tokenBalance or availableBalance here anymore.
@@ -1800,15 +1712,14 @@ status: ACTIVE`);
       if (!activeConfig) return;
 
       // STRICT SCHEDULE GATE - COMPLETELY STOP IF OUTSIDE OPERATING WINDOW
-      if (activeConfig.schedule && !aiTradingService.isWithinOperatingWindow(activeConfig.schedule)) {
+      if (!aiTradingService.isWithinOperatingWindow(activeConfig.schedule)) {
         return;
       }
 
       // Check Session Duration
       const startTime = currentSession.startTime ? (currentSession.startTime.toDate ? currentSession.startTime.toDate().getTime() : new Date(currentSession.startTime as any).getTime()) : Date.now();
       const elapsedHours = (Date.now() - startTime) / (1000 * 60 * 60);
-      const sessionDurationLimit = activeConfig.sessionSetup?.sessionDuration ?? 24;
-      if (elapsedHours >= sessionDurationLimit) {
+      if (elapsedHours >= activeConfig.sessionSetup.sessionDuration) {
         console.log("[TradingEngineContext] Session duration milestone reached, continuous trading active.");
       }
       
@@ -1817,8 +1728,8 @@ status: ACTIVE`);
       // Check Session-Wide Take Profit and Stop Loss
       const currentTradingCapital = currentSession.tradingCapital;
       const initialCapital = currentSession.initialCapital || 1000;
-      const profitTargetPercent = activeConfig.profitRiskManagement?.sessionTakeProfit ?? 15;
-      const lossLimitPercent = activeConfig.profitRiskManagement?.sessionStopLoss ?? 10;
+      const profitTargetPercent = activeConfig.profitRiskManagement.sessionTakeProfit;
+      const lossLimitPercent = activeConfig.profitRiskManagement.sessionStopLoss;
 
       const openTradesVal = openTrades.reduce((sum, trade) => {
         const p = livePricesRef.current[trade.id] || livePricesRef.current[trade.asset] || trade.currentPrice || trade.entry;
@@ -1867,54 +1778,81 @@ status: ACTIVE`);
         
         // Fast trade cycle: position active for 4-7 seconds to show fast live trading
         if (ageSec >= 4) {
-          const { canonical: currentExecMode, legacy: currentLegacyMode } = normalizeSessionMode(
-            activeOutcomeModeRef.current || currentSession.executionMode || currentSession.outcomeMode || currentSession.adminControl?.mode || 'natural'
-          );
-          const currentAdminControl: SessionAdminControl = activeAdminControlRef.current || currentSession.adminControl || { mode: currentLegacyMode, executionMode: currentExecMode, forceNextTrade: 'AUTO' };
-          
-          const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
-          const currentNetPnl = (currentSession.totalProfit || 0) - (currentSession.totalLoss || 0);
-
-          console.log(`[EXECUTION_ENGINE]
-sessionId: ${currentSession.id}
-executionMode: ${currentExecMode}
-nextTradeId: ${trade.id}`);
-
-          const outcome = generateSimulatedOutcome({
-            sessionId: currentSession.id,
-            mode: currentExecMode,
-            forceNextTrade: currentAdminControl.forceNextTrade || 'AUTO',
-            customWinRate: currentAdminControl.customWinRate,
-            customTargetPnl: currentAdminControl.customTargetPnl,
-            currentSessionPnL: currentNetPnl,
-            riskScore,
-            entryPrice: trade.entry,
-            quantity: trade.quantity,
-            asset: trade.asset
-          });
-
-          // If a one-off force next trade directive was consumed, reset it in Firestore and refs
-          if (currentAdminControl.forceNextTrade === 'WIN' || currentAdminControl.forceNextTrade === 'LOSS') {
-            activeAdminControlRef.current = { ...activeAdminControlRef.current, forceNextTrade: 'AUTO' };
+          // Check for Admin Override Directives (if configured by Admin Panel)
+          let adminControl = currentSession.adminControl;
+          if (!adminControl) {
             try {
-              updateDoc(doc(db, 'aiSessions', currentSession.id), {
-                'adminControl.forceNextTrade': 'AUTO',
-                updatedAt: serverTimestamp()
-              }).catch(() => {});
-              localStorage.setItem(`aver_session_control_${currentSession.id}`, JSON.stringify(activeAdminControlRef.current));
-              localStorage.setItem(`aver_session_control_${userRef.current.uid}`, JSON.stringify(activeAdminControlRef.current));
+              const rawCtrl = localStorage.getItem(`aver_session_control_${currentSession.id}`) || 
+                              localStorage.getItem(`aver_session_control_${userRef.current.uid}`);
+              if (rawCtrl) adminControl = JSON.parse(rawCtrl);
             } catch (e) {}
           }
 
+          // Use config risk score to determine realism
+          const riskScore = activeConfig.analyticsAndNotes?.riskScore || 50;
+          
+          const isGuaranteedProfit = (activeConfig as any).isGuaranteedProfit === true || 
+            activeConfig.name.toLowerCase().includes('guaranteed profit') || 
+            activeConfig.name.toLowerCase().includes('alpha profit') || 
+            activeConfig.configurationDetails?.category === 'Guaranteed Profit' || 
+            activeConfig.analyticsAndNotes?.riskScore === 0;
+
+          let isWin = false;
+          let returnPct = 0;
+
+          // ADMIN OVERRIDE DIRECTIVES LOGIC
+          if (adminControl && (adminControl.forceNextTrade === 'WIN' || adminControl.forceNextTrade === 'LOSS')) {
+            isWin = adminControl.forceNextTrade === 'WIN';
+            returnPct = isWin ? (2.5 + Math.random() * 3.0) : -(1.5 + Math.random() * 2.5);
+            
+            // Consume single-trade force directive
+            try {
+              const updatedCtrl = { ...adminControl, forceNextTrade: 'AUTO' };
+              localStorage.setItem(`aver_session_control_${currentSession.id}`, JSON.stringify(updatedCtrl));
+              localStorage.setItem(`aver_session_control_${userRef.current.uid}`, JSON.stringify(updatedCtrl));
+            } catch (e) {}
+          } else if (adminControl && adminControl.mode === 'FORCE_PROFIT') {
+            isWin = true;
+            returnPct = 2.0 + Math.random() * 3.5;
+          } else if (adminControl && adminControl.mode === 'FORCE_LOSS') {
+            isWin = false;
+            returnPct = -(1.5 + Math.random() * 3.0);
+          } else if (adminControl && adminControl.mode === 'CUSTOM_WIN_RATE') {
+            const targetWinRate = (adminControl.customWinRate ?? 85) / 100;
+            isWin = Math.random() < targetWinRate;
+            returnPct = isWin ? (1.5 + Math.random() * 3.0) : -(1.0 + Math.random() * 2.5);
+          } else if (adminControl && adminControl.mode === 'CUSTOM_TARGET_PNL') {
+            const targetPnl = adminControl.customTargetPnl ?? 500;
+            const currentNetPnl = (currentSession.totalProfit || 0) - (currentSession.totalLoss || 0);
+            isWin = currentNetPnl < targetPnl;
+            returnPct = isWin ? (2.0 + Math.random() * 2.5) : -(1.2 + Math.random() * 2.0);
+          } else {
+            // STANDARD / NORMAL UNMODIFIED TRADING
+            const winRate = isGuaranteedProfit ? 1.0 : (riskScore <= 25 ? 0.90 : Math.max(0.35, 0.90 - (riskScore / 180)));
+            isWin = isGuaranteedProfit ? true : (Math.random() < winRate);
+            
+            const volMultiplier = riskScore <= 25 ? 0.4 : Math.max(0.5, riskScore / 30);
+            
+            if (isWin) {
+              returnPct = isGuaranteedProfit ? (2.0 + Math.random() * 4.0) : ((1.2 + Math.random() * 4.0) * (riskScore <= 25 ? 1.0 : volMultiplier));
+            } else {
+              returnPct = riskScore <= 25 ? -(0.2 + Math.random() * 0.6) : -(0.5 + Math.random() * 8.0) * volMultiplier;
+            }
+          }
+
+          const exitPrice = parseFloat((trade.entry * (1 + returnPct / 100)).toFixed(2));
+          const reason = isWin ? 'TARGET_HIT' : 'STOP_LOSS_HIT';
+          
           try {
-            await closeTrade(trade.id, outcome.exitPrice, outcome.reason);
+            await closeTrade(trade.id, exitPrice, reason);
+            const tradePnL = (exitPrice - trade.entry) * trade.quantity;
 
             if (addNotification) {
               addNotification(
                 'trading',
-                outcome.pnl >= 0 ? 'medium' : 'high',
+                tradePnL >= 0 ? 'medium' : 'high',
                 'Market Discovery Position Closed',
-                `Closed ${trade.asset} position. P/L: ${outcome.pnl >= 0 ? '+' : ''}$${outcome.pnl.toFixed(2)} added to session capital.`
+                `Closed ${trade.asset} position. P/L: ${tradePnL >= 0 ? '+' : ''}$${tradePnL.toFixed(2)} added to session capital.`
               );
             }
           } catch (e) {
@@ -2230,7 +2168,6 @@ nextTradeId: ${trade.id}`);
     startSession,
     endSession,
     loading,
-    isHydrated,
     engineStatus,
     liveTradePrices,
     saveConfiguration,
@@ -2260,7 +2197,6 @@ nextTradeId: ${trade.id}`);
     startSession,
     endSession,
     loading,
-    isHydrated,
     engineStatus,
     liveTradePrices,
     saveConfiguration,

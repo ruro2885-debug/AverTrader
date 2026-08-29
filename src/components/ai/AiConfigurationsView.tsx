@@ -196,8 +196,28 @@ export default function AiConfigurationsView({
 
   const handleEdit = (cfg: AiConfiguration) => {
     // Migration for old configs
-    const migrated = {
+    const migrated: AiConfiguration = {
       ...cfg,
+      sessionSetup: {
+        amountToAllocate: 1000,
+        fundingSource: 'WALLET',
+        sessionDuration: 24,
+        ...(cfg.sessionSetup || {})
+      },
+      profitRiskManagement: {
+        sessionTakeProfit: 5,
+        sessionStopLoss: 2,
+        maxRiskPerTrade: 1,
+        maxPositionSize: 500,
+        ...(cfg.profitRiskManagement || {})
+      },
+      aiTradingRules: {
+        minConfidence: 85,
+        maxSimultaneousPositions: 3,
+        assetSelection: ['BTC', 'ETH', 'SOL'],
+        tradingStrategy: 'NEURAL_MOMENTUM',
+        ...(cfg.aiTradingRules || {})
+      },
       configurationDetails: cfg.configurationDetails || {
         description: '',
         category: 'Scalping',
@@ -265,12 +285,12 @@ export default function AiConfigurationsView({
         try {
           await Promise.race([
             aiTradingService.savePreferences(userId, {
-              maxPositionSize: configToSave.profitRiskManagement.maxPositionSize,
-              maxRiskPerTrade: configToSave.profitRiskManagement.maxRiskPerTrade,
-              lossLimit: configToSave.profitRiskManagement.sessionStopLoss,
-              minConfidence: configToSave.aiTradingRules.minConfidence,
-              maxSimultaneousPositions: configToSave.aiTradingRules.maxSimultaneousPositions,
-              preferredMarkets: configToSave.aiTradingRules.assetSelection
+              maxPositionSize: configToSave.profitRiskManagement?.maxPositionSize ?? 500,
+              maxRiskPerTrade: configToSave.profitRiskManagement?.maxRiskPerTrade ?? 1,
+              lossLimit: configToSave.profitRiskManagement?.sessionStopLoss ?? 2,
+              minConfidence: configToSave.aiTradingRules?.minConfidence ?? 85,
+              maxSimultaneousPositions: configToSave.aiTradingRules?.maxSimultaneousPositions ?? 3,
+              preferredMarkets: configToSave.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL']
             }),
             new Promise((res) => setTimeout(res, 1500))
           ]);
@@ -471,19 +491,19 @@ export default function AiConfigurationsView({
                       <div>
                         <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Allocated</p>
                         <p className={`text-xs font-bold ${textPrimary} mt-1`}>
-                          ${cfg.sessionSetup.amountToAllocate.toLocaleString()}
+                          ${(cfg?.sessionSetup?.amountToAllocate ?? 1000).toLocaleString()}
                         </p>
                       </div>
                       <div>
                         <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Risk Limit</p>
                         <p className={`text-xs font-bold ${textPrimary} mt-1`}>
-                          {cfg.profitRiskManagement.sessionStopLoss}% SL
+                          {cfg?.profitRiskManagement?.sessionStopLoss ?? 2}% SL
                         </p>
                       </div>
                       <div>
                         <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Confidence</p>
                         <p className={`text-xs font-bold text-[#00D09C] mt-1`}>
-                          &gt; {cfg.aiTradingRules.minConfidence}%
+                          &gt; {cfg?.aiTradingRules?.minConfidence ?? 85}%
                         </p>
                       </div>
                     </div>
@@ -570,7 +590,7 @@ export default function AiConfigurationsView({
               {isSaved ? (
                 <button
                   type="button"
-                  onClick={() => onStartSession(editingConfig.id, editingConfig.aiTradingRules.assetSelection)}
+                  onClick={() => onStartSession(editingConfig.id, editingConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL'])}
                   className="px-5 py-2.5 bg-[#00D09C] hover:bg-[#00B585] text-black rounded-xl text-xs font-black transition-all shadow-lg shadow-[#00D09C]/20 flex items-center gap-2"
                 >
                   <Play className="w-4 h-4 fill-current" /> Launch Session
@@ -715,13 +735,13 @@ export default function AiConfigurationsView({
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <label className={`text-xs font-bold ${textSecondary}`}>Minimum Confidence Score (%)</label>
-                      <span className="text-xs font-mono font-bold text-[#00D09C]">{editingConfig.aiTradingRules.minConfidence}%</span>
+                      <span className="text-xs font-mono font-bold text-[#00D09C]">{editingConfig.aiTradingRules?.minConfidence ?? 85}%</span>
                     </div>
                     <input 
                       type="range" 
                       min="50" 
                       max="98"
-                      value={editingConfig.aiTradingRules.minConfidence}
+                      value={editingConfig.aiTradingRules?.minConfidence ?? 85}
                       onChange={(e) => handleFieldChange('aiTradingRules', 'minConfidence', Number(e.target.value))}
                       className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D09C]"
                     />
@@ -731,7 +751,7 @@ export default function AiConfigurationsView({
                     <label className={`block text-xs font-bold ${textSecondary}`}>Maximum Simultaneous Positions</label>
                     <input 
                       type="number"
-                      value={editingConfig.aiTradingRules.maxSimultaneousPositions}
+                      value={editingConfig.aiTradingRules?.maxSimultaneousPositions ?? 3}
                       onChange={(e) => handleFieldChange('aiTradingRules', 'maxSimultaneousPositions', Number(e.target.value))}
                       className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
                     />
@@ -751,15 +771,16 @@ export default function AiConfigurationsView({
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'].map(m => {
-                        const included = editingConfig.aiTradingRules.assetSelection.includes(m);
+                        const currentAssets = editingConfig.aiTradingRules?.assetSelection || [];
+                        const included = currentAssets.includes(m);
                         return (
                           <button
                             key={m}
                             type="button"
                             onClick={() => {
                               const next = included 
-                                ? editingConfig.aiTradingRules.assetSelection.filter(x => x !== m)
-                                : [...editingConfig.aiTradingRules.assetSelection, m];
+                                ? currentAssets.filter(x => x !== m)
+                                : [...currentAssets, m];
                               handleFieldChange('aiTradingRules', 'assetSelection', next);
                             }}
                             className={`px-3 py-2 rounded-xl text-[10px] font-black border transition-all flex items-center gap-2 ${
@@ -779,7 +800,7 @@ export default function AiConfigurationsView({
                   <div className="space-y-2">
                     <label className={`block text-xs font-bold ${textSecondary}`}>Trading Strategy</label>
                     <select 
-                      value={editingConfig.aiTradingRules.tradingStrategy}
+                      value={editingConfig.aiTradingRules?.tradingStrategy || 'NEURAL_MOMENTUM'}
                       onChange={(e) => handleFieldChange('aiTradingRules', 'tradingStrategy', e.target.value)}
                       className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
                     >
@@ -1402,7 +1423,8 @@ export default function AiConfigurationsView({
                   a.symbol.toLowerCase().includes(assetSearchQuery.toLowerCase()) || 
                   a.name.toLowerCase().includes(assetSearchQuery.toLowerCase())
                 ).map(asset => {
-                  const isAdded = editingConfig?.aiTradingRules.assetSelection.includes(asset.symbol);
+                  const currentAssets = editingConfig?.aiTradingRules?.assetSelection || [];
+                  const isAdded = currentAssets.includes(asset.symbol);
                   return (
                     <div 
                       key={asset.symbol}
@@ -1425,8 +1447,8 @@ export default function AiConfigurationsView({
                         onClick={() => {
                           if (!editingConfig) return;
                           const next = isAdded 
-                            ? editingConfig.aiTradingRules.assetSelection.filter(x => x !== asset.symbol)
-                            : [...editingConfig.aiTradingRules.assetSelection, asset.symbol];
+                            ? currentAssets.filter(x => x !== asset.symbol)
+                            : [...currentAssets, asset.symbol];
                           handleFieldChange('aiTradingRules', 'assetSelection', next);
                         }}
                         className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${

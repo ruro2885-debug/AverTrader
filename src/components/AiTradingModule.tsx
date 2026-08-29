@@ -70,7 +70,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
     activity: engineActivity, 
     recommendations,
     loading: engineLoading,
-    isHydrated,
     startSession, 
     endSession, 
     saveConfiguration, 
@@ -466,18 +465,21 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const handleToggleMarket = async (symbol: string) => {
     const activeConfig = configs.find(c => c.id === activeConfigId);
     if (!activeConfig) return;
-    const currentMarkets = activeConfig.aiTradingRules?.assetSelection || [];
-    const nextMarkets = currentMarkets.includes(symbol)
-      ? currentMarkets.filter(m => m !== symbol)
-      : [...currentMarkets, symbol];
+    const currentAssetSelection = activeConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL'];
+    const nextMarkets = currentAssetSelection.includes(symbol)
+      ? currentAssetSelection.filter(m => m !== symbol)
+      : [...currentAssetSelection, symbol];
     const updated = {
       ...activeConfig,
       aiTradingRules: {
+        minConfidence: 85,
+        maxSimultaneousPositions: 3,
+        tradingStrategy: 'NEURAL_MOMENTUM' as const,
         ...(activeConfig.aiTradingRules || {}),
         assetSelection: nextMarkets
       }
     };
-    await handleSaveConfig(updated as AiConfiguration);
+    await handleSaveConfig(updated);
   };
 
   // --- CONSTANTS FOR NEURAL CORE SIMULATION ---
@@ -571,29 +573,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   }, [session?.status, session?.id, activeConfigId, user?.uid, activeTrades.length, closedTrades.length, configs.length]);
 
   const pendingRecommendations = recommendations.filter(r => r.status === 'PENDING');
-
-  if (!isHydrated && engineLoading) {
-    return (
-      <div className="min-h-[80vh] flex items-center justify-center p-6 font-sans">
-        <div className="flex flex-col items-center space-y-4 max-w-sm text-center">
-          <div className="relative flex items-center justify-center">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shadow-[0_0_30px_rgba(0,230,118,0.15)] animate-pulse">
-              <Cpu className="w-7 h-7 text-emerald-400 animate-spin" style={{ animationDuration: '3s' }} />
-            </div>
-            <div className="absolute -inset-1 rounded-2xl bg-emerald-500/10 blur-sm animate-ping opacity-40" />
-          </div>
-          <div className="space-y-1">
-            <h3 className={`text-xs font-black font-mono tracking-wider uppercase ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              Synchronizing Neural Core
-            </h3>
-            <p className={`text-[11px] font-mono ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
-              Restoring persistent trade session & telemetry...
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-[85vh] flex flex-col lg:flex-row gap-6 py-6 font-sans">
@@ -867,7 +846,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
             {activeView === 'SCANNER' && (
               <AiMarketScannerView 
-                monitoredMarkets={configs.find(c => c.id === activeConfigId)?.aiTradingRules.assetSelection || []}
+                monitoredMarkets={configs.find(c => c.id === activeConfigId)?.aiTradingRules?.assetSelection || []}
                 onToggleMarket={handleToggleMarket}
                 isDark={isDark}
               />

@@ -12,34 +12,22 @@ import { aiTradingService } from '../../../services/aiTradingService';
 import { walletService } from '../../../services/walletService';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import AdminSessionControlModal from './AdminSessionControlModal';
-import { SessionAdminControl, SessionControlMode } from '../../../types/aiTrading';
+import { SessionAdminControl } from '../../../types/aiTrading';
 import { useAuth } from '../../../contexts/AuthContext';
 
 interface ActiveSessionRecord {
   id: string;
-  sessionId?: string;
   userId: string;
   userEmail: string;
-  outcomeMode?: SessionControlMode;
   status: 'ACTIVE' | 'INACTIVE';
   startTime: string | number | any;
   tradingCapital: number;
-  allocatedCapital?: number;
   initialCapital: number;
-  currentBalance?: number;
-  equity?: number;
-  sessionPnL?: number;
-  tradeCount?: number;
-  wins?: number;
-  losses?: number;
   openPositionsCount: number;
   totalProfit: number;
   totalLoss: number;
   activeConfigId?: string;
   strategyName?: string;
-  stateVersion?: number;
-  lastTradeAt?: any;
-  updatedAt?: any;
   adminControl?: SessionAdminControl;
 }
 
@@ -83,7 +71,6 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionRecord[]>([]);
   const [userMap, setUserMap] = useState<Record<string, { email: string }>>({});
-  const userMapRef = React.useRef<Record<string, { email: string }>>({});
   const [search, setSearch] = useState('');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [selectedControlSession, setSelectedControlSession] = useState<ActiveSessionRecord | null>(null);
@@ -104,7 +91,6 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
           newUserMap[uDoc.id] = { email: d.email || 'user@example.com' };
         });
         setUserMap(newUserMap);
-        userMapRef.current = newUserMap;
       }, (err) => {
         console.warn("[AdminTrades] User map listener error:", err);
       });
@@ -115,26 +101,18 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     };
   }, []);
 
-  // Update session emails when userMap updates without restarting session listener
-  useEffect(() => {
-    userMapRef.current = userMap;
-    setActiveSessions(prev => prev.map(s => ({
-      ...s,
-      userEmail: s.userEmail === 'trader@example.com' || s.userEmail === s.userId 
-        ? (userMap[s.userId]?.email || s.userEmail) 
-        : s.userEmail
-    })));
-  }, [userMap]);
-
-  // 2. Real-time listener for active aiSessions
+  // 2. Real-time listener for active aiSessions, depends on userMap
   useEffect(() => {
     let unsubSessions: (() => void) | null = null;
-    let unsubTradesMap: Record<string, () => void> = {};
+    let unsubTradesList: (() => void)[] = [];
 
-    console.log("[ADMIN] Listener mounted for aiSessions");
+    console.log("[ADMIN] Listener mounted");
+    console.log("[ADMIN] Listening path: aiSessions");
+    // Real-time listener for active aiSessions
     try {
       unsubSessions = onSnapshot(collection(db, 'aiSessions'), (snapshot) => {
-        console.log("[ADMIN] aiSessions snapshot received, docs count:", snapshot.size);
+        console.log("[ADMIN] Snapshot received");
+        console.log("[ADMIN] Active sessions:", snapshot.size);
 
         const sessionsList: ActiveSessionRecord[] = [];
         const seenIds = new Set<string>();
@@ -147,33 +125,21 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
             if (!seenIds.has(sDoc.id)) {
               seenIds.add(sDoc.id);
               const uId = data.userId || 'unknown';
-              const userEmail = data.userEmail || userMapRef.current[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+              const userEmail = data.userEmail || userMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
               
               sessionsList.push({
                 id: sDoc.id,
-                sessionId: data.sessionId || sDoc.id,
                 userId: uId,
                 userEmail: userEmail,
-                outcomeMode: data.outcomeMode || data.adminControl?.mode || 'NORMAL',
                 status: 'ACTIVE',
-                startTime: data.startTime || data.startedAt || new Date().toISOString(),
+                startTime: data.startTime || new Date().toISOString(),
                 tradingCapital: data.tradingCapital || data.initialCapital || 0,
-                allocatedCapital: data.allocatedCapital || data.initialCapital || 0,
                 initialCapital: data.initialCapital || data.tradingCapital || 0,
-                currentBalance: data.currentBalance || data.tradingCapital || 0,
-                equity: data.equity || data.tradingCapital || 0,
-                sessionPnL: data.sessionPnL !== undefined ? data.sessionPnL : ((data.totalProfit || 0) - (data.totalLoss || 0)),
-                tradeCount: data.tradeCount || 0,
-                wins: data.wins || 0,
-                losses: data.losses || 0,
                 openPositionsCount: data.openPositionsCount || 0,
                 totalProfit: data.totalProfit || 0,
                 totalLoss: data.totalLoss || 0,
                 activeConfigId: data.activeConfigId,
                 strategyName: data.strategyName || 'Algorithmic Strategy',
-                stateVersion: data.stateVersion || 1,
-                lastTradeAt: data.lastTradeAt,
-                updatedAt: data.updatedAt,
                 adminControl: data.adminControl
               });
             }
@@ -195,45 +161,31 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         setActiveSessions(sessionsList);
         setLoading(false);
 
-        // Synchronize trade listeners for active users
-        const activeUserIds = Array.from(new Set(sessionsList.map(s => s.userId).filter(uid => uid && !uid.startsWith('local-'))));
-        
-        // Remove unneeded listeners
-        Object.keys(unsubTradesMap).forEach(uId => {
-          if (!activeUserIds.includes(uId)) {
-            unsubTradesMap[uId]();
-            delete unsubTradesMap[uId];
-          }
-        });
+        // Subscribe to real-time trades for all active session users
+        unsubTradesList.forEach(unsub => unsub());
+        unsubTradesList = [];
 
-        // Add missing listeners
-        activeUserIds.forEach(uId => {
-          if (!unsubTradesMap[uId]) {
+        const activeUserIds = Array.from(new Set(sessionsList.map(s => s.userId).filter(uid => uid && !uid.startsWith('local-'))));
+        if (activeUserIds.length > 0) {
+          activeUserIds.forEach(uId => {
             try {
-              unsubTradesMap[uId] = onSnapshot(collection(db, 'users', uId, 'trades'), (tSnap) => {
+              const uTrades = onSnapshot(collection(db, 'users', uId, 'trades'), (tSnap) => {
                 const userTrades: TradeRecord[] = [];
                 tSnap.forEach(tDoc => {
                   const tData = tDoc.data();
-                  const getIsoTime = (val: any): string => {
-                    if (!val) return new Date().toISOString();
-                    if (typeof val.toDate === 'function') return val.toDate().toISOString();
-                    if (typeof val === 'number') return new Date(val).toISOString();
-                    if (typeof val === 'string') return val;
-                    return new Date().toISOString();
-                  };
                   userTrades.push({
                     id: tDoc.id,
                     userId: uId,
-                    userEmail: userMapRef.current[uId]?.email || 'trader@example.com',
-                    symbol: tData.symbol || tData.asset || 'BTC/USDT',
+                    userEmail: userMap[uId]?.email || 'trader@example.com',
+                    symbol: tData.symbol || 'BTC/USDT',
                     type: tData.type || 'long',
-                    amount: tData.amount || tData.size || tData.quantity || 0,
-                    entryPrice: tData.entryPrice || tData.entry || 0,
-                    currentPrice: tData.exit || tData.currentPrice || tData.entry || 0,
+                    amount: tData.amount || tData.size || 0,
+                    entryPrice: tData.entryPrice || 0,
+                    currentPrice: tData.currentPrice || tData.entryPrice || 0,
                     leverage: tData.leverage || 1,
                     pnl: tData.pnl || 0,
                     status: tData.status || 'OPEN',
-                    timestamp: getIsoTime(tData.closedAt || tData.openedAt || tData.timestamp),
+                    timestamp: tData.timestamp || new Date().toISOString(),
                     sessionId: tData.sessionId
                   });
                 });
@@ -245,9 +197,12 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
                   return combined;
                 });
               }, () => {});
+              unsubTradesList.push(uTrades);
             } catch (e) {}
-          }
-        });
+          });
+        } else {
+          setTrades([]);
+        }
       }, (err) => {
         console.warn("[AdminTrades] Error in aiSessions onSnapshot:", err);
         setLoading(false);
@@ -258,9 +213,9 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
 
     return () => {
       if (unsubSessions) unsubSessions();
-      Object.values(unsubTradesMap).forEach(unsub => unsub());
+      unsubTradesList.forEach(unsub => unsub());
     };
-  }, []);
+  }, [user?.uid, user?.email, userMap]);
 
   const handleEndSession = async (session: ActiveSessionRecord, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -428,8 +383,10 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       {selectedControlSession && (
         <AdminSessionControlModal
           session={selectedControlSession}
+          allActiveSessions={activeSessions}
           theme={theme}
           onClose={() => setSelectedControlSession(null)}
+          onSelectSession={(sess) => setSelectedControlSession(sess)}
           onSessionTerminated={(sId) => {
             setActiveSessions(prev => prev.filter(s => s.id !== sId));
             setSelectedControlSession(null);
@@ -475,6 +432,55 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         </div>
       </div>
 
+      {/* ACTIVE SESSIONS INDEPENDENT TABS BAR */}
+      {activeSessions.length > 0 && (
+        <div className={`p-4 rounded-2xl border space-y-3 ${
+          isDark ? 'bg-slate-900/60 border-white/10' : 'bg-white border-slate-200'
+        }`}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Active Session Tabs ({activeSessions.length})
+            </span>
+            <span className="text-xs text-slate-500 hidden sm:inline">
+              Every active user session has its own independent tab & trade outcome control
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            {activeSessions.map((sess) => {
+              const isSelected = selectedControlSession?.id === sess.id;
+              const mode = sess.adminControl?.mode || 'NORMAL';
+              const displayName = sess.userEmail?.split('@')[0] || sess.userEmail || sess.userId;
+              
+              return (
+                <button
+                  key={sess.id}
+                  onClick={() => setSelectedControlSession(sess)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border ${
+                    isSelected
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400'
+                      : isDark
+                        ? 'bg-slate-950 border-white/10 text-slate-300 hover:border-emerald-500/40 hover:bg-slate-850 hover:text-white'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-emerald-500/40 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${
+                    mode === 'FORCE_PROFIT' ? 'bg-emerald-400' : mode === 'FORCE_LOSS' ? 'bg-rose-400' : 'bg-slate-400'
+                  }`}></span>
+                  <span className="font-bold">{displayName}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
+                    isSelected ? 'bg-slate-950/20 text-slate-950' : 'bg-white/10 text-slate-400'
+                  }`}>
+                    {mode === 'FORCE_PROFIT' ? 'PROFIT' : mode === 'FORCE_LOSS' ? 'DRAWDOWN' : 'NORMAL'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Search & Overview Toolbar */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative w-full md:w-96">
@@ -501,49 +507,8 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         )}
       </div>
 
-      {/* ACTIVE TRADING SESSIONS SECTION */}
+      {/* ACTIVE TRADING SESSIONS GRID */}
       <div className="space-y-4">
-        {/* Active Session Tabs Bar */}
-        {activeSessions.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-              <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
-                <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                Active Session Tabs ({activeSessions.length})
-              </span>
-              <span className="text-[10px] text-slate-500 font-normal">Tap any tab to open outcome controls</span>
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
-              {activeSessions.map((sess) => {
-                const sPnl = (sess.totalProfit || 0) - (sess.totalLoss || 0);
-                const isPos = sPnl >= 0;
-                const isSelected = selectedControlSession?.id === sess.id;
-                return (
-                  <button
-                    key={sess.id}
-                    onClick={() => setSelectedControlSession(sess)}
-                    className={`flex-shrink-0 px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-2.5 ${
-                      isSelected
-                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/10'
-                        : isDark
-                          ? 'bg-slate-900/80 hover:bg-slate-800/80 border-white/10 hover:border-emerald-500/40 text-slate-300'
-                          : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-emerald-500/40 text-slate-800 shadow-sm'
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span className="max-w-[130px] truncate">{sess.userEmail}</span>
-                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                      isPos ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                    }`}>
-                      {isPos ? '+' : ''}${sPnl.toFixed(2)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {loading ? (
           <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
             <RefreshCw className="w-5 h-5 animate-spin text-emerald-500" />

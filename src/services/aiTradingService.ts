@@ -211,37 +211,40 @@ export const aiTradingService = {
   async endSession(sessionId: string): Promise<void> {
     try {
       const sessionRef = doc(db, SESSIONS_COLLECTION, sessionId);
-      const sessionSnap = await getDoc(sessionRef).catch(() => null);
-      const sessionData = sessionSnap?.exists() ? sessionSnap.data() as AiSession : null;
+      const sessionSnap = await getDoc(sessionRef);
+      const sessionData = sessionSnap.exists() ? sessionSnap.data() as AiSession : null;
       const userId = sessionData?.userId || '';
 
       // Progression Tracking
       if (userId) {
-        await progressionService.updateProgress(userId, 'trade').catch(() => {});
+        await progressionService.updateProgress(userId, 'trade');
         if (sessionData && (sessionData.totalProfit || 0) > (sessionData.totalLoss || 0)) {
-          await progressionService.updateProgress(userId, 'win').catch(() => {});
+          await progressionService.updateProgress(userId, 'win');
         }
       }
 
-      if (sessionSnap?.exists()) {
-        await deleteDoc(sessionRef).catch(() => {});
-      }
+      await updateDoc(sessionRef, {
+        status: 'INACTIVE',
+        endTime: Timestamp.now()
+      });
 
       // Record historical balance
       if (userId) {
-        const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId).catch(() => null);
-        if (portfolio) {
-          await equityService.recordEquity({
-            userId,
-            timestamp: Timestamp.now(),
-            totalNetBalance: portfolio.portfolioMetrics.totalValue,
-            sessionId: sessionId,
-            trigger: 'SESSION_END'
-          }).catch(() => {});
-        }
+        const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+        await equityService.recordEquity({
+          userId,
+          timestamp: Timestamp.now(),
+          totalNetBalance: portfolio.portfolioMetrics.totalValue,
+          sessionId: sessionId,
+          trigger: 'SESSION_END'
+        });
       }
+
+      // Delete active session document so it is removed from active sessions collection
+      await deleteDoc(sessionRef).catch(() => {});
     } catch (error) {
-      console.warn("[aiTradingService] endSession completed with notice:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `${SESSIONS_COLLECTION}/${sessionId}`);
+      throw error;
     }
   },
 
