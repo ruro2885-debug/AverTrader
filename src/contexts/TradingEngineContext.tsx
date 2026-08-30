@@ -882,30 +882,32 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     setEngineStatus(nextStatus);
 
     const activeUid = user?.uid || auth?.currentUser?.uid || effectiveUid;
-    if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
+    try {
+      // 1. Clean up any stale or previous active sessions for THIS user in Firestore
       try {
-        // 1. Clean up any stale or previous active sessions for this user in Firestore to guarantee exactly 1 active session
-        try {
+        if (activeUid) {
           const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid)));
           for (const oldDoc of oldSessionsSnap.docs) {
             if (oldDoc.id !== newSession.id) {
               await deleteDoc(oldDoc.ref).catch(() => {});
             }
           }
-        } catch (cleanErr) {
-          console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
         }
+      } catch (cleanErr) {
+        console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
+      }
 
-        console.log("[SESSION] Starting Firestore write");
-        console.log("[SESSION] Firestore path: aiSessions");
-        console.log("[SESSION] Session ID:", newSession.id);
-        console.log("[SESSION] Session data:", newSession);
+      console.log("[SESSION] Starting Firestore write");
+      console.log("[SESSION] Firestore path: aiSessions");
+      console.log("[SESSION] Session ID:", newSession.id);
+      console.log("[SESSION] Session data:", newSession);
 
-        // 2. Persist real session document to Firestore aiSessions
-        await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
-        console.log("[SESSION] Firestore write completed");
-        
-        // 3. Update user profile in Firestore
+      // 2. Persist real session document to Firestore aiSessions for all users
+      await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
+      console.log("[SESSION] Firestore write completed");
+      
+      // 3. Update user profile in Firestore
+      if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
         await updateDoc(doc(db, 'users', activeUid), {
           aiTradingCapital: allocationAmount,
           aiSession: newSession,
@@ -930,9 +932,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           startTime: new Date().toISOString(),
           engineState: 'ACTIVE'
         }).catch(() => {});
-      } catch (error) {
-        console.error("Critical error persisting active session to Firestore:", error);
       }
+    } catch (error) {
+      console.error("Critical error persisting active session to Firestore:", error);
     }
 
     // Broadcast session update event so all listeners synchronize immediately
@@ -1153,7 +1155,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         if (currentSession?.id) {
           await deleteDoc(doc(db, 'aiSessions', currentSession.id)).catch(() => {});
         }
-        if (effectiveUid && !effectiveUid.startsWith('local-') && effectiveUid !== 'guest_user') {
+        if (effectiveUid) {
           const snap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', effectiveUid)));
           for (const sDoc of snap.docs) {
             await deleteDoc(sDoc.ref).catch(() => {});

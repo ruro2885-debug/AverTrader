@@ -938,16 +938,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         safeStorage.removeItem(`aver_session_control_${currentUid}`);
       }
 
-      // Clean all aver_session keys
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && (k.startsWith('aver_session_') || k.startsWith('aver_positions_') || k.startsWith('aver_trades_'))) {
-            localStorage.removeItem(k);
-          }
-        }
-      } catch (e) {}
-
       safeStorage.removeItem('aver_active_user');
       safeStorage.removeItem('portfolio_vault_balance');
       safeStorage.removeItem('portfolio_active_offset');
@@ -956,7 +946,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(null);
       setNotifications([]);
       setPreviewPhotoURL(null);
-      window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new Event('storage'));
       if (auth) {

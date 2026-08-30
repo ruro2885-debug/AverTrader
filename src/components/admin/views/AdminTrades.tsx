@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, Search, Filter, ShieldCheck, Clock, ExternalLink, 
@@ -77,6 +77,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
+  const latestFirestoreDocsRef = useRef<any[]>([]);
 
   const isDark = theme === 'dark';
 
@@ -110,11 +111,15 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     console.log("[ADMIN] Initializing multi-source live active sessions listener");
 
     const syncSessions = (firestoreDocs?: any[]) => {
+      if (firestoreDocs) {
+        latestFirestoreDocsRef.current = firestoreDocs;
+      }
+      const docsToProcess = firestoreDocs || latestFirestoreDocsRef.current || [];
       const sessionsMap = new Map<string, ActiveSessionRecord>();
 
       // 1. Process Firestore collection docs
-      if (firestoreDocs && firestoreDocs.length > 0) {
-        firestoreDocs.forEach(sDoc => {
+      if (docsToProcess && docsToProcess.length > 0) {
+        docsToProcess.forEach(sDoc => {
           const data = typeof sDoc.data === 'function' ? sDoc.data() : sDoc;
           const docId = sDoc.id || data.id;
           const statusVal = String(data.status || '').toUpperCase();
@@ -378,8 +383,19 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       localStorage.removeItem(`aver_stopped_session_${session.userId}`);
       sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
       
-      window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
-      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id } }));
+      try {
+        const regRaw = localStorage.getItem('aver_active_sessions_registry');
+        if (regRaw) {
+          const reg = JSON.parse(regRaw);
+          delete reg[session.id];
+          localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+          window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
+        }
+      } catch (e) {}
+
+      latestFirestoreDocsRef.current = latestFirestoreDocsRef.current.filter(d => (d.id || d.data?.()?.id) !== session.id);
+      
+      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id, userId: session.userId } }));
 
       // 4. Update state immediately
       setActiveSessions(prev => prev.filter(s => s.id !== session.id));
@@ -409,12 +425,23 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       localStorage.removeItem(`aver_stopped_session_${session.userId}`);
       sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
       
+      try {
+        const regRaw = localStorage.getItem('aver_active_sessions_registry');
+        if (regRaw) {
+          const reg = JSON.parse(regRaw);
+          delete reg[session.id];
+          localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+          window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
+        }
+      } catch (e) {}
+
+      latestFirestoreDocsRef.current = latestFirestoreDocsRef.current.filter(d => (d.id || d.data?.()?.id) !== session.id);
+
       setActiveSessions(prev => prev.filter(s => s.id !== session.id));
       if (selectedControlSession?.id === session.id) {
         setSelectedControlSession(null);
       }
-      window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
-      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id } }));
+      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id, userId: session.userId } }));
     } catch (e) {
       console.error("Failed to delete session tab:", e);
     } finally {
