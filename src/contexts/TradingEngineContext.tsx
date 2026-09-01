@@ -310,7 +310,19 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
   // Sync state FROM localStorage immediately on user login/availability to prevent blank resets on refresh
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setConfigs([]);
+      setConfig(null);
+      setActiveConfigId(undefined);
+      setSession(null);
+      sessionRefVal.current = null;
+      setPositions([]);
+      setTrades([]);
+      tradesRefVal.current = [];
+      setActivity([]);
+      setRecommendations([]);
+      return;
+    }
     
     const rawCachedConfigs = getLocalStorageItem(`aver_configs_${user.uid}`, []);
     const cachedConfigs = rawCachedConfigs.map((c: any) => normalizeAiConfig(c, user.uid));
@@ -545,7 +557,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const positionsRef = collection(db, 'users', user.uid, 'positions');
     const tradesRef = collection(db, 'users', user.uid, 'trades');
     const activityRef = query(collection(db, 'users', user.uid, 'activity'), orderBy('timestamp', 'desc'));
-    const sessionRef = query(collection(db, 'aiSessions'), where('userId', '==', user.uid), where('status', '==', 'ACTIVE'), limit(1));
+    const sessionRef = query(collection(db, 'aiSessions'), where('userId', '==', user.uid), where('status', '==', 'ACTIVE'));
 
     const unsubConfigs = onSnapshot(configsRef, (snap) => {
       const fetchedConfigs = snap.docs.map(d => normalizeAiConfig({ id: d.id, ...d.data() }, user.uid));
@@ -583,18 +595,33 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     const unsubSession = onSnapshot(sessionRef, (snap) => {
         if (!snap.empty) {
-          const fetchedSession = { id: snap.docs[0].id, ...snap.docs[0].data() } as AiSession;
-          if (fetchedSession.status !== 'ACTIVE' || fetchedSession.userId !== user.uid) {
-            console.log("[TradingEngineContext] Ignoring inactive or non-owned session from snapshot:", fetchedSession.id);
+          const activeDocs = snap.docs
+            .map(d => ({ id: d.id, ...d.data() } as AiSession))
+            .filter(s => (s.status === 'ACTIVE' || (s as any).status === 'RUNNING') && s.userId === user.uid);
+          
+          if (activeDocs.length > 0) {
+            // Sort by startTime descending so the most recent session is focused
+            activeDocs.sort((a, b) => {
+              const getMs = (t: any) => {
+                if (!t) return 0;
+                if (typeof t.toDate === 'function') return t.toDate().getTime();
+                if (typeof t.seconds === 'number') return t.seconds * 1000;
+                const parsed = new Date(t).getTime();
+                return isNaN(parsed) ? 0 : parsed;
+              };
+              return getMs(b.startTime) - getMs(a.startTime);
+            });
+            const fetchedSession = activeDocs[0];
+            console.log("[TradingEngineContext] Session synchronized from Firestore:", fetchedSession.id);
+            setSession(fetchedSession);
+            sessionRefVal.current = fetchedSession;
+            safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(fetchedSession));
+            safeStorage.setItem(`aver_session_${fetchedSession.id}`, JSON.stringify(fetchedSession));
+          } else {
             setSession(null);
             sessionRefVal.current = null;
             safeStorage.removeItem(`aver_session_${user.uid}`);
-            return;
           }
-          console.log("[TradingEngineContext] Session synchronized from Firestore:", fetchedSession.id);
-          setSession(fetchedSession);
-          sessionRefVal.current = fetchedSession;
-          safeStorage.setItem(`aver_session_${user.uid}`, JSON.stringify(fetchedSession));
         } else {
           setSession(null);
           sessionRefVal.current = null;
@@ -876,6 +903,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     setSession(newSession);
     sessionRefVal.current = newSession;
     setLocalStorageItem(`aver_session_${effectiveUid}`, newSession);
+    setLocalStorageItem(`aver_session_${newSession.id}`, newSession);
 
     // Immediate status update
     const nextStatus = aiTradingService.getEngineOperationStatus(activeConfig.schedule, true);
@@ -883,30 +911,16 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     const activeUid = user?.uid || auth?.currentUser?.uid || effectiveUid;
     try {
-      // 1. Clean up any stale or previous active sessions for THIS user in Firestore
-      try {
-        if (activeUid) {
-          const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid)));
-          for (const oldDoc of oldSessionsSnap.docs) {
-            if (oldDoc.id !== newSession.id) {
-              await deleteDoc(oldDoc.ref).catch(() => {});
-            }
-          }
-        }
-      } catch (cleanErr) {
-        console.warn("[TradingEngineContext] Could not clean prior active sessions:", cleanErr);
-      }
-
       console.log("[SESSION] Starting Firestore write");
       console.log("[SESSION] Firestore path: aiSessions");
       console.log("[SESSION] Session ID:", newSession.id);
       console.log("[SESSION] Session data:", newSession);
 
-      // 2. Persist real session document to Firestore aiSessions for all users
+      // 1. Persist real session document to Firestore aiSessions for all users
       await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
       console.log("[SESSION] Firestore write completed");
       
-      // 3. Update user profile in Firestore
+      // 2. Update user profile in Firestore
       if (activeUid && !activeUid.startsWith('local-') && activeUid !== 'guest_user') {
         await updateDoc(doc(db, 'users', activeUid), {
           aiTradingCapital: allocationAmount,
@@ -915,7 +929,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           lastUpdated: serverTimestamp()
         }).catch(() => {});
 
-        // 4. Safely set active status on config
+        // 3. Safely set active status on config
         if (configId) {
           await setDoc(doc(db, 'users', activeUid, 'aiConfigurations', configId), {
             status: 'ACTIVE',
@@ -923,7 +937,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           }, { merge: true }).catch(() => {});
         }
         
-        // 5. Update portfolio persistence
+        // 4. Update portfolio persistence
         await portfolioPersistenceService.updateSessionDetails(activeUid, {
           sessionId: newSession.id,
           status: 'ACTIVE',
@@ -1154,12 +1168,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       try {
         if (currentSession?.id) {
           await deleteDoc(doc(db, 'aiSessions', currentSession.id)).catch(() => {});
-        }
-        if (effectiveUid) {
-          const snap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', effectiveUid)));
-          for (const sDoc of snap.docs) {
-            await deleteDoc(sDoc.ref).catch(() => {});
-          }
         }
       } catch (delErr) {
         console.warn("Could not deleteDoc aiSessions directly:", delErr);

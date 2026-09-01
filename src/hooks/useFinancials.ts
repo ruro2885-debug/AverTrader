@@ -99,66 +99,101 @@ export const useFinancials = () => {
     user?.lastUpdated
   ]);
 
-  // Listen to active AI session to get isolated capital & session equity
+  // Listen to active AI session(s) to get isolated capital & session equity
   useEffect(() => {
     const uId = user?.uid || auth.currentUser?.uid;
     if (uId) {
+      const calculateActiveSessionCapital = () => {
+        let total = 0;
+        try {
+          // Check session registry first
+          const regRaw = localStorage.getItem('aver_active_sessions_registry');
+          if (regRaw) {
+            const reg = JSON.parse(regRaw);
+            Object.values(reg).forEach((s: any) => {
+              if (s && (s.status === 'ACTIVE' || s.status === 'RUNNING') && (s.userId === uId || !s.userId)) {
+                const cap = typeof s.equity === 'number' ? s.equity : (typeof s.tradingCapital === 'number' ? s.tradingCapital : (s.initialCapital || 0));
+                total += cap;
+              }
+            });
+          }
+          if (total === 0) {
+            const singleRaw = localStorage.getItem(`aver_session_${uId}`);
+            if (singleRaw) {
+              const s = JSON.parse(singleRaw);
+              if (s && (s.status === 'ACTIVE' || s.status === 'RUNNING')) {
+                total = typeof s.equity === 'number' ? s.equity : (typeof s.tradingCapital === 'number' ? s.tradingCapital : (s.initialCapital || 0));
+              }
+            }
+          }
+        } catch (e) {}
+        return total;
+      };
+
       const handleSessionUpdate = (e: Event) => {
         const customEvent = e as CustomEvent;
         const s = customEvent?.detail;
-        if (s && s.status === 'ACTIVE') {
+        if (s && (s.status === 'ACTIVE' || s.status === 'RUNNING')) {
           const cap = s.equity !== undefined ? s.equity : (s.tradingCapital || 0);
           setActiveSessionCapital(cap);
-        } else if (s && s.status !== 'ACTIVE') {
+        } else if (s && s.status !== 'ACTIVE' && s.status !== 'RUNNING') {
           setActiveSessionCapital(0);
+        } else {
+          setActiveSessionCapital(calculateActiveSessionCapital());
+        }
+      };
+
+      const handleRegistryUpdate = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        const reg = customEvent?.detail;
+        if (reg) {
+          let total = 0;
+          Object.values(reg).forEach((s: any) => {
+            if (s && (s.status === 'ACTIVE' || s.status === 'RUNNING') && (s.userId === uId || !s.userId)) {
+              const cap = typeof s.equity === 'number' ? s.equity : (typeof s.tradingCapital === 'number' ? s.tradingCapital : (s.initialCapital || 0));
+              total += cap;
+            }
+          });
+          setActiveSessionCapital(total);
         }
       };
 
       window.addEventListener('aver_session_updated', handleSessionUpdate);
+      window.addEventListener('aver_sessions_registry_updated', handleRegistryUpdate);
 
       // Initialize from local storage first for instant feedback
-      const localKey = `aver_session_${uId}`;
-      try {
-        const raw = localStorage.getItem(localKey);
-        if (raw) {
-          const sessionData = JSON.parse(raw);
-          if (sessionData && sessionData.status === 'ACTIVE') {
-            const cap = sessionData.equity !== undefined ? sessionData.equity : (sessionData.tradingCapital || 0);
-            setActiveSessionCapital(cap);
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to parse cached session on mount:", e);
+      const initialCap = calculateActiveSessionCapital();
+      if (initialCap > 0) {
+        setActiveSessionCapital(initialCap);
       }
 
       const isLocal = uId.startsWith('local-') || uId === 'guest_user';
       if (isLocal) {
         return () => {
           window.removeEventListener('aver_session_updated', handleSessionUpdate);
+          window.removeEventListener('aver_sessions_registry_updated', handleRegistryUpdate);
         };
       } else {
         const q = query(
           collection(db, 'aiSessions'),
           where('userId', '==', uId),
-          where('status', '==', 'ACTIVE'),
-          limit(1)
+          where('status', '==', 'ACTIVE')
         );
 
         const unsub = onSnapshot(q, (snap) => {
           if (!snap.empty) {
-            const sessionData = snap.docs[0].data();
-            const cap = sessionData.equity !== undefined ? sessionData.equity : (sessionData.tradingCapital || 0);
-            setActiveSessionCapital(cap);
-          } else {
-            // Only zero if localStorage doesn't have an active session either
-            try {
-              const checkLocal = localStorage.getItem(`aver_session_${uId}`);
-              if (!checkLocal) {
-                setActiveSessionCapital(0);
+            const total = snap.docs.reduce((sum, docSnap) => {
+              const sessionData = docSnap.data();
+              if (sessionData.status === 'ACTIVE' || sessionData.status === 'RUNNING') {
+                const cap = typeof sessionData.equity === 'number' ? sessionData.equity : (typeof sessionData.tradingCapital === 'number' ? sessionData.tradingCapital : (sessionData.initialCapital || 0));
+                return sum + cap;
               }
-            } catch {
-              setActiveSessionCapital(0);
-            }
+              return sum;
+            }, 0);
+            setActiveSessionCapital(total);
+          } else {
+            const localCap = calculateActiveSessionCapital();
+            setActiveSessionCapital(localCap);
           }
         }, (err) => {
           console.warn("Firestore sessions listener failed, using local/event state:", err);
@@ -166,6 +201,7 @@ export const useFinancials = () => {
 
         return () => {
           window.removeEventListener('aver_session_updated', handleSessionUpdate);
+          window.removeEventListener('aver_sessions_registry_updated', handleRegistryUpdate);
           unsub();
         };
       }
@@ -178,7 +214,7 @@ export const useFinancials = () => {
       return sum + ((h.quantity || 0) * (h.currentPrice || 0));
     }, 0);
 
-    // 2. Active trading capital (This is the isolated funds being managed by AI)
+    // 2. Active trading capital (Total isolated funds inside active AI trading engine(s))
     let aiTradingCapital = 0;
     if (activeSessionCapital > 0) {
       aiTradingCapital = activeSessionCapital;
@@ -188,7 +224,7 @@ export const useFinancials = () => {
       aiTradingCapital = user.aiTradingCapital;
     }
 
-    // 3. Base Cash Balance (Wallet Balance / Available unallocated funds)
+    // 3. Authoritative Base Cash Balance (Wallet Balance / Available unallocated funds)
     let tokenBalance = 0;
     if (typeof user?.tokenBalance === 'number') {
       tokenBalance = user.tokenBalance;
@@ -219,12 +255,12 @@ export const useFinancials = () => {
           const cachedUser = safeStorage.getItem(`user_profile_${uId}`) || localStorage.getItem('aver_active_user');
           if (cachedUser) {
             const parsed = JSON.parse(cachedUser);
-            if (typeof parsed.portfolioBalance === 'number' && parsed.portfolioBalance > 0) {
-              tokenBalance = parsed.portfolioBalance;
-            } else if (typeof parsed.tokenBalance === 'number' && parsed.tokenBalance > 0) {
+            if (typeof parsed.tokenBalance === 'number' && parsed.tokenBalance > 0) {
               tokenBalance = parsed.tokenBalance;
             } else if (typeof parsed.availableBalance === 'number' && parsed.availableBalance > 0) {
               tokenBalance = parsed.availableBalance;
+            } else if (typeof parsed.portfolioBalance === 'number' && parsed.portfolioBalance > 0) {
+              tokenBalance = parsed.portfolioBalance;
             }
           }
         } catch (e) {}
@@ -238,12 +274,13 @@ export const useFinancials = () => {
       ? user.vaultBalance 
       : (savedVaultBal !== null ? savedVaultBal : (walletData?.vaultBalance ?? 0));
 
-    // 5. Unified Total Portfolio Balance Calculations
-    // Consolidated portfolio net balance is the sum of available wallet cash + active AI trading capital + vault reserves + asset holdings.
+    // 5. Unified Accounting Invariants:
+    // TOTAL NET BALANCE = WALLET BALANCE + ACTIVE ALLOCATED TRADING CAPITAL + VAULT + HOLDINGS
     const calculatedConsolidatedTotal = tokenBalance + aiTradingCapital + vaultBalance + totalHoldingsValue;
 
     const portfolioTotalNetBalance = calculatedConsolidatedTotal;
-    const homeNetBalance = calculatedConsolidatedTotal;
+    // HOME NET BALANCE = PORTFOLIO WALLET BALANCE (Authoritative single wallet balance)
+    const homeNetBalance = tokenBalance;
 
     // 6. Portfolio Value
     const portfolioValue = portfolioTotalNetBalance;

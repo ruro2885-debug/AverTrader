@@ -154,6 +154,7 @@ export class NotificationManager {
     };
 
     if (!this.userId || this.userId.startsWith('local-')) {
+      if (safeStorage.getItem('aver_logged_out') === 'true') return;
       // Local storage fallback
       const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {
@@ -197,6 +198,7 @@ export class NotificationManager {
 
   public async markAsRead(id: string, readState?: boolean) {
     if (!this.userId || this.userId.startsWith('local-')) {
+      if (safeStorage.getItem('aver_logged_out') === 'true') return;
       // Local storage fallback
       const activeLocalUserStr = safeStorage.getItem('aver_active_user');
       if (activeLocalUserStr) {

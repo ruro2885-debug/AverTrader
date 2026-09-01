@@ -260,6 +260,9 @@ const isPermissionError = (error: any): boolean => {
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(() => {
     try {
+      if (safeStorage.getItem('aver_logged_out') === 'true') {
+        return null;
+      }
       const cached = safeStorage.getItem('aver_active_user');
       if (cached) {
         const parsed = JSON.parse(cached);
@@ -277,6 +280,49 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const notificationManagerRef = useRef<NotificationManager | null>(null);
   const avatarSetupRef = useRef<boolean>(false);
   const recentNotificationTrackerRef = useRef<Map<string, number>>(new Map());
+
+  // Unified subscription tracker accessible across all auth methods & logout
+  const subscriptionsRef = useRef<{
+    unsubUserDoc: (() => void) | null;
+    unsubNotifications: (() => void) | null;
+    unsubHoldings: (() => void) | null;
+    unsubTrades: (() => void) | null;
+    unsubSnapshots: (() => void) | null;
+    unsubTradingConfig: (() => void) | null;
+    unsubPortfolioCurrent: (() => void) | null;
+    unsubWallet: (() => void) | null;
+    visibilityHandler: (() => void) | null;
+  }>({
+    unsubUserDoc: null,
+    unsubNotifications: null,
+    unsubHoldings: null,
+    unsubTrades: null,
+    unsubSnapshots: null,
+    unsubTradingConfig: null,
+    unsubPortfolioCurrent: null,
+    unsubWallet: null,
+    visibilityHandler: null,
+  });
+
+  const clearAllSubscriptions = useCallback(() => {
+    const s = subscriptionsRef.current;
+    if (s.unsubUserDoc) { try { s.unsubUserDoc(); } catch (e) {} s.unsubUserDoc = null; }
+    if (s.unsubNotifications) { try { s.unsubNotifications(); } catch (e) {} s.unsubNotifications = null; }
+    if (s.unsubHoldings) { try { s.unsubHoldings(); } catch (e) {} s.unsubHoldings = null; }
+    if (s.unsubTrades) { try { s.unsubTrades(); } catch (e) {} s.unsubTrades = null; }
+    if (s.unsubSnapshots) { try { s.unsubSnapshots(); } catch (e) {} s.unsubSnapshots = null; }
+    if (s.unsubTradingConfig) { try { s.unsubTradingConfig(); } catch (e) {} s.unsubTradingConfig = null; }
+    if (s.unsubPortfolioCurrent) { try { s.unsubPortfolioCurrent(); } catch (e) {} s.unsubPortfolioCurrent = null; }
+    if (s.unsubWallet) { try { s.unsubWallet(); } catch (e) {} s.unsubWallet = null; }
+    if (s.visibilityHandler) {
+      try { document.removeEventListener('visibilitychange', s.visibilityHandler); } catch (e) {}
+      s.visibilityHandler = null;
+    }
+    if (notificationManagerRef.current) {
+      try { notificationManagerRef.current.unsubscribeAll(); } catch (e) {}
+      notificationManagerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     userRef.current = user;
@@ -303,139 +349,117 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [user, previewPhotoURL]);
 
   useEffect(() => {
-    let unsubUserDoc: (() => void) | null = null;
-    let unsubNotifications: (() => void) | null = null;
-    let unsubHoldings: (() => void) | null = null;
-    let unsubTrades: (() => void) | null = null;
-    let unsubSnapshots: (() => void) | null = null;
-    let unsubTradingConfig: (() => void) | null = null;
-    let unsubPortfolioCurrent: (() => void) | null = null;
-    let unsubWallet: (() => void) | null = null;
-
     setPersistence(auth, browserLocalPersistence).catch(async () => {
       try {
         await setPersistence(auth, inMemoryPersistence);
       } catch (e) {}
     });
 
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
+    const setupSubscriptions = (uid: string, email: string | null) => {
+      if (safeStorage.getItem('aver_logged_out') === 'true') return;
+
+      progressionService.updateProgress(uid, 'login').catch(() => {});
       
-      // Cleanup existing listeners
-      let cleanup = () => {
-        if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
-        if (unsubNotifications) { unsubNotifications(); unsubNotifications = null; }
-        if (unsubHoldings) { unsubHoldings(); unsubHoldings = null; }
-        if (unsubTrades) { unsubTrades(); unsubTrades = null; }
-        if (unsubSnapshots) { unsubSnapshots(); unsubSnapshots = null; }
-        if (unsubTradingConfig) { unsubTradingConfig(); unsubTradingConfig = null; }
-        if (unsubPortfolioCurrent) { unsubPortfolioCurrent(); unsubPortfolioCurrent = null; }
-        if (unsubWallet) { unsubWallet(); unsubWallet = null; }
-      };
-      cleanup();
-
-      const setupSubscriptions = (uid: string, email: string | null) => {
-        progressionService.updateProgress(uid, 'login').catch(() => {});
-        
-        const handleVisibilityChange = () => {
-          if (document.visibilityState === 'visible') {
-            progressionService.updateProgress(uid, 'login').catch(() => {});
-          }
-        };
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        const oldCleanup = cleanup;
-        cleanup = () => {
-          document.removeEventListener('visibilitychange', handleVisibilityChange);
-          oldCleanup();
-        };
-
-        notificationManagerRef.current = new NotificationManager(uid);
-        notificationManagerRef.current.subscribe(setNotifications);
-
-        // Wallet subscription
-        unsubWallet = walletService.subscribeWallet(uid, (wData) => {
-          if (!wData) return;
-          setUser(prev => {
-            if (!prev) return null;
-            const portVal = wData.portfolioValue || wData.portfolioBalance || prev.portfolio?.totalValue || 0;
-            const updated: User = {
-              ...prev,
-              portfolioBalance: wData.portfolioBalance ?? prev.portfolioBalance,
-              availableBalance: wData.availableBalance ?? prev.availableBalance,
-              vaultBalance: typeof wData.vaultBalance === 'number' ? wData.vaultBalance : (prev.vaultBalance ?? 0),
-              totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
-              totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
-              tokenBalance: wData.tokenBalance ?? prev.tokenBalance,
-              aiTradingCapital: wData.aiTradingCapital ?? prev.aiTradingCapital,
-              cashBalance: wData.cashBalance ?? prev.cashBalance,
-              portfolio: {
-                ...prev.portfolio,
-                totalValue: portVal
-              }
-            };
-            return updated;
-          });
-        });
-
-        // Portfolio current subscription
-        unsubPortfolioCurrent = portfolioPersistenceService.subscribePortfolioCurrent(uid, (pState) => {
-          if (!pState) return;
-          setUser(prev => {
-            if (!prev) return null;
-            const updated: User = {
-              ...prev,
-              portfolioBalance: pState.walletState.portfolioBalance ?? prev.portfolioBalance,
-              availableBalance: pState.walletState.availableBalance ?? prev.availableBalance,
-              vaultBalance: typeof pState.walletState.vaultBalance === 'number' ? pState.walletState.vaultBalance : (prev.vaultBalance ?? 0),
-              totalDeposits: pState.walletState.totalDeposits ?? prev.totalDeposits,
-              totalWithdrawals: pState.walletState.totalWithdrawals ?? prev.totalWithdrawals,
-              totalProfit: pState.walletState.totalProfit ?? prev.totalProfit,
-              totalLoss: pState.walletState.totalLoss ?? prev.totalLoss,
-              tokenBalance: pState.walletState.tokenBalance ?? prev.tokenBalance,
-              portfolio: {
-                ...prev.portfolio,
-                ...(pState.portfolioMetrics || {})
-              },
-              aiSettings: {
-                ...prev.aiSettings,
-                ...(pState.commandCenter?.aiSettings || {})
-              }
-            };
-            return updated;
-          });
-        });
-
-        // User profile subscription
-        if (uid.startsWith('local-')) {
-          return;
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && safeStorage.getItem('aver_logged_out') !== 'true') {
+          progressionService.updateProgress(uid, 'login').catch(() => {});
         }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      subscriptionsRef.current.visibilityHandler = handleVisibilityChange;
 
-        const userDocRef = doc(db, 'users', uid);
-        unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
-          if (docSnap.exists()) {
-            const userData = docSnap.data() as User;
+      notificationManagerRef.current = new NotificationManager(uid);
+      notificationManagerRef.current.subscribe((notifs) => {
+        if (safeStorage.getItem('aver_logged_out') === 'true') return;
+        setNotifications(notifs);
+      });
+
+      // Wallet subscription
+      subscriptionsRef.current.unsubWallet = walletService.subscribeWallet(uid, (wData) => {
+        if (!wData || safeStorage.getItem('aver_logged_out') === 'true') return;
+        setUser(prev => {
+          if (!prev || safeStorage.getItem('aver_logged_out') === 'true') return null;
+          const portVal = wData.portfolioValue || wData.portfolioBalance || prev.portfolio?.totalValue || 0;
+          const updated: User = {
+            ...prev,
+            portfolioBalance: wData.portfolioBalance ?? prev.portfolioBalance,
+            availableBalance: wData.availableBalance ?? prev.availableBalance,
+            vaultBalance: typeof wData.vaultBalance === 'number' ? wData.vaultBalance : (prev.vaultBalance ?? 0),
+            totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
+            totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
+            tokenBalance: wData.tokenBalance ?? prev.tokenBalance,
+            aiTradingCapital: wData.aiTradingCapital ?? prev.aiTradingCapital,
+            cashBalance: wData.cashBalance ?? prev.cashBalance,
+            portfolio: {
+              ...prev.portfolio,
+              totalValue: portVal
+            }
+          };
+          return updated;
+        });
+      });
+
+      // Portfolio current subscription
+      subscriptionsRef.current.unsubPortfolioCurrent = portfolioPersistenceService.subscribePortfolioCurrent(uid, (pState) => {
+        if (!pState || safeStorage.getItem('aver_logged_out') === 'true') return;
+        setUser(prev => {
+          if (!prev || safeStorage.getItem('aver_logged_out') === 'true') return null;
+          const updated: User = {
+            ...prev,
+            portfolioBalance: pState.walletState.portfolioBalance ?? prev.portfolioBalance,
+            availableBalance: pState.walletState.availableBalance ?? prev.availableBalance,
+            vaultBalance: typeof pState.walletState.vaultBalance === 'number' ? pState.walletState.vaultBalance : (prev.vaultBalance ?? 0),
+            totalDeposits: pState.walletState.totalDeposits ?? prev.totalDeposits,
+            totalWithdrawals: pState.walletState.totalWithdrawals ?? prev.totalWithdrawals,
+            totalProfit: pState.walletState.totalProfit ?? prev.totalProfit,
+            totalLoss: pState.walletState.totalLoss ?? prev.totalLoss,
+            tokenBalance: pState.walletState.tokenBalance ?? prev.tokenBalance,
+            portfolio: {
+              ...prev.portfolio,
+              ...(pState.portfolioMetrics || {})
+            },
+            aiSettings: {
+              ...prev.aiSettings,
+              ...(pState.commandCenter?.aiSettings || {})
+            }
+          };
+          return updated;
+        });
+      });
+
+      // User profile subscription
+      if (uid.startsWith('local-')) {
+        return;
+      }
+
+      const userDocRef = doc(db, 'users', uid);
+      subscriptionsRef.current.unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
+        if (safeStorage.getItem('aver_logged_out') === 'true') return;
+        if (docSnap.exists()) {
+          const userData = docSnap.data() as User;
+          
+          setUser(prev => {
+            if (safeStorage.getItem('aver_logged_out') === 'true') return null;
+            const updatedUser = {
+              ...(prev || {}),
+              ...userData,
+              portfolioBalance: typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : (prev?.portfolioBalance ?? 0),
+              availableBalance: typeof userData.availableBalance === 'number' ? userData.availableBalance : (prev?.availableBalance ?? 0),
+              vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (prev?.vaultBalance ?? 0),
+              tokenBalance: typeof userData.tokenBalance === 'number' ? userData.tokenBalance : (prev?.tokenBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
+              aiTradingCapital: typeof userData.aiTradingCapital === 'number' ? userData.aiTradingCapital : (prev?.aiTradingCapital ?? 0),
+              cashBalance: typeof userData.cashBalance === 'number' ? userData.cashBalance : (prev?.cashBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
+              holdings: userData.holdings || prev?.holdings || [],
+              trades: userData.trades || prev?.trades || [],
+              snapshots: userData.snapshots || prev?.snapshots || [],
+              portfolio: {
+                ...(prev?.portfolio || {}),
+                ...(userData.portfolio || {})
+              }
+            } as User;
             
-            setUser(prev => {
-              const updatedUser = {
-                ...(prev || {}),
-                ...userData,
-                portfolioBalance: typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : (prev?.portfolioBalance ?? 0),
-                availableBalance: typeof userData.availableBalance === 'number' ? userData.availableBalance : (prev?.availableBalance ?? 0),
-                vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (prev?.vaultBalance ?? 0),
-                tokenBalance: typeof userData.tokenBalance === 'number' ? userData.tokenBalance : (prev?.tokenBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
-                aiTradingCapital: typeof userData.aiTradingCapital === 'number' ? userData.aiTradingCapital : (prev?.aiTradingCapital ?? 0),
-                cashBalance: typeof userData.cashBalance === 'number' ? userData.cashBalance : (prev?.cashBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
-                holdings: userData.holdings || prev?.holdings || [],
-                trades: userData.trades || prev?.trades || [],
-                snapshots: userData.snapshots || prev?.snapshots || [],
-                portfolio: {
-                  ...(prev?.portfolio || {}),
-                  ...(userData.portfolio || {})
-                }
-              } as User;
-              
-              // Only cache essential profile info
+            // Only cache essential profile info if still active and not logged out
+            if (safeStorage.getItem('aver_logged_out') !== 'true') {
               const profileToCache = { ...updatedUser };
               delete (profileToCache as any).trades;
               delete (profileToCache as any).holdings;
@@ -444,104 +468,130 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               delete (profileToCache as any).notificationsList;
               safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(profileToCache));
               safeStorage.setItem('aver_active_user', JSON.stringify(profileToCache));
-              
-              return updatedUser;
-            });
-          } else if (email) {
-            // Auto-initialize profile if it doesn't exist
-            const seed = email.toLowerCase();
-            const dataUrl = getAvatarDataUrl(seed);
-            const defaultProfile = {
-              uid,
-              email,
-              username: email.split('@')[0],
-              role: 'user',
-              profilePhotoURL: dataUrl,
-              avatarUrl: dataUrl,
-              avatarSeed: seed,
-              hasCustomPhoto: false,
-              accountType: 'Standard',
-              accountStatus: 'Active',
-              portfolioBalance: 0,
-              availableBalance: 0,
-              vaultBalance: 0,
-              tokenBalance: 0,
-              createdAt: serverTimestamp(),
-              lastLogin: serverTimestamp(),
-              lastUpdated: serverTimestamp(),
-              onboardingCompleted: true,
-              notificationsList: [],
-              portfolio: {
-                totalValue: 0,
-                todayPnL: 0,
-                todayPnLPercent: 0,
-                overallReturn: 0,
-                realizedPnL: 0,
-                unrealizedPnL: 0,
-                healthScore: 100,
-                diversificationScore: 100,
-                volatility: 0,
-                sharpeRatio: 0,
-                winRate: 0,
-                maxDrawdown: 0,
-                recoveryFactor: 0,
-                riskAdjustedReturn: 0
-              }
-            };
-            setDoc(userDocRef, defaultProfile, { merge: true });
-          }
-        }, (err) => {
-          console.error("[AuthContext] unsubUserDoc error:", err);
-          handleFirestoreError(err, OperationType.GET, `users/${uid}`);
-        });
+            }
+            
+            return updatedUser;
+          });
+        } else if (email) {
+          // Auto-initialize profile if it doesn't exist
+          const seed = email.toLowerCase();
+          const dataUrl = getAvatarDataUrl(seed);
+          const defaultProfile = {
+            uid,
+            email,
+            username: email.split('@')[0],
+            role: 'user',
+            profilePhotoURL: dataUrl,
+            avatarUrl: dataUrl,
+            avatarSeed: seed,
+            hasCustomPhoto: false,
+            accountType: 'Standard',
+            accountStatus: 'Active',
+            portfolioBalance: 0,
+            availableBalance: 0,
+            vaultBalance: 0,
+            tokenBalance: 0,
+            createdAt: serverTimestamp(),
+            lastLogin: serverTimestamp(),
+            lastUpdated: serverTimestamp(),
+            onboardingCompleted: true,
+            notificationsList: [],
+            portfolio: {
+              totalValue: 0,
+              todayPnL: 0,
+              todayPnLPercent: 0,
+              overallReturn: 0,
+              realizedPnL: 0,
+              unrealizedPnL: 0,
+              healthScore: 100,
+              diversificationScore: 100,
+              volatility: 0,
+              sharpeRatio: 0,
+              winRate: 0,
+              maxDrawdown: 0,
+              recoveryFactor: 0,
+              riskAdjustedReturn: 0
+            }
+          };
+          setDoc(userDocRef, defaultProfile, { merge: true });
+        }
+      }, (err) => {
+        console.error("[AuthContext] unsubUserDoc error:", err);
+        handleFirestoreError(err, OperationType.GET, `users/${uid}`);
+      });
 
-        // Holdings, Trades, Snapshots subscriptions
-        const holdingsRef = collection(db, 'users', uid, 'holdings');
-        unsubHoldings = onSnapshot(holdingsRef, (snap) => {
-          const holdings = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Holding[];
-          setUser(prev => prev ? { ...prev, holdings } : null);
-        }, (err) => {
-          console.error("[AuthContext] unsubHoldings error:", err);
-          handleFirestoreError(err, OperationType.GET, `users/${uid}/holdings`);
-        });
+      // Holdings, Trades, Snapshots subscriptions
+      const holdingsRef = collection(db, 'users', uid, 'holdings');
+      subscriptionsRef.current.unsubHoldings = onSnapshot(holdingsRef, (snap) => {
+        if (safeStorage.getItem('aver_logged_out') === 'true') return;
+        const holdings = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Holding[];
+        setUser(prev => (prev && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, holdings } : null);
+      }, (err) => {
+        console.error("[AuthContext] unsubHoldings error:", err);
+        handleFirestoreError(err, OperationType.GET, `users/${uid}/holdings`);
+      });
 
-        const tradesRef = collection(db, 'users', uid, 'trades');
-        unsubTrades = onSnapshot(query(tradesRef, orderBy('timestamp', 'desc')), (snap) => {
-          const trades = snap.docs.map(d => ({ id: d.id, ...d.data() })) as TradeHistoryItem[];
-          setUser(prev => prev ? { ...prev, trades } : null);
-        }, (err) => {
-          console.error("[AuthContext] unsubTrades error:", err);
-          handleFirestoreError(err, OperationType.GET, `users/${uid}/trades`);
-        });
+      const tradesRef = collection(db, 'users', uid, 'trades');
+      subscriptionsRef.current.unsubTrades = onSnapshot(query(tradesRef, orderBy('timestamp', 'desc')), (snap) => {
+        if (safeStorage.getItem('aver_logged_out') === 'true') return;
+        const trades = snap.docs.map(d => ({ id: d.id, ...d.data() })) as TradeHistoryItem[];
+        setUser(prev => (prev && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, trades } : null);
+      }, (err) => {
+        console.error("[AuthContext] unsubTrades error:", err);
+        handleFirestoreError(err, OperationType.GET, `users/${uid}/trades`);
+      });
 
-        const snapshotsRef = collection(db, 'users', uid, 'snapshots');
-        unsubSnapshots = onSnapshot(query(snapshotsRef, orderBy('timestamp', 'desc')), (snap) => {
-          const snapshots = snap.docs.map(d => ({ id: d.id, ...d.data() })) as PortfolioSnapshot[];
-          setUser(prev => prev ? { ...prev, snapshots } : null);
-        }, (err) => {
-          console.error("[AuthContext] unsubSnapshots error:", err);
-          handleFirestoreError(err, OperationType.GET, `users/${uid}/snapshots`);
-        });
+      const snapshotsRef = collection(db, 'users', uid, 'snapshots');
+      subscriptionsRef.current.unsubSnapshots = onSnapshot(query(snapshotsRef, orderBy('timestamp', 'desc')), (snap) => {
+        if (safeStorage.getItem('aver_logged_out') === 'true') return;
+        const snapshots = snap.docs.map(d => ({ id: d.id, ...d.data() })) as PortfolioSnapshot[];
+        setUser(prev => (prev && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, snapshots } : null);
+      }, (err) => {
+        console.error("[AuthContext] unsubSnapshots error:", err);
+        handleFirestoreError(err, OperationType.GET, `users/${uid}/snapshots`);
+      });
 
-        const configRef = doc(db, 'users', uid, 'tradingConfig', 'default');
-        unsubTradingConfig = onSnapshot(configRef, (docSnap) => {
-          if (docSnap.exists()) {
-            const config = docSnap.data() as TradingEngineConfig;
-            setUser(prev => prev ? { ...prev, tradingConfig: config } : null);
-          }
-        }, (err) => {
-          console.error("[AuthContext] unsubTradingConfig error:", err);
-          handleFirestoreError(err, OperationType.GET, `users/${uid}/tradingConfig/default`);
-        });
-      };
+      const configRef = doc(db, 'users', uid, 'tradingConfig', 'default');
+      subscriptionsRef.current.unsubTradingConfig = onSnapshot(configRef, (docSnap) => {
+        if (safeStorage.getItem('aver_logged_out') === 'true') return;
+        if (docSnap.exists()) {
+          const config = docSnap.data() as TradingEngineConfig;
+          setUser(prev => (prev && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, tradingConfig: config } : null);
+        }
+      }, (err) => {
+        console.error("[AuthContext] unsubTradingConfig error:", err);
+        handleFirestoreError(err, OperationType.GET, `users/${uid}/tradingConfig/default`);
+      });
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
+
+      // Check if user has explicitly logged out
+      const isLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
+
+      if (isLoggedOut) {
+        clearAllSubscriptions();
+        setUser(null);
+        setNotifications([]);
+        setPreviewPhotoURL(null);
+        setLoading(false);
+        if (firebaseUser) {
+          signOut(auth).catch(() => {});
+        }
+        return;
+      }
+      
+      // Cleanup existing listeners before attaching new ones
+      clearAllSubscriptions();
 
       if (firebaseUser) {
         setupSubscriptions(firebaseUser.uid, firebaseUser.email);
-        setTimeout(() => setLoading(false), 800);
+        setLoading(false);
       } else {
         // User is signed out from Firebase
         const activeLocalUserStr = safeStorage.getItem('aver_active_user');
-        if (activeLocalUserStr) {
+        if (activeLocalUserStr && safeStorage.getItem('aver_logged_out') !== 'true') {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
             // Clear auto-generated dummy profiles so user lands on Login/Register
@@ -549,7 +599,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               safeStorage.removeItem('aver_active_user');
               setUser(null);
             } else {
-              // Valid signed-in local user
+              // Valid signed-in local user (when offline or in test mode)
               setUser(activeLocalUser);
               if (activeLocalUser.uid) {
                 setupSubscriptions(activeLocalUser.uid, activeLocalUser.email);
@@ -564,21 +614,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setNotifications([]);
           setPreviewPhotoURL(null);
         }
-        setTimeout(() => setLoading(false), 800);
+        setLoading(false);
       }
     });
 
     const handleLocalUserUpdate = () => {
+      if (safeStorage.getItem('aver_logged_out') === 'true') {
+        if (userRef.current !== null) {
+          setUser(null);
+        }
+        return;
+      }
+
       if (!auth.currentUser) {
         const activeLocalUserStr = safeStorage.getItem('aver_active_user');
         if (activeLocalUserStr) {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
-            setUser(activeLocalUser);
-            setNotifications(activeLocalUser.notificationsList || []);
+            if (activeLocalUser && activeLocalUser.uid && !activeLocalUser.uid.startsWith('local-')) {
+              setUser(activeLocalUser);
+              setNotifications(activeLocalUser.notificationsList || []);
+            }
           } catch (e) {
             console.error("Error loading active local user on update event:", e);
           }
+        } else {
+          setUser(null);
         }
       }
     };
@@ -589,19 +650,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       unsubscribe();
       window.removeEventListener('aver_user_updated', handleLocalUserUpdate);
       window.removeEventListener('storage', handleLocalUserUpdate);
-      if (unsubUserDoc) unsubUserDoc();
-      if (unsubNotifications) unsubNotifications();
-      if (unsubHoldings) unsubHoldings();
-      if (unsubTrades) unsubTrades();
-      if (unsubSnapshots) unsubSnapshots();
-      if (unsubTradingConfig) unsubTradingConfig();
-      if (unsubPortfolioCurrent) unsubPortfolioCurrent();
-      if (unsubWallet) unsubWallet();
+      clearAllSubscriptions();
     };
-  }, []);
+  }, [clearAllSubscriptions]);
 
   const signUp = useCallback(async (data: SignUpData) => {
     try {
+      safeStorage.removeItem('aver_logged_out');
       // 1. Try to create Firebase Auth account
       let userCredential;
       let isFirebaseRestricted = false;
@@ -845,6 +900,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signIn = useCallback(async (email: string, password: string, rememberMe: boolean = true) => {
     try {
+      safeStorage.removeItem('aver_logged_out');
       try {
         await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
       } catch (pError) {
@@ -928,33 +984,51 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOutUser = useCallback(async () => {
     try {
+      // 1. Set explicit logout flag to block any race condition / background sync / auto-relogin
+      safeStorage.setItem('aver_logged_out', 'true');
+
+      // 2. Tear down all Firestore & notification listeners
+      clearAllSubscriptions();
+
+      // 3. Clear all user session, cache, and profile keys
       const currentUid = userRef.current?.uid;
       if (currentUid) {
+        safeStorage.removeItem(`user_profile_${currentUid}`);
         safeStorage.removeItem(`aver_session_${currentUid}`);
         safeStorage.removeItem(`aver_positions_${currentUid}`);
         safeStorage.removeItem(`aver_trades_${currentUid}`);
         safeStorage.removeItem(`aver_activity_${currentUid}`);
         safeStorage.removeItem(`aver_recommendations_${currentUid}`);
         safeStorage.removeItem(`aver_session_control_${currentUid}`);
+        safeStorage.removeItem(`aver_wallet_${currentUid}`);
+        safeStorage.removeItem(`aver_portfolio_current_${currentUid}`);
       }
 
       safeStorage.removeItem('aver_active_user');
+      safeStorage.removeItem('aver_dashboard_tab');
       safeStorage.removeItem('portfolio_vault_balance');
       safeStorage.removeItem('portfolio_active_offset');
       safeStorage.removeItem('aver_connected_wallet');
       safeStorage.removeItem('aver_trading_config');
+
+      // 4. Update React state immediately
+      userRef.current = null;
       setUser(null);
       setNotifications([]);
       setPreviewPhotoURL(null);
+
+      // 5. Notify all listeners
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new Event('storage'));
+
+      // 6. Sign out from Firebase Auth
       if (auth) {
         await signOut(auth).catch(() => {});
       }
     } catch (error) {
       console.error("Error signing out:", error);
     }
-  }, []);
+  }, [clearAllSubscriptions]);
 
   const addNotification = useCallback(async (
     category: NotificationCategory,

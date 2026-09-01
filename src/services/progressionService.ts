@@ -5,7 +5,7 @@ import { safeStorage } from '../utils/storage';
 
 export const progressionService = {
   async updateProgress(userId: string, actionType: 'trade' | 'win' | 'loss' | 'login') {
-    if (!userId) return;
+    if (!userId || safeStorage.getItem('aver_logged_out') === 'true') return;
 
     const profileKey = `user_profile_${userId}`;
     const activeUserKey = `aver_active_user`;

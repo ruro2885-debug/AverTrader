@@ -353,24 +353,24 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return 0;
   }, [trades, completedSessions, user, resetTime]);
 
-  // Net value displayed on Home Net Balance card (represents consolidated total net asset balance)
+  // Home Net Balance represents the single authoritative wallet balance (Home Net Balance = Portfolio Wallet Balance)
   const totalValue = useMemo(() => {
-    return totalNetBalance;
-  }, [totalNetBalance]);
+    return homeNetBalance;
+  }, [homeNetBalance]);
 
   // Account baseline for trading return calculations (independent of cash deposits/withdrawals)
   const baselineAccountBalance = useMemo(() => {
     if (session?.status === 'ACTIVE') {
       const allocated = session.initialCapital || session.tradingCapital || 1000;
-      const unallocated = Math.max(0, totalValue - (session.tradingCapital || allocated));
+      const unallocated = homeNetBalance;
       const starting = unallocated + allocated;
       return starting > 0 ? starting : (allocated > 0 ? allocated : 1000);
     }
     // When session is inactive, baseline = current balance minus PnL (ensures starting balance is mathematically sound)
     const pnl = closedTradesPnL !== 0 ? closedTradesPnL : (user?.portfolio?.todayPnL || 0);
-    const computedBase = totalValue - pnl;
-    return computedBase > 0 ? computedBase : (totalValue > 0 ? totalValue : 1000);
-  }, [session, totalValue, closedTradesPnL, user?.portfolio?.todayPnL]);
+    const computedBase = totalNetBalance - pnl;
+    return computedBase > 0 ? computedBase : (totalNetBalance > 0 ? totalNetBalance : 1000);
+  }, [session, homeNetBalance, totalNetBalance, closedTradesPnL, user?.portfolio?.todayPnL]);
 
   // Total PnL dollar change for performance indicator strictly driven by trading activity
   const totalPlAmount = useMemo(() => {

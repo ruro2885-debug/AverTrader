@@ -78,19 +78,23 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
   const latestFirestoreDocsRef = useRef<any[]>([]);
+  const latestUsersDocsRef = useRef<any[]>([]);
+  const userMapRef = useRef<Record<string, { email: string }>>({});
 
   const isDark = theme === 'dark';
 
-  // 1. Listen to users collection in real time to resolve emails accurately
+  // 1. Listen to users collection in real time to resolve emails accurately and detect active sessions on user docs
   useEffect(() => {
     let unsubUsers: (() => void) | null = null;
     try {
       unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        latestUsersDocsRef.current = snap.docs;
         const newUserMap: Record<string, { email: string }> = {};
         snap.forEach(uDoc => {
           const d = uDoc.data();
           newUserMap[uDoc.id] = { email: d.email || 'user@example.com' };
         });
+        userMapRef.current = newUserMap;
         setUserMap(newUserMap);
       }, (err) => {
         console.warn("[AdminTrades] User map listener error:", err);
@@ -102,30 +106,30 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     };
   }, []);
 
-  // 2. Real-time listener for active aiSessions, depends on userMap
+  // 2. Real-time listener for active aiSessions and multi-session synchronization
   useEffect(() => {
     let unsubSessions: (() => void) | null = null;
     let unsubTradesList: (() => void)[] = [];
 
-    console.log("[ADMIN] Listener mounted");
-    console.log("[ADMIN] Initializing multi-source live active sessions listener");
+    console.log("[ADMIN] Initializing live active sessions listener");
 
     const syncSessions = (firestoreDocs?: any[]) => {
       if (firestoreDocs) {
         latestFirestoreDocsRef.current = firestoreDocs;
       }
       const docsToProcess = firestoreDocs || latestFirestoreDocsRef.current || [];
+      const currentUsersMap = userMapRef.current || userMap;
       const sessionsMap = new Map<string, ActiveSessionRecord>();
 
-      // 1. Process Firestore collection docs
+      // 1. Process Firestore 'aiSessions' collection documents
       if (docsToProcess && docsToProcess.length > 0) {
         docsToProcess.forEach(sDoc => {
           const data = typeof sDoc.data === 'function' ? sDoc.data() : sDoc;
           const docId = sDoc.id || data.id;
           const statusVal = String(data.status || '').toUpperCase();
-          if ((statusVal === 'ACTIVE' || statusVal === 'RUNNING') && data.isDeleted !== true) {
+          if ((statusVal === 'ACTIVE' || statusVal === 'RUNNING') && data.isDeleted !== true && docId) {
             const uId = data.userId || 'unknown';
-            const userEmail = data.userEmail || userMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+            const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
             
             sessionsMap.set(docId, {
               id: docId,
@@ -146,69 +150,98 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         });
       }
 
-      // 2. Merge local active sessions registry for zero-delay instant sync
+      // 2. Process active sessions stored on user documents in Firestore
+      if (latestUsersDocsRef.current && latestUsersDocsRef.current.length > 0) {
+        latestUsersDocsRef.current.forEach(uDoc => {
+          const uData = typeof uDoc.data === 'function' ? uDoc.data() : uDoc;
+          const sess = uData.aiSession || uData.activeSession;
+          if (sess && (sess.status === 'ACTIVE' || (sess as any).status === 'RUNNING') && !sess.isDeleted && sess.id) {
+            if (!sessionsMap.has(sess.id)) {
+              const uId = sess.userId || uDoc.id;
+              const userEmail = sess.userEmail || uData.email || currentUsersMap[uId]?.email || 'trader@example.com';
+              sessionsMap.set(sess.id, {
+                id: sess.id,
+                userId: uId,
+                userEmail: userEmail,
+                status: 'ACTIVE',
+                startTime: sess.startTime || new Date().toISOString(),
+                tradingCapital: sess.tradingCapital ?? sess.initialCapital ?? uData.aiTradingCapital ?? 0,
+                initialCapital: sess.initialCapital ?? sess.tradingCapital ?? 1000,
+                openPositionsCount: sess.openPositionsCount || 0,
+                totalProfit: sess.totalProfit || 0,
+                totalLoss: sess.totalLoss || 0,
+                activeConfigId: sess.activeConfigId,
+                strategyName: sess.strategyName || 'Algorithmic Strategy',
+                adminControl: sess.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
+              });
+            }
+          }
+        });
+      }
+
+      // 3. Merge local active sessions registry for zero-delay instant sync across tabs/launches
       try {
         const regRaw = localStorage.getItem('aver_active_sessions_registry');
         if (regRaw) {
           const reg = JSON.parse(regRaw);
           Object.values(reg).forEach((data: any) => {
-            if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && !data.isDeleted) {
+            if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && !data.isDeleted && data.id) {
               const docId = data.id;
-              if (docId) {
-                const uId = data.userId || 'unknown';
-                const userEmail = data.userEmail || userMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-                const existing = sessionsMap.get(docId);
-                
-                sessionsMap.set(docId, {
-                  id: docId,
-                  userId: uId,
-                  userEmail: userEmail,
-                  status: 'ACTIVE',
-                  startTime: data.startTime || existing?.startTime || new Date().toISOString(),
-                  tradingCapital: data.tradingCapital ?? existing?.tradingCapital ?? data.initialCapital ?? 0,
-                  initialCapital: data.initialCapital ?? existing?.initialCapital ?? data.tradingCapital ?? 1000,
-                  openPositionsCount: data.openPositionsCount ?? existing?.openPositionsCount ?? 0,
-                  totalProfit: data.totalProfit ?? existing?.totalProfit ?? 0,
-                  totalLoss: data.totalLoss ?? existing?.totalLoss ?? 0,
-                  activeConfigId: data.activeConfigId || existing?.activeConfigId,
-                  strategyName: data.strategyName || existing?.strategyName || 'Algorithmic Strategy',
-                  adminControl: data.adminControl || existing?.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
-                });
-              }
+              const uId = data.userId || 'unknown';
+              const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+              const existing = sessionsMap.get(docId);
+              
+              sessionsMap.set(docId, {
+                id: docId,
+                userId: uId,
+                userEmail: userEmail,
+                status: 'ACTIVE',
+                startTime: data.startTime || existing?.startTime || new Date().toISOString(),
+                tradingCapital: data.tradingCapital ?? existing?.tradingCapital ?? data.initialCapital ?? 0,
+                initialCapital: data.initialCapital ?? existing?.initialCapital ?? data.tradingCapital ?? 1000,
+                openPositionsCount: data.openPositionsCount ?? existing?.openPositionsCount ?? 0,
+                totalProfit: data.totalProfit ?? existing?.totalProfit ?? 0,
+                totalLoss: data.totalLoss ?? existing?.totalLoss ?? 0,
+                activeConfigId: data.activeConfigId || existing?.activeConfigId,
+                strategyName: data.strategyName || existing?.strategyName || 'Algorithmic Strategy',
+                adminControl: data.adminControl || existing?.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
+              });
             }
           });
         }
       } catch (e) {}
 
-      // 3. Check individual local session keys
+      // 4. Check individual local session keys for standalone active sessions
       try {
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && key.startsWith('aver_session_') && !key.startsWith('aver_session_control_')) {
+          if (key && (key.startsWith('aver_session_') || key.startsWith('aver_active_session_')) && !key.startsWith('aver_session_control_') && !key.startsWith('aver_sessions_registry') && !key.startsWith('aver_stopped_session_')) {
             const rawVal = localStorage.getItem(key);
             if (rawVal) {
-              const data = JSON.parse(rawVal);
-              if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && data.id && !data.isDeleted) {
-                if (!sessionsMap.has(data.id)) {
-                  const uId = data.userId || key.replace('aver_session_', '');
-                  const userEmail = data.userEmail || userMap[uId]?.email || (uId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-                  sessionsMap.set(data.id, {
-                    id: data.id,
-                    userId: uId,
-                    userEmail: userEmail,
-                    status: 'ACTIVE',
-                    startTime: data.startTime || new Date().toISOString(),
-                    tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
-                    initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
-                    openPositionsCount: data.openPositionsCount || 0,
-                    totalProfit: data.totalProfit || 0,
-                    totalLoss: data.totalLoss || 0,
-                    activeConfigId: data.activeConfigId,
-                    strategyName: data.strategyName || 'Algorithmic Strategy',
-                    adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
-                  });
+              try {
+                const data = JSON.parse(rawVal);
+                if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && data.id && !data.isDeleted) {
+                  if (!sessionsMap.has(data.id)) {
+                    const uId = data.userId || key.replace('aver_session_', '').replace('aver_active_session_', '');
+                    const userEmail = data.userEmail || currentUsersMap[uId]?.email || (uId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+                    sessionsMap.set(data.id, {
+                      id: data.id,
+                      userId: uId,
+                      userEmail: userEmail,
+                      status: 'ACTIVE',
+                      startTime: data.startTime || new Date().toISOString(),
+                      tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
+                      initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
+                      openPositionsCount: data.openPositionsCount || 0,
+                      totalProfit: data.totalProfit || 0,
+                      totalLoss: data.totalLoss || 0,
+                      activeConfigId: data.activeConfigId,
+                      strategyName: data.strategyName || 'Algorithmic Strategy',
+                      adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
+                    });
+                  }
                 }
-              }
+              } catch (parseErr) {}
             }
           }
         }
@@ -261,7 +294,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
                   userTrades.push({
                     id: tDoc.id,
                     userId: uId,
-                    userEmail: userMap[uId]?.email || 'trader@example.com',
+                    userEmail: (userMapRef.current && userMapRef.current[uId]?.email) || userMap[uId]?.email || 'trader@example.com',
                     symbol: tData.symbol || 'BTC/USDT',
                     type: tData.type || 'long',
                     amount: tData.amount || tData.size || 0,
@@ -305,6 +338,8 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     window.addEventListener('storage', handleStorageUpdate);
     window.addEventListener('aver_sessions_registry_updated', handleStorageUpdate);
     window.addEventListener('aver_session_updated', handleStorageUpdate);
+    window.addEventListener('aver_session_launched', handleStorageUpdate);
+    window.addEventListener('aver_session_terminated', handleStorageUpdate);
     window.addEventListener('aver_admin_control_updated', handleStorageUpdate);
 
     return () => {
@@ -313,6 +348,8 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       window.removeEventListener('storage', handleStorageUpdate);
       window.removeEventListener('aver_sessions_registry_updated', handleStorageUpdate);
       window.removeEventListener('aver_session_updated', handleStorageUpdate);
+      window.removeEventListener('aver_session_launched', handleStorageUpdate);
+      window.removeEventListener('aver_session_terminated', handleStorageUpdate);
       window.removeEventListener('aver_admin_control_updated', handleStorageUpdate);
     };
   }, [user?.uid, user?.email, userMap]);

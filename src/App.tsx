@@ -99,7 +99,7 @@ function AppContent() {
       // If no user and we were on a protected view, go to login
       setViewStack(prev => {
         const top = prev[prev.length - 1];
-        if (top === 'dashboard' || top === 'referral-centre' || top === 'preferences' || top === 'bonus-center' || top === 'history' || top === 'kyc-verification') {
+        if (top === 'dashboard' || top === 'referral-centre' || top === 'preferences' || top === 'bonus-center' || top === 'history' || top === 'kyc-verification' || top === 'deposit' || top === 'admin') {
           return ['auth'];
         }
         return prev;
