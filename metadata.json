@@ -1,6 +1,6 @@
 {
-  "name": "Aver Platform",
-  "description": "A comprehensive institutional financial platform with a real-time trading leaderboard and a massive administrative suite for global platform management.",
+  "name": "AVER | Trading Platform",
+  "description": "AVER is a modern trading platform for intelligent market analysis, trading sessions, portfolio management and advanced trading tools.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
