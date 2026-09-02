@@ -2960,18 +2960,18 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.98 }}
-                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-8 sm:p-12 text-center space-y-8 overflow-hidden ring-1 ring-indigo-500/30 shadow-2xl min-h-[480px] flex flex-col justify-between"
+                  className="relative w-full rounded-[32px] bg-neutral-950 text-white p-6 sm:p-10 text-center space-y-6 sm:space-y-8 overflow-hidden ring-1 ring-indigo-500/30 shadow-2xl min-h-[480px] flex flex-col items-center justify-between"
                 >
                   <div className="pointer-events-none absolute inset-0 opacity-20">
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-indigo-500/30 blur-[120px] animate-pulse" />
                   </div>
 
-                  <div className="space-y-8 my-auto pt-6">
+                  <div className="w-full flex flex-col items-center space-y-6 sm:space-y-8 my-auto pt-4">
                     {/* Clean Animated Loading Ring */}
-                    <div className="relative w-80 h-80 mx-auto flex items-center justify-center">
+                    <div className="relative w-52 h-52 sm:w-64 sm:h-64 mx-auto flex items-center justify-center shrink-0">
                       <div className="absolute inset-0 rounded-full border-4 border-white/5 border-t-white border-r-white/40 animate-spin" />
-                      <div className="absolute inset-6 rounded-full border-2 border-white/5 border-b-white/60 animate-spin [animation-direction:reverse]" />
-                      <div className="relative z-10 w-64 h-64 flex items-center justify-center rounded-full overflow-hidden shadow-[0_0_50px_rgba(255,255,255,0.25)] ring-0 border-none bg-transparent">
+                      <div className="absolute inset-3 sm:inset-4 rounded-full border-2 border-white/5 border-b-white/60 animate-spin [animation-direction:reverse]" />
+                      <div className="relative z-10 w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center rounded-full overflow-hidden shadow-[0_0_40px_rgba(255,255,255,0.25)] ring-0 border-none bg-transparent">
                         <WalletLogo name={connectingWalletName} className="w-full h-full rounded-full object-cover" isConnecting={true} />
                       </div>
                     </div>
@@ -2998,7 +2998,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                   </div>
 
                   {/* Fixed Bottom Connect Manually Trigger */}
-                  <div className="pt-6 border-t border-white/10 relative z-10 flex flex-col items-center gap-2">
+                  <div className="w-full pt-6 border-t border-white/10 relative z-10 flex flex-col items-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
