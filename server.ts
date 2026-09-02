@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import crypto from "crypto";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -419,6 +420,45 @@ async function startServer() {
         ]
       });
     }
+  });
+
+  // Sitemap & Search Engine Routes
+  app.get("/sitemap.xml", (req, res) => {
+    res.header("Content-Type", "application/xml; charset=utf-8");
+    const distSitemap = path.join(process.cwd(), "dist", "sitemap.xml");
+    const publicSitemap = path.join(process.cwd(), "public", "sitemap.xml");
+
+    if (fs.existsSync(distSitemap)) {
+      return res.sendFile(distSitemap);
+    }
+    if (fs.existsSync(publicSitemap)) {
+      return res.sendFile(publicSitemap);
+    }
+
+    return res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.avertrader.space/</loc>
+    <lastmod>2026-09-02</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>`);
+  });
+
+  app.get("/robots.txt", (req, res) => {
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    const distRobots = path.join(process.cwd(), "dist", "robots.txt");
+    const publicRobots = path.join(process.cwd(), "public", "robots.txt");
+
+    if (fs.existsSync(distRobots)) {
+      return res.sendFile(distRobots);
+    }
+    if (fs.existsSync(publicRobots)) {
+      return res.sendFile(publicRobots);
+    }
+
+    return res.send("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /dashboard\n\nSitemap: https://www.avertrader.space/sitemap.xml\n");
   });
 
   // Vite middleware for development
