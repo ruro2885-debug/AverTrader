@@ -20,6 +20,30 @@ export interface UnifiedFinancials {
   portfolioValue: number;
   cashBalance: number;
   tokenBalance: number;
+  walletData: WalletData | null;
+}
+
+// Module-level persistent cache to prevent transient $0.00 flashing during hydration, listener reconciliation, or remounts
+const lastKnownWalletBalances = new Map<string, number>();
+
+// Synchronously preload from localStorage on script evaluation
+if (typeof window !== 'undefined') {
+  try {
+    const cachedActiveUser = localStorage.getItem('aver_active_user');
+    if (cachedActiveUser) {
+      const parsed = JSON.parse(cachedActiveUser);
+      const uid = parsed.uid || 'default';
+      const bal = (typeof parsed.tokenBalance === 'number' && parsed.tokenBalance > 0)
+        ? parsed.tokenBalance
+        : ((typeof parsed.availableBalance === 'number' && parsed.availableBalance > 0)
+          ? parsed.availableBalance
+          : ((typeof parsed.portfolioBalance === 'number' && parsed.portfolioBalance > 0) ? parsed.portfolioBalance : 0));
+      if (bal > 0) {
+        lastKnownWalletBalances.set(uid, bal);
+        lastKnownWalletBalances.set('default', bal);
+      }
+    }
+  } catch (e) {}
 }
 
 export const useFinancials = () => {
@@ -225,47 +249,58 @@ export const useFinancials = () => {
     }
 
     // 3. Authoritative Base Cash Balance (Wallet Balance / Available unallocated funds)
-    let tokenBalance = 0;
-    if (typeof user?.tokenBalance === 'number') {
-      tokenBalance = user.tokenBalance;
-    } else if (typeof walletData?.tokenBalance === 'number') {
-      tokenBalance = walletData.tokenBalance;
-    } else if (typeof user?.availableBalance === 'number') {
-      tokenBalance = user.availableBalance;
-    } else if (typeof walletData?.availableBalance === 'number') {
-      tokenBalance = walletData.availableBalance;
-    } else if (typeof user?.cashBalance === 'number') {
-      tokenBalance = user.cashBalance;
-    } else if (typeof walletData?.cashBalance === 'number') {
-      tokenBalance = walletData.cashBalance;
-    } else if (typeof user?.portfolioBalance === 'number') {
-      tokenBalance = Math.max(0, user.portfolioBalance - aiTradingCapital);
-    } else if (typeof walletData?.portfolioBalance === 'number') {
-      tokenBalance = Math.max(0, walletData.portfolioBalance - aiTradingCapital);
-    } else if (user?.portfolio?.totalValue !== undefined && user.portfolio.totalValue > 0) {
-      tokenBalance = Math.max(0, user.portfolio.totalValue - aiTradingCapital);
-    }
-    tokenBalance = Math.max(0, tokenBalance);
+    // Gather all candidate positive balance values
+    const positiveCandidates: number[] = [];
+    if (typeof user?.tokenBalance === 'number' && user.tokenBalance > 0) positiveCandidates.push(user.tokenBalance);
+    if (typeof user?.availableBalance === 'number' && user.availableBalance > 0) positiveCandidates.push(user.availableBalance);
+    if (typeof walletData?.tokenBalance === 'number' && walletData.tokenBalance > 0) positiveCandidates.push(walletData.tokenBalance);
+    if (typeof walletData?.availableBalance === 'number' && walletData.availableBalance > 0) positiveCandidates.push(walletData.availableBalance);
+    if (typeof user?.cashBalance === 'number' && user.cashBalance > 0) positiveCandidates.push(user.cashBalance);
+    if (typeof walletData?.cashBalance === 'number' && walletData.cashBalance > 0) positiveCandidates.push(walletData.cashBalance);
 
-    // Fallback to local storage cache if user and walletData are both hydrating and tokenBalance + aiTradingCapital is 0
+    let tokenBalance = 0;
+    if (positiveCandidates.length > 0) {
+      tokenBalance = positiveCandidates[0];
+    } else {
+      if (typeof user?.portfolioBalance === 'number' && user.portfolioBalance > 0) {
+        tokenBalance = Math.max(0, user.portfolioBalance - aiTradingCapital);
+      } else if (typeof walletData?.portfolioBalance === 'number' && walletData.portfolioBalance > 0) {
+        tokenBalance = Math.max(0, walletData.portfolioBalance - aiTradingCapital);
+      } else if (typeof user?.portfolio?.totalValue === 'number' && user.portfolio.totalValue > 0) {
+        tokenBalance = Math.max(0, user.portfolio.totalValue - aiTradingCapital);
+      }
+    }
+
+    // Never overwrite an existing valid balance with $0.00 during loading, refreshes, or component remounts
+    const effectiveUid = user?.uid || auth.currentUser?.uid || 'default';
     if (tokenBalance === 0 && aiTradingCapital === 0) {
-      const uId = user?.uid || auth.currentUser?.uid;
-      if (uId) {
+      const cachedLastKnown = lastKnownWalletBalances.get(effectiveUid) || lastKnownWalletBalances.get('default');
+      if (cachedLastKnown && cachedLastKnown > 0) {
+        tokenBalance = cachedLastKnown;
+      } else {
         try {
-          const cachedUser = safeStorage.getItem(`user_profile_${uId}`) || localStorage.getItem('aver_active_user');
+          const cachedUser = (user?.uid ? safeStorage.getItem(`user_profile_${user.uid}`) : null) || localStorage.getItem('aver_active_user');
           if (cachedUser) {
             const parsed = JSON.parse(cachedUser);
-            if (typeof parsed.tokenBalance === 'number' && parsed.tokenBalance > 0) {
-              tokenBalance = parsed.tokenBalance;
-            } else if (typeof parsed.availableBalance === 'number' && parsed.availableBalance > 0) {
-              tokenBalance = parsed.availableBalance;
-            } else if (typeof parsed.portfolioBalance === 'number' && parsed.portfolioBalance > 0) {
-              tokenBalance = parsed.portfolioBalance;
+            const foundBal = (typeof parsed.tokenBalance === 'number' && parsed.tokenBalance > 0)
+              ? parsed.tokenBalance
+              : ((typeof parsed.availableBalance === 'number' && parsed.availableBalance > 0)
+                ? parsed.availableBalance
+                : ((typeof parsed.portfolioBalance === 'number' && parsed.portfolioBalance > 0) ? parsed.portfolioBalance : 0));
+            if (foundBal > 0) {
+              tokenBalance = foundBal;
             }
           }
         } catch (e) {}
       }
     }
+
+    // Persist latest verified positive balance to the module-level cache
+    if (tokenBalance > 0) {
+      lastKnownWalletBalances.set(effectiveUid, tokenBalance);
+      lastKnownWalletBalances.set('default', tokenBalance);
+    }
+    tokenBalance = Math.max(0, tokenBalance);
 
     // 4. Vault Balance
     const savedVaultBalStr = safeStorage.getItem('portfolio_vault_balance');

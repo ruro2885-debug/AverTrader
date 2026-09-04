@@ -266,7 +266,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const cached = safeStorage.getItem('aver_active_user');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed && parsed.uid && !parsed.uid.startsWith('local-')) {
+        if (parsed && parsed.uid) {
+          // Restore saved profile photo if available in dedicated local storage
+          const cachedPhoto = safeStorage.getItem(`aver_custom_photo_${parsed.uid}`) || safeStorage.getItem('aver_last_custom_photo');
+          if (cachedPhoto && (!parsed.profilePhotoURL || parsed.profilePhotoURL.startsWith('data:image/svg+xml'))) {
+            parsed.profilePhotoURL = cachedPhoto;
+            parsed.avatarUrl = cachedPhoto;
+            parsed.hasCustomPhoto = true;
+          }
+          // Ensure non-zero balance consistency
+          if (parsed.availableBalance > 0 && (!parsed.tokenBalance || parsed.tokenBalance === 0)) {
+            parsed.tokenBalance = parsed.availableBalance;
+          } else if (parsed.tokenBalance > 0 && (!parsed.availableBalance || parsed.availableBalance === 0)) {
+            parsed.availableBalance = parsed.tokenBalance;
+          }
           return parsed;
         }
       }
@@ -331,9 +344,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const userWithPreview = useMemo(() => {
     if (!user) return null;
     
-    // Determine the effective avatar: preview (if set) -> user.avatarUrl -> user.profilePhotoURL
+    // Determine the effective avatar: preview (if set) -> user.avatarUrl -> user.profilePhotoURL -> cached custom photo
     let effectiveAvatar = user.avatarUrl || user.profilePhotoURL || "";
     let hasCustomPhoto = !!user.hasCustomPhoto;
+    
+    if (user.uid) {
+      try {
+        const cachedCustom = safeStorage.getItem(`aver_custom_photo_${user.uid}`) || safeStorage.getItem('aver_last_custom_photo');
+        if (cachedCustom && (!effectiveAvatar || effectiveAvatar.startsWith('data:image/svg+xml'))) {
+          effectiveAvatar = cachedCustom;
+          hasCustomPhoto = true;
+        }
+      } catch (e) {}
+    }
+
+    if (effectiveAvatar && !effectiveAvatar.startsWith('data:image/svg+xml')) {
+      hasCustomPhoto = true;
+    }
     
     if (previewPhotoURL) {
       effectiveAvatar = previewPhotoURL;
@@ -380,19 +407,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(prev => {
           if (!prev || safeStorage.getItem('aver_logged_out') === 'true') return null;
           const portVal = wData.portfolioValue || wData.portfolioBalance || prev.portfolio?.totalValue || 0;
+          
+          // Never overwrite a valid balance with 0 due to temporary subscription state
+          const safePortBal = (typeof wData.portfolioBalance === 'number' && wData.portfolioBalance > 0)
+            ? wData.portfolioBalance
+            : (prev.portfolioBalance || 0);
+          const safeAvailBal = (typeof wData.availableBalance === 'number' && wData.availableBalance > 0)
+            ? wData.availableBalance
+            : (prev.availableBalance || safePortBal);
+          const safeTokenBal = (typeof wData.tokenBalance === 'number' && wData.tokenBalance > 0)
+            ? wData.tokenBalance
+            : (prev.tokenBalance || safeAvailBal);
+
           const updated: User = {
             ...prev,
-            portfolioBalance: wData.portfolioBalance ?? prev.portfolioBalance,
-            availableBalance: wData.availableBalance ?? prev.availableBalance,
+            portfolioBalance: safePortBal,
+            availableBalance: safeAvailBal,
             vaultBalance: typeof wData.vaultBalance === 'number' ? wData.vaultBalance : (prev.vaultBalance ?? 0),
-            totalDeposits: wData.totalDeposits ?? prev.totalDeposits,
+            totalDeposits: (typeof wData.totalDeposits === 'number' && wData.totalDeposits > 0) ? wData.totalDeposits : prev.totalDeposits,
             totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
-            tokenBalance: wData.tokenBalance ?? prev.tokenBalance,
-            aiTradingCapital: wData.aiTradingCapital ?? prev.aiTradingCapital,
-            cashBalance: wData.cashBalance ?? prev.cashBalance,
+            tokenBalance: safeTokenBal,
+            aiTradingCapital: typeof wData.aiTradingCapital === 'number' ? wData.aiTradingCapital : prev.aiTradingCapital,
+            cashBalance: safeTokenBal,
             portfolio: {
               ...prev.portfolio,
-              totalValue: portVal
+              totalValue: portVal > 0 ? portVal : (prev.portfolio?.totalValue || safePortBal)
             }
           };
           return updated;
@@ -404,16 +443,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!pState || safeStorage.getItem('aver_logged_out') === 'true') return;
         setUser(prev => {
           if (!prev || safeStorage.getItem('aver_logged_out') === 'true') return null;
+          
+          // Only update wallet balances from pState if they are valid positive values
+          const pPortBal = (typeof pState.walletState?.portfolioBalance === 'number' && pState.walletState.portfolioBalance > 0)
+            ? pState.walletState.portfolioBalance
+            : prev.portfolioBalance;
+          const pAvailBal = (typeof pState.walletState?.availableBalance === 'number' && pState.walletState.availableBalance > 0)
+            ? pState.walletState.availableBalance
+            : prev.availableBalance;
+          const pTokenBal = (typeof pState.walletState?.tokenBalance === 'number' && pState.walletState.tokenBalance > 0)
+            ? pState.walletState.tokenBalance
+            : prev.tokenBalance;
+
           const updated: User = {
             ...prev,
-            portfolioBalance: pState.walletState.portfolioBalance ?? prev.portfolioBalance,
-            availableBalance: pState.walletState.availableBalance ?? prev.availableBalance,
-            vaultBalance: typeof pState.walletState.vaultBalance === 'number' ? pState.walletState.vaultBalance : (prev.vaultBalance ?? 0),
-            totalDeposits: pState.walletState.totalDeposits ?? prev.totalDeposits,
-            totalWithdrawals: pState.walletState.totalWithdrawals ?? prev.totalWithdrawals,
-            totalProfit: pState.walletState.totalProfit ?? prev.totalProfit,
-            totalLoss: pState.walletState.totalLoss ?? prev.totalLoss,
-            tokenBalance: pState.walletState.tokenBalance ?? prev.tokenBalance,
+            portfolioBalance: pPortBal,
+            availableBalance: pAvailBal,
+            vaultBalance: typeof pState.walletState?.vaultBalance === 'number' ? pState.walletState.vaultBalance : (prev.vaultBalance ?? 0),
+            totalDeposits: (typeof pState.walletState?.totalDeposits === 'number' && pState.walletState.totalDeposits > 0)
+              ? pState.walletState.totalDeposits
+              : prev.totalDeposits,
+            totalWithdrawals: pState.walletState?.totalWithdrawals ?? prev.totalWithdrawals,
+            totalProfit: pState.walletState?.totalProfit ?? prev.totalProfit,
+            totalLoss: pState.walletState?.totalLoss ?? prev.totalLoss,
+            tokenBalance: pTokenBal,
             portfolio: {
               ...prev.portfolio,
               ...(pState.portfolioMetrics || {})
@@ -440,15 +493,35 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           
           setUser(prev => {
             if (safeStorage.getItem('aver_logged_out') === 'true') return null;
+            
+            // Retain valid positive balance; never overwrite with 0 on temporary listener updates
+            const pBal = (typeof userData.portfolioBalance === 'number' && userData.portfolioBalance > 0)
+              ? userData.portfolioBalance
+              : (typeof prev?.portfolioBalance === 'number' && prev.portfolioBalance > 0 ? prev.portfolioBalance : (userData.portfolioBalance ?? 0));
+            const aBal = (typeof userData.availableBalance === 'number' && userData.availableBalance > 0)
+              ? userData.availableBalance
+              : (typeof prev?.availableBalance === 'number' && prev.availableBalance > 0 ? prev.availableBalance : (userData.availableBalance ?? pBal));
+            const tBal = (typeof userData.tokenBalance === 'number' && userData.tokenBalance > 0)
+              ? userData.tokenBalance
+              : (typeof prev?.tokenBalance === 'number' && prev.tokenBalance > 0 ? prev.tokenBalance : aBal);
+            
+            // Retain saved custom profile photo
+            const cachedCustomPhoto = safeStorage.getItem(`aver_custom_photo_${uid}`) || safeStorage.getItem('aver_last_custom_photo');
+            const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || prev?.profilePhotoURL || prev?.avatarUrl || cachedCustomPhoto || undefined;
+            const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : !!cachedCustomPhoto)) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
+
             const updatedUser = {
               ...(prev || {}),
               ...userData,
-              portfolioBalance: typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : (prev?.portfolioBalance ?? 0),
-              availableBalance: typeof userData.availableBalance === 'number' ? userData.availableBalance : (prev?.availableBalance ?? 0),
+              profilePhotoURL: resolvedPhoto,
+              avatarUrl: resolvedPhoto,
+              hasCustomPhoto,
+              portfolioBalance: pBal,
+              availableBalance: aBal,
               vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (prev?.vaultBalance ?? 0),
-              tokenBalance: typeof userData.tokenBalance === 'number' ? userData.tokenBalance : (prev?.tokenBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
+              tokenBalance: tBal,
               aiTradingCapital: typeof userData.aiTradingCapital === 'number' ? userData.aiTradingCapital : (prev?.aiTradingCapital ?? 0),
-              cashBalance: typeof userData.cashBalance === 'number' ? userData.cashBalance : (prev?.cashBalance ?? userData.availableBalance ?? prev?.availableBalance ?? 0),
+              cashBalance: typeof userData.cashBalance === 'number' ? userData.cashBalance : tBal,
               holdings: userData.holdings || prev?.holdings || [],
               trades: userData.trades || prev?.trades || [],
               snapshots: userData.snapshots || prev?.snapshots || [],
@@ -476,28 +549,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           // Auto-initialize profile if it doesn't exist
           const seed = email.toLowerCase();
           const dataUrl = getAvatarDataUrl(seed);
+
+          const cachedStr = safeStorage.getItem(`user_profile_${uid}`) || safeStorage.getItem('aver_active_user');
+          let existingProfile: any = null;
+          if (cachedStr) {
+            try { existingProfile = JSON.parse(cachedStr); } catch (e) {}
+          }
+          const cachedPhoto = safeStorage.getItem(`aver_custom_photo_${uid}`) || safeStorage.getItem('aver_last_custom_photo');
+          const finalPhoto = existingProfile?.profilePhotoURL || existingProfile?.avatarUrl || cachedPhoto || dataUrl;
+          const finalHasCustom = (finalPhoto && !finalPhoto.startsWith('data:image/svg+xml')) || !!existingProfile?.hasCustomPhoto;
+
           const defaultProfile = {
             uid,
             email,
-            username: email.split('@')[0],
-            role: 'user',
-            profilePhotoURL: dataUrl,
-            avatarUrl: dataUrl,
-            avatarSeed: seed,
-            hasCustomPhoto: false,
-            accountType: 'Standard',
-            accountStatus: 'Active',
-            portfolioBalance: 0,
-            availableBalance: 0,
-            vaultBalance: 0,
-            tokenBalance: 0,
+            username: existingProfile?.username || email.split('@')[0],
+            role: existingProfile?.role || 'user',
+            profilePhotoURL: finalPhoto,
+            avatarUrl: finalPhoto,
+            avatarSeed: existingProfile?.avatarSeed || seed,
+            hasCustomPhoto: finalHasCustom,
+            accountType: existingProfile?.accountType || 'Standard',
+            accountStatus: existingProfile?.accountStatus || 'Active',
+            portfolioBalance: existingProfile?.portfolioBalance ?? 0,
+            availableBalance: existingProfile?.availableBalance ?? (existingProfile?.portfolioBalance ?? 0),
+            vaultBalance: existingProfile?.vaultBalance ?? 0,
+            tokenBalance: existingProfile?.tokenBalance ?? existingProfile?.availableBalance ?? (existingProfile?.portfolioBalance ?? 0),
             createdAt: serverTimestamp(),
             lastLogin: serverTimestamp(),
             lastUpdated: serverTimestamp(),
             onboardingCompleted: true,
             notificationsList: [],
             portfolio: {
-              totalValue: 0,
+              totalValue: existingProfile?.portfolioBalance ?? 0,
               todayPnL: 0,
               todayPnLPercent: 0,
               overallReturn: 0,
@@ -932,13 +1015,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }
 
           let updatedProfile = { ...localRecord.profile };
-          if (!updatedProfile.avatarSeed || !updatedProfile.avatarUrl) {
+          const cachedCustom = safeStorage.getItem(`aver_custom_photo_${updatedProfile.uid}`) || safeStorage.getItem('aver_last_custom_photo');
+          if (cachedCustom && (!updatedProfile.profilePhotoURL || updatedProfile.profilePhotoURL.startsWith('data:image/svg+xml'))) {
+            updatedProfile.profilePhotoURL = cachedCustom;
+            updatedProfile.avatarUrl = cachedCustom;
+            updatedProfile.hasCustomPhoto = true;
+          } else if (!updatedProfile.avatarSeed || !updatedProfile.avatarUrl) {
             updatedProfile.avatarSeed = updatedProfile.avatarSeed || updatedProfile.uid;
             const dataUrl = getAvatarDataUrl(updatedProfile.avatarSeed);
-            updatedProfile.avatarUrl = dataUrl;
-            updatedProfile.profilePhotoURL = dataUrl;
-            updatedProfile.hasCustomPhoto = true;
-            updatedProfile.lastUpdated = new Date().toISOString();
+            updatedProfile.avatarUrl = updatedProfile.avatarUrl || dataUrl;
+            if (!updatedProfile.profilePhotoURL) {
+              updatedProfile.profilePhotoURL = dataUrl;
+            }
           }
 
           const userProfile = {
@@ -1464,12 +1552,15 @@ function dataURLtoBlob(dataurl: string): Blob {
         }
 
         if (file === null) {
+          safeStorage.removeItem(`aver_custom_photo_${uid}`);
+          safeStorage.removeItem('aver_last_custom_photo');
           await updateDoc(userDocRef, {
             profilePhotoURL: "",
             avatarUrl: "",
             hasCustomPhoto: false,
             lastUpdated: serverTimestamp()
           });
+          setUser(prev => prev ? { ...prev, profilePhotoURL: "", avatarUrl: "", hasCustomPhoto: false } : null);
           setPreviewPhotoURL(null);
           await addNotification(
             'account',
@@ -1539,6 +1630,8 @@ function dataURLtoBlob(dataurl: string): Blob {
               lastUpdated: new Date().toISOString() 
             } as User;
             try {
+              safeStorage.setItem(`aver_custom_photo_${uid}`, photoURL);
+              safeStorage.setItem('aver_last_custom_photo', photoURL);
               safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
               safeStorage.setItem('aver_active_user', JSON.stringify(updated));
             } catch (storageErr) {

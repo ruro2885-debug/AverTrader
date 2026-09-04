@@ -231,9 +231,18 @@ export default function AdminSessionControlModal({
       } catch (e) {}
     };
 
+    const handleSessionTerminated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail?.sessionId === session.id) {
+        if (onSessionTerminated) onSessionTerminated(session.id);
+        onClose();
+      }
+    };
+
     window.addEventListener('storage', handleLocalSync);
     window.addEventListener('aver_session_updated', handleLocalSync);
     window.addEventListener('aver_sessions_registry_updated', handleLocalSync);
+    window.addEventListener('aver_session_terminated', handleSessionTerminated);
 
     return () => {
       unsubSession();
@@ -241,8 +250,9 @@ export default function AdminSessionControlModal({
       window.removeEventListener('storage', handleLocalSync);
       window.removeEventListener('aver_session_updated', handleLocalSync);
       window.removeEventListener('aver_sessions_registry_updated', handleLocalSync);
+      window.removeEventListener('aver_session_terminated', handleSessionTerminated);
     };
-  }, [session.id, session.userId, session.userEmail]);
+  }, [session.id, session.userId, session.userEmail, onClose, onSessionTerminated]);
 
   // Apply and Save Admin Outcome Control
   const handleSaveControl = async (newMode: SessionControlMode) => {

@@ -80,6 +80,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
   const latestFirestoreDocsRef = useRef<any[]>([]);
   const latestUsersDocsRef = useRef<any[]>([]);
   const userMapRef = useRef<Record<string, { email: string }>>({});
+  const syncSessionsRef = useRef<(firestoreDocs?: any[]) => ActiveSessionRecord[]>(() => []);
 
   const isDark = theme === 'dark';
 
@@ -96,6 +97,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         });
         userMapRef.current = newUserMap;
         setUserMap(newUserMap);
+        syncSessionsRef.current();
       }, (err) => {
         console.warn("[AdminTrades] User map listener error:", err);
       });
@@ -113,6 +115,15 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
 
     console.log("[ADMIN] Initializing live active sessions listener");
 
+    const isSessionStopped = (id: string) => {
+      if (!id) return true;
+      try {
+        if (localStorage.getItem(`aver_stopped_session_${id}`) === 'true') return true;
+        if (sessionStorage.getItem(`aver_stopped_session_${id}`) === 'true') return true;
+      } catch (e) {}
+      return false;
+    };
+
     const syncSessions = (firestoreDocs?: any[]) => {
       if (firestoreDocs) {
         latestFirestoreDocsRef.current = firestoreDocs;
@@ -121,13 +132,18 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       const currentUsersMap = userMapRef.current || userMap;
       const sessionsMap = new Map<string, ActiveSessionRecord>();
 
-      // 1. Process Firestore 'aiSessions' collection documents
+      // 1. Process Firestore 'aiSessions' collection documents (authoritative active sessions)
       if (docsToProcess && docsToProcess.length > 0) {
         docsToProcess.forEach(sDoc => {
           const data = typeof sDoc.data === 'function' ? sDoc.data() : sDoc;
           const docId = sDoc.id || data.id;
           const statusVal = String(data.status || '').toUpperCase();
-          if ((statusVal === 'ACTIVE' || statusVal === 'RUNNING') && data.isDeleted !== true && docId) {
+          if (
+            (statusVal === 'ACTIVE' || statusVal === 'RUNNING') &&
+            data.isDeleted !== true &&
+            docId &&
+            !isSessionStopped(docId)
+          ) {
             const uId = data.userId || 'unknown';
             const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
             
@@ -151,11 +167,21 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       }
 
       // 2. Process active sessions stored on user documents in Firestore
+      // Never resurrect a session that has been deleted or stopped in aiSessions
       if (latestUsersDocsRef.current && latestUsersDocsRef.current.length > 0) {
+        const firestoreLoaded = latestFirestoreDocsRef.current && latestFirestoreDocsRef.current.length > 0;
         latestUsersDocsRef.current.forEach(uDoc => {
           const uData = typeof uDoc.data === 'function' ? uDoc.data() : uDoc;
           const sess = uData.aiSession || uData.activeSession;
-          if (sess && (sess.status === 'ACTIVE' || (sess as any).status === 'RUNNING') && !sess.isDeleted && sess.id) {
+          if (sess && (sess.status === 'ACTIVE' || (sess as any).status === 'RUNNING') && !sess.isDeleted && sess.id && !isSessionStopped(sess.id)) {
+            const isDocInAiSessions = (docsToProcess || []).some(d => {
+              const dId = d.id || (typeof d.data === 'function' ? d.data()?.id : d.id);
+              return dId === sess.id;
+            });
+            // If aiSessions collection has loaded and this session is absent, it has been ended/deleted
+            if (firestoreLoaded && !isDocInAiSessions) {
+              return;
+            }
             if (!sessionsMap.has(sess.id)) {
               const uId = sess.userId || uDoc.id;
               const userEmail = sess.userEmail || uData.email || currentUsersMap[uId]?.email || 'trader@example.com';
@@ -185,7 +211,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         if (regRaw) {
           const reg = JSON.parse(regRaw);
           Object.values(reg).forEach((data: any) => {
-            if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && !data.isDeleted && data.id) {
+            if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && !data.isDeleted && data.id && !isSessionStopped(data.id)) {
               const docId = data.id;
               const uId = data.userId || 'unknown';
               const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
@@ -213,19 +239,45 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
 
       // 4. Check individual local session keys for standalone active sessions
       try {
+        const firestoreLoaded = latestFirestoreDocsRef.current && latestFirestoreDocsRef.current.length > 0;
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && (key.startsWith('aver_session_') || key.startsWith('aver_active_session_')) && !key.startsWith('aver_session_control_') && !key.startsWith('aver_sessions_registry') && !key.startsWith('aver_stopped_session_')) {
+          if (
+            key &&
+            (key.startsWith('aver_session_') || key.startsWith('aver_active_session_')) &&
+            !key.startsWith('aver_session_control_') &&
+            !key.startsWith('aver_sessions_registry') &&
+            !key.startsWith('aver_stopped_session_')
+          ) {
             const rawVal = localStorage.getItem(key);
             if (rawVal) {
               try {
                 const data = JSON.parse(rawVal);
-                if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && data.id && !data.isDeleted) {
-                  if (!sessionsMap.has(data.id)) {
+                if (data && typeof data === 'object') {
+                  const sId = data.id;
+                  const isStopped = sId && isSessionStopped(sId);
+                  const isStatusActive = (data.status === 'ACTIVE' || data.status === 'RUNNING');
+                  
+                  if (!isStatusActive || data.isDeleted || isStopped) {
+                    // Clean up stale or inactive local session
+                    localStorage.removeItem(key);
+                    continue;
+                  }
+
+                  if (sId && !sessionsMap.has(sId)) {
+                    const isDocInAiSessions = (docsToProcess || []).some(d => {
+                      const dId = d.id || (typeof d.data === 'function' ? d.data()?.id : d.id);
+                      return dId === sId;
+                    });
+                    if (firestoreLoaded && !isDocInAiSessions) {
+                      localStorage.removeItem(key);
+                      continue;
+                    }
+
                     const uId = data.userId || key.replace('aver_session_', '').replace('aver_active_session_', '');
                     const userEmail = data.userEmail || currentUsersMap[uId]?.email || (uId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-                    sessionsMap.set(data.id, {
-                      id: data.id,
+                    sessionsMap.set(sId, {
+                      id: sId,
                       userId: uId,
                       userEmail: userEmail,
                       status: 'ACTIVE',
@@ -268,11 +320,13 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       setSelectedControlSession(prev => {
         if (!prev) return null;
         const updated = sessionsList.find(s => s.id === prev.id);
-        return updated || prev;
+        return updated || null;
       });
 
       return sessionsList;
     };
+
+    syncSessionsRef.current = syncSessions;
 
     // Real-time listener for active aiSessions
     try {
@@ -335,11 +389,48 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       syncSessions();
     };
 
+    const handleSessionTerminated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const termId = customEvent.detail?.sessionId;
+      const termUserId = customEvent.detail?.userId;
+
+      if (termId) {
+        try {
+          localStorage.setItem(`aver_stopped_session_${termId}`, 'true');
+          sessionStorage.setItem(`aver_stopped_session_${termId}`, 'true');
+          localStorage.removeItem(`aver_session_${termId}`);
+          localStorage.removeItem(`aver_active_session_${termId}`);
+          localStorage.removeItem(`aver_session_control_${termId}`);
+          if (termUserId) {
+            localStorage.removeItem(`aver_session_${termUserId}`);
+          }
+          const regRaw = localStorage.getItem('aver_active_sessions_registry');
+          if (regRaw) {
+            const reg = JSON.parse(regRaw);
+            delete reg[termId];
+            localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+          }
+        } catch (err) {}
+
+        // Immediately purge from latestFirestoreDocsRef
+        latestFirestoreDocsRef.current = latestFirestoreDocsRef.current.filter(d => {
+          const docId = d.id || (typeof d.data === 'function' ? d.data()?.id : d.id);
+          return docId !== termId;
+        });
+
+        // Immediately purge from activeSessions state
+        setActiveSessions(prev => prev.filter(s => s.id !== termId));
+        setSelectedControlSession(prev => (prev?.id === termId ? null : prev));
+      }
+
+      syncSessions();
+    };
+
     window.addEventListener('storage', handleStorageUpdate);
     window.addEventListener('aver_sessions_registry_updated', handleStorageUpdate);
     window.addEventListener('aver_session_updated', handleStorageUpdate);
     window.addEventListener('aver_session_launched', handleStorageUpdate);
-    window.addEventListener('aver_session_terminated', handleStorageUpdate);
+    window.addEventListener('aver_session_terminated', handleSessionTerminated);
     window.addEventListener('aver_admin_control_updated', handleStorageUpdate);
 
     return () => {
@@ -349,7 +440,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       window.removeEventListener('aver_sessions_registry_updated', handleStorageUpdate);
       window.removeEventListener('aver_session_updated', handleStorageUpdate);
       window.removeEventListener('aver_session_launched', handleStorageUpdate);
-      window.removeEventListener('aver_session_terminated', handleStorageUpdate);
+      window.removeEventListener('aver_session_terminated', handleSessionTerminated);
       window.removeEventListener('aver_admin_control_updated', handleStorageUpdate);
     };
   }, [user?.uid, user?.email, userMap]);
@@ -413,12 +504,14 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         }
       }
 
-      // 3. Clear local storage for user if local
+      // 3. Clear local storage for user and specific session instance
+      localStorage.removeItem(`aver_session_${session.id}`);
+      localStorage.removeItem(`aver_active_session_${session.id}`);
       localStorage.removeItem(`aver_session_${session.userId}`);
       localStorage.removeItem(`aver_session_control_${session.id}`);
       localStorage.removeItem(`aver_session_control_${session.userId}`);
-      localStorage.removeItem(`aver_stopped_session_${session.userId}`);
-      sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
+      localStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
+      sessionStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
       
       try {
         const regRaw = localStorage.getItem('aver_active_sessions_registry');
@@ -456,11 +549,13 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     setActionLoading(session.id);
     try {
       await deleteDoc(doc(db, 'aiSessions', session.id)).catch(() => {});
+      localStorage.removeItem(`aver_session_${session.id}`);
+      localStorage.removeItem(`aver_active_session_${session.id}`);
       localStorage.removeItem(`aver_session_${session.userId}`);
       localStorage.removeItem(`aver_session_control_${session.id}`);
       localStorage.removeItem(`aver_session_control_${session.userId}`);
-      localStorage.removeItem(`aver_stopped_session_${session.userId}`);
-      sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
+      localStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
+      sessionStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
       
       try {
         const regRaw = localStorage.getItem('aver_active_sessions_registry');

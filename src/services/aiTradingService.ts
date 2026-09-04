@@ -223,28 +223,32 @@ export const aiTradingService = {
         }
       }
 
-      await updateDoc(sessionRef, {
-        status: 'INACTIVE',
-        endTime: Timestamp.now()
-      });
+      // Update status if session document still exists
+      if (sessionSnap && sessionSnap.exists()) {
+        await updateDoc(sessionRef, {
+          status: 'INACTIVE',
+          endTime: Timestamp.now()
+        }).catch(() => {});
+      }
 
       // Record historical balance
       if (userId) {
-        const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
-        await equityService.recordEquity({
-          userId,
-          timestamp: Timestamp.now(),
-          totalNetBalance: portfolio.portfolioMetrics.totalValue,
-          sessionId: sessionId,
-          trigger: 'SESSION_END'
-        });
+        try {
+          const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
+          await equityService.recordEquity({
+            userId,
+            timestamp: Timestamp.now(),
+            totalNetBalance: portfolio.portfolioMetrics.totalValue,
+            sessionId: sessionId,
+            trigger: 'SESSION_END'
+          });
+        } catch (e) {}
       }
 
       // Delete active session document so it is removed from active sessions collection
       await deleteDoc(sessionRef).catch(() => {});
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `${SESSIONS_COLLECTION}/${sessionId}`);
-      throw error;
+      console.warn(`[aiTradingService] Non-critical warning in endSession for ${sessionId}:`, error);
     }
   },
 

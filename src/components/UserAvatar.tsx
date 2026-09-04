@@ -21,14 +21,29 @@ export default function UserAvatar({ user, sizeClass = "w-8 h-8", fontSizeClass 
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  const isStockPhoto = (url?: string) => {
-    if (!url) return false;
-    const stockPatterns = ['unsplash.com', 'dicebear.com', 'pravatar.cc', 'cloudinary.com/demo', 'images.pexels.com', 'images.stock', 'images.google', 'i.pravatar.cc'];
-    return stockPatterns.some(pattern => url.toLowerCase().includes(pattern));
+  const getCachedPhoto = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      if (user?.uid) {
+        const byUid = localStorage.getItem(`aver_custom_photo_${user.uid}`);
+        if (byUid) return byUid;
+      }
+      return localStorage.getItem('aver_last_custom_photo');
+    } catch (e) {
+      return null;
+    }
   };
 
-  const hasPhoto = !!(user && user.hasCustomPhoto && (user.avatarUrl || user.profilePhotoURL) && !hasError && !isStockPhoto(user.avatarUrl || user.profilePhotoURL));
-  const photoUrl = user ? (user.avatarUrl || user.profilePhotoURL || undefined) : undefined;
+  const cachedPhoto = getCachedPhoto();
+  const rawPhoto = user?.avatarUrl || user?.profilePhotoURL || cachedPhoto || undefined;
+  const isSvgAvatar = rawPhoto ? rawPhoto.startsWith('data:image/svg+xml') : false;
+  
+  // A custom photo is valid if:
+  // 1. Raw photo exists and is not the default procedural SVG avatar
+  // 2. OR user explicitly has hasCustomPhoto set to true
+  // 3. No permanent load error
+  const hasPhoto = !!(rawPhoto && (!isSvgAvatar || user?.hasCustomPhoto) && !hasError);
+  const photoUrl = hasPhoto ? rawPhoto : undefined;
   
   if (photoUrl && hasPhoto) {
     console.log("[UserAvatar] Rendering custom photoUrl:", photoUrl.startsWith('data:') ? `data:URL(${photoUrl.length} chars)` : photoUrl);

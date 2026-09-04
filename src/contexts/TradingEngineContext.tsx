@@ -979,8 +979,41 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     currentSession.status = 'STOPPED';
     sessionRefVal.current = null;
     setSession(null);
+
+    // Explicitly wipe local session keys for both user and session instance
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
+    setLocalStorageItem(`aver_session_${currentSession.id}`, null);
+    safeStorage.removeItem(`aver_session_${effectiveUid}`);
+    safeStorage.removeItem(`aver_session_${currentSession.id}`);
+    safeStorage.removeItem(`aver_active_session_${currentSession.id}`);
+    localStorage.removeItem(`aver_session_${currentSession.id}`);
+    localStorage.removeItem(`aver_active_session_${currentSession.id}`);
+    localStorage.removeItem(`aver_session_control_${currentSession.id}`);
+    localStorage.removeItem(`aver_session_${effectiveUid}`);
+
+    // Mark exact session instance as stopped
     safeStorage.setItem(`aver_stopped_session_${effectiveUid}`, currentSession.id);
+    safeStorage.setItem(`aver_stopped_session_${currentSession.id}`, 'true');
+    localStorage.setItem(`aver_stopped_session_${currentSession.id}`, 'true');
+
+    // Remove from registry immediately
+    try {
+      const regRaw = localStorage.getItem('aver_active_sessions_registry');
+      if (regRaw) {
+        const reg: Record<string, any> = JSON.parse(regRaw);
+        delete reg[currentSession.id];
+        localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
+        window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
+      }
+    } catch (e) {}
+
+    // Dispatch aver_session_terminated immediately
+    window.dispatchEvent(new CustomEvent('aver_session_terminated', { 
+      detail: { sessionId: currentSession.id, userId: effectiveUid } 
+    }));
+    window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
+    window.dispatchEvent(new Event('storage'));
+
     const activeConfig = configs.find(c => c.id === currentSession.activeConfigId) || configRefVal.current || config;
     const fundingSource = activeConfig?.sessionSetup?.fundingSource || 'WALLET';
 
@@ -1164,9 +1197,14 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         }
       } catch (e) {}
 
-      // Delete active session document from Firestore immediately so it vanishes from active views
+      // Mark active session document INACTIVE and delete from Firestore so it vanishes from all active views
       try {
         if (currentSession?.id) {
+          await updateDoc(doc(db, 'aiSessions', currentSession.id), {
+            status: 'INACTIVE',
+            isDeleted: true,
+            endTime: serverTimestamp()
+          }).catch(() => {});
           await deleteDoc(doc(db, 'aiSessions', currentSession.id)).catch(() => {});
         }
       } catch (delErr) {
@@ -1174,6 +1212,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       }
 
       await aiTradingService.endSession(currentSession.id);
+      window.dispatchEvent(new CustomEvent('aver_session_terminated', { 
+        detail: { sessionId: currentSession.id, userId: effectiveUid } 
+      }));
       await portfolioPersistenceService.updateSessionDetails(effectiveUid, {
         sessionId: null,
         status: 'INACTIVE',
