@@ -444,6 +444,19 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       setRecommendations(cachedRecommendations);
     }
 
+    try {
+      const localCompleted = equityService.getCompletedSessionsLocally(user.uid);
+      if (localCompleted && localCompleted.length > 0) {
+        setCompletedSessions(localCompleted);
+      } else {
+        const cachedLatest = safeStorage.getItem(`aver_latest_completed_session_${user.uid}`);
+        if (cachedLatest) {
+          const parsed = JSON.parse(cachedLatest);
+          if (parsed) setCompletedSessions([parsed]);
+        }
+      }
+    } catch (e) {}
+
     setLoading(false);
   }, [user?.uid, getLocalStorageItem, setLocalStorageItem]);
 
@@ -916,6 +929,18 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       console.log("[SESSION] Session ID:", newSession.id);
       console.log("[SESSION] Session data:", newSession);
 
+      // Clean up any lingering session documents for this user in aiSessions before writing new one
+      try {
+        const oldSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', activeUid))).catch(() => null);
+        if (oldSessionsSnap && !oldSessionsSnap.empty) {
+          for (const sDoc of oldSessionsSnap.docs) {
+            await deleteDoc(doc(db, 'aiSessions', sDoc.id)).catch(() => {});
+          }
+        }
+      } catch (cleanErr) {
+        console.warn("Non-critical cleanup warning for prior sessions:", cleanErr);
+      }
+
       // 1. Persist real session document to Firestore aiSessions for all users
       await setDoc(doc(db, 'aiSessions', newSession.id), newSession);
       console.log("[SESSION] Firestore write completed");
@@ -1096,6 +1121,8 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     };
 
     equityService.saveCompletedSession(effectiveUid, completedSession);
+    safeStorage.setItem(`aver_latest_completed_session_${effectiveUid}`, JSON.stringify(completedSession));
+    safeStorage.setItem(`aver_session_end_cooldown_${effectiveUid}`, String(Date.now() + 6000));
     setCompletedSessions(prev => [completedSession, ...prev.filter(s => s.sessionId !== completedSession.sessionId)]);
 
     // 4. Clear session state immediately
@@ -1107,7 +1134,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     try {
       // 4. Calculate new balances using rigorous P/L delta on existing portfolio balance (prevents double-counting & balance inflation)
-      const sessionPnl = finalCapital - currentSession.initialCapital;
+      const sessionPnl = parseFloat((finalCapital - currentSession.initialCapital).toFixed(2));
       const currentPortfolioBalance = user.portfolioBalance ?? user.portfolio?.totalValue ?? (tokenBalanceRef.current + (user.vaultBalance || 0) + currentSession.initialCapital);
       const newPortfolioBalance = Math.max(0, currentPortfolioBalance + sessionPnl);
       const currentVaultBal = user.vaultBalance ?? 0;
@@ -1122,6 +1149,12 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
       tokenBalanceRef.current = newTokenBal;
       const totalNetBalance = newTokenBal + newVaultBal + totalHoldingsVal;
+
+      const prevProfit = user?.totalProfit || 0;
+      const prevLoss = user?.totalLoss || 0;
+      const newTotalProfit = sessionPnl > 0 ? (prevProfit + sessionPnl) : prevProfit;
+      const newTotalLoss = sessionPnl < 0 ? (prevLoss + Math.abs(sessionPnl)) : prevLoss;
+      const accountPnlPercent = totalNetBalance > 0 ? parseFloat(((sessionPnl / totalNetBalance) * 100).toFixed(4)) : 0;
 
       // 5. Update wallet document and portfolio persistence state
       await walletService.updateWallet(effectiveUid, {
@@ -1138,7 +1171,17 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         availableBalance: newTokenBal,
         portfolioBalance: totalNetBalance,
         vaultBalance: newVaultBal,
-        aiTradingCapital: 0
+        aiTradingCapital: 0,
+        totalProfit: newTotalProfit,
+        totalLoss: newTotalLoss
+      });
+
+      await portfolioPersistenceService.updatePortfolioMetrics(effectiveUid, {
+        totalValue: totalNetBalance,
+        todayPnL: sessionPnl,
+        todayPnLPercent: accountPnlPercent,
+        overallReturn: sessionPnl,
+        realizedPnL: sessionPnl
       });
 
       if (user?.uid && !user.uid.startsWith('local-') && user.uid !== 'guest_user') {
@@ -1150,6 +1193,12 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           aiTradingCapital: 0,
           aiSession: null,
           activeSession: null,
+          totalProfit: newTotalProfit,
+          totalLoss: newTotalLoss,
+          'portfolio.totalValue': totalNetBalance,
+          'portfolio.todayPnL': sessionPnl,
+          'portfolio.todayPnLPercent': accountPnlPercent,
+          'portfolio.overallReturn': sessionPnl,
           lastUpdated: serverTimestamp()
         }).catch(() => {});
       }
@@ -1167,15 +1216,13 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.aiTradingCapital = 0;
           uObj.aiSession = null;
           uObj.activeSession = null;
-          if (sessionPnl > 0) {
-            uObj.totalProfit = (uObj.totalProfit || 0) + sessionPnl;
-          } else if (sessionPnl < 0) {
-            uObj.totalLoss = (uObj.totalLoss || 0) + Math.abs(sessionPnl);
-          }
+          uObj.totalProfit = newTotalProfit;
+          uObj.totalLoss = newTotalLoss;
           if (uObj.portfolio) {
             uObj.portfolio.totalValue = totalNetBalance;
-            uObj.portfolio.todayPnL = (uObj.portfolio.todayPnL || 0) + sessionPnl;
-            uObj.portfolio.overallReturn = (uObj.portfolio.overallReturn || 0) + sessionPnl;
+            uObj.portfolio.todayPnL = sessionPnl;
+            uObj.portfolio.todayPnLPercent = accountPnlPercent;
+            uObj.portfolio.overallReturn = sessionPnl;
           }
           safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
           localStorage.setItem('aver_active_user', JSON.stringify(uObj));
@@ -1206,6 +1253,14 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             endTime: serverTimestamp()
           }).catch(() => {});
           await deleteDoc(doc(db, 'aiSessions', currentSession.id)).catch(() => {});
+        }
+        if (effectiveUid) {
+          const userSessionsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', effectiveUid))).catch(() => null);
+          if (userSessionsSnap && !userSessionsSnap.empty) {
+            for (const sDoc of userSessionsSnap.docs) {
+              await deleteDoc(doc(db, 'aiSessions', sDoc.id)).catch(() => {});
+            }
+          }
         }
       } catch (delErr) {
         console.warn("Could not deleteDoc aiSessions directly:", delErr);
@@ -1506,7 +1561,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const currentAiTrades = ((user?.aiTradesCount || 0) + 1);
 
     const xpGain = 5 + (isProfitable ? 5 : 0) + (isProfitable ? Math.min(currentWinRun, 5) * 2 : 0);
-    const calculatedXp = (currentAiTrades * 20) + (currentWinRun * 15) + ((user?.loginStreak || 1) * 10);
+    const calculatedXp = (currentAiTrades * 20) + (currentWinRun * 15) + ((user?.loginStreak || 0) * 10);
     let currentXp = Math.max((user?.xp || 0) + xpGain, calculatedXp);
     let currentLevel = Math.max(1, Math.floor(currentXp / 1000) + 1);
     

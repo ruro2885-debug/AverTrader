@@ -84,7 +84,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
 
   const isDark = theme === 'dark';
 
-  // 1. Listen to users collection in real time to resolve emails accurately and detect active sessions on user docs
+  // 1. Listen to users collection in real time to resolve emails accurately
   useEffect(() => {
     let unsubUsers: (() => void) | null = null;
     try {
@@ -97,7 +97,9 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         });
         userMapRef.current = newUserMap;
         setUserMap(newUserMap);
-        syncSessionsRef.current();
+        if (syncSessionsRef.current) {
+          syncSessionsRef.current();
+        }
       }, (err) => {
         console.warn("[AdminTrades] User map listener error:", err);
       });
@@ -108,7 +110,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     };
   }, []);
 
-  // 2. Real-time listener for active aiSessions and multi-session synchronization
+  // 2. Real-time listener for active aiSessions (authoritative source of truth)
   useEffect(() => {
     let unsubSessions: (() => void) | null = null;
     let unsubTradesList: (() => void)[] = [];
@@ -132,168 +134,102 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       const currentUsersMap = userMapRef.current || userMap;
       const sessionsMap = new Map<string, ActiveSessionRecord>();
 
-      // 1. Process Firestore 'aiSessions' collection documents (authoritative active sessions)
+      // ONLY process Firestore 'aiSessions' collection documents (authoritative active sessions)
       if (docsToProcess && docsToProcess.length > 0) {
         docsToProcess.forEach(sDoc => {
           const data = typeof sDoc.data === 'function' ? sDoc.data() : sDoc;
           const docId = sDoc.id || data.id;
           const statusVal = String(data.status || '').toUpperCase();
-          if (
-            (statusVal === 'ACTIVE' || statusVal === 'RUNNING') &&
-            data.isDeleted !== true &&
-            docId &&
-            !isSessionStopped(docId)
-          ) {
-            const uId = data.userId || 'unknown';
-            const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-            
-            sessionsMap.set(docId, {
-              id: docId,
-              userId: uId,
-              userEmail: userEmail,
-              status: 'ACTIVE',
-              startTime: data.startTime || new Date().toISOString(),
-              tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
-              initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
-              openPositionsCount: data.openPositionsCount || 0,
-              totalProfit: data.totalProfit || 0,
-              totalLoss: data.totalLoss || 0,
-              activeConfigId: data.activeConfigId,
-              strategyName: data.strategyName || 'Algorithmic Strategy',
-              adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
-            });
+
+          const isStatusActive = (statusVal === 'ACTIVE' || statusVal === 'RUNNING');
+          const isDocValid = isStatusActive && data.isDeleted !== true && !data.endTime && docId && !isSessionStopped(docId);
+
+          if (!isDocValid) {
+            // Asynchronously prune inactive or stopped documents from Firestore so they do not linger
+            if (docId && (data.isDeleted === true || statusVal === 'INACTIVE' || statusVal === 'STOPPED' || data.endTime || isSessionStopped(docId))) {
+              deleteDoc(doc(db, 'aiSessions', docId)).catch(() => {});
+            }
+            return;
+          }
+
+          const uId = data.userId || 'unknown';
+
+          // Verify with latest user doc in Firestore: if the user document shows 0 active trading capital
+          // and no active session, then this session document is an orphan and must be purged
+          if (latestUsersDocsRef.current && latestUsersDocsRef.current.length > 0) {
+            const uDoc = latestUsersDocsRef.current.find(u => u.id === uId);
+            if (uDoc) {
+              const uData = typeof uDoc.data === 'function' ? uDoc.data() : uDoc;
+              const hasCap = Number(uData.aiTradingCapital || 0) > 0;
+              const hasActiveSession = Boolean(uData.aiSession || uData.activeSession);
+              if (!hasCap && !hasActiveSession) {
+                // Orphan session doc in Firestore - delete it
+                deleteDoc(doc(db, 'aiSessions', docId)).catch(() => {});
+                return;
+              }
+            }
+          }
+
+          const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+          
+          const sessionRecord: ActiveSessionRecord = {
+            id: docId,
+            userId: uId,
+            userEmail: userEmail,
+            status: 'ACTIVE',
+            startTime: data.startTime || new Date().toISOString(),
+            tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
+            initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
+            openPositionsCount: data.openPositionsCount || 0,
+            totalProfit: data.totalProfit || 0,
+            totalLoss: data.totalLoss || 0,
+            activeConfigId: data.activeConfigId,
+            strategyName: data.strategyName || 'Algorithmic Strategy',
+            adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
+          };
+
+          // Strictly enforce at most ONE active session per user.
+          // If duplicate session documents exist for the same userId, keep only the latest one
+          // and delete the older duplicate from Firestore immediately.
+          const existingForUser = Array.from(sessionsMap.values()).find(s => s.userId === uId);
+          if (existingForUser) {
+            const getMs = (t: any) => {
+              if (!t) return 0;
+              if (typeof t.toDate === 'function') return t.toDate().getTime();
+              if (typeof t.seconds === 'number') return t.seconds * 1000;
+              const parsed = new Date(t).getTime();
+              return isNaN(parsed) ? 0 : parsed;
+            };
+            if (getMs(sessionRecord.startTime) > getMs(existingForUser.startTime)) {
+              deleteDoc(doc(db, 'aiSessions', existingForUser.id)).catch(() => {});
+              sessionsMap.delete(existingForUser.id);
+              sessionsMap.set(docId, sessionRecord);
+            } else {
+              deleteDoc(doc(db, 'aiSessions', docId)).catch(() => {});
+            }
+          } else {
+            sessionsMap.set(docId, sessionRecord);
           }
         });
       }
 
-      // 2. Process active sessions stored on user documents in Firestore
-      // Never resurrect a session that has been deleted or stopped in aiSessions
-      if (latestUsersDocsRef.current && latestUsersDocsRef.current.length > 0) {
-        const firestoreLoaded = latestFirestoreDocsRef.current && latestFirestoreDocsRef.current.length > 0;
-        latestUsersDocsRef.current.forEach(uDoc => {
-          const uData = typeof uDoc.data === 'function' ? uDoc.data() : uDoc;
-          const sess = uData.aiSession || uData.activeSession;
-          if (sess && (sess.status === 'ACTIVE' || (sess as any).status === 'RUNNING') && !sess.isDeleted && sess.id && !isSessionStopped(sess.id)) {
-            const isDocInAiSessions = (docsToProcess || []).some(d => {
-              const dId = d.id || (typeof d.data === 'function' ? d.data()?.id : d.id);
-              return dId === sess.id;
-            });
-            // If aiSessions collection has loaded and this session is absent, it has been ended/deleted
-            if (firestoreLoaded && !isDocInAiSessions) {
-              return;
-            }
-            if (!sessionsMap.has(sess.id)) {
-              const uId = sess.userId || uDoc.id;
-              const userEmail = sess.userEmail || uData.email || currentUsersMap[uId]?.email || 'trader@example.com';
-              sessionsMap.set(sess.id, {
-                id: sess.id,
-                userId: uId,
-                userEmail: userEmail,
-                status: 'ACTIVE',
-                startTime: sess.startTime || new Date().toISOString(),
-                tradingCapital: sess.tradingCapital ?? sess.initialCapital ?? uData.aiTradingCapital ?? 0,
-                initialCapital: sess.initialCapital ?? sess.tradingCapital ?? 1000,
-                openPositionsCount: sess.openPositionsCount || 0,
-                totalProfit: sess.totalProfit || 0,
-                totalLoss: sess.totalLoss || 0,
-                activeConfigId: sess.activeConfigId,
-                strategyName: sess.strategyName || 'Algorithmic Strategy',
-                adminControl: sess.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
-              });
-            }
-          }
-        });
-      }
-
-      // 3. Merge local active sessions registry for zero-delay instant sync across tabs/launches
+      // Clean up any stale local registry keys that are not active in database
       try {
         const regRaw = localStorage.getItem('aver_active_sessions_registry');
         if (regRaw) {
           const reg = JSON.parse(regRaw);
-          Object.values(reg).forEach((data: any) => {
-            if (data && (data.status === 'ACTIVE' || data.status === 'RUNNING') && !data.isDeleted && data.id && !isSessionStopped(data.id)) {
-              const docId = data.id;
-              const uId = data.userId || 'unknown';
-              const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-              const existing = sessionsMap.get(docId);
-              
-              sessionsMap.set(docId, {
-                id: docId,
-                userId: uId,
-                userEmail: userEmail,
-                status: 'ACTIVE',
-                startTime: data.startTime || existing?.startTime || new Date().toISOString(),
-                tradingCapital: data.tradingCapital ?? existing?.tradingCapital ?? data.initialCapital ?? 0,
-                initialCapital: data.initialCapital ?? existing?.initialCapital ?? data.tradingCapital ?? 1000,
-                openPositionsCount: data.openPositionsCount ?? existing?.openPositionsCount ?? 0,
-                totalProfit: data.totalProfit ?? existing?.totalProfit ?? 0,
-                totalLoss: data.totalLoss ?? existing?.totalLoss ?? 0,
-                activeConfigId: data.activeConfigId || existing?.activeConfigId,
-                strategyName: data.strategyName || existing?.strategyName || 'Algorithmic Strategy',
-                adminControl: data.adminControl || existing?.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
-              });
+          let changed = false;
+          for (const k of Object.keys(reg)) {
+            if (!sessionsMap.has(k)) {
+              delete reg[k];
+              changed = true;
             }
-          });
-        }
-      } catch (e) {}
-
-      // 4. Check individual local session keys for standalone active sessions
-      try {
-        const firestoreLoaded = latestFirestoreDocsRef.current && latestFirestoreDocsRef.current.length > 0;
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (
-            key &&
-            (key.startsWith('aver_session_') || key.startsWith('aver_active_session_')) &&
-            !key.startsWith('aver_session_control_') &&
-            !key.startsWith('aver_sessions_registry') &&
-            !key.startsWith('aver_stopped_session_')
-          ) {
-            const rawVal = localStorage.getItem(key);
-            if (rawVal) {
-              try {
-                const data = JSON.parse(rawVal);
-                if (data && typeof data === 'object') {
-                  const sId = data.id;
-                  const isStopped = sId && isSessionStopped(sId);
-                  const isStatusActive = (data.status === 'ACTIVE' || data.status === 'RUNNING');
-                  
-                  if (!isStatusActive || data.isDeleted || isStopped) {
-                    // Clean up stale or inactive local session
-                    localStorage.removeItem(key);
-                    continue;
-                  }
-
-                  if (sId && !sessionsMap.has(sId)) {
-                    const isDocInAiSessions = (docsToProcess || []).some(d => {
-                      const dId = d.id || (typeof d.data === 'function' ? d.data()?.id : d.id);
-                      return dId === sId;
-                    });
-                    if (firestoreLoaded && !isDocInAiSessions) {
-                      localStorage.removeItem(key);
-                      continue;
-                    }
-
-                    const uId = data.userId || key.replace('aver_session_', '').replace('aver_active_session_', '');
-                    const userEmail = data.userEmail || currentUsersMap[uId]?.email || (uId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-                    sessionsMap.set(sId, {
-                      id: sId,
-                      userId: uId,
-                      userEmail: userEmail,
-                      status: 'ACTIVE',
-                      startTime: data.startTime || new Date().toISOString(),
-                      tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
-                      initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
-                      openPositionsCount: data.openPositionsCount || 0,
-                      totalProfit: data.totalProfit || 0,
-                      totalLoss: data.totalLoss || 0,
-                      activeConfigId: data.activeConfigId,
-                      strategyName: data.strategyName || 'Algorithmic Strategy',
-                      adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
-                    });
-                  }
-                }
-              } catch (parseErr) {}
+          }
+          if (changed) {
+            if (Object.keys(reg).length === 0) {
+              localStorage.removeItem('aver_active_sessions_registry');
+            } else {
+              localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
             }
           }
         }
@@ -443,7 +379,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       window.removeEventListener('aver_session_terminated', handleSessionTerminated);
       window.removeEventListener('aver_admin_control_updated', handleStorageUpdate);
     };
-  }, [user?.uid, user?.email, userMap]);
+  }, [user?.uid, user?.email]);
 
   const handleEndSession = async (session: ActiveSessionRecord, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -455,6 +391,16 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     try {
       // 1. Delete session from Firestore aiSessions collection immediately
       await deleteDoc(doc(db, 'aiSessions', session.id)).catch(() => {});
+      if (session.userId) {
+        try {
+          const extraDocsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', session.userId))).catch(() => null);
+          if (extraDocsSnap && !extraDocsSnap.empty) {
+            for (const ed of extraDocsSnap.docs) {
+              await deleteDoc(doc(db, 'aiSessions', ed.id)).catch(() => {});
+            }
+          }
+        } catch (e) {}
+      }
 
       // 2. Refund balance and update user profile in Firestore
       if (session.userId && !session.userId.startsWith('local-') && session.userId !== 'guest_user') {
@@ -549,6 +495,25 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     setActionLoading(session.id);
     try {
       await deleteDoc(doc(db, 'aiSessions', session.id)).catch(() => {});
+      if (session.userId) {
+        try {
+          const extraDocsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', session.userId))).catch(() => null);
+          if (extraDocsSnap && !extraDocsSnap.empty) {
+            for (const ed of extraDocsSnap.docs) {
+              await deleteDoc(doc(db, 'aiSessions', ed.id)).catch(() => {});
+            }
+          }
+        } catch (e) {}
+
+        if (!session.userId.startsWith('local-') && session.userId !== 'guest_user') {
+          await updateDoc(doc(db, 'users', session.userId), {
+            aiSession: null,
+            activeSession: null,
+            aiTradingCapital: 0,
+            lastUpdated: serverTimestamp()
+          }).catch(() => {});
+        }
+      }
       localStorage.removeItem(`aver_session_${session.id}`);
       localStorage.removeItem(`aver_active_session_${session.id}`);
       localStorage.removeItem(`aver_session_${session.userId}`);

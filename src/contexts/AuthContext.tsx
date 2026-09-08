@@ -455,6 +455,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             ? pState.walletState.tokenBalance
             : prev.tokenBalance;
 
+          const cooldownUntil = parseInt(safeStorage.getItem(`aver_session_end_cooldown_${uid}`) || '0', 10);
+          const isInCooldown = Date.now() < cooldownUntil;
+
+          const pTodayPnL = pState.portfolioMetrics?.todayPnL;
+          const prevTodayPnL = prev.portfolio?.todayPnL;
+          let resolvedTodayPnL = pTodayPnL;
+          if (isInCooldown) {
+            resolvedTodayPnL = (typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) ? prevTodayPnL : pTodayPnL;
+          } else if ((pTodayPnL === 0 || pTodayPnL === undefined) && typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) {
+            resolvedTodayPnL = prevTodayPnL;
+          }
+
+          const pOverall = pState.portfolioMetrics?.overallReturn;
+          const prevOverall = prev.portfolio?.overallReturn;
+          let resolvedOverall = pOverall;
+          if (isInCooldown) {
+            resolvedOverall = (typeof prevOverall === 'number' && prevOverall !== 0) ? prevOverall : pOverall;
+          } else if ((pOverall === 0 || pOverall === undefined) && typeof prevOverall === 'number' && prevOverall !== 0) {
+            resolvedOverall = prevOverall;
+          }
+
+          const pProfit = pState.walletState?.totalProfit;
+          const prevProfit = prev.totalProfit;
+          const resolvedProfit = (typeof pProfit === 'number' && pProfit > 0)
+            ? pProfit
+            : (typeof prevProfit === 'number' && prevProfit > 0 ? prevProfit : (pProfit ?? 0));
+
+          const pLoss = pState.walletState?.totalLoss;
+          const prevLoss = prev.totalLoss;
+          const resolvedLoss = (typeof pLoss === 'number' && pLoss > 0)
+            ? pLoss
+            : (typeof prevLoss === 'number' && prevLoss > 0 ? prevLoss : (pLoss ?? 0));
+
           const updated: User = {
             ...prev,
             portfolioBalance: pPortBal,
@@ -464,12 +497,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ? pState.walletState.totalDeposits
               : prev.totalDeposits,
             totalWithdrawals: pState.walletState?.totalWithdrawals ?? prev.totalWithdrawals,
-            totalProfit: pState.walletState?.totalProfit ?? prev.totalProfit,
-            totalLoss: pState.walletState?.totalLoss ?? prev.totalLoss,
+            totalProfit: resolvedProfit,
+            totalLoss: resolvedLoss,
             tokenBalance: pTokenBal,
             portfolio: {
               ...prev.portfolio,
-              ...(pState.portfolioMetrics || {})
+              ...(pState.portfolioMetrics || {}),
+              ...(resolvedTodayPnL !== undefined ? { todayPnL: resolvedTodayPnL } : {}),
+              ...(resolvedOverall !== undefined ? { overallReturn: resolvedOverall } : {})
             },
             aiSettings: {
               ...prev.aiSettings,
@@ -510,6 +545,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || prev?.profilePhotoURL || prev?.avatarUrl || cachedCustomPhoto || undefined;
             const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : !!cachedCustomPhoto)) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
 
+            const cooldownUntil = parseInt(safeStorage.getItem(`aver_session_end_cooldown_${uid}`) || '0', 10);
+            const isInCooldown = Date.now() < cooldownUntil;
+
+            const uTodayPnL = userData.portfolio?.todayPnL;
+            const prevTodayPnL = prev?.portfolio?.todayPnL;
+            let resolvedTodayPnL = uTodayPnL;
+            if (isInCooldown) {
+              resolvedTodayPnL = (typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) ? prevTodayPnL : uTodayPnL;
+            } else if ((uTodayPnL === 0 || uTodayPnL === undefined) && typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) {
+              resolvedTodayPnL = prevTodayPnL;
+            }
+
+            const uOverall = userData.portfolio?.overallReturn;
+            const prevOverall = prev?.portfolio?.overallReturn;
+            let resolvedOverall = uOverall;
+            if (isInCooldown) {
+              resolvedOverall = (typeof prevOverall === 'number' && prevOverall !== 0) ? prevOverall : uOverall;
+            } else if ((uOverall === 0 || uOverall === undefined) && typeof prevOverall === 'number' && prevOverall !== 0) {
+              resolvedOverall = prevOverall;
+            }
+
+            const uProfit = userData.totalProfit;
+            const prevProfit = prev?.totalProfit;
+            const resolvedProfit = (typeof uProfit === 'number' && uProfit > 0)
+              ? uProfit
+              : (typeof prevProfit === 'number' && prevProfit > 0 ? prevProfit : (uProfit ?? 0));
+
+            const uLoss = userData.totalLoss;
+            const prevLoss = prev?.totalLoss;
+            const resolvedLoss = (typeof uLoss === 'number' && uLoss > 0)
+              ? uLoss
+              : (typeof prevLoss === 'number' && prevLoss > 0 ? prevLoss : (uLoss ?? 0));
+
             const updatedUser = {
               ...(prev || {}),
               ...userData,
@@ -525,9 +593,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               holdings: userData.holdings || prev?.holdings || [],
               trades: userData.trades || prev?.trades || [],
               snapshots: userData.snapshots || prev?.snapshots || [],
+              totalProfit: resolvedProfit,
+              totalLoss: resolvedLoss,
               portfolio: {
                 ...(prev?.portfolio || {}),
-                ...(userData.portfolio || {})
+                ...(userData.portfolio || {}),
+                ...(resolvedTodayPnL !== undefined ? { todayPnL: resolvedTodayPnL } : {}),
+                ...(resolvedOverall !== undefined ? { overallReturn: resolvedOverall } : {})
               }
             } as User;
             
@@ -723,6 +795,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }
         } else {
           setUser(null);
+        }
+      } else {
+        const uid = auth.currentUser.uid;
+        const profileStr = safeStorage.getItem(`user_profile_${uid}`) || safeStorage.getItem('aver_active_user');
+        if (profileStr) {
+          try {
+            const pData = JSON.parse(profileStr);
+            if (pData) {
+              setUser(prev => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  loginStreak: pData.loginStreak !== undefined ? pData.loginStreak : prev.loginStreak,
+                  lastLoginDate: pData.lastLoginDate || prev.lastLoginDate,
+                  xp: pData.xp !== undefined ? pData.xp : prev.xp,
+                  level: pData.level !== undefined ? pData.level : prev.level,
+                  insignias: pData.insignias || prev.insignias,
+                  winRun: pData.winRun !== undefined ? pData.winRun : prev.winRun,
+                  aiTradesCount: pData.aiTradesCount !== undefined ? pData.aiTradesCount : prev.aiTradesCount
+                };
+              });
+            }
+          } catch (e) {}
         }
       }
     };

@@ -15,6 +15,23 @@ import { TransactionRecord, TransactionType } from '../types';
 import { getLocalDeposits } from '../lib/depositStore';
 import { getLocalWithdrawals } from '../lib/withdrawalStore';
 
+export const isTradeEngineTransaction = (tx: any): boolean => {
+  if (!tx) return false;
+  const net = (tx.network || '').toLowerCase();
+  const typ = (tx.type || '').toLowerCase();
+  const tit = (tx.title || '').toLowerCase();
+  const id = (tx.id || '').toLowerCase();
+  return (
+    net.includes('trading engine') ||
+    net.includes('trade engine') ||
+    id.startsWith('trd-') ||
+    typ === 'order_creation' ||
+    (typ === 'trade' && (net.includes('engine') || tit.includes('trade') || tit.includes('crypto'))) ||
+    tit.includes('trading engine') ||
+    tit.includes('trade engine')
+  );
+};
+
 export const getExplorerUrl = (txHash?: string, network?: string): string | undefined => {
   if (!txHash) return undefined;
   const net = (network || '').toLowerCase();
@@ -41,6 +58,10 @@ export const transactionService = {
    * Record a new financial operation into Firestore & localStorage
    */
   async recordTransaction(params: Omit<TransactionRecord, 'id' | 'timestamp'> & { id?: string; timestamp?: string }): Promise<TransactionRecord> {
+    if (isTradeEngineTransaction(params)) {
+      return null as any;
+    }
+
     const userId = params.userId || 'guest';
     const id = params.id || `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const timestamp = params.timestamp || new Date().toISOString();
@@ -153,30 +174,17 @@ export const transactionService = {
   },
 
   /**
-   * Helper method for orders & trades
+   * Helper method for orders & trades (do not record as ledger transaction receipts)
    */
   async recordOrder(
-    userId: string, 
-    ticker: string, 
-    side: 'buy' | 'sell', 
-    price: number, 
-    quantity: number, 
-    status: 'Pending' | 'Completed' | 'Cancelled' = 'Pending'
+    _userId: string, 
+    _ticker: string, 
+    _side: 'buy' | 'sell', 
+    _price: number, 
+    _quantity: number, 
+    _status: 'Pending' | 'Completed' | 'Cancelled' = 'Pending'
   ) {
-    const isPending = status === 'Pending';
-    return this.recordTransaction({
-      userId,
-      type: isPending ? 'order_creation' : 'trade',
-      category: isPending ? 'orders' : 'order-history',
-      title: `${side.toUpperCase()} ${ticker}`,
-      asset: ticker,
-      amount: price * quantity,
-      price,
-      quantity,
-      side,
-      network: 'Trading Engine',
-      status
-    });
+    return null as any;
   },
 
   /**
@@ -194,15 +202,24 @@ export const transactionService = {
       return 'Pending';
     };
 
-    // 1. Read from localStorage
+    // 1. Read from localStorage and purge any existing trade engine records
     try {
       const storageKey = `aver_txs_${userId}`;
       const localStr = localStorage.getItem(storageKey);
       if (localStr) {
         const localList: TransactionRecord[] = JSON.parse(localStr);
+        let hasEngineTx = false;
         localList.forEach(item => {
+          if (isTradeEngineTransaction(item)) {
+            hasEngineTx = true;
+            return;
+          }
           if (item.id) map.set(item.id, { ...item, status: normalizeStatus(item.status) });
         });
+        if (hasEngineTx) {
+          const cleaned = localList.filter(item => !isTradeEngineTransaction(item));
+          localStorage.setItem(storageKey, JSON.stringify(cleaned));
+        }
       }
     } catch (err) {}
 
@@ -341,30 +358,6 @@ export const transactionService = {
         });
       }
 
-      if (Array.isArray(userProfile.trades)) {
-        userProfile.trades.forEach((t: any, idx: number) => {
-          const id = t.id || `trd-${t.timestamp || idx}`;
-          const isPending = t.status === 'Pending';
-          if (!map.has(id)) {
-            map.set(id, {
-              id,
-              userId,
-              type: isPending ? 'order_creation' : 'trade',
-              category: isPending ? 'orders' : 'order-history',
-              title: `${(t.side || 'BUY').toUpperCase()} ${t.ticker || 'Crypto'}`,
-              asset: t.ticker || 'USDT',
-              amount: Number(t.amount) || ((t.quantity || 1) * (t.price || 0)),
-              price: t.price,
-              quantity: t.quantity,
-              side: t.side,
-              network: 'Trading Engine',
-              status: normalizeStatus(t.status || 'Completed'),
-              timestamp: t.timestamp || new Date().toISOString()
-            });
-          }
-        });
-      }
-
       if (Array.isArray(userProfile.history)) {
         userProfile.history.forEach((h: any, idx: number) => {
           const id = h.id || `hist-${h.timestamp || h.date || idx}`;
@@ -393,6 +386,10 @@ export const transactionService = {
       const snap = await getDocs(q);
       snap.forEach(d => {
         const data = d.data() as TransactionRecord;
+        if (isTradeEngineTransaction(data)) {
+          deleteDoc(doc(db, 'transactions', d.id)).catch(() => {});
+          return;
+        }
         const normalized = normalizeStatus(data.status);
         const existing = map.get(d.id);
         if (existing) {
@@ -543,6 +540,7 @@ export const transactionService = {
     });
 
     const filteredList = deduplicated.filter(tx => {
+      if (isTradeEngineTransaction(tx)) return false;
       try {
         const deletedStr = localStorage.getItem(`aver_deleted_txs_${userId}`);
         if (deletedStr) {

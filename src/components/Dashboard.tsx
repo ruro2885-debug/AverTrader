@@ -312,6 +312,20 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return 0;
   }, [session, totalFloatingPnl]);
 
+  // Source completed sessions from context or local cache
+  const activeCompletedSessions = useMemo(() => {
+    if (completedSessions && completedSessions.length > 0) return completedSessions;
+    const uId = user?.uid || 'guest_user';
+    const local = safeStorage.getItem(`aver_latest_completed_session_${uId}`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (parsed) return [parsed];
+      } catch (e) {}
+    }
+    return [];
+  }, [completedSessions, user?.uid]);
+
   const closedTradesPnL = useMemo(() => {
     // 1. Check actual closed trades in state after resetTime
     const filteredTrades = trades.filter((t: any) => {
@@ -325,8 +339,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     if (fromTrades !== 0) return fromTrades;
 
     // 2. Check completed sessions ended after resetTime
-    if (completedSessions && completedSessions.length > 0) {
-      const filteredSessions = completedSessions.filter((s: any) => {
+    if (activeCompletedSessions && activeCompletedSessions.length > 0) {
+      const filteredSessions = activeCompletedSessions.filter((s: any) => {
         if (!resetTime) return true;
         const sTime = s.endTime ? (typeof s.endTime === 'number' ? s.endTime : new Date(s.endTime).getTime()) : (s.startTime ? (typeof s.startTime === 'number' ? s.startTime : new Date(s.startTime).getTime()) : 0);
         return sTime >= resetTime;
@@ -351,7 +365,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     }
     
     return 0;
-  }, [trades, completedSessions, user, resetTime]);
+  }, [trades, activeCompletedSessions, user, resetTime]);
 
   // Home Net Balance represents the single authoritative wallet balance (Home Net Balance = Portfolio Wallet Balance)
   const totalValue = useMemo(() => {
@@ -407,13 +421,41 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const overallReturnPercent = useMemo(() => {
     if (session?.status === 'ACTIVE') {
       const sessionInitial = session.initialCapital || session.tradingCapital || 1000;
-      const base = baselineAccountBalance > 0 ? baselineAccountBalance : sessionInitial;
-      return (overallReturnAmount / base) * 100;
+      if (sessionInitial > 0) {
+        return (overallReturnAmount / sessionInitial) * 100;
+      }
+      return 0;
     }
+
+    // When session is inactive / completed:
+    const filteredSessions = activeCompletedSessions.filter((s: any) => {
+      if (!resetTime) return true;
+      const sTime = s.endTime ? (typeof s.endTime === 'number' ? s.endTime : new Date(s.endTime).getTime()) : (s.startTime ? (typeof s.startTime === 'number' ? s.startTime : new Date(s.startTime).getTime()) : 0);
+      return sTime >= resetTime;
+    });
+
+    if (filteredSessions.length > 0) {
+      const latest = filteredSessions[0];
+      if (typeof latest.pnlPercent === 'number' && latest.pnlPercent !== 0) {
+        return latest.pnlPercent;
+      }
+      if (latest.initialCapital && latest.initialCapital > 0) {
+        return ((latest.totalPnl || 0) / latest.initialCapital) * 100;
+      }
+    }
+
+    if (resetTime > 0) {
+      return 0;
+    }
+
+    if (user?.portfolio?.todayPnLPercent !== undefined && user.portfolio.todayPnLPercent !== 0) {
+      return user.portfolio.todayPnLPercent;
+    }
+
     const base = baselineAccountBalance > 0 ? baselineAccountBalance : (totalValue > 0 ? totalValue : 1000);
     if (base <= 0) return 0;
     return (overallReturnAmount / base) * 100;
-  }, [session, overallReturnAmount, baselineAccountBalance, totalValue]);
+  }, [session, overallReturnAmount, activeCompletedSessions, resetTime, user?.portfolio?.todayPnLPercent, baselineAccountBalance, totalValue]);
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (totalPlAmount < 0 ? '-' : '+') + formatCurrency(Math.abs(totalPlAmount));
@@ -446,7 +488,27 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const closedTradesCount = trades.filter((t: any) => t.status === 'CLOSED').length;
   const totalAiTradesCount = Math.max(user?.aiTradesCount || 0, closedTradesCount);
   
-  const loginStreak = user?.loginStreak || 0;
+  const loginStreak = (() => {
+    const rawStreak = user?.loginStreak;
+    const currentStreak = (typeof rawStreak === 'number' && rawStreak > 0) ? rawStreak : 1;
+    
+    // Check if the user missed more than 1 calendar day
+    const raw = user?.lastLoginDate || user?.lastLogin;
+    if (raw) {
+      const lastDate = typeof raw?.toDate === 'function' ? raw.toDate() : new Date(raw);
+      if (!isNaN(lastDate.getTime())) {
+        const now = new Date();
+        const lastMidnight = new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()).getTime();
+        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const daysDiff = Math.round((todayMidnight - lastMidnight) / 86400000);
+        if (daysDiff > 1) {
+          // Missed an entire calendar day without logging in
+          return 1;
+        }
+      }
+    }
+    return currentStreak;
+  })();
   const winRun = user?.winRun || 0;
   
   // Calculate XP and level based strictly on real activity

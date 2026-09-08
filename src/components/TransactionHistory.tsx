@@ -28,7 +28,6 @@ const TYPE_OPTIONS = [
   'Deposit', 
   'Withdrawal', 
   'Transfer', 
-  'Trade', 
   'AI Allocation', 
   'Profit Settlement', 
   'Loss Settlement', 
@@ -64,6 +63,25 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
   const [showReasonPopup, setShowReasonPopup] = useState(false);
   const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedReceipt) {
+      const net = (selectedReceipt.network || '').toLowerCase();
+      const typ = (selectedReceipt.type || '').toLowerCase();
+      const tit = (selectedReceipt.title || '').toLowerCase();
+      const id = (selectedReceipt.id || '').toLowerCase();
+      if (
+        net.includes('trading engine') || 
+        net.includes('trade engine') || 
+        id.startsWith('trd-') || 
+        typ === 'order_creation' ||
+        tit.includes('trading engine') ||
+        tit.includes('trade engine')
+      ) {
+        setSelectedReceipt(null);
+      }
+    }
+  }, [selectedReceipt]);
 
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -172,6 +190,23 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
   // Filter items based on active tab & selected filters
   const filteredItems = useMemo(() => {
     return transactions.filter(item => {
+      // Completely exclude any fake or trade engine transaction/receipt
+      const net = (item.network || '').toLowerCase();
+      const typ = (item.type || '').toLowerCase();
+      const tit = (item.title || '').toLowerCase();
+      const id = (item.id || '').toLowerCase();
+      if (
+        net.includes('trading engine') || 
+        net.includes('trade engine') || 
+        id.startsWith('trd-') || 
+        typ === 'order_creation' || 
+        (typ === 'trade' && (net.includes('engine') || tit.includes('trade') || tit.includes('crypto'))) ||
+        tit.includes('trading engine') ||
+        tit.includes('trade engine')
+      ) {
+        return false;
+      }
+
       // 1. Tab match
       if (activeTab === 'transactions') {
         if (item.category === 'orders' && item.status === 'Pending') return false;

@@ -44,9 +44,22 @@ export const progressionService = {
     let updates: any = {};
 
     let currentWinRun = user.winRun ?? localProfile?.winRun ?? 0;
-    let currentLoginStreak = Number(user.loginStreak ?? localProfile?.loginStreak ?? 1) || 1;
+    let currentLoginStreak = typeof user.loginStreak === 'number'
+      ? user.loginStreak
+      : (typeof localProfile?.loginStreak === 'number' ? localProfile.loginStreak : 0);
     let currentAiTrades = user.aiTradesCount ?? localProfile?.aiTradesCount ?? 0;
-    let lastLoginDate = user.lastLoginDate || localProfile?.lastLoginDate;
+    
+    let rawLastLogin = user.lastLoginDate || localProfile?.lastLoginDate || user.lastLogin;
+    let lastLoginDate: string | undefined = undefined;
+    if (rawLastLogin) {
+      if (typeof rawLastLogin === 'string') {
+        lastLoginDate = rawLastLogin;
+      } else if (typeof rawLastLogin?.toDate === 'function') {
+        lastLoginDate = rawLastLogin.toDate().toISOString();
+      } else if (rawLastLogin instanceof Date) {
+        lastLoginDate = rawLastLogin.toISOString();
+      }
+    }
 
     switch (actionType) {
       case 'trade':
@@ -64,40 +77,46 @@ export const progressionService = {
         currentWinRun = 0;
         updates.winRun = 0;
         break;
-      case 'login':
-        const lastLoginDateOnly = lastLoginDate ? lastLoginDate.split('T')[0] : null;
-        const lastLoginMs = lastLoginDate ? new Date(lastLoginDate).getTime() : 0;
-        const nowMs = now.getTime();
-        const diffHours = lastLoginMs ? (nowMs - lastLoginMs) / (1000 * 60 * 60) : 999999;
+      case 'login': {
+        // Accurate calendar day streak calculation
+        let calculatedStreak = typeof currentLoginStreak === 'number' && currentLoginStreak > 0 ? currentLoginStreak : 1;
+        
+        if (lastLoginDate) {
+          const lastDate = new Date(lastLoginDate);
+          if (!isNaN(lastDate.getTime())) {
+            // Compare calendar days normalized to midnight
+            const lastMidnight = new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()).getTime();
+            const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const daysDiff = Math.round((todayMidnight - lastMidnight) / (1000 * 60 * 60 * 24));
 
-        const yesterdayLocal = new Date(now);
-        yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
-        const yYear = yesterdayLocal.getFullYear();
-        const yMonth = String(yesterdayLocal.getMonth() + 1).padStart(2, '0');
-        const yDay = String(yesterdayLocal.getDate()).padStart(2, '0');
-        const yesterdayLocalStr = `${yYear}-${yMonth}-${yDay}`;
-
-        if (!lastLoginDateOnly || diffHours > 48 || (lastLoginDateOnly !== todayLocalStr && lastLoginDateOnly !== yesterdayLocalStr && diffHours > 48)) {
-          // If no last login, or logged in after 48 hours -> restart streak from 1
-          currentLoginStreak = 1;
-          xpGain = 10;
-        } else if (lastLoginDateOnly === todayLocalStr || diffHours < 12) {
-          // Already logged in today or within same day window -> keep current login streak
-          currentLoginStreak = Math.max(1, currentLoginStreak);
-          xpGain = 0;
-        } else if (lastLoginDateOnly === yesterdayLocalStr || (diffHours >= 12 && diffHours <= 48)) {
-          // Logged in after 24 hours (consecutive next day) -> increment streak by 1 (+2 / +1 progression)
-          currentLoginStreak = Math.max(1, currentLoginStreak) + 1;
-          xpGain = 10;
+            if (daysDiff === 0) {
+              // Same calendar day: preserve current streak, no duplicate increment
+              calculatedStreak = Math.max(1, calculatedStreak);
+              xpGain = 0;
+            } else if (daysDiff === 1) {
+              // Consecutive day login (active yesterday and today): increment streak!
+              calculatedStreak = Math.max(1, calculatedStreak) + 1;
+              xpGain = 10;
+            } else if (daysDiff > 1) {
+              // Missed one or more full calendar days: streak resets to 1 day (active today)
+              calculatedStreak = 1;
+              xpGain = 0;
+            }
+          } else {
+            calculatedStreak = Math.max(1, calculatedStreak);
+          }
         } else {
-          // Default fallback for 48h+ gap -> reset streak to 1
-          currentLoginStreak = 1;
+          // First recorded login
+          calculatedStreak = Math.max(1, calculatedStreak);
           xpGain = 10;
         }
+
+        currentLoginStreak = calculatedStreak;
         lastLoginDate = now.toISOString();
         updates.loginStreak = currentLoginStreak;
         updates.lastLoginDate = lastLoginDate;
         break;
+      }
     }
 
     // Leveling logic: 1000 XP per level
