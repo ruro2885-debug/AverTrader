@@ -461,6 +461,10 @@ async function startServer() {
     return res.send("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /dashboard\n\nSitemap: https://www.avertrader.space/sitemap.xml\n");
   });
 
+  // Serve static assets from public folder
+  const publicPath = path.join(process.cwd(), "public");
+  app.use(express.static(publicPath));
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
