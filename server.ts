@@ -159,7 +159,12 @@ async function startServer() {
           'BTC': 'bitcoin',
           'ETH': 'ethereum',
           'SOL': 'solana',
-          'BNB': 'binance-coin'
+          'BNB': 'binance-coin',
+          'XRP': 'ripple',
+          'ADA': 'cardano',
+          'AVAX': 'avalanche-2',
+          'DOGE': 'dogecoin',
+          'TRX': 'tron'
         };
         const assetId = coincapIdMap[symbol];
         if (assetId) {
@@ -180,7 +185,12 @@ async function startServer() {
         'BTC': 64850,
         'ETH': 3480.5,
         'SOL': 148.2,
-        'BNB': 585.4
+        'BNB': 585.4,
+        'XRP': 1.42,
+        'ADA': 0.76,
+        'AVAX': 26.8,
+        'DOGE': 0.175,
+        'TRX': 0.245
       };
       const basePrice = fallbackPrices[symbol] || 1.0;
       const cycle = Math.sin(Date.now() / 15000);

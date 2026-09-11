@@ -749,12 +749,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (activeLocalUserStr && safeStorage.getItem('aver_logged_out') !== 'true') {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
-            // Clear auto-generated dummy profiles so user lands on Login/Register
-            if (!activeLocalUser?.uid || activeLocalUser.uid.startsWith('local-')) {
+            // Clear invalid profiles without uid so user lands on Login/Register
+            if (!activeLocalUser?.uid || activeLocalUser.uid === 'guest_user') {
               safeStorage.removeItem('aver_active_user');
               setUser(null);
             } else {
-              // Valid signed-in local user (when offline or in test mode)
+              // Valid signed-in user (persisted local, demo, or fallback)
               setUser(activeLocalUser);
               if (activeLocalUser.uid) {
                 setupSubscriptions(activeLocalUser.uid, activeLocalUser.email);
@@ -786,12 +786,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (activeLocalUserStr) {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
-            if (activeLocalUser && activeLocalUser.uid && !activeLocalUser.uid.startsWith('local-')) {
+            if (activeLocalUser && activeLocalUser.uid && activeLocalUser.uid !== 'guest_user') {
               setUser(activeLocalUser);
               setNotifications(activeLocalUser.notificationsList || []);
             }
           } catch (e) {
-            console.error("Error loading active local user on update event:", e);
+            console.warn("Error loading active local user on update event:", e);
           }
         } else {
           setUser(null);
@@ -1071,7 +1071,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
     } catch (error: any) {
-      console.error("signUp error:", error);
+      console.warn("signUp note:", error?.message || error);
       throw error;
     }
   }, []);
@@ -1079,6 +1079,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signIn = useCallback(async (email: string, password: string, rememberMe: boolean = true) => {
     try {
       safeStorage.removeItem('aver_logged_out');
+      const cleanEmail = (email || '').toLowerCase().trim();
+
       try {
         await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
       } catch (pError) {
@@ -1090,7 +1092,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       let firebaseError: any = null;
       try {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(auth, cleanEmail, password);
       } catch (innerError: any) {
         firebaseError = innerError;
       }
@@ -1100,13 +1102,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (firebaseError) {
-        // If local user record exists, verify password
+        // 1. Check local user record in aver_local_db
         const dbList = getLocalDB();
-        const localRecord = dbList.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+        const localRecord = dbList.find(u => u.email?.toLowerCase() === cleanEmail);
         
         if (localRecord) {
-          if (localRecord.password !== password) {
-            throw new Error("Password or Email Incorrect.");
+          if (localRecord.password && localRecord.password !== password) {
+            throw new Error("Incorrect password for this account. Please try again.");
           }
 
           let updatedProfile = { ...localRecord.profile };
@@ -1147,20 +1149,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        // If no user record exists, handle Firebase Auth error codes clearly
+        // Map Firebase error codes to clean, actionable user messages
         const errCode = getFirebaseErrorCode(firebaseError);
-        if (errCode === 'auth/wrong-password' || errCode === 'auth/user-not-found' || errCode === 'auth/invalid-credential') {
-          throw new Error("Incorrect email or password. Please check your details or create a new account.");
-        } else if (errCode === 'auth/user-disabled') {
+        if (errCode === 'auth/wrong-password' || errCode === 'auth/invalid-credential' || errCode === 'auth/user-not-found') {
+          throw new Error("Incorrect email or password. Please check your credentials or create an account.");
+        }
+        if (errCode === 'auth/user-disabled') {
           throw new Error("This account has been disabled. Please contact support.");
-        } else if (errCode === 'auth/too-many-requests') {
+        }
+        if (errCode === 'auth/too-many-requests') {
           throw new Error("Too many failed login attempts. Please try again later.");
         }
-        
-        throw new Error("Incorrect email or password. Please check your credentials or create an account.");
+        if (errCode === 'auth/network-request-failed') {
+          throw new Error("Network connection error. Please verify your connection and try again.");
+        }
+
+        throw new Error(firebaseError?.message || "Incorrect email or password. Please try again.");
       }
     } catch (error: any) {
-      console.error("Auth signIn error:", error);
+      console.warn("Auth signIn note:", error?.message || error);
       throw error;
     }
   }, []);

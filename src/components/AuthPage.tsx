@@ -86,7 +86,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
           setReferralStatus('invalid');
         }
       } catch (error) {
-        console.error("Error validating referral code:", error);
+        console.warn("Notice validating referral code:", error);
         setReferralStatus('idle'); // fail silently
       }
     };
@@ -150,7 +150,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         setReferralCode(text.trim().toUpperCase());
       }
     } catch (e) {
-      console.error("Failed to read clipboard");
+      console.warn("Notice reading clipboard");
     }
   };
 
@@ -186,7 +186,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       });
       onSuccess();
     } catch (error: any) {
-      console.error("Registration error:", error);
+      console.warn("Registration note:", error?.message || error);
 
       let displayError = '';
       
@@ -220,7 +220,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       await signIn(loginEmail, loginPassword, rememberMe);
       onSuccess();
     } catch (error: any) {
-      console.error("Login error:", error);
+      console.warn("Login note:", error?.message || error);
       let displayError = '';
       
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
@@ -1056,7 +1056,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       </>
                     )}
                   </button>
-
                 </form>
 
                 {/* Switch view footer */}
@@ -1066,9 +1065,11 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     <button 
                       onClick={() => {
                         setView('register');
-                        setLoginPassword('');
-                        setPassword('');
-                        setConfirmPassword('');
+                        if (loginEmail) setEmail(loginEmail);
+                        if (loginPassword) {
+                          setPassword(loginPassword);
+                          setConfirmPassword(loginPassword);
+                        }
                       }} 
                       className="text-emerald-400 hover:text-emerald-300 font-extrabold focus:outline-none cursor-pointer"
                     >

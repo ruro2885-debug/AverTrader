@@ -489,7 +489,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         console.log("[TradingEngineContext] Received aver_session_terminated event. Clearing active session state.");
         setSession(null);
         sessionRefVal.current = null;
-        setEngineStatus('OFFLINE');
+        setEngineStatus({ state: 'INACTIVE', reason: 'Session terminated' });
         safeStorage.removeItem(`aver_session_${effectiveUid}`);
         safeStorage.removeItem(`aver_stopped_session_${effectiveUid}`);
       }

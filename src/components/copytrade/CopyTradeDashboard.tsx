@@ -849,7 +849,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                                   : 'border-white/5 bg-white/5 text-gray-400 hover:text-white'
                               }`}
                             >
-                              {style.replace('_', ' ')}
+                              {(style || '').replace(/_/g, ' ')}
                             </button>
                           ))}
                         </div>

@@ -77,7 +77,7 @@ function AppContent() {
     if (path === '/admin' || search.includes('admin=true')) {
       // Force unauthorized admin attempts to the NotFound view for verification
       navigateToView('not-found');
-    } else if (path === '/404' || search.includes('404=true') || (path !== '/' && path !== '')) {
+    } else if (path === '/404' || search.includes('404=true') || (path !== '/' && path !== '' && path !== '/index.html')) {
       navigateToView('not-found');
     }
   }, []);

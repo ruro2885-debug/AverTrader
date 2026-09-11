@@ -112,7 +112,7 @@ export default function EventCard({
           }`}>
             {event.status === 'LIVE' && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
             {event.status === 'ENDING_SOON' && <Flame className="w-3 h-3 text-amber-400" />}
-            {event.status === 'LIVE' ? 'LIVE NOW' : event.status.replace('_', ' ')}
+            {event.status === 'LIVE' ? 'LIVE NOW' : (event.status ? event.status.replace(/_/g, ' ') : 'UPCOMING')}
           </span>
         </div>
 

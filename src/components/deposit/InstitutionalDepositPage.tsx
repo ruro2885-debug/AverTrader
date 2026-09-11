@@ -136,6 +136,51 @@ const CRYPTO_ASSETS: CryptoAsset[] = [
   { symbol: 'BNB', name: 'BNB Smart Chain', network: 'BNB Chain (BEP-20)', icon: '🟡', address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', estTime: '3-5 mins' },
 ];
 
+export const OTHER_CRYPTO_ASSETS: CryptoAsset[] = [
+  { 
+    symbol: 'XRP', 
+    name: 'Ripple', 
+    network: 'XRP Ledger (XRPL)', 
+    icon: '✕', 
+    address: 'rKA4CT2vkU5PfcNNmwvcgWWRagr2dG1Buv', 
+    estTime: '1-3 mins (1 confirmation)' 
+  },
+  { 
+    symbol: 'ADA', 
+    name: 'Cardano', 
+    network: 'Cardano (ADA)', 
+    icon: '₳', 
+    address: 'addr1qxggzzdajz7s97lchgm6xh5q372khh6grxfdqlrrmf8t6xywlvejl2vmw5pmezma6g4wp6ufcs0cth3m6k2rsuvyvn0qdgccuq', 
+    estTime: '3-5 mins (15 confirmations)' 
+  },
+  { 
+    symbol: 'AVAX', 
+    name: 'Avalanche', 
+    network: 'Avalanche C-Chain', 
+    icon: '🔺', 
+    address: '0x8372A7eAde07B979333866544696aBbc6e49DF36', 
+    estTime: '1-2 mins (1 confirmation)' 
+  },
+  { 
+    symbol: 'DOGE', 
+    name: 'Dogecoin', 
+    network: 'Dogecoin Network', 
+    icon: 'Ð', 
+    address: 'DPvG6GmCxjUTmW8mPGnWTLWfWAXJSGych1', 
+    estTime: '5-10 mins (6 confirmations)' 
+  },
+  { 
+    symbol: 'TRX', 
+    name: 'TRON', 
+    network: 'Tron (TRC-20)', 
+    icon: '⟁', 
+    address: 'TNNeWNf9ijxThGLpdDYu8sQCHZGhh1dXpV', 
+    estTime: '2-3 mins (19 confirmations)' 
+  },
+];
+
+export const ALL_CRYPTO_ASSETS: CryptoAsset[] = [...CRYPTO_ASSETS, ...OTHER_CRYPTO_ASSETS];
+
 const WALLETS = [
   { name: 'MetaMask', icon: '🦊', desc: 'Connect using browser extension or mobile app' },
   { name: 'WalletConnect', icon: '⚡', desc: 'Connect with 100+ mobile & desktop wallets' },
@@ -158,10 +203,17 @@ const getCryptoLogoDataUrl = (symbol: string): string => {
     BNB: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1839.png',
     USDT: 'https://s2.coinmarketcap.com/static/img/coins/64x64/825.png',
     USDC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3408.png',
+    XRP: 'https://s2.coinmarketcap.com/static/img/coins/64x64/52.png',
+    ADA: 'https://s2.coinmarketcap.com/static/img/coins/64x64/2010.png',
+    DOGE: 'https://s2.coinmarketcap.com/static/img/coins/64x64/74.png',
+    AVAX: 'https://s2.coinmarketcap.com/static/img/coins/64x64/5805.png',
+    TRX: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1958.png',
   };
-  return logoUrls[s] || '';
+  if (logoUrls[s]) return logoUrls[s];
 
   switch (symbol) {
+    case 'XRP':
+      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iIzIzMjkyRiIvPjxwYXRoIGQ9Ik0yMi44IDkuNWgyLjVsLTUuOCA1LjcgNi4xIDYuMWgtMi41bC00LjktNC45LTQuOSA0LjloLTIuNWw2LjEtNi4xLTUuOC01LjdoMi41bDQuNiA0LjUgNC42LTQuNXoiIGZpbGw9IndoaXRlIi8+PC9zdmc+';
     case 'BTC':
       return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iI0Y3OTMxQSIvPjxwYXRoIGQ9Ik0yMi4zMSAxNC4wNWMuMjQtMS42My0uOTktMi41MS0yLjY4LTMuMWwuNTUtMi4yaC0xLjM0bC0uNTMgMi4xNGMtLjM1LS4wOS0uNzEtLjE3LTEuMDctLjI1bC41NC0yLjE1aC0xLjM0bC0uNTUgMi4yYy0uMjktLjA3LS41OC0uMTMtLjg2LS4ybC4wMS0uMDMtMS44NS0uNDYtLjM2IDEuNDNzMS4wMC4yMy45Ny4yNGMuNTQuMTQuNjQuNS42Mi43OGwtLjYyIDIuNWMuMDQuMDEuMDkuMDIuMTQuMDRsLS4xNC0uMDQtLjg3IDMuNTFjLS4wNy4xNy0uMjQuNDMtLjYzLjMzLjAyLjAyLS45Ny0uMjQtLjk3LS4yNGwtLjY3IDEuNTQgMS43NS40NGMuMzIuMDguNjQuMTcuOTYuMjRsLS41NiAyLjI0aDEuMzRsLjU2LTIuMjRjLjM3LjEuNzIuMTkgMS4wNy4yN2wtLjU1IDIuMjFoMS4zNGwuNTYtMi4yNGMyLjI5LjQzIDQuMDIuMjYgNC43NC0xLjgxLjU4LTEuNjctLjAzLTIuNjMtMS4yNC0zLjI2Ljg4LS4yIDEuNTQtLjc4IDEuNzItMS45N3ptLTMuMDggNC4zMWMtLjQyIDEuNjctMy4yMy43Ny00LjE0LjU0bC43NC0yLjk2Yy45MS4yMyAzLjg0LjY4IDMuNCAyLjQyem0uNDItNC4zMmMtLjM4IDEuNTMtMi43My43NS0zLjQ5LjU2bC42Ny0yLjdjLjc2LjE5IDMuMjEuNTUgMi44MiAyLjE0eiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=';
     case 'ETH':
@@ -486,13 +538,24 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
         let sym = parsed.symbol || 'USDT-ERC20';
         if (sym === 'SIMT' || sym === 'USDT') sym = 'USDT-ERC20';
         if (sym === 'SUN') sym = 'SOL';
-        const matched = CRYPTO_ASSETS.find(a => a.symbol === sym || a.symbol.split('-')[0] === sym.split('-')[0]);
+        const matched = ALL_CRYPTO_ASSETS.find(a => a.symbol === sym || a.symbol.split('-')[0] === sym.split('-')[0]);
         if (matched) return matched;
       }
     } catch (e) {}
     return CRYPTO_ASSETS[2]; // USDT ERC20
   });
   const [copiedAddress, setCopiedAddress] = useState(false);
+  
+  // "Others" Crypto Selection States
+  const [showOthersCryptoModal, setShowOthersCryptoModal] = useState(false);
+  const [searchOtherCrypto, setSearchOtherCrypto] = useState('');
+  const isOtherCryptoSelected = OTHER_CRYPTO_ASSETS.some(a => a.symbol === selectedCrypto.symbol);
+  const filteredOtherAssets = OTHER_CRYPTO_ASSETS.filter(asset => 
+    !searchOtherCrypto || 
+    asset.symbol.toLowerCase().includes(searchOtherCrypto.toLowerCase()) || 
+    asset.name.toLowerCase().includes(searchOtherCrypto.toLowerCase()) ||
+    asset.network.toLowerCase().includes(searchOtherCrypto.toLowerCase())
+  );
   
   // Exact Transfer Amount States
   const [cryptoRate, setCryptoRate] = useState<number | null>(null);
@@ -598,7 +661,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
             setAmount(Number(record.amount));
           }
           if (record.cryptoSymbol) {
-            const asset = CRYPTO_ASSETS.find(a => a.symbol === record.cryptoSymbol);
+            const asset = ALL_CRYPTO_ASSETS.find(a => a.symbol === record.cryptoSymbol);
             if (asset && selectedCrypto.symbol !== asset.symbol) {
               setSelectedCrypto(asset);
             }
@@ -2276,20 +2339,37 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
 
                         {/* Asset Selector Pills */}
                         <div className="space-y-2">
-                          <label className="text-xs font-medium text-neutral-300">Select Digital Asset</label>
+                          <div className="grid grid-cols-2 sm:flex sm:items-center sm:gap-3 items-center">
+                            <label className="text-xs font-medium text-neutral-300">Select Digital Asset</label>
+                            <div className="flex justify-start">
+                              <button
+                                type="button"
+                                onClick={() => setShowOthersCryptoModal(true)}
+                                className={`py-1.5 px-3 rounded-full text-xs font-semibold ring-1 transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                  isOtherCryptoSelected
+                                    ? 'bg-amber-500 text-black ring-amber-400 shadow-sm shadow-amber-500/20'
+                                    : 'bg-white/5 text-neutral-300 ring-white/10 hover:bg-white/10 hover:text-white'
+                                }`}
+                                title="Other Cryptocurrencies"
+                              >
+                                <Coins className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                                <span>{isOtherCryptoSelected ? `Others: ${selectedCrypto.symbol}` : 'Others'}</span>
+                              </button>
+                            </div>
+                          </div>
+
                           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
                             {CRYPTO_ASSETS.map((asset) => (
                               <button 
                                 key={asset.symbol} 
+                                type="button"
                                 onClick={() => setSelectedCrypto(asset)}
                                 className={`py-2.5 px-3 rounded-xl text-xs font-bold ring-1 transition flex items-center justify-center gap-1.5 ${
                                   selectedCrypto.symbol === asset.symbol 
                                     ? 'bg-amber-500 text-black ring-amber-400 shadow-md shadow-amber-500/20' 
                                     : 'bg-white/5 text-neutral-300 ring-white/10 hover:bg-white/10'
                                 } ${
-                                  asset.symbol === 'BNB'
-                                    ? 'col-span-2 justify-self-center w-[calc(50%-4px)] sm:col-span-1 sm:justify-self-auto sm:w-full'
-                                    : ''
+                                  asset.symbol === 'BNB' ? 'col-span-2 sm:col-span-2 lg:col-span-1' : ''
                                 }`}
                               >
                                 <CryptoLogo symbol={asset.symbol} className="w-5 h-5 flex-shrink-0" />
@@ -2483,6 +2563,122 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                       </motion.div>
                     </div>
                   )}
+
+                  {/* Others Cryptocurrencies Modal */}
+                  <AnimatePresence>
+                    {showOthersCryptoModal && (
+                      <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: 8 }}
+                          transition={{ duration: 0.15 }}
+                          className="w-full max-w-md rounded-2xl bg-neutral-950 border border-white/15 p-5 sm:p-6 shadow-2xl text-white space-y-4"
+                        >
+                          {/* Header */}
+                          <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                                <Coins className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h3 className="text-base font-bold text-white leading-tight">Other Cryptocurrencies</h3>
+                                <p className="text-[11px] text-neutral-400">Select an asset to deposit via segregated vault</p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowOthersCryptoModal(false)}
+                              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white flex items-center justify-center transition"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Search Input */}
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              value={searchOtherCrypto}
+                              onChange={(e) => setSearchOtherCrypto(e.target.value)}
+                              placeholder="Search crypto or network (e.g. XRP, Ripple)..."
+                              className="w-full bg-neutral-900 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/50"
+                            />
+                          </div>
+
+                          {/* Cryptos List */}
+                          <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
+                            {filteredOtherAssets.length === 0 ? (
+                              <div className="p-4 text-center text-xs text-neutral-500">
+                                No matching cryptocurrency found
+                              </div>
+                            ) : (
+                              filteredOtherAssets.map((asset) => {
+                                const isSelected = selectedCrypto.symbol === asset.symbol;
+                                return (
+                                  <button
+                                    key={asset.symbol}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedCrypto(asset);
+                                      setShowOthersCryptoModal(false);
+                                    }}
+                                    className={`w-full p-3 rounded-xl border transition flex items-center justify-between text-left group cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-amber-500/15 border-amber-500/50 ring-1 ring-amber-500/30'
+                                        : 'bg-neutral-900/70 hover:bg-neutral-900 border-white/10 hover:border-white/20'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className="relative shrink-0">
+                                        <CryptoLogo symbol={asset.symbol} className="w-9 h-9 rounded-xl shadow-md" />
+                                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-neutral-950" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm font-bold text-white group-hover:text-amber-400 transition">{asset.symbol}</span>
+                                          <span className="text-xs text-neutral-400 truncate font-medium">{asset.name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                          <span className="text-[10px] text-neutral-400 font-mono truncate max-w-[130px] sm:max-w-[170px]">
+                                            {asset.address.slice(0, 8)}...{asset.address.slice(-6)}
+                                          </span>
+                                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-neutral-300">
+                                            {asset.network}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {isSelected && (
+                                        <div className="w-5 h-5 rounded-full bg-amber-500 text-black flex items-center justify-center">
+                                          <Check className="w-3 h-3 stroke-[3]" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+
+                          {/* Footer Action */}
+                          <div className="pt-2 border-t border-white/10 flex items-center justify-between text-xs">
+                            <span className="text-[11px] text-neutral-400">{filteredOtherAssets.length} cryptocurrencies configured</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowOthersCryptoModal(false)}
+                              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 hover:text-white text-xs font-semibold transition cursor-pointer"
+                            >
+                              Close
+                            </button>
+                          </div>
+                        </motion.div>
+                      </div>
+                    )}
+                  </AnimatePresence>
 
                   {/* 4. BANK WIRE TRANSFER VIEW */}
                   {selectedMethod === 'bank' && (

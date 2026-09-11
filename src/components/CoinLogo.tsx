@@ -24,6 +24,7 @@ const logoUrls: Record<string, string> = {
   DOT: 'https://s2.coinmarketcap.com/static/img/coins/64x64/6636.png',
   LINK: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1975.png',
   AVAX: 'https://s2.coinmarketcap.com/static/img/coins/64x64/5805.png',
+  TRX: 'https://s2.coinmarketcap.com/static/img/coins/64x64/1958.png',
   MATIC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3890.png',
   AAPL: 'https://api.iconify.design/logos:apple.svg',
   NVDA: 'https://api.iconify.design/logos:nvidia.svg',
