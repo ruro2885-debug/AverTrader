@@ -28,12 +28,14 @@ import {
   Square,
   TrendingUp,
   TrendingDown,
-  Info
+  Info,
+  ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiTradingService } from '../services/aiTradingService';
 import { db, auth } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
+import { useAppNavigation } from '../contexts/NavigationContext';
 import { 
   AiSession, 
   AiRecommendation, 
@@ -83,11 +85,15 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
 
-  // Navigation state (restored from localStorage)
-  const [activeView, setActiveView] = useState<AiView>(() => {
-    const saved = safeStorage.getItem('aver_ai_active_view');
-    return (saved as AiView) || 'HOME';
-  });
+  // Navigation state managed centrally via useAppNavigation
+  const { currentLocation, navigateSubView, goBack } = useAppNavigation();
+  const [localActiveView, setLocalActiveView] = useState<AiView>('HOME');
+  const activeView: AiView = (currentLocation.subView as AiView) || localActiveView || 'HOME';
+
+  const setActiveView = useCallback((view: AiView) => {
+    setLocalActiveView(view);
+    navigateSubView(view === 'HOME' ? undefined : view);
+  }, [navigateSubView]);
 
   const activeTrades = useMemo(() => trades.filter(t => t.status === 'OPEN'), [trades]);
   const closedTrades = trades.filter(t => t.status === 'CLOSED');
@@ -645,6 +651,17 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
       {/* Main Interactive Work Area */}
       <div className="flex-1 min-w-0">
+        {activeView !== 'HOME' && (
+          <div className="flex items-center gap-2 mb-4">
+            <button
+              onClick={() => goBack()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back</span>
+            </button>
+          </div>
+        )}
         <AnimatePresence mode="wait">
           <motion.div
             key={activeView}

@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, ChevronRight, CheckCircle2, Fingerprint, RefreshCw, Loader2 } from 'lucide-react';
 import { usePreferences } from '../contexts/PreferencesContext';
+import { useAppNavigation } from '../contexts/NavigationContext';
 
 export default function Preferences({ theme, onBack }: { theme: 'light' | 'dark', onBack: () => void }) {
   const { preferences, updatePreference, resetPreferences, t } = usePreferences();
+  const { registerOverlay } = useAppNavigation();
   const isDark = theme === 'dark';
   const [view, setView] = useState<'main' | 'currency' | 'language'>('main');
   const [tempCurrency, setTempCurrency] = useState(preferences.currency);
@@ -28,6 +30,22 @@ export default function Preferences({ theme, onBack }: { theme: 'light' | 'dark'
     confirmLabel: '',
     onConfirm: () => {},
   });
+
+  useEffect(() => {
+    if (view !== 'main') {
+      return registerOverlay('preferences-subview', () => {
+        setView('main');
+      });
+    }
+  }, [view, registerOverlay]);
+
+  useEffect(() => {
+    if (dialog.show) {
+      return registerOverlay('preferences-dialog', () => {
+        setDialog(prev => ({ ...prev, show: false }));
+      });
+    }
+  }, [dialog.show, registerOverlay]);
 
   const showToast = (message: string) => {
     setToast(message);

@@ -563,7 +563,7 @@ export default function CopyTradeDashboard({ theme, onBack, initialSelectedTrade
                   className="group mb-2 flex items-center gap-1.5 text-xs font-black text-emerald-400 hover:text-emerald-300 transition-all cursor-pointer"
                 >
                   <ChevronRight className="w-4 h-4 rotate-180 transition-transform group-hover:-translate-x-0.5" />
-                  <span>Discover Feed</span>
+                  <span>Back</span>
                 </button>
                 <h2 className={`text-2xl font-black tracking-tight flex items-center gap-2 ${textPrimary}`}>
                   <Users className="w-6 h-6 text-emerald-400" /> Copy Trade

@@ -27,6 +27,7 @@ import AverLogo from '../AverLogo';
 import CoinLogo from '../CoinLogo';
 import VaultScreen from './VaultScreen';
 import AssetStatsScreen from './AssetStatsScreen';
+import { useAppNavigation } from '../../contexts/NavigationContext';
 
 interface PortfolioViewV2Props {
   theme: 'light' | 'dark';
@@ -925,7 +926,17 @@ export default function PortfolioViewV2({
   }, []);
 
   // Navigation mode to switch full-screen pages
-  const [viewMode, setViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+  const { currentLocation, navigateSubView, goBack } = useAppNavigation();
+  const [localViewMode, setLocalViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+  const viewMode: 'portfolio' | 'vault' | 'asset-stats' = 
+    (currentLocation.subView === 'vault' || currentLocation.subView === 'asset-stats') 
+      ? currentLocation.subView 
+      : localViewMode;
+
+  const setViewMode = useCallback((mode: 'portfolio' | 'vault' | 'asset-stats') => {
+    setLocalViewMode(mode);
+    navigateSubView(mode === 'portfolio' ? undefined : mode);
+  }, [navigateSubView]);
 
   const onViewModeChangeRef = useRef(onViewModeChange);
   useEffect(() => {
@@ -1781,7 +1792,7 @@ export default function PortfolioViewV2({
         <VaultScreen 
           key="vault"
           theme={theme}
-          onBack={() => setViewMode('portfolio')}
+          onBack={() => goBack()}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           showNotification={showNotification}
           vaultBalance={vaultBalance}
@@ -1795,7 +1806,7 @@ export default function PortfolioViewV2({
         <AssetStatsScreen 
           key="asset-stats"
           theme={theme}
-          onBack={() => setViewMode('portfolio')}
+          onBack={() => goBack()}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           allocations={liveAllocations}
         />

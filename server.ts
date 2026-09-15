@@ -432,6 +432,226 @@ async function startServer() {
     }
   });
 
+  // Rolling 24-Hour Inactivity Streak API
+  const FIREBASE_API_KEY = "AIzaSyDA2AcnxhGzSCdNClHFpF3rn2Af0ucWF94";
+  const FIREBASE_PROJECT_ID = "aver-d2136";
+  const FIRESTORE_BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+
+  async function getFirestoreUserDoc(userId: string) {
+    const url = `${FIRESTORE_BASE_URL}/users/${encodeURIComponent(userId)}?key=${FIREBASE_API_KEY}`;
+    const res = await fetch(url);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Firestore get error: ${res.status} ${txt}`);
+    }
+    return await res.json();
+  }
+
+  async function patchFirestoreUserDoc(userId: string, fieldsToUpdate: Record<string, any>, preconditionUpdateTime?: string) {
+    const fieldMask = Object.keys(fieldsToUpdate)
+      .map(f => `updateMask.fieldPaths=${encodeURIComponent(f)}`)
+      .join('&');
+    let url = `${FIRESTORE_BASE_URL}/users/${encodeURIComponent(userId)}?${fieldMask}&key=${FIREBASE_API_KEY}`;
+    if (preconditionUpdateTime) {
+      url += `&currentDocument.updateTime=${encodeURIComponent(preconditionUpdateTime)}`;
+    }
+
+    const fields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(fieldsToUpdate)) {
+      if (typeof v === 'number') {
+        fields[k] = Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+      } else if (typeof v === 'boolean') {
+        fields[k] = { booleanValue: v };
+      } else if (typeof v === 'string') {
+        fields[k] = { stringValue: v };
+      } else if (v === null) {
+        fields[k] = { nullValue: null };
+      }
+    }
+
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      const err: any = new Error(`Firestore patch error: ${res.status} ${txt}`);
+      err.status = res.status;
+      throw err;
+    }
+    return await res.json();
+  }
+
+  app.post(["/api/user/streak", "/api/user/activity"], async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+
+      const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+      // Qualifying duration before streak counter can advance (+1): 18 hours.
+      // This prevents rapid refreshes, tab switches, and multiple entries within the same
+      // activity session from inflating the streak, while allowing normal next-day entries (e.g. ~23h, 23h59m, 18h).
+      const MIN_INCREMENT_INTERVAL_MS = 18 * 60 * 60 * 1000;
+
+      // Retry loop for transactional atomic precondition updates
+      let attempts = 0;
+      while (attempts < 3) {
+        attempts++;
+        try {
+          const serverNow = Date.now();
+          const serverNowIso = new Date(serverNow).toISOString();
+          const doc = await getFirestoreUserDoc(userId);
+
+          if (!doc || !doc.fields) {
+            // New user entry
+            const initialStreak = 1;
+            const newFields = {
+              streak: initialStreak,
+              loginStreak: initialStreak,
+              lastActivityAt: serverNowIso,
+              lastLoginDate: serverNowIso,
+              lastStreakIncrementAt: serverNow,
+              lastUpdated: serverNowIso,
+            };
+            await patchFirestoreUserDoc(userId, newFields);
+            return res.json({
+              success: true,
+              streak: initialStreak,
+              loginStreak: initialStreak,
+              lastActivityAt: serverNowIso,
+              reset: false,
+              incremented: true,
+              elapsedMs: 0
+            });
+          }
+
+          const rawLastActivity = doc.fields?.lastActivityAt?.stringValue
+            || doc.fields?.lastLoginDate?.stringValue
+            || doc.fields?.lastLogin?.stringValue
+            || doc.fields?.lastLogin?.timestampValue;
+
+          const existingStreak = parseInt(doc.fields?.streak?.integerValue ?? doc.fields?.loginStreak?.integerValue ?? "0", 10);
+          const lastIncrementMs = parseInt(doc.fields?.lastStreakIncrementAt?.integerValue ?? "0", 10);
+          const lastResetMs = parseInt(doc.fields?.lastStreakResetAt?.integerValue ?? "0", 10);
+
+          let lastActivityMs: number | null = null;
+          if (rawLastActivity) {
+            const p = new Date(rawLastActivity).getTime();
+            if (!isNaN(p)) lastActivityMs = p;
+          }
+
+          // Case 1: First activity ever for existing user
+          if (!lastActivityMs) {
+            const initialStreak = 1;
+            const updates = {
+              streak: initialStreak,
+              loginStreak: initialStreak,
+              lastActivityAt: serverNowIso,
+              lastLoginDate: serverNowIso,
+              lastStreakIncrementAt: serverNow,
+              lastUpdated: serverNowIso,
+            };
+            await patchFirestoreUserDoc(userId, updates, doc.updateTime);
+            return res.json({
+              success: true,
+              streak: initialStreak,
+              loginStreak: initialStreak,
+              lastActivityAt: serverNowIso,
+              reset: false,
+              incremented: true,
+              elapsedMs: 0
+            });
+          }
+
+          const elapsedMs = serverNow - lastActivityMs;
+
+          // Case 2: Inactivity check - elapsed time is 24 full hours or greater
+          if (elapsedMs >= TWENTY_FOUR_HOURS_MS) {
+            // Inactivity rule: Streak resets to 0!
+            const updates = {
+              streak: 0,
+              loginStreak: 0,
+              lastActivityAt: serverNowIso,
+              lastLoginDate: serverNowIso,
+              lastStreakResetAt: serverNow,
+              lastStreakIncrementAt: 0,
+              lastUpdated: serverNowIso,
+            };
+            await patchFirestoreUserDoc(userId, updates, doc.updateTime);
+            return res.json({
+              success: true,
+              streak: 0,
+              loginStreak: 0,
+              lastActivityAt: serverNowIso,
+              reset: true,
+              incremented: false,
+              elapsedMs,
+            });
+          }
+
+          // Case 3: Elapsed time < 24 hours -> PRESERVE EXISTING STREAK
+          let currentStreak = isNaN(existingStreak) ? 0 : existingStreak;
+          let incremented = false;
+
+          // If streak was 0 (from prior reset) and user has returned in a new session (> 5 min cooldown)
+          if (currentStreak === 0) {
+            if (!lastResetMs || (serverNow - lastResetMs >= 5 * 60 * 1000)) {
+              currentStreak = 1;
+              incremented = true;
+            }
+          } else if (lastIncrementMs > 0) {
+            // Check if qualifying window has elapsed since last increment
+            const timeSinceIncrement = serverNow - lastIncrementMs;
+            if (timeSinceIncrement >= MIN_INCREMENT_INTERVAL_MS) {
+              currentStreak += 1;
+              incremented = true;
+            }
+          }
+
+          const updates: any = {
+            streak: currentStreak,
+            loginStreak: currentStreak,
+            lastActivityAt: serverNowIso,
+            lastLoginDate: serverNowIso,
+            lastUpdated: serverNowIso,
+          };
+
+          if (incremented) {
+            updates.lastStreakIncrementAt = serverNow;
+          }
+
+          await patchFirestoreUserDoc(userId, updates, doc.updateTime);
+
+          return res.json({
+            success: true,
+            streak: currentStreak,
+            loginStreak: currentStreak,
+            lastActivityAt: serverNowIso,
+            reset: false,
+            incremented,
+            elapsedMs,
+          });
+        } catch (retryErr: any) {
+          if (attempts >= 3 || retryErr.status !== 412) {
+            throw retryErr;
+          }
+          // Concurrency retry backoff
+          await new Promise(r => setTimeout(r, 50 * attempts));
+        }
+      }
+
+      return res.status(500).json({ error: "Failed to update streak after retries" });
+    } catch (error: any) {
+      console.error("[Server] /api/user/streak error:", error);
+      return res.status(500).json({ error: error?.message || "Failed to process streak activity" });
+    }
+  });
+
   // Sitemap & Search Engine Routes
   app.get("/sitemap.xml", (req, res) => {
     res.header("Content-Type", "application/xml; charset=utf-8");

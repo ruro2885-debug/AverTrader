@@ -12,6 +12,7 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { transactionService, getExplorerUrl } from '../services/transactionService';
 import { TransactionRecord } from '../types';
 import { safeStorage } from '../utils/storage';
+import { useAppNavigation } from '../contexts/NavigationContext';
 import CoinLogo from './CoinLogo';
 
 type TabType = 'transactions' | 'orders' | 'order-history';
@@ -83,6 +84,40 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
     }
   }, [selectedReceipt]);
 
+  const { registerOverlay } = useAppNavigation();
+
+  useEffect(() => {
+    if (selectedReceipt) {
+      return registerOverlay('tx-receipt-modal', () => {
+        setSelectedReceipt(null);
+      });
+    }
+  }, [selectedReceipt, registerOverlay]);
+
+  useEffect(() => {
+    if (activeFilterModal) {
+      return registerOverlay('tx-filter-modal', () => {
+        setActiveFilterModal(null);
+      });
+    }
+  }, [activeFilterModal, registerOverlay]);
+
+  useEffect(() => {
+    if (showReasonPopup) {
+      return registerOverlay('tx-reason-popup', () => {
+        setShowReasonPopup(false);
+      });
+    }
+  }, [showReasonPopup, registerOverlay]);
+
+  useEffect(() => {
+    if (showExplorerModal) {
+      return registerOverlay('tx-explorer-modal', () => {
+        setShowExplorerModal(false);
+      });
+    }
+  }, [showExplorerModal, registerOverlay]);
+
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -109,7 +144,6 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
     if (onOpenSupport) {
       onOpenSupport();
     } else {
-      safeStorage.setItem('aver_dashboard_tab', 'support');
       onBack();
     }
   };

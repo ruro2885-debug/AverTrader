@@ -807,8 +807,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 if (!prev) return prev;
                 return {
                   ...prev,
-                  loginStreak: pData.loginStreak !== undefined ? pData.loginStreak : prev.loginStreak,
-                  lastLoginDate: pData.lastLoginDate || prev.lastLoginDate,
+                  streak: pData.streak !== undefined ? pData.streak : (pData.loginStreak !== undefined ? pData.loginStreak : prev.streak),
+                  loginStreak: pData.loginStreak !== undefined ? pData.loginStreak : (pData.streak !== undefined ? pData.streak : prev.loginStreak),
+                  lastActivityAt: pData.lastActivityAt || pData.lastLoginDate || prev.lastActivityAt,
+                  lastLoginDate: pData.lastLoginDate || pData.lastActivityAt || prev.lastLoginDate,
                   xp: pData.xp !== undefined ? pData.xp : prev.xp,
                   level: pData.level !== undefined ? pData.level : prev.level,
                   insignias: pData.insignias || prev.insignias,
@@ -965,6 +967,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         riskPreference: 'Moderate',
         level: 1,
         xp: 0,
+        streak: 1,
+        loginStreak: 1,
+        lastActivityAt: new Date().toISOString(),
+        lastLoginDate: new Date().toISOString(),
         winRun: 0,
         aiTradesCount: 0,
         insignias: [],

@@ -213,6 +213,15 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
   const tokenBalanceRef = useRef(tokenBalance);
   const addFundsRef = useRef(addFundsToActiveBalance);
 
+  // Run token and intervals references to cancel stale writers immediately
+  const sessionRunTokenRef = useRef<number>(0);
+  const activeIntervalsRef = useRef<{
+    loggingInterval?: any;
+    tickInterval?: any;
+    positionInterval?: any;
+    orderTimeout?: any;
+  }>({});
+
   const isInitialSyncGracePeriod = useRef(true);
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1120,6 +1129,29 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       equityPoints: sessionPoints
     };
 
+    // 0. Invalidate run token and immediately clear background intervals
+    sessionRunTokenRef.current += 1;
+    if (activeIntervalsRef.current.tickInterval) {
+      clearInterval(activeIntervalsRef.current.tickInterval);
+      activeIntervalsRef.current.tickInterval = null;
+    }
+    if (activeIntervalsRef.current.positionInterval) {
+      clearInterval(activeIntervalsRef.current.positionInterval);
+      activeIntervalsRef.current.positionInterval = null;
+    }
+    if (activeIntervalsRef.current.loggingInterval) {
+      clearInterval(activeIntervalsRef.current.loggingInterval);
+      activeIntervalsRef.current.loggingInterval = null;
+    }
+    if (activeIntervalsRef.current.statusInterval) {
+      clearInterval(activeIntervalsRef.current.statusInterval);
+      activeIntervalsRef.current.statusInterval = null;
+    }
+    if (activeIntervalsRef.current.orderTimeout) {
+      clearTimeout(activeIntervalsRef.current.orderTimeout);
+      activeIntervalsRef.current.orderTimeout = null;
+    }
+
     equityService.saveCompletedSession(effectiveUid, completedSession);
     safeStorage.setItem(`aver_latest_completed_session_${effectiveUid}`, JSON.stringify(completedSession));
     safeStorage.setItem(`aver_session_end_cooldown_${effectiveUid}`, String(Date.now() + 6000));
@@ -1131,6 +1163,12 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     setSessionEquityPoints([]);
     sessionEquityPointsRef.current = [];
     setLocalStorageItem(`aver_session_${effectiveUid}`, null);
+    safeStorage.removeItem(`aver_session_${effectiveUid}`);
+    safeStorage.removeItem(`aver_session_state_${effectiveUid}`);
+    try {
+      localStorage.removeItem(`aver_session_${effectiveUid}`);
+      localStorage.removeItem(`aver_session_state_${effectiveUid}`);
+    } catch (e) {}
 
     try {
       // 4. Calculate new balances using rigorous P/L delta on existing portfolio balance (prevents double-counting & balance inflation)
@@ -1727,13 +1765,24 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     let positionInterval: NodeJS.Timeout;
     let orderTimeout: NodeJS.Timeout;
 
+    const runToken = ++sessionRunTokenRef.current;
+    
     // Add logging to ensure loops are firing
     loggingInterval = setInterval(() => {
-        console.log("[TradingEngineContext] Loops running, session active:", sessionRefVal.current?.status === 'ACTIVE');
+      if (sessionRunTokenRef.current !== runToken || sessionRefVal.current?.status !== 'ACTIVE') {
+        clearInterval(loggingInterval);
+        return;
+      }
+      console.log("[TradingEngineContext] Loops running, session active:", sessionRefVal.current?.status === 'ACTIVE');
     }, 5000);
+    activeIntervalsRef.current.loggingInterval = loggingInterval;
 
     // 1. HIGH-FREQUENCY LIVE PRICES TICKER & EQUITY PERFORMANCE RECORDING (Every 1000ms)
     tickInterval = setInterval(async () => {
+      if (sessionRunTokenRef.current !== runToken) {
+        clearInterval(tickInterval);
+        return;
+      }
       const currentSession = sessionRefVal.current;
       if (!currentSession || currentSession.status !== 'ACTIVE') {
         clearInterval(tickInterval);
@@ -1880,9 +1929,14 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         }));
       }
     }, 1000);
+    activeIntervalsRef.current.tickInterval = tickInterval;
 
     // 2. POSITION MANAGEMENT & LIFECYCLE (Every 3 seconds)
     positionInterval = setInterval(async () => {
+      if (sessionRunTokenRef.current !== runToken) {
+        clearInterval(positionInterval);
+        return;
+      }
       const currentSession = sessionRefVal.current;
       if (!userRef.current || !currentSession || currentSession.status !== 'ACTIVE') {
         clearInterval(positionInterval);
@@ -2319,6 +2373,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
       setEngineStatus(nextStatus);
     }, 1000);
+    activeIntervalsRef.current.statusInterval = statusInterval;
 
     return () => {
       clearInterval(tickInterval);

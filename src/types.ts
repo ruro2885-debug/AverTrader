@@ -53,8 +53,12 @@ export interface UserProfile {
   // Progression & Milestones
   level?: number;
   xp?: number;
+  streak?: number;
   loginStreak?: number;
+  lastActivityAt?: string;
   lastLoginDate?: string;
+  lastStreakIncrementAt?: number;
+  lastStreakResetAt?: number;
   winRun?: number;
   aiTradesCount?: number;
   insignias?: string[];

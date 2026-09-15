@@ -964,7 +964,6 @@ export default function ProfileView({
         <div className="mt-4 flex justify-center">
           <button 
             onClick={() => {
-              safeStorage.setItem('aver_dashboard_tab', 'profile');
               if (onOpenBonusCenter) onOpenBonusCenter();
             }}
             className={`flex items-center space-x-2 px-4 py-1.5 rounded-full border ${activeTier.badgeBorder} ${activeTier.badgeBg} ${activeTier.badgeGlow} transition-all cursor-pointer backdrop-blur-sm active:scale-95`}

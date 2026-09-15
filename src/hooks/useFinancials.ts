@@ -160,17 +160,16 @@ export const useFinancials = () => {
         if (s && (s.status === 'ACTIVE' || s.status === 'RUNNING')) {
           const cap = s.equity !== undefined ? s.equity : (s.tradingCapital || 0);
           setActiveSessionCapital(cap);
-        } else if (s && s.status !== 'ACTIVE' && s.status !== 'RUNNING') {
-          setActiveSessionCapital(0);
         } else {
-          setActiveSessionCapital(calculateActiveSessionCapital());
+          // Explicitly clear session capital when stopped or null; do not revive stale local data
+          setActiveSessionCapital(0);
         }
       };
 
       const handleRegistryUpdate = (e: Event) => {
         const customEvent = e as CustomEvent;
         const reg = customEvent?.detail;
-        if (reg) {
+        if (reg && typeof reg === 'object') {
           let total = 0;
           Object.values(reg).forEach((s: any) => {
             if (s && (s.status === 'ACTIVE' || s.status === 'RUNNING') && (s.userId === uId || !s.userId)) {
@@ -179,16 +178,20 @@ export const useFinancials = () => {
             }
           });
           setActiveSessionCapital(total);
+        } else {
+          setActiveSessionCapital(0);
         }
       };
 
       window.addEventListener('aver_session_updated', handleSessionUpdate);
       window.addEventListener('aver_sessions_registry_updated', handleRegistryUpdate);
 
-      // Initialize from local storage first for instant feedback
+      // Initialize from active session registry/local only if verified active
       const initialCap = calculateActiveSessionCapital();
       if (initialCap > 0) {
         setActiveSessionCapital(initialCap);
+      } else {
+        setActiveSessionCapital(0);
       }
 
       const isLocal = uId.startsWith('local-') || uId === 'guest_user';
@@ -216,8 +219,8 @@ export const useFinancials = () => {
             }, 0);
             setActiveSessionCapital(total);
           } else {
-            const localCap = calculateActiveSessionCapital();
-            setActiveSessionCapital(localCap);
+            // Firestore authoritative query confirms no active sessions!
+            setActiveSessionCapital(0);
           }
         }, (err) => {
           console.warn("Firestore sessions listener failed, using local/event state:", err);
@@ -238,87 +241,107 @@ export const useFinancials = () => {
       return sum + ((h.quantity || 0) * (h.currentPrice || 0));
     }, 0);
 
-    // 2. Active trading capital (Total isolated funds inside active AI trading engine(s))
+    // 2. Active trading capital (Isolated funds in active AI trading session)
     let aiTradingCapital = 0;
     if (activeSessionCapital > 0) {
       aiTradingCapital = activeSessionCapital;
-    } else if (typeof walletData?.aiTradingCapital === 'number' && walletData.aiTradingCapital > 0) {
+    } else if (typeof walletData?.aiTradingCapital === 'number' && walletData.aiTradingCapital > 0 && walletData?.userId === user?.uid) {
       aiTradingCapital = walletData.aiTradingCapital;
     } else if (typeof user?.aiTradingCapital === 'number' && user.aiTradingCapital > 0) {
       aiTradingCapital = user.aiTradingCapital;
     }
 
-    // 3. Authoritative Base Cash Balance (Wallet Balance / Available unallocated funds)
-    // Gather all candidate positive balance values
-    const positiveCandidates: number[] = [];
-    if (typeof user?.tokenBalance === 'number' && user.tokenBalance > 0) positiveCandidates.push(user.tokenBalance);
-    if (typeof user?.availableBalance === 'number' && user.availableBalance > 0) positiveCandidates.push(user.availableBalance);
-    if (typeof walletData?.tokenBalance === 'number' && walletData.tokenBalance > 0) positiveCandidates.push(walletData.tokenBalance);
-    if (typeof walletData?.availableBalance === 'number' && walletData.availableBalance > 0) positiveCandidates.push(walletData.availableBalance);
-    if (typeof user?.cashBalance === 'number' && user.cashBalance > 0) positiveCandidates.push(user.cashBalance);
-    if (typeof walletData?.cashBalance === 'number' && walletData.cashBalance > 0) positiveCandidates.push(walletData.cashBalance);
-
-    let tokenBalance = 0;
-    if (positiveCandidates.length > 0) {
-      tokenBalance = positiveCandidates[0];
-    } else {
-      if (typeof user?.portfolioBalance === 'number' && user.portfolioBalance > 0) {
-        tokenBalance = Math.max(0, user.portfolioBalance - aiTradingCapital);
-      } else if (typeof walletData?.portfolioBalance === 'number' && walletData.portfolioBalance > 0) {
-        tokenBalance = Math.max(0, walletData.portfolioBalance - aiTradingCapital);
-      } else if (typeof user?.portfolio?.totalValue === 'number' && user.portfolio.totalValue > 0) {
-        tokenBalance = Math.max(0, user.portfolio.totalValue - aiTradingCapital);
-      }
-    }
-
-    // Never overwrite an existing valid balance with $0.00 during loading, refreshes, or component remounts
-    const effectiveUid = user?.uid || auth.currentUser?.uid || 'default';
-    if (tokenBalance === 0 && aiTradingCapital === 0) {
-      const cachedLastKnown = lastKnownWalletBalances.get(effectiveUid) || lastKnownWalletBalances.get('default');
-      if (cachedLastKnown && cachedLastKnown > 0) {
-        tokenBalance = cachedLastKnown;
-      } else {
-        try {
-          const cachedUser = (user?.uid ? safeStorage.getItem(`user_profile_${user.uid}`) : null) || localStorage.getItem('aver_active_user');
-          if (cachedUser) {
-            const parsed = JSON.parse(cachedUser);
-            const foundBal = (typeof parsed.tokenBalance === 'number' && parsed.tokenBalance > 0)
-              ? parsed.tokenBalance
-              : ((typeof parsed.availableBalance === 'number' && parsed.availableBalance > 0)
-                ? parsed.availableBalance
-                : ((typeof parsed.portfolioBalance === 'number' && parsed.portfolioBalance > 0) ? parsed.portfolioBalance : 0));
-            if (foundBal > 0) {
-              tokenBalance = foundBal;
-            }
-          }
-        } catch (e) {}
-      }
-    }
-
-    // Persist latest verified positive balance to the module-level cache
-    if (tokenBalance > 0) {
-      lastKnownWalletBalances.set(effectiveUid, tokenBalance);
-      lastKnownWalletBalances.set('default', tokenBalance);
-    }
-    tokenBalance = Math.max(0, tokenBalance);
-
-    // 4. Vault Balance
+    // 3. Vault Balance
     const savedVaultBalStr = safeStorage.getItem('portfolio_vault_balance');
     const savedVaultBal = savedVaultBalStr !== null && savedVaultBalStr !== undefined && !isNaN(parseFloat(savedVaultBalStr)) ? parseFloat(savedVaultBalStr) : null;
     const vaultBalance = (user?.vaultBalance !== undefined && user?.vaultBalance !== null) 
       ? user.vaultBalance 
       : (savedVaultBal !== null ? savedVaultBal : (walletData?.vaultBalance ?? 0));
 
-    // 5. Unified Accounting Invariants:
-    // TOTAL NET BALANCE = WALLET BALANCE + ACTIVE ALLOCATED TRADING CAPITAL + VAULT + HOLDINGS
-    const calculatedConsolidatedTotal = tokenBalance + aiTradingCapital + vaultBalance + totalHoldingsValue;
+    // 4. Determine Authoritative Total Portfolio Net Equity
+    // A consolidated figure representing total user net worth in the app
+    let totalPortfolioNetEquity = 0;
+    if (typeof user?.portfolioBalance === 'number' && user.portfolioBalance > 0) {
+      totalPortfolioNetEquity = user.portfolioBalance;
+    } else if (typeof walletData?.portfolioBalance === 'number' && walletData.portfolioBalance > 0) {
+      totalPortfolioNetEquity = walletData.portfolioBalance;
+    } else if (typeof user?.portfolio?.totalValue === 'number' && user.portfolio.totalValue > 0) {
+      totalPortfolioNetEquity = user.portfolio.totalValue;
+    } else if (typeof walletData?.portfolioValue === 'number' && walletData.portfolioValue > 0) {
+      totalPortfolioNetEquity = walletData.portfolioValue;
+    }
 
-    const portfolioTotalNetBalance = calculatedConsolidatedTotal;
-    // HOME NET BALANCE = PORTFOLIO WALLET BALANCE (Authoritative single wallet balance)
+    // 5. Authoritative Base Wallet Cash Balance (Unallocated available funds)
+    // ROOT RULE: Allocating money to trading is a TRANSFER from wallet to session.
+    // If total portfolio cash is $2,000 and allocation is $1,000:
+    // Wallet = $1,000, Trading Capital = $1,000, Total = $2,000.
+    // We NEVER double-count!
+    let tokenBalance = 0;
+
+    if (aiTradingCapital > 0) {
+      // Session is active: wallet balance is the remaining unallocated liquid cash
+      const availableUnallocated = Math.max(0, totalPortfolioNetEquity - aiTradingCapital - vaultBalance - totalHoldingsValue);
+      
+      // Look for candidate unallocated wallet balances that don't exceed available unallocated
+      const candidateBal = typeof walletData?.availableBalance === 'number' && walletData.availableBalance < totalPortfolioNetEquity
+        ? walletData.availableBalance
+        : (typeof user?.availableBalance === 'number' && user.availableBalance < totalPortfolioNetEquity
+          ? user.availableBalance
+          : (typeof user?.tokenBalance === 'number' && user.tokenBalance < totalPortfolioNetEquity
+            ? user.tokenBalance
+            : availableUnallocated));
+
+      tokenBalance = Math.min(candidateBal, availableUnallocated);
+    } else {
+      // No active session: trading capital is strictly 0.
+      aiTradingCapital = 0;
+      
+      // Select authoritative unallocated cash
+      if (typeof walletData?.tokenBalance === 'number' && walletData.tokenBalance >= 0) {
+        tokenBalance = walletData.tokenBalance;
+      } else if (typeof user?.tokenBalance === 'number' && user.tokenBalance >= 0) {
+        tokenBalance = user.tokenBalance;
+      } else if (typeof user?.availableBalance === 'number' && user.availableBalance >= 0) {
+        tokenBalance = user.availableBalance;
+      } else if (typeof walletData?.availableBalance === 'number' && walletData.availableBalance >= 0) {
+        tokenBalance = walletData.availableBalance;
+      } else {
+        tokenBalance = Math.max(0, totalPortfolioNetEquity - vaultBalance - totalHoldingsValue);
+      }
+    }
+
+    // Never use generic 'default' cache; only cache for verified user ID
+    const effectiveUid = user?.uid || auth.currentUser?.uid;
+    if (effectiveUid) {
+      if (tokenBalance > 0) {
+        lastKnownWalletBalances.set(effectiveUid, tokenBalance);
+      } else if (tokenBalance === 0 && aiTradingCapital === 0 && totalPortfolioNetEquity === 0) {
+        const cached = lastKnownWalletBalances.get(effectiveUid);
+        if (cached && cached > 0) {
+          tokenBalance = cached;
+        }
+      }
+    }
+    tokenBalance = Math.max(0, tokenBalance);
+
+    // 6. Unified Accounting Invariant:
+    // TOTAL NET BALANCE = WALLET CASH + ACTIVE TRADING CAPITAL + VAULT + HOLDINGS
+    const calculatedConsolidatedTotal = tokenBalance + aiTradingCapital + vaultBalance + totalHoldingsValue;
+    const portfolioTotalNetBalance = Math.max(calculatedConsolidatedTotal, totalPortfolioNetEquity);
     const homeNetBalance = tokenBalance;
 
-    // 6. Portfolio Value
-    const portfolioValue = portfolioTotalNetBalance;
+    // INVARIANT ASSERTION & AUDIT LOGGING
+    if (walletBalanceInvalid(tokenBalance, aiTradingCapital)) {
+      console.error("FINANCE INVARIANT VIOLATION: Invalid balance or capital state", {
+        userId: effectiveUid || 'unknown',
+        walletBalance: tokenBalance,
+        tradingCapital: aiTradingCapital,
+        vaultBalance,
+        totalHoldingsValue,
+        totalEquity: portfolioTotalNetBalance,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     return {
       totalNetBalance: portfolioTotalNetBalance,
@@ -328,12 +351,16 @@ export const useFinancials = () => {
       vaultBalance,
       totalHoldingsValue,
       aiTradingCapital,
-      portfolioValue,
+      portfolioValue: portfolioTotalNetBalance,
       cashBalance: tokenBalance,
       tokenBalance,
       walletData
     };
   }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.availableBalance, user?.cashBalance, user?.vaultBalance, user?.holdings, walletData, activeSessionCapital]);
+
+  function walletBalanceInvalid(wBal: number, tCap: number): boolean {
+    return wBal < 0 || tCap < 0;
+  }
 
   const updateVaultBalance = useCallback(async (newBalance: number) => {
     const uid = user?.uid || auth.currentUser?.uid || 'local-user';

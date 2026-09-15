@@ -560,14 +560,19 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
                 <div className="inline-block px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest">
                   Status: Pending Admin Review
                 </div>
-                <h2 className="text-3xl font-bold tracking-tight text-white font-mono">
-                  -{cryptoEquivalent} {selectedAsset}
-                </h2>
+                <div className="pt-2">
+                  <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider block mb-1">
+                    Withdrawal Amount
+                  </span>
+                  <h2 className="text-3xl font-bold tracking-tight text-white font-mono">
+                    -{cryptoEquivalent} {selectedAsset}
+                  </h2>
+                </div>
                 <div className="text-xs text-neutral-400 font-medium">
                   ≈ {activeFiatInfo.symbol}{numericAmountInActiveFiat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeFiat}
                 </div>
                 <p className="text-xs text-neutral-400 leading-relaxed pt-1">
-                  Your withdrawal of <span className="text-white font-semibold">-{cryptoEquivalent} {selectedAsset}</span> has been submitted and is awaiting administrative governance confirmation.
+                  Your withdrawal request has been submitted successfully and is currently being reviewed by our administration team.
                 </p>
               </div>
 
@@ -646,7 +651,7 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
               onClick={onClose}
               className="w-full py-5 rounded-full bg-white text-black text-xs font-semibold uppercase tracking-[0.25em] transition hover:bg-neutral-200 cursor-pointer active:scale-[0.98]"
             >
-              Return to Dashboard
+              Done
             </button>
 
             <button

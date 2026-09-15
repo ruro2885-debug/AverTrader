@@ -42,6 +42,7 @@ import { useFinancials } from '../hooks/useFinancials';
 import { safeStorage } from '../utils/storage';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService, WalletData } from '../services/walletService';
+import { useAppNavigation } from '../contexts/NavigationContext';
 
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'history') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
@@ -140,44 +141,43 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
 
-  const [tabStack, setTabStack] = useState<string[]>(() => {
-    const saved = safeStorage.getItem('aver_dashboard_tab');
-    return ['home', ...(saved && saved !== 'home' ? [saved] : [])];
-  });
-  const activeTab = tabStack[tabStack.length - 1] || 'home';
+  const { currentLocation, navigateTab: navTab, navigateView, goBack, openModal, closeModal } = useAppNavigation();
+  const activeTab = currentLocation.tab || 'home';
 
-  const navigateTab = useCallback((tab: string) => {
-    setTabStack(prev => {
-      if (prev[prev.length - 1] === tab) return prev;
-      return [...prev, tab];
-    });
-    safeStorage.setItem('aver_dashboard_tab', tab);
-  }, []);
+  const navigateTab = useCallback((tab: string, options?: { asset?: string }) => {
+    navTab(tab, options);
+  }, [navTab]);
 
   const goBackTab = useCallback(() => {
-    setTabStack(prev => {
-      if (prev.length > 1) {
-        return prev.slice(0, -1);
-      }
-      return ['home'];
-    });
-  }, []);
+    goBack();
+  }, [goBack]);
 
-  const [supportBackTab, setSupportBackTab] = useState<string>('discover');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
   const [showClearTimelineModal, setShowClearTimelineModal] = useState(false);
 
-  React.useEffect(() => {
-    const checkTab = () => {
-      const savedTab = safeStorage.getItem('aver_dashboard_tab');
-      if (savedTab) {
-        navigateTab(savedTab);
-        safeStorage.removeItem('aver_dashboard_tab');
-      }
-    };
-    checkTab();
-  }, [navigateTab]);
+  const handleOpenWithdraw = useCallback(() => {
+    setAmount('');
+    setTxError('');
+    setTxSuccess('');
+    setShowWithdrawModal(true);
+    openModal('withdraw');
+  }, [openModal]);
+
+  const handleCloseWithdraw = useCallback(() => {
+    setShowWithdrawModal(false);
+    closeModal();
+  }, [closeModal]);
+
+  const handleOpenDeposit = useCallback(() => {
+    setShowDepositModal(true);
+    openModal('deposit');
+  }, [openModal]);
+
+  const handleCloseDeposit = useCallback(() => {
+    setShowDepositModal(false);
+    closeModal();
+  }, [closeModal]);
   const watchlist = useMemo(() => {
     if (user?.holdings && user.holdings.length > 0) {
       return user.holdings.map((h: any) => {
@@ -206,7 +206,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     setPortfolioViewMode(mode);
   }, []);
 
-  const [selectedAsset, setSelectedAsset] = useState('BTC');
+  const [selectedAssetLocal, setSelectedAssetLocal] = useState('BTC');
+  const selectedAsset = currentLocation.asset || selectedAssetLocal;
+  const setSelectedAsset = setSelectedAssetLocal;
 
   const [marketData, setMarketData] = useState<any[]>([]);
   const [marketLoading, setMarketLoading] = useState(true);
@@ -506,21 +508,20 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const totalAiTradesCount = Math.max(user?.aiTradesCount || 0, closedTradesCount);
   
   const loginStreak = (() => {
-    const rawStreak = user?.loginStreak;
-    const currentStreak = (typeof rawStreak === 'number' && rawStreak > 0) ? rawStreak : 1;
+    const rawStreak = user?.streak ?? user?.loginStreak;
+    const currentStreak = typeof rawStreak === 'number' ? rawStreak : 0;
     
-    // Check if the user missed more than 1 calendar day
-    const raw = user?.lastLoginDate || user?.lastLogin;
+    // Check if 24 full hours of inactivity have elapsed since last activity
+    const raw = user?.lastActivityAt || user?.lastLoginDate || user?.lastLogin;
     if (raw) {
-      const lastDate = typeof raw?.toDate === 'function' ? raw.toDate() : new Date(raw);
-      if (!isNaN(lastDate.getTime())) {
-        const now = new Date();
-        const lastMidnight = new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()).getTime();
-        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        const daysDiff = Math.round((todayMidnight - lastMidnight) / 86400000);
-        if (daysDiff > 1) {
-          // Missed an entire calendar day without logging in
-          return 1;
+      const lastTime = typeof raw?.toMillis === 'function'
+        ? raw.toMillis()
+        : (typeof raw?.toDate === 'function' ? raw.toDate().getTime() : new Date(raw).getTime());
+      if (!isNaN(lastTime)) {
+        const elapsed = Date.now() - lastTime;
+        // Inactive for 24 full hours: streak resets to 0
+        if (elapsed >= 24 * 60 * 60 * 1000) {
+          return 0;
         }
       }
     }
@@ -863,7 +864,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           </button>
           
           <button
-            onClick={() => setActiveTab('preferences')}
+            onClick={() => onNavigate('preferences')}
             className={`p-2 rounded-lg border transition-colors cursor-pointer ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${textSecondary}`}>
@@ -883,7 +884,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             <header className={`fixed top-0 left-0 lg:left-64 right-0 h-[50px] flex justify-between items-center px-4 lg:px-8 z-40 ${isDark ? 'bg-black/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
             <div className="flex items-center space-x-3">
               <button 
-                onClick={() => setActiveTab('profile')}
+                onClick={() => navigateTab('profile')}
                 className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-[1.5px] hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
               >
                 <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${isDark ? 'bg-black' : 'bg-white'}`}>
@@ -986,24 +987,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
                 <div className="flex justify-center gap-4">
                   <button 
-                    onClick={() => {
-                      setAmount('');
-                      setTxError('');
-                      setTxSuccess('');
-                      setShowDepositModal(true);
-                    }}
+                    onClick={handleOpenDeposit}
                     className="flex-1 max-w-[140px] flex flex-col items-center justify-center p-4 rounded-2xl bg-[#1a1a1a] border border-white/10 text-white font-bold text-xs sm:text-sm transition-all duration-300 hover:scale-105 hover:border-emerald-500/50 active:scale-95 shadow-lg cursor-pointer"
                   >
                     <img src="https://cdn-icons-png.flaticon.com/512/3050/3050249.png" alt="Deposit" className="w-6 h-6 mb-2 invert" />
                     <span>Deposit</span>
                   </button>
                   <button 
-                    onClick={() => {
-                      setAmount('');
-                      setTxError('');
-                      setTxSuccess('');
-                      setShowWithdrawModal(true);
-                    }}
+                    onClick={handleOpenWithdraw}
                     className="flex-1 max-w-[140px] flex flex-col items-center justify-center p-4 rounded-2xl bg-[#1a1a1a] border border-white/10 text-white font-bold text-xs sm:text-sm transition-all duration-300 hover:scale-105 hover:border-emerald-500/50 active:scale-95 shadow-lg cursor-pointer"
                   >
                     <img src="https://cdn-icons-png.flaticon.com/512/3050/3050250.png" alt="Withdraw" className="w-6 h-6 mb-2 invert" />
@@ -1040,7 +1031,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                               onClick={() => {
                                 if ((warning as any).onClick) (warning as any).onClick();
                                 if (warning.actionType === 'tab') {
-                                  setActiveTab(warning.targetTab);
+                                  navigateTab(warning.targetTab);
                                 } else if (warning.actionType === 'prop') {
                                   onNavigate(warning.actionName);
                                 }
@@ -1147,7 +1138,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <Flame className="w-4 h-4 text-orange-500 mx-auto mb-1 animate-pulse" />
                           <p className={`text-[10px] font-bold ${textSecondary}`}>Streak</p>
-                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{loginStreak} Days</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{loginStreak} {loginStreak === 1 ? 'Day' : 'Days'}</p>
                         </div>
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
@@ -1195,19 +1186,26 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               theme={theme} 
               onBack={goBackTab} 
               onNavigate={navigateTab}
-              onOpenDeposit={() => setShowDepositModal(true)}
-              onOpenWithdraw={() => setShowWithdrawModal(true)}
+              onOpenDeposit={handleOpenDeposit}
+              onOpenWithdraw={handleOpenWithdraw}
               onViewModeChange={setPortfolioViewMode}
             />
           )}
 
-          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details'); }} />}
-          {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={goBackTab} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => { setSupportBackTab('discover'); navigateTab('support'); }} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
-          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { navigateTab('home'); setShowDepositModal(true); }} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => { setSupportBackTab('profile'); navigateTab('support'); }} />}
+          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
+          {activeTab === 'coin-details' && (
+            <CoinDetailsPage 
+              asset={selectedAsset || currentLocation.asset || { symbol: 'BTC', name: 'Bitcoin', price: '$94,200', change: '+2.4%' }} 
+              theme={theme} 
+              onBack={goBackTab}
+              onTrade={(symbol) => navigateTab('ai', { asset: symbol })}
+            />
+          )}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
+          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} />}
           
-          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('home')} />}
+          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('ai')} />}
           {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}
           
           {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
@@ -1247,7 +1245,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 1. INSTITUTIONAL FULL-SCREEN DEPOSIT EXPERIENCE */}
       <AnimatePresence>
-        {showDepositModal && (
+        {(showDepositModal || currentLocation.modal === 'deposit') && (
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
@@ -1257,15 +1255,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           >
             <InstitutionalDepositPage 
               theme={theme}
-              onBack={() => setShowDepositModal(false)}
+              onBack={handleCloseDeposit}
               onSuccessDeposit={async (amountValue, method) => {
-                setShowDepositModal(false);
+                handleCloseDeposit();
               }}
               onOpenSupport={async (ticketData) => {
                 await saveSupportTicket(ticketData);
-                setShowDepositModal(false);
-                setSupportBackTab('discover');
-                setActiveTab('support');
+                handleCloseDeposit();
+                navigateTab('support');
               }}
             />
           </motion.div>
@@ -1274,13 +1271,15 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 2. DEDICATED FULL-SCREEN WITHDRAWAL EXPERIENCE */}
       <AnimatePresence>
-        {showWithdrawModal && (
+        {(showWithdrawModal || currentLocation.modal === 'withdraw') && (
           <InstitutionalWithdrawalPage 
-            onClose={() => setShowWithdrawModal(false)}
+            onClose={handleCloseWithdraw}
             onOpenHistory={() => {
-              setShowWithdrawModal(false);
+              handleCloseWithdraw();
               if (onNavigate) {
                 onNavigate('history');
+              } else {
+                navigateView('history');
               }
             }}
             theme={theme}

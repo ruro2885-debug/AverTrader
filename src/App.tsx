@@ -23,42 +23,33 @@ import TransactionHistory from './components/TransactionHistory';
 import AdminRoot from './components/admin/AdminRoot';
 import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
+import { NavigationProvider, useAppNavigation } from './contexts/NavigationContext';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
 import { safeStorage } from './utils/storage';
 
 export default function App() {
-  const { user, loading: authLoading } = useAuth();
-  
   return (
-    <TradingEngineProvider>
-      <AppContent />
-    </TradingEngineProvider>
+    <NavigationProvider>
+      <TradingEngineProvider>
+        <AppContent />
+      </TradingEngineProvider>
+    </NavigationProvider>
   );
 }
 
 function AppContent() {
   const { user, loading: authLoading, signOutUser } = useAuth();
-  
-  // Use stack-based view navigation for robust, immediate back button behavior
-  const [viewStack, setViewStack] = useState<string[]>(['home']);
-  const currentView = viewStack[viewStack.length - 1] || 'home';
+  const { currentLocation, navigate, navigateView, navigateTab, goBack } = useAppNavigation();
+  const currentView = currentLocation.view || 'home';
 
   const navigateToView = (view: string) => {
-    setViewStack(prev => {
-      if (prev[prev.length - 1] === view) return prev;
-      return [...prev, view];
-    });
+    navigateView(view);
   };
 
   const goBackView = () => {
-    setViewStack(prev => {
-      if (prev.length > 1) {
-        return prev.slice(0, -1);
-      }
-      return ['home'];
-    });
+    goBack();
   };
 
   const { preferences, updatePreference } = usePreferences();
@@ -76,9 +67,9 @@ function AppContent() {
     // Admin access must be triggered via the secret handshake in the NotFound view.
     if (path === '/admin' || search.includes('admin=true')) {
       // Force unauthorized admin attempts to the NotFound view for verification
-      navigateToView('not-found');
+      navigateView('not-found');
     } else if (path === '/404' || search.includes('404=true') || (path !== '/' && path !== '' && path !== '/index.html')) {
-      navigateToView('not-found');
+      navigateView('not-found');
     }
   }, []);
 
@@ -88,22 +79,14 @@ function AppContent() {
 
     // Handle session restoration and view management
     if (user) {
-      setViewStack(prev => {
-        const top = prev[prev.length - 1];
-        if (top === 'home' || top === 'auth') {
-          return ['dashboard'];
-        }
-        return prev;
-      });
+      if (currentView === 'home' || currentView === 'auth') {
+        navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
+      }
     } else {
       // If no user and we were on a protected view, go to login
-      setViewStack(prev => {
-        const top = prev[prev.length - 1];
-        if (top === 'dashboard' || top === 'referral-centre' || top === 'preferences' || top === 'bonus-center' || top === 'history' || top === 'kyc-verification' || top === 'deposit' || top === 'admin') {
-          return ['auth'];
-        }
-        return prev;
-      });
+      if (currentView === 'dashboard' || currentView === 'referral-centre' || currentView === 'preferences' || currentView === 'bonus-center' || currentView === 'history' || currentView === 'kyc-verification' || currentView === 'deposit' || currentView === 'admin') {
+        navigate('auth', { replace: true });
+      }
     }
   }, [user?.uid, authLoading]);
 
@@ -348,10 +331,7 @@ function AppContent() {
               } else if (tab === 'kyc-verification') {
                 navigateToView('kyc-verification');
               } else {
-                if (tab === 'ai') {
-                  safeStorage.setItem('aver_dashboard_tab', 'ai');
-                }
-                navigateToView('dashboard');
+                navigate({ view: 'dashboard', tab });
               }
             }}
           />
@@ -365,8 +345,7 @@ function AppContent() {
           <TransactionHistory 
             onBack={goBackView} 
             onOpenSupport={() => {
-              safeStorage.setItem('aver_dashboard_tab', 'support');
-              navigateToView('dashboard');
+              navigate({ view: 'dashboard', tab: 'support' });
             }}
           />
         ) : currentView === 'referral-centre' ? (

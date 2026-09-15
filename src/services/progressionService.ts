@@ -44,20 +44,24 @@ export const progressionService = {
     let updates: any = {};
 
     let currentWinRun = user.winRun ?? localProfile?.winRun ?? 0;
-    let currentLoginStreak = typeof user.loginStreak === 'number'
-      ? user.loginStreak
-      : (typeof localProfile?.loginStreak === 'number' ? localProfile.loginStreak : 0);
+    let currentLoginStreak = typeof user.streak === 'number'
+      ? user.streak
+      : (typeof user.loginStreak === 'number'
+        ? user.loginStreak
+        : (typeof localProfile?.streak === 'number'
+          ? localProfile.streak
+          : (typeof localProfile?.loginStreak === 'number' ? localProfile.loginStreak : 0)));
     let currentAiTrades = user.aiTradesCount ?? localProfile?.aiTradesCount ?? 0;
     
-    let rawLastLogin = user.lastLoginDate || localProfile?.lastLoginDate || user.lastLogin;
-    let lastLoginDate: string | undefined = undefined;
-    if (rawLastLogin) {
-      if (typeof rawLastLogin === 'string') {
-        lastLoginDate = rawLastLogin;
-      } else if (typeof rawLastLogin?.toDate === 'function') {
-        lastLoginDate = rawLastLogin.toDate().toISOString();
-      } else if (rawLastLogin instanceof Date) {
-        lastLoginDate = rawLastLogin.toISOString();
+    let rawLastActivity = user.lastActivityAt || user.lastLoginDate || localProfile?.lastActivityAt || localProfile?.lastLoginDate || user.lastLogin;
+    let lastActivityAt: string | undefined = undefined;
+    if (rawLastActivity) {
+      if (typeof rawLastActivity === 'string') {
+        lastActivityAt = rawLastActivity;
+      } else if (typeof rawLastActivity?.toDate === 'function') {
+        lastActivityAt = rawLastActivity.toDate().toISOString();
+      } else if (rawLastActivity instanceof Date) {
+        lastActivityAt = rawLastActivity.toISOString();
       }
     }
 
@@ -66,55 +70,114 @@ export const progressionService = {
         xpGain = 20;
         currentAiTrades += 1;
         updates.aiTradesCount = currentAiTrades;
+        updates.lastActivityAt = now.toISOString();
+        updates.lastLoginDate = now.toISOString();
         await this.completeDailyMission(userId, 'm2');
         break;
       case 'win':
         xpGain = 40;
         currentWinRun += 1;
         updates.winRun = currentWinRun;
+        updates.lastActivityAt = now.toISOString();
+        updates.lastLoginDate = now.toISOString();
         break;
       case 'loss':
         currentWinRun = 0;
         updates.winRun = 0;
+        updates.lastActivityAt = now.toISOString();
+        updates.lastLoginDate = now.toISOString();
         break;
       case 'login': {
-        // Accurate calendar day streak calculation
-        let calculatedStreak = typeof currentLoginStreak === 'number' && currentLoginStreak > 0 ? currentLoginStreak : 1;
-        
-        if (lastLoginDate) {
-          const lastDate = new Date(lastLoginDate);
-          if (!isNaN(lastDate.getTime())) {
-            // Compare calendar days normalized to midnight
-            const lastMidnight = new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()).getTime();
-            const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-            const daysDiff = Math.round((todayMidnight - lastMidnight) / (1000 * 60 * 60 * 24));
+        const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+        const MIN_INCREMENT_INTERVAL_MS = 18 * 60 * 60 * 1000;
+        let serverResult: any = null;
 
-            if (daysDiff === 0) {
-              // Same calendar day: preserve current streak, no duplicate increment
-              calculatedStreak = Math.max(1, calculatedStreak);
-              xpGain = 0;
-            } else if (daysDiff === 1) {
-              // Consecutive day login (active yesterday and today): increment streak!
-              calculatedStreak = Math.max(1, calculatedStreak) + 1;
-              xpGain = 10;
-            } else if (daysDiff > 1) {
-              // Missed one or more full calendar days: streak resets to 1 day (active today)
-              calculatedStreak = 1;
-              xpGain = 0;
-            }
-          } else {
-            calculatedStreak = Math.max(1, calculatedStreak);
+        // Attempt server-authoritative streak transaction first
+        try {
+          const res = await fetch('/api/user/streak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId })
+          });
+          if (res.ok) {
+            serverResult = await res.json();
           }
-        } else {
-          // First recorded login
-          calculatedStreak = Math.max(1, calculatedStreak);
-          xpGain = 10;
+        } catch (e) {
+          // Fallback to client-side logic below if network/fetch unavailable
         }
 
-        currentLoginStreak = calculatedStreak;
-        lastLoginDate = now.toISOString();
-        updates.loginStreak = currentLoginStreak;
-        updates.lastLoginDate = lastLoginDate;
+        if (serverResult && typeof serverResult.streak === 'number') {
+          currentLoginStreak = serverResult.streak;
+          lastActivityAt = serverResult.lastActivityAt;
+          updates.streak = serverResult.streak;
+          updates.loginStreak = serverResult.streak;
+          updates.lastActivityAt = serverResult.lastActivityAt;
+          updates.lastLoginDate = serverResult.lastActivityAt;
+          xpGain = serverResult.incremented ? 10 : 0;
+        } else {
+          // Fallback rolling 24-hour inactivity logic
+          const nowMs = now.getTime();
+          let lastActivityMs: number | null = null;
+          if (lastActivityAt) {
+            const p = new Date(lastActivityAt).getTime();
+            if (!isNaN(p)) lastActivityMs = p;
+          }
+
+          let calculatedStreak = typeof user.streak === 'number'
+            ? user.streak
+            : (typeof currentLoginStreak === 'number' ? currentLoginStreak : 0);
+
+          let incremented = false;
+
+          if (!lastActivityMs) {
+            // New user with no prior activity: initialize streak
+            calculatedStreak = 1;
+            incremented = true;
+          } else {
+            const elapsed = nowMs - lastActivityMs;
+            if (elapsed >= TWENTY_FOUR_HOURS_MS) {
+              // Inactive for 24 full hours: reset streak to 0
+              calculatedStreak = 0;
+              updates.lastStreakResetAt = nowMs;
+              updates.lastStreakIncrementAt = 0;
+            } else {
+              // Under 24 hours: PRESERVE STREAK
+              const rawLastInc = (user as any).lastStreakIncrementAt || (localProfile as any)?.lastStreakIncrementAt;
+              let lastIncMs = 0;
+              if (rawLastInc) {
+                const p = typeof rawLastInc === 'number' ? rawLastInc : new Date(rawLastInc).getTime();
+                if (!isNaN(p)) lastIncMs = p;
+              }
+
+              if (calculatedStreak === 0) {
+                const lastReset = (user as any).lastStreakResetAt || (localProfile as any)?.lastStreakResetAt || 0;
+                if (!lastReset || (nowMs - lastReset >= 5 * 60 * 1000)) {
+                  calculatedStreak = 1;
+                  incremented = true;
+                }
+              } else if (lastIncMs > 0) {
+                if (nowMs - lastIncMs >= MIN_INCREMENT_INTERVAL_MS) {
+                  calculatedStreak += 1;
+                  incremented = true;
+                }
+              } else {
+                lastIncMs = nowMs;
+              }
+            }
+          }
+
+          if (incremented) {
+            updates.lastStreakIncrementAt = nowMs;
+            xpGain = 10;
+          }
+
+          currentLoginStreak = calculatedStreak;
+          lastActivityAt = now.toISOString();
+          updates.streak = calculatedStreak;
+          updates.loginStreak = calculatedStreak;
+          updates.lastActivityAt = lastActivityAt;
+          updates.lastLoginDate = lastActivityAt;
+        }
         break;
       }
     }
@@ -139,12 +202,14 @@ export const progressionService = {
       ...user,
       ...localProfile,
       winRun: currentWinRun,
+      streak: currentLoginStreak,
       loginStreak: currentLoginStreak,
       aiTradesCount: currentAiTrades,
       xp: currentXp,
       level: currentLevel,
       insignias,
-      lastLoginDate
+      lastActivityAt: updates.lastActivityAt || lastActivityAt,
+      lastLoginDate: updates.lastLoginDate || lastActivityAt
     };
 
     try {

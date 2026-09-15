@@ -61,62 +61,52 @@ export const walletService = {
 
         if (snap.exists()) {
           const data = snap.data() as WalletData;
-          let pBalance = data.portfolioBalance;
-          if (!pBalance || pBalance === 0) {
-            const userCache = safeStorage.getItem(`user_profile_${userId}`);
-            if (userCache) {
-              try {
-                const uObj = JSON.parse(userCache);
-                pBalance = uObj.portfolioBalance || uObj.portfolio?.totalValue || 0;
-              } catch {}
-            }
-          }
-          if (!pBalance || pBalance === 0) {
-            pBalance = 0; // Default starting balance
-          }
+          const pBalance = typeof data.portfolioBalance === 'number' ? data.portfolioBalance : 0;
+          const aiTradingCapital = typeof data.aiTradingCapital === 'number' ? data.aiTradingCapital : 0;
+          const vaultBalance = typeof data.vaultBalance === 'number' ? data.vaultBalance : 0;
+          
+          // Unallocated liquid cash in wallet = portfolioBalance - vaultBalance - aiTradingCapital
+          const computedUnallocated = Math.max(0, pBalance - vaultBalance - aiTradingCapital);
+          const availableBalance = typeof data.availableBalance === 'number' ? Math.min(data.availableBalance, computedUnallocated) : computedUnallocated;
+          const tokenBalance = typeof data.tokenBalance === 'number' ? Math.min(data.tokenBalance, computedUnallocated) : availableBalance;
 
           const walletData: WalletData = {
             userId,
             portfolioBalance: pBalance,
-            availableBalance: data.availableBalance ?? pBalance,
-            vaultBalance: data.vaultBalance ?? 0,
-            aiTradingCapital: data.aiTradingCapital ?? 0,
-            portfolioValue: data.portfolioValue ?? pBalance,
+            availableBalance,
+            vaultBalance,
+            aiTradingCapital,
+            portfolioValue: typeof data.portfolioValue === 'number' ? data.portfolioValue : pBalance,
             totalDeposits: data.totalDeposits ?? 0,
             totalWithdrawals: data.totalWithdrawals ?? 0,
-            cashBalance: data.cashBalance ?? pBalance,
-            tokenBalance: data.tokenBalance ?? pBalance,
+            cashBalance: tokenBalance,
+            tokenBalance,
             updatedAt: data.updatedAt
           };
           safeStorage.setItem(`aver_wallet_${userId}`, JSON.stringify(walletData));
           return walletData;
         } else {
           // Document does not exist yet -> check cached user profile or use default starting capital
-          let cachedBalance = 0;
-          let cachedVault = 0;
-          const userCache = safeStorage.getItem(`user_profile_${userId}`);
-          if (userCache) {
-            try {
-              const uObj = JSON.parse(userCache);
-              cachedBalance = uObj.portfolioBalance || uObj.portfolio?.totalValue || 0;
-              cachedVault = uObj.vaultBalance || 0;
-            } catch {}
+          let initialBalance = 0;
+          let initialVault = 0;
+          if (initialDefaults?.portfolioBalance !== undefined) {
+            initialBalance = initialDefaults.portfolioBalance;
           }
-          if (!cachedBalance || cachedBalance === 0) {
-            cachedBalance = 0;
+          if (initialDefaults?.vaultBalance !== undefined) {
+            initialVault = initialDefaults.vaultBalance;
           }
 
           const newWallet: WalletData = {
             userId,
-            portfolioBalance: cachedBalance,
-            availableBalance: cachedBalance,
-            vaultBalance: cachedVault,
+            portfolioBalance: initialBalance,
+            availableBalance: initialBalance,
+            vaultBalance: initialVault,
             aiTradingCapital: 0,
-            portfolioValue: cachedBalance,
+            portfolioValue: initialBalance,
             totalDeposits: 0,
             totalWithdrawals: 0,
-            cashBalance: cachedBalance,
-            tokenBalance: cachedBalance,
+            cashBalance: initialBalance,
+            tokenBalance: initialBalance,
             ...(initialDefaults || {})
           };
           createdWalletIds.add(userId);
@@ -197,17 +187,23 @@ export const walletService = {
       if (snap.exists()) {
         const data = snap.data() as WalletData;
         const pBal = data.portfolioBalance ?? DEFAULT_WALLET_VALUES.portfolioBalance;
+        const vaultBal = data.vaultBalance ?? DEFAULT_WALLET_VALUES.vaultBalance;
+        const aiTradingCapital = data.aiTradingCapital ?? 0;
+        const computedUnallocated = Math.max(0, pBal - vaultBal - aiTradingCapital);
+        const availableBalance = typeof data.availableBalance === 'number' ? Math.min(data.availableBalance, computedUnallocated) : computedUnallocated;
+        const tokenBalance = typeof data.tokenBalance === 'number' ? Math.min(data.tokenBalance, computedUnallocated) : availableBalance;
+
         const walletData: WalletData = {
           userId,
           portfolioBalance: pBal,
-          availableBalance: data.availableBalance ?? pBal,
-          vaultBalance: data.vaultBalance ?? DEFAULT_WALLET_VALUES.vaultBalance,
-          aiTradingCapital: data.aiTradingCapital ?? 0,
+          availableBalance,
+          vaultBalance: vaultBal,
+          aiTradingCapital,
           portfolioValue: data.portfolioValue ?? pBal,
-          totalDeposits: data.totalDeposits ?? pBal,
+          totalDeposits: data.totalDeposits ?? 0,
           totalWithdrawals: data.totalWithdrawals ?? DEFAULT_WALLET_VALUES.totalWithdrawals,
-          cashBalance: data.cashBalance ?? pBal,
-          tokenBalance: data.tokenBalance ?? pBal,
+          cashBalance: tokenBalance,
+          tokenBalance,
           updatedAt: data.updatedAt
         };
         safeStorage.setItem(`aver_wallet_${userId}`, JSON.stringify(walletData));

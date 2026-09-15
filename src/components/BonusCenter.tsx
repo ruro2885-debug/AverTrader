@@ -412,14 +412,20 @@ export default function BonusCenter({
     }
   };
 
+  const handleBackOrClose = () => {
+    if (currentView !== 'main') {
+      setCurrentView('main');
+      setSelectedTask(null);
+    } else {
+      onBack();
+    }
+  };
+
   const renderHeader = (title: string, subtitle?: string, showHistory = false) => (
     <header className="flex justify-between items-center px-5 py-4 sticky top-0 bg-slate-950/80 backdrop-blur-xl z-20 border-b border-white/5">
       <div className="flex items-center gap-3">
         <button 
-          onClick={() => {
-            safeStorage.setItem('aver_dashboard_tab', 'profile');
-            onBack();
-          }} 
+          onClick={handleBackOrClose} 
           className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-all active:scale-95 text-emerald-500"
           aria-label="Go back"
         >
@@ -441,10 +447,7 @@ export default function BonusCenter({
           </button>
         )}
         <button 
-          onClick={() => {
-            safeStorage.setItem('aver_dashboard_tab', 'profile');
-            onBack();
-          }}
+          onClick={handleBackOrClose}
           className="p-2.5 bg-rose-500/10 rounded-xl border border-rose-500/20 text-rose-500 hover:bg-rose-500/20 transition-all active:scale-95"
           aria-label="Close"
         >
@@ -461,11 +464,11 @@ export default function BonusCenter({
     return (
       <div className="pb-12 bg-slate-950">
         <header className="flex justify-between items-center px-6 py-4 sticky top-0 bg-slate-950/80 backdrop-blur-md z-20 border-b border-white/5">
-          <button onClick={() => setCurrentView('main')} className="p-2 rounded-xl hover:bg-white/5 text-emerald-500">
+          <button onClick={handleBackOrClose} className="p-2 rounded-xl hover:bg-white/5 text-emerald-500">
             <ArrowLeft className="w-6 h-6" />
           </button>
           <h2 className="text-lg font-black text-white">Task Details</h2>
-          <button onClick={onBack} className="p-2 rounded-xl hover:bg-white/5 text-gray-400">
+          <button onClick={handleBackOrClose} className="p-2 rounded-xl hover:bg-white/5 text-gray-400">
             <X className="w-6 h-6" />
           </button>
         </header>
