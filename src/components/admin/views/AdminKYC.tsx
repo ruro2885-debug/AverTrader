@@ -6,7 +6,7 @@ import {
   ZoomIn, ZoomOut, RotateCcw, Filter, ChevronRight
 } from 'lucide-react';
 import { safeUpdateDoc, safeSetDoc } from '../../../lib/firebase';
-import { collection, onSnapshot, doc, serverTimestamp, query, where, getDocs, increment, arrayUnion, setDoc, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, serverTimestamp, query, where, getDocs, increment, arrayUnion, setDoc, addDoc } from 'firebase/firestore';
 import { db, auth } from '../../../lib/firebase';
 
 interface KYC {
@@ -275,25 +275,86 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
       setSelectedSubmission(null);
       setActionModal(null);
 
+      const reviewedTimestamp = new Date().toISOString();
+      const adminEmail = auth.currentUser?.email || 'admin@aver.io';
+
       const updatePayload: any = { 
         status,
-        reviewedAt: new Date().toISOString(),
-        reviewedByAdmin: auth.currentUser?.email || 'admin@aver.io'
+        reviewedAt: reviewedTimestamp,
+        reviewedByAdmin: adminEmail,
+        rejectionReason: reason || null
       };
-      if (reason) {
-        updatePayload.rejectionReason = reason;
+
+      // 1. Update specific submission doc in admin_kyc using safeSetDoc with merge
+      await safeSetDoc(doc(db, 'admin_kyc', id), updatePayload, { merge: true });
+      if (submission.id && submission.id !== id) {
+        await safeSetDoc(doc(db, 'admin_kyc', submission.id), updatePayload, { merge: true });
       }
 
-      // 1. Update specific submission doc in admin_kyc
-      await safeUpdateDoc(doc(db, 'admin_kyc', id), updatePayload);
+      // Resolve user target
+      let targetUserId = (submission.userId && submission.userId !== 'guest_user') ? submission.userId : null;
+      const targetEmail = submission.email ? submission.email.trim().toLowerCase() : null;
 
-      // 2. Local Storage Sync
+      // If targetUserId is not found or is guest, attempt to find user by email
+      if (!targetUserId && targetEmail) {
+        try {
+          const userQuery = query(collection(db, 'users'), where('email', '==', targetEmail));
+          const userSnap = await getDocs(userQuery);
+          if (!userSnap.empty) {
+            targetUserId = userSnap.docs[0].id;
+          }
+        } catch (e) {
+          console.warn("[AdminKYC] Could not query user by email:", e);
+        }
+      }
+
+      // Check current browser active user
+      try {
+        const activeUserStr = localStorage.getItem('aver_active_user');
+        if (activeUserStr) {
+          const activeUser = JSON.parse(activeUserStr);
+          if (activeUser?.uid && (!targetUserId || targetUserId === activeUser.uid || (targetEmail && activeUser.email?.toLowerCase() === targetEmail))) {
+            if (!targetUserId) targetUserId = activeUser.uid;
+          }
+        }
+      } catch (e) {}
+
+      // Update any other docs in admin_kyc matching targetUserId or targetEmail
+      try {
+        if (targetUserId) {
+          const userKycQ = query(collection(db, 'admin_kyc'), where('userId', '==', targetUserId));
+          const snap = await getDocs(userKycQ);
+          for (const d of snap.docs) {
+            await safeSetDoc(doc(db, 'admin_kyc', d.id), updatePayload, { merge: true });
+          }
+        }
+        if (targetEmail) {
+          const emailKycQ = query(collection(db, 'admin_kyc'), where('email', '==', targetEmail));
+          const snap = await getDocs(emailKycQ);
+          for (const d of snap.docs) {
+            await safeSetDoc(doc(db, 'admin_kyc', d.id), updatePayload, { merge: true });
+          }
+        }
+      } catch (err) {
+        console.warn("[AdminKYC] Error updating related admin_kyc docs:", err);
+      }
+
+      // 2. Local Storage Sync for aver_admin_kyc_local
       try {
         const local = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
         if (Array.isArray(local)) {
           const updatedLocal = local.map((item: any) => {
-            if (item.id === id) {
-              return { ...item, ...updatePayload };
+            const matchesId = item.id === id || item.id === submission.id;
+            const matchesUser = targetUserId && item.userId === targetUserId;
+            const matchesEmail = targetEmail && item.email && item.email.toLowerCase() === targetEmail;
+            if (matchesId || matchesUser || matchesEmail) {
+              return { 
+                ...item, 
+                ...updatePayload,
+                status,
+                rejectionReason: reason || null,
+                reviewedAt: reviewedTimestamp
+              };
             }
             return item;
           });
@@ -301,23 +362,69 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         }
       } catch (e) {}
 
-      // 3. Update User document status
-      if (submission.userId) {
+      // 3. Update User document in Firestore
+      if (targetUserId) {
         const userUpdate: any = {
           kycStatus: status === 'verified' ? 'verified' : status === 'rejected' ? 'rejected' : 'requires_resubmission',
           lastUpdated: serverTimestamp()
         };
 
+        // Fetch existing user data to ensure kycData and kycHistory are cleanly updated
+        try {
+          const userDocSnap = await getDoc(doc(db, 'users', targetUserId));
+          const existingUserData = userDocSnap.exists() ? userDocSnap.data() : null;
+
+          const updatedKycData = {
+            ...(existingUserData?.kycData || submission),
+            status,
+            rejectionReason: reason || null,
+            reviewedAt: reviewedTimestamp,
+            reviewedByAdmin: adminEmail
+          };
+          userUpdate.kycData = updatedKycData;
+
+          if (Array.isArray(existingUserData?.kycHistory)) {
+            const newHistory = existingUserData.kycHistory.map((h: any) => {
+              if (h.id === id || h.id === submission.id || (!h.id && h.submittedAt === submission.submittedAt)) {
+                return {
+                  ...h,
+                  status,
+                  rejectionReason: reason || null,
+                  reviewedAt: reviewedTimestamp
+                };
+              }
+              return h;
+            });
+            if (!newHistory.some((h: any) => h.id === id || h.id === submission.id)) {
+              newHistory.unshift(updatedKycData);
+            }
+            userUpdate.kycHistory = newHistory;
+          } else {
+            userUpdate.kycHistory = [updatedKycData];
+          }
+        } catch (fetchErr) {
+          console.warn("[AdminKYC] Could not fetch existing user doc:", fetchErr);
+          userUpdate.kycData = {
+            ...submission,
+            status,
+            rejectionReason: reason || null,
+            reviewedAt: reviewedTimestamp,
+            reviewedByAdmin: adminEmail
+          };
+          userUpdate.kycHistory = [userUpdate.kycData];
+        }
+
         if (status === 'verified') {
           userUpdate.kycRewardUnlocked = true;
-          userUpdate.kycApprovedAt = new Date().toISOString();
+          userUpdate.kycApprovedAt = reviewedTimestamp;
           userUpdate.kycRejectionReason = null;
+          userUpdate.kycResubmissionReason = null;
           
           // Auto-fund logic: Find pending deposits and approve them
           try {
             const depositsQ = query(
               collection(db, 'admin_deposits'), 
-              where('userId', '==', submission.userId),
+              where('userId', '==', targetUserId),
               where('status', '==', 'pending')
             );
             const depositSnap = await getDocs(depositsQ);
@@ -360,7 +467,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
                   type: 'success'
                 };
 
-                await safeSetDoc(doc(db, 'users', submission.userId), {
+                await safeSetDoc(doc(db, 'users', targetUserId), {
                   portfolioBalance: increment(amount),
                   availableBalance: increment(amount),
                   totalDeposits: increment(amount),
@@ -379,12 +486,82 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         } else if (status === 'rejected') {
           userUpdate.kycRewardUnlocked = false;
           userUpdate.kycRejectionReason = reason;
+          userUpdate.kycResubmissionReason = null;
         } else if (status === 'requires_resubmission') {
           userUpdate.kycRewardUnlocked = false;
           userUpdate.kycResubmissionReason = reason;
+          userUpdate.kycRejectionReason = reason;
         }
 
-        await setDoc(doc(db, 'users', submission.userId), userUpdate, { merge: true });
+        await safeSetDoc(doc(db, 'users', targetUserId), userUpdate, { merge: true });
+
+        // Update local storage user caches
+        try {
+          const profKey = `user_profile_${targetUserId}`;
+          const cachedProfStr = localStorage.getItem(profKey);
+          if (cachedProfStr) {
+            const cachedProf = JSON.parse(cachedProfStr);
+            cachedProf.kycStatus = userUpdate.kycStatus;
+            cachedProf.kycData = userUpdate.kycData;
+            cachedProf.kycHistory = userUpdate.kycHistory;
+            cachedProf.kycRejectionReason = userUpdate.kycRejectionReason;
+            cachedProf.kycResubmissionReason = userUpdate.kycResubmissionReason;
+            cachedProf.kycRewardUnlocked = userUpdate.kycRewardUnlocked;
+            localStorage.setItem(profKey, JSON.stringify(cachedProf));
+          }
+
+          const activeUserStr = localStorage.getItem('aver_active_user');
+          if (activeUserStr) {
+            const activeUser = JSON.parse(activeUserStr);
+            if (activeUser.uid === targetUserId || (targetEmail && activeUser.email?.toLowerCase() === targetEmail)) {
+              activeUser.kycStatus = userUpdate.kycStatus;
+              activeUser.kycData = userUpdate.kycData;
+              activeUser.kycHistory = userUpdate.kycHistory;
+              activeUser.kycRejectionReason = userUpdate.kycRejectionReason;
+              activeUser.kycResubmissionReason = userUpdate.kycResubmissionReason;
+              activeUser.kycRewardUnlocked = userUpdate.kycRewardUnlocked;
+              localStorage.setItem('aver_active_user', JSON.stringify(activeUser));
+            }
+          }
+
+          const averProfileStr = localStorage.getItem('aver_user_profile');
+          if (averProfileStr) {
+            const averProfile = JSON.parse(averProfileStr);
+            if (averProfile.uid === targetUserId || (targetEmail && averProfile.email?.toLowerCase() === targetEmail)) {
+              averProfile.kycStatus = userUpdate.kycStatus;
+              averProfile.kycData = userUpdate.kycData;
+              averProfile.kycHistory = userUpdate.kycHistory;
+              averProfile.kycRejectionReason = userUpdate.kycRejectionReason;
+              averProfile.kycResubmissionReason = userUpdate.kycResubmissionReason;
+              averProfile.kycRewardUnlocked = userUpdate.kycRewardUnlocked;
+              localStorage.setItem('aver_user_profile', JSON.stringify(averProfile));
+            }
+          }
+
+          const localDbStr = localStorage.getItem('aver_local_db');
+          if (localDbStr) {
+            const localDb = JSON.parse(localDbStr);
+            if (Array.isArray(localDb)) {
+              const updatedDb = localDb.map((u: any) => {
+                if (u.id === targetUserId || (targetEmail && u.email?.toLowerCase() === targetEmail)) {
+                  return {
+                    ...u,
+                    profile: {
+                      ...(u.profile || {}),
+                      kycStatus: userUpdate.kycStatus,
+                      kycData: userUpdate.kycData,
+                      kycHistory: userUpdate.kycHistory,
+                      kycRejectionReason: userUpdate.kycRejectionReason,
+                      kycResubmissionReason: userUpdate.kycResubmissionReason
+                    }
+                  };
+                }
+                return u;
+              });
+              localStorage.setItem('aver_local_db', JSON.stringify(updatedDb));
+            }
+          }
+        } catch (e) {}
 
         let notifTitle = '';
         let notifBody = '';
@@ -400,7 +577,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         }
 
         await addDoc(collection(db, 'notifications'), {
-          userId: submission.userId,
+          userId: targetUserId,
           category: 'security',
           priority: 'high',
           title: notifTitle,
@@ -410,8 +587,22 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         }).catch(() => {});
       }
 
-      // Update local React state instantly
-      setSubmissions(prev => prev.map(s => s.id === id ? { ...s, ...updatePayload } : s));
+      // 4. Dispatch custom sync events so any active user screen updates in real time
+      window.dispatchEvent(new CustomEvent('aver_kyc_status_changed', {
+        detail: {
+          id,
+          userId: targetUserId,
+          email: targetEmail,
+          status,
+          reason
+        }
+      }));
+      window.dispatchEvent(new Event('aver_user_updated'));
+      window.dispatchEvent(new Event('aver_kyc_submitted'));
+      window.dispatchEvent(new Event('storage'));
+
+      // Update local React state instantly in Admin view
+      setSubmissions(prev => prev.map(s => (s.id === id || s.id === submission.id) ? { ...s, ...updatePayload } : s));
 
       showToast(status === 'verified' ? 'Verification Complete & Account Funded' : `KYC submission status updated to ${status}`);
     } catch (err: any) {

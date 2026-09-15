@@ -70,13 +70,25 @@ export function getKycTimestamp(sub: any): number {
 
 // Consolidates all candidate KYC records across memory, user profile, kycHistory, localStorage, and Firestore
 export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
+  // If user is explicitly set to unverified and no extra docs from active query, start fresh
+  if (user?.kycStatus === 'unverified' && (!extraDocs || extraDocs.length === 0)) {
+    return [];
+  }
+
   const map = new Map<string, any>();
 
   // 1. Load from user.kycData (the active submission on active user profile)
   if (user?.kycData && typeof user.kycData === 'object') {
     const kData = user.kycData;
     const id = kData.id || `kyc_${user?.uid || 'user'}_active`;
-    map.set(id, { ...kData, id, userId: user?.uid || kData.userId });
+    const resolvedStatus = (user?.kycStatus && user.kycStatus !== 'unverified') ? user.kycStatus : (kData.status || 'pending');
+    map.set(id, { 
+      ...kData, 
+      id, 
+      status: resolvedStatus, 
+      rejectionReason: user?.kycRejectionReason || kData.rejectionReason || null,
+      userId: user?.uid || kData.userId 
+    });
   }
 
   // 2. Load from user.kycHistory (array of past and current submissions on user profile)
@@ -95,21 +107,23 @@ export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
   if (user?.uid) {
     try {
       const cached = JSON.parse(localStorage.getItem(`user_profile_${user.uid}`) || '{}');
-      if (cached.kycData && typeof cached.kycData === 'object') {
-        const id = cached.kycData.id || `cached_${user.uid}`;
-        if (!map.has(id)) {
-          map.set(id, { ...cached.kycData, id, userId: user.uid });
-        }
-      }
-      if (Array.isArray(cached.kycHistory)) {
-        cached.kycHistory.forEach((h: any, idx: number) => {
-          if (h && typeof h === 'object') {
-            const id = h.id || `cached_hist_${idx}`;
-            if (!map.has(id)) {
-              map.set(id, { ...h, id, userId: user.uid });
-            }
+      if (cached.kycStatus !== 'unverified') {
+        if (cached.kycData && typeof cached.kycData === 'object') {
+          const id = cached.kycData.id || `cached_${user.uid}`;
+          if (!map.has(id)) {
+            map.set(id, { ...cached.kycData, id, userId: user.uid });
           }
-        });
+        }
+        if (Array.isArray(cached.kycHistory)) {
+          cached.kycHistory.forEach((h: any, idx: number) => {
+            if (h && typeof h === 'object') {
+              const id = h.id || `cached_hist_${idx}`;
+              if (!map.has(id)) {
+                map.set(id, { ...h, id, userId: user.uid });
+              }
+            }
+          });
+        }
       }
     } catch (e) {}
   }
@@ -171,6 +185,11 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
   // Derive effective status to avoid Step 1 flicker during reload and preserve pending status across sessions
   const effectiveStatus = useMemo(() => {
+    // If the user's kycStatus is explicitly set to 'unverified' and user didn't just submit right now:
+    if (user?.kycStatus === 'unverified' && !submittedSuccess) {
+      return 'unverified';
+    }
+
     // 1. Check user.kycStatus first (instant from auth/profile)
     if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
 
@@ -182,6 +201,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     // 3. Check cached profile if Firestore user is still loading or doesn't have status
     try {
       const cached = JSON.parse(localStorage.getItem(`user_profile_${user?.uid}`) || localStorage.getItem('aver_user_profile') || '{}');
+      if (cached.kycStatus === 'unverified' && !submittedSuccess) return 'unverified';
       if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
       if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
     } catch (e) {}
@@ -190,7 +210,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     try {
       const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
       if (Array.isArray(locals) && locals.length > 0) {
-        const userLocal = locals.find((item: any) => !user?.uid || item.userId === user.uid || item.userId === 'guest_user' || item.email === user?.email);
+        const userLocal = locals.find((item: any) => !user?.uid || item.userId === user.uid || item.userId === 'guest_user' || (user?.email && item.email && item.email.toLowerCase() === user.email.toLowerCase()));
         if (userLocal?.status && userLocal.status !== 'unverified') return userLocal.status;
       }
     } catch (e) {}
@@ -198,7 +218,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     if (submittedSuccess) return 'pending';
     
     return 'unverified';
-  }, [user?.kycStatus, submittedSuccess, user?.uid, latestSubmission]);
+  }, [user?.kycStatus, submittedSuccess, user?.uid, user?.email, latestSubmission]);
 
   useEffect(() => {
     // If status is verified, show it briefly then complete
@@ -211,55 +231,69 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   }, [effectiveStatus, submittedSuccess, onComplete]);
 
   useEffect(() => {
-    // Initial sync
-    const initialList = resolveUserSubmissions(user);
-    if (initialList.length > 0) {
-      setLatestSubmission(initialList[0]);
-    }
-
-    if (!user?.uid) {
-      return;
-    }
-
-    // Real-time listener for admin_kyc collection
-    const q = query(
-      collection(db, 'admin_kyc'),
-      where('userId', '==', user.uid)
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      const firestoreDocs = snap.empty ? [] : snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const updatedList = resolveUserSubmissions(user, firestoreDocs);
-      if (updatedList.length > 0) {
-        setLatestSubmission(updatedList[0]);
-      }
-    }, (err) => {
-      console.warn("[KYC] Failed to listen to admin_kyc:", err);
-      const fallbackList = resolveUserSubmissions(user);
-      if (fallbackList.length > 0) {
-        setLatestSubmission(fallbackList[0]);
-      }
-    });
-
     // Real-time listener for local storage and window submission events
-    const handleSync = () => {
+    const handleSync = (e?: any) => {
+      // If a specific kyc status change was broadcast
+      if (e?.type === 'aver_kyc_status_changed' && e.detail) {
+        const detail = e.detail;
+        const isMatch = !user?.uid || detail.userId === user.uid || (user?.email && detail.email?.toLowerCase() === user.email.toLowerCase());
+        if (isMatch) {
+          setLatestSubmission((prev: any) => ({
+            ...(prev || {}),
+            status: detail.status,
+            rejectionReason: detail.reason,
+            reviewedAt: new Date().toISOString()
+          }));
+        }
+      }
+
       const updatedList = resolveUserSubmissions(user);
       if (updatedList.length > 0) {
         setLatestSubmission(updatedList[0]);
+      } else if (user?.kycStatus === 'unverified') {
+        setLatestSubmission(null);
       }
     };
+
+    // Initial sync
+    handleSync();
 
     window.addEventListener('storage', handleSync);
     window.addEventListener('aver_kyc_submitted', handleSync);
     window.addEventListener('aver_user_updated', handleSync);
+    window.addEventListener('aver_kyc_status_changed', handleSync);
+
+    // Real-time listener for admin_kyc collection
+    let unsub: (() => void) | null = null;
+    if (user?.uid) {
+      const q = query(
+        collection(db, 'admin_kyc'),
+        where('userId', '==', user.uid)
+      );
+
+      unsub = onSnapshot(q, (snap) => {
+        const firestoreDocs = snap.empty ? [] : snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const updatedList = resolveUserSubmissions(user, firestoreDocs);
+        if (updatedList.length > 0) {
+          setLatestSubmission(updatedList[0]);
+        }
+      }, (err) => {
+        console.warn("[KYC] Failed to listen to admin_kyc:", err);
+        const fallbackList = resolveUserSubmissions(user);
+        if (fallbackList.length > 0) {
+          setLatestSubmission(fallbackList[0]);
+        }
+      });
+    }
 
     return () => {
-      unsub();
+      if (unsub) unsub();
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('aver_kyc_submitted', handleSync);
       window.removeEventListener('aver_user_updated', handleSync);
+      window.removeEventListener('aver_kyc_status_changed', handleSync);
     };
-  }, [user?.uid, user?.kycData, user?.kycHistory]);
+  }, [user?.uid, user?.email, user?.kycStatus, user?.kycData, user?.kycHistory]);
 
   // Form Data
   const [formData, setFormData] = useState({
@@ -484,12 +518,70 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         }));
       }
 
+      // 1. Clear component states immediately so effectiveStatus turns 'unverified'
+      setLatestSubmission(null);
+      setSubmittedSuccess(false);
+
+      // 2. Clear localStorage caches
       if (user?.uid) {
+        try {
+          const profKey = `user_profile_${user.uid}`;
+          const cached = JSON.parse(localStorage.getItem(profKey) || '{}');
+          delete cached.kycData;
+          cached.kycStatus = 'unverified';
+          delete cached.kycRejectionReason;
+          delete cached.kycResubmissionReason;
+          localStorage.setItem(profKey, JSON.stringify(cached));
+
+          const activeUser = JSON.parse(localStorage.getItem('aver_active_user') || '{}');
+          if (activeUser.uid === user.uid || (user.email && activeUser.email?.toLowerCase() === user.email.toLowerCase())) {
+            delete activeUser.kycData;
+            activeUser.kycStatus = 'unverified';
+            delete activeUser.kycRejectionReason;
+            delete activeUser.kycResubmissionReason;
+            localStorage.setItem('aver_active_user', JSON.stringify(activeUser));
+          }
+
+          const averProfile = JSON.parse(localStorage.getItem('aver_user_profile') || '{}');
+          if (averProfile.uid === user.uid || (user.email && averProfile.email?.toLowerCase() === user.email.toLowerCase())) {
+            delete averProfile.kycData;
+            averProfile.kycStatus = 'unverified';
+            delete averProfile.kycRejectionReason;
+            delete averProfile.kycResubmissionReason;
+            localStorage.setItem('aver_user_profile', JSON.stringify(averProfile));
+          }
+
+          // Remove or archive this user's active submission from aver_admin_kyc_local
+          const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
+          if (Array.isArray(locals)) {
+            const updatedLocals = locals.filter((k: any) => k.userId !== user.uid && (!user.email || k.email?.toLowerCase() !== user.email.toLowerCase()));
+            localStorage.setItem('aver_admin_kyc_local', JSON.stringify(updatedLocals));
+          }
+        } catch (e) {}
+
+        // 3. Update AuthContext profile
+        await updateProfile({
+          kycStatus: 'unverified',
+          kycData: null,
+          kycRejectionReason: null,
+          kycResubmissionReason: null
+        }, undefined, undefined, true);
+
+        // 4. Update Firestore user doc explicitly
         await safeSetDoc(doc(db, 'users', user.uid), {
           kycStatus: 'unverified',
+          kycData: null,
+          kycRejectionReason: null,
+          kycResubmissionReason: null,
           lastUpdated: serverTimestamp()
         }, { merge: true });
       }
+
+      // 5. Broadcast update events
+      window.dispatchEvent(new Event('aver_user_updated'));
+      window.dispatchEvent(new Event('aver_kyc_submitted'));
+      window.dispatchEvent(new Event('storage'));
+
       setStep(1);
     } catch (err: any) {
       console.error("Failed to restart KYC:", err);
@@ -765,6 +857,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
               <div className="flex flex-col md:flex-row items-center gap-4 pt-4">
                 {['rejected', 'requires_resubmission'].includes(effectiveStatus || '') && (
                   <button 
+                    id="resubmit-kyc-btn"
                     onClick={handleRestartVerification}
                     disabled={submitting}
                     className="w-full md:w-auto px-8 py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm transition-all shadow-xl shadow-emerald-500/10 flex-1 text-center"
@@ -772,15 +865,41 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                     {submitting ? 'Resetting...' : 'Resubmit & Restart Verification'}
                   </button>
                 )}
+
+                {effectiveStatus === 'pending' && (
+                  <button 
+                    id="restart-pending-kyc-btn"
+                    onClick={handleRestartVerification}
+                    disabled={submitting}
+                    className="w-full md:w-auto px-6 py-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-500 dark:text-amber-400 font-bold text-sm transition-all flex-1 text-center"
+                  >
+                    {submitting ? 'Resetting...' : 'Cancel & Submit New Application'}
+                  </button>
+                )}
+
                 <button 
+                  id="refresh-kyc-status-btn"
+                  onClick={() => {
+                    const list = resolveUserSubmissions(user);
+                    if (list.length > 0) setLatestSubmission(list[0]);
+                    window.dispatchEvent(new Event('aver_user_updated'));
+                  }}
+                  className="w-full md:w-auto px-6 py-4 rounded-2xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 font-bold text-sm text-center flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh Status
+                </button>
+
+                <button 
+                  id="close-kyc-status-btn"
                   onClick={onBack}
                   className={`w-full md:w-auto px-8 py-4 rounded-2xl border font-bold text-sm text-center ${
-                    ['rejected', 'requires_resubmission'].includes(effectiveStatus || '') 
+                    ['rejected', 'requires_resubmission', 'pending'].includes(effectiveStatus || '') 
                       ? 'border-slate-300 hover:bg-slate-100 text-slate-700 dark:border-white/10 dark:hover:bg-white/5 dark:text-slate-300 md:flex-initial'
                       : 'bg-emerald-500 text-slate-950 font-black hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 flex-1'
                   }`}
                 >
-                  {['rejected', 'requires_resubmission'].includes(effectiveStatus || '') ? 'Close' : 'Return to Bonus Center'}
+                  {['rejected', 'requires_resubmission'].includes(effectiveStatus || '') ? 'Close' : effectiveStatus === 'pending' ? 'Back to App' : 'Return to Bonus Center'}
                 </button>
               </div>
             </motion.div>

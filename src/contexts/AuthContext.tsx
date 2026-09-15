@@ -813,7 +813,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   level: pData.level !== undefined ? pData.level : prev.level,
                   insignias: pData.insignias || prev.insignias,
                   winRun: pData.winRun !== undefined ? pData.winRun : prev.winRun,
-                  aiTradesCount: pData.aiTradesCount !== undefined ? pData.aiTradesCount : prev.aiTradesCount
+                  aiTradesCount: pData.aiTradesCount !== undefined ? pData.aiTradesCount : prev.aiTradesCount,
+                  kycStatus: pData.kycStatus !== undefined ? pData.kycStatus : prev.kycStatus,
+                  kycData: pData.kycData !== undefined ? pData.kycData : prev.kycData,
+                  kycHistory: pData.kycHistory !== undefined ? pData.kycHistory : prev.kycHistory,
+                  kycRewardUnlocked: pData.kycRewardUnlocked !== undefined ? pData.kycRewardUnlocked : prev.kycRewardUnlocked,
+                  kycApprovedAt: pData.kycApprovedAt !== undefined ? pData.kycApprovedAt : prev.kycApprovedAt,
+                  kycRejectionReason: pData.kycRejectionReason !== undefined ? pData.kycRejectionReason : prev.kycRejectionReason,
+                  kycResubmissionReason: pData.kycResubmissionReason !== undefined ? pData.kycResubmissionReason : prev.kycResubmissionReason
                 };
               });
             }
@@ -821,13 +828,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
     };
+
+    const handleKycStatusChanged = (e: any) => {
+      if (e?.detail) {
+        const { userId, email, status, reason } = e.detail;
+        setUser(prev => {
+          if (!prev) return prev;
+          const matches = (userId && prev.uid === userId) || (email && prev.email?.toLowerCase() === email.toLowerCase()) || !auth.currentUser;
+          if (matches) {
+            return {
+              ...prev,
+              kycStatus: status,
+              kycRejectionReason: reason || null,
+              kycRewardUnlocked: status === 'verified' ? true : prev.kycRewardUnlocked,
+              kycApprovedAt: status === 'verified' ? new Date().toISOString() : prev.kycApprovedAt,
+              kycData: prev.kycData ? { ...prev.kycData, status, rejectionReason: reason || null } : prev.kycData
+            };
+          }
+          return prev;
+        });
+      }
+    };
+
     window.addEventListener('aver_user_updated', handleLocalUserUpdate);
     window.addEventListener('storage', handleLocalUserUpdate);
+    window.addEventListener('aver_kyc_status_changed', handleKycStatusChanged);
 
     return () => {
       unsubscribe();
       window.removeEventListener('aver_user_updated', handleLocalUserUpdate);
       window.removeEventListener('storage', handleLocalUserUpdate);
+      window.removeEventListener('aver_kyc_status_changed', handleKycStatusChanged);
       clearAllSubscriptions();
     };
   }, [clearAllSubscriptions]);

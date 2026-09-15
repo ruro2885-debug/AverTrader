@@ -140,9 +140,29 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
 
-  const [activeTab, setActiveTab] = useState(() => {
-    return safeStorage.getItem('aver_dashboard_tab') || 'home';
+  const [tabStack, setTabStack] = useState<string[]>(() => {
+    const saved = safeStorage.getItem('aver_dashboard_tab');
+    return ['home', ...(saved && saved !== 'home' ? [saved] : [])];
   });
+  const activeTab = tabStack[tabStack.length - 1] || 'home';
+
+  const navigateTab = useCallback((tab: string) => {
+    setTabStack(prev => {
+      if (prev[prev.length - 1] === tab) return prev;
+      return [...prev, tab];
+    });
+    safeStorage.setItem('aver_dashboard_tab', tab);
+  }, []);
+
+  const goBackTab = useCallback(() => {
+    setTabStack(prev => {
+      if (prev.length > 1) {
+        return prev.slice(0, -1);
+      }
+      return ['home'];
+    });
+  }, []);
+
   const [supportBackTab, setSupportBackTab] = useState<string>('discover');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
@@ -152,14 +172,12 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     const checkTab = () => {
       const savedTab = safeStorage.getItem('aver_dashboard_tab');
       if (savedTab) {
-        setActiveTab(savedTab);
+        navigateTab(savedTab);
         safeStorage.removeItem('aver_dashboard_tab');
       }
     };
     checkTab();
-    const interval = setInterval(checkTab, 500);
-    return () => clearInterval(interval);
-  }, []);
+  }, [navigateTab]);
   const watchlist = useMemo(() => {
     if (user?.holdings && user.holdings.length > 0) {
       return user.holdings.map((h: any) => {
@@ -181,9 +199,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   }, [user?.holdings, liveTradePrices]);
 
   const handleNavigate = useCallback((tab: string) => {
-    setActiveTab(tab);
-    safeStorage.setItem('aver_dashboard_tab', tab);
-  }, []);
+    navigateTab(tab);
+  }, [navigateTab]);
 
   const handleViewModeChange = useCallback((mode: any) => {
     setPortfolioViewMode(mode);
@@ -814,7 +831,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => navigateTab(item.id)}
                 className={`w-full flex items-center space-x-3.5 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
                   isActive 
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' 
@@ -831,7 +848,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         {/* User profile section at the bottom of sidebar */}
         <div className={`p-4 border-t ${isDark ? 'border-white/5' : 'border-slate-200/50'} flex items-center justify-between`}>
           <button 
-            onClick={() => setActiveTab('profile')}
+            onClick={() => navigateTab('profile')}
             className="flex items-center space-x-3 hover:opacity-80 transition-opacity cursor-pointer text-left"
           >
             <div className={`w-9 h-9 rounded-full overflow-hidden flex items-center justify-center border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
@@ -1176,22 +1193,22 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           {activeTab === 'portfolio' && (
             <PortfolioViewV2 
               theme={theme} 
-              onBack={() => setActiveTab('home')} 
-              onNavigate={(tab) => setActiveTab(tab)}
+              onBack={goBackTab} 
+              onNavigate={navigateTab}
               onOpenDeposit={() => setShowDepositModal(true)}
               onOpenWithdraw={() => setShowWithdrawModal(true)}
               onViewModeChange={setPortfolioViewMode}
             />
           )}
 
-          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
-          {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => { setSupportBackTab('discover'); setActiveTab('support'); }} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
-          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { setActiveTab('home'); setShowDepositModal(true); }} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => { setSupportBackTab('profile'); setActiveTab('support'); }} />}
+          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details'); }} />}
+          {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={goBackTab} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => { setSupportBackTab('discover'); navigateTab('support'); }} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
+          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { navigateTab('home'); setShowDepositModal(true); }} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => { setSupportBackTab('profile'); navigateTab('support'); }} />}
           
-          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={() => setActiveTab('discover')} onNavigateToTrading={() => setActiveTab('home')} />}
-          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={() => setActiveTab(supportBackTab || 'discover')} />}
+          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('home')} />}
+          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}
           
           {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
             <motion.div
@@ -1222,7 +1239,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       {!isFullScreen && activeTab !== 'coin-details' && activeTab !== 'events' && activeTab !== 'events-promos' && activeTab !== 'support' && !(activeTab === 'portfolio' && (portfolioViewMode === 'vault' || portfolioViewMode === 'asset-stats')) && (
         <>
           <div className="h-20 flex-shrink-0 lg:hidden" aria-hidden="true" />
-          <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+          <BottomNavigation activeTab={activeTab} onTabChange={navigateTab} />
         </>
       )}
 
