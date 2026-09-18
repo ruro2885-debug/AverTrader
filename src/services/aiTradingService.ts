@@ -28,6 +28,7 @@ import {
   OperatingWindow,
   MarketCategory
 } from '../types/aiTrading';
+import { ASSET_UNIVERSE } from '../data/assetUniverse';
 import { equityService } from './equityService';
 import { portfolioPersistenceService } from './portfolioPersistenceService';
 
@@ -1022,6 +1023,15 @@ export const aiTradingService = {
   },
 
   getMarketCategory(asset: string): MarketCategory {
+    const found = ASSET_UNIVERSE.find(a => a.symbol.toUpperCase() === asset.toUpperCase());
+    if (found) {
+      if (found.category === 'CRYPTO') return 'Crypto';
+      if (found.category === 'STOCKS' || found.category === 'ETFs') return 'Stocks';
+      if (found.category === 'FOREX') return 'Forex';
+      if (found.category === 'INDICES') return 'Indices';
+      if (found.category === 'COMMODITIES') return 'Commodities';
+    }
+
     const stocks = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META'];
     const forex = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD'];
     const crypto = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'LINK', 'UNI', 'LTC'];

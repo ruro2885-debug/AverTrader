@@ -35,39 +35,7 @@ import { aiTradingService } from '../../services/aiTradingService';
 import CoinLogo from '../CoinLogo';
 import { AnimatePresence, motion } from 'motion/react';
 
-const SEARCHABLE_ASSETS = [
-  { symbol: 'BTC', name: 'Bitcoin', category: 'CRYPTO' },
-  { symbol: 'ETH', name: 'Ethereum', category: 'CRYPTO' },
-  { symbol: 'SOL', name: 'Solana', category: 'CRYPTO' },
-  { symbol: 'XRP', name: 'Ripple', category: 'CRYPTO' },
-  { symbol: 'ADA', name: 'Cardano', category: 'CRYPTO' },
-  { symbol: 'DOT', name: 'Polkadot', category: 'CRYPTO' },
-  { symbol: 'DOGE', name: 'Dogecoin', category: 'CRYPTO' },
-  { symbol: 'LINK', name: 'Chainlink', category: 'CRYPTO' },
-  { symbol: 'AVAX', name: 'Avalanche', category: 'CRYPTO' },
-  { symbol: 'MATIC', name: 'Polygon', category: 'CRYPTO' },
-  { symbol: 'SHIB', name: 'Shiba Inu', category: 'CRYPTO' },
-  { symbol: 'AAPL', name: 'Apple Inc.', category: 'STOCKS' },
-  { symbol: 'TSLA', name: 'Tesla, Inc.', category: 'STOCKS' },
-  { symbol: 'NVDA', name: 'NVIDIA Corp.', category: 'STOCKS' },
-  { symbol: 'MSFT', name: 'Microsoft Corp.', category: 'STOCKS' },
-  { symbol: 'AMZN', name: 'Amazon.com', category: 'STOCKS' },
-  { symbol: 'GOOGL', name: 'Alphabet Inc.', category: 'STOCKS' },
-  { symbol: 'META', name: 'Meta Platforms', category: 'STOCKS' },
-  { symbol: 'NFLX', name: 'Netflix Inc.', category: 'STOCKS' },
-  { symbol: 'AMD', name: 'AMD', category: 'STOCKS' },
-  { symbol: 'INTC', name: 'Intel Corp.', category: 'STOCKS' },
-  { symbol: 'SPY', name: 'S&P 500 ETF', category: 'INDICES' },
-  { symbol: 'QQQ', name: 'Nasdaq 100 ETF', category: 'INDICES' },
-  { symbol: 'ARKK', name: 'Ark Innovation', category: 'INDICES' },
-  { symbol: 'GLD', name: 'Gold Trust', category: 'COMMODITIES' },
-  { symbol: 'SLV', name: 'Silver Trust', category: 'COMMODITIES' },
-  { symbol: 'USO', name: 'Oil Fund', category: 'COMMODITIES' },
-  { symbol: 'EUR/USD', name: 'Euro / Dollar', category: 'FOREX' },
-  { symbol: 'GBP/USD', name: 'Pound / Dollar', category: 'FOREX' },
-  { symbol: 'USD/JPY', name: 'Dollar / Yen', category: 'FOREX' },
-  { symbol: 'AUD/USD', name: 'Aussie / Dollar', category: 'FOREX' },
-];
+import { ASSET_UNIVERSE, INITIAL_DEFAULT_ASSET_COLLECTION, UniverseAsset } from '../../data/assetUniverse';
 
 interface AiConfigurationsViewProps {
   configs: AiConfiguration[];
@@ -102,7 +70,7 @@ const defaultNewConfig = (userId: string): AiConfiguration => ({
   aiTradingRules: {
     minConfidence: 85,
     maxSimultaneousPositions: 3,
-    assetSelection: ['BTC', 'ETH', 'SOL'],
+    assetSelection: [...INITIAL_DEFAULT_ASSET_COLLECTION],
     tradingStrategy: 'NEURAL_MOMENTUM'
   },
   configurationDetails: {
@@ -159,6 +127,7 @@ export default function AiConfigurationsView({
   const [importText, setImportText] = useState('');
   const [showAssetSearch, setShowAssetSearch] = useState(false);
   const [assetSearchQuery, setAssetSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'CRYPTO' | 'STOCKS' | 'FOREX' | 'INDICES' | 'ETFs' | 'COMMODITIES'>('ALL');
 
   const cardClasses = isDark ? 'bg-[#0B0E14] border-white/5' : 'bg-white border-slate-200 shadow-sm';
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
@@ -214,7 +183,7 @@ export default function AiConfigurationsView({
       aiTradingRules: {
         minConfidence: 85,
         maxSimultaneousPositions: 3,
-        assetSelection: ['BTC', 'ETH', 'SOL'],
+        assetSelection: [...INITIAL_DEFAULT_ASSET_COLLECTION],
         tradingStrategy: 'NEURAL_MOMENTUM',
         ...(cfg.aiTradingRules || {})
       },
@@ -256,6 +225,21 @@ export default function AiConfigurationsView({
           }
         };
       }
+    });
+  };
+
+  const updateAssetSelection = (nextAssets: string[]) => {
+    if (!editingConfig) return;
+    const updated: AiConfiguration = {
+      ...editingConfig,
+      aiTradingRules: {
+        ...editingConfig.aiTradingRules,
+        assetSelection: nextAssets
+      }
+    };
+    setEditingConfig(updated);
+    onSave(updated).catch(err => {
+      console.warn("Auto-syncing asset collection:", err);
     });
   };
 
@@ -763,37 +747,57 @@ export default function AiConfigurationsView({
                       <button 
                         type="button"
                         onClick={() => setShowAssetSearch(true)}
-                        className={`p-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-[#00D09C]/30 text-[#00D09C] transition-all`}
-                        title="Search and add assets"
+                        className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-[#00D09C]/30 text-[#00D09C] transition-all flex items-center gap-1.5 text-xs font-bold"
+                        title="Search and discover assets"
                       >
                         <Search className="w-3.5 h-3.5" />
+                        <span>Discover Assets</span>
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'].map(m => {
+                      {(() => {
                         const currentAssets = editingConfig.aiTradingRules?.assetSelection || [];
-                        const included = currentAssets.includes(m);
-                        return (
+                        const ORIGINAL_ASSET_ORDER = [
+                          'BTC', 'ETH', 'SOL', 'XRP',
+                          'ADA', 'DOT', 'DOGE',
+                          'SHIB', 'AAPL', 'TSLA',
+                          'NVDA', 'MSFT', 'AMZN',
+                          'GOOGL', 'META', 'NFLX',
+                          'AMD', 'INTC', 'SPY',
+                          'QQQ', 'ARKK', 'GLD'
+                        ];
+                        const displayedAssets = [
+                          ...ORIGINAL_ASSET_ORDER.filter(m => currentAssets.includes(m)),
+                          ...currentAssets.filter(m => !ORIGINAL_ASSET_ORDER.includes(m))
+                        ];
+
+                        return displayedAssets.map(m => (
                           <button
                             key={m}
                             type="button"
                             onClick={() => {
-                              const next = included 
-                                ? currentAssets.filter(x => x !== m)
-                                : [...currentAssets, m];
-                              handleFieldChange('aiTradingRules', 'assetSelection', next);
+                              const next = currentAssets.filter(x => x !== m);
+                              updateAssetSelection(next);
                             }}
-                            className={`px-3 py-2 rounded-xl text-[10px] font-black border transition-all flex items-center gap-2 ${
-                              included 
-                                ? 'bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]'
-                                : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300'
-                            }`}
+                            className="px-3 py-2 rounded-xl text-[10px] font-black border transition-all flex items-center gap-2 bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]"
                           >
                             <CoinLogo symbol={m} size={20} />
                             {m}
                           </button>
-                        );
-                      })}
+                        ));
+                      })()}
+                      {(editingConfig.aiTradingRules?.assetSelection || []).length === 0 && (
+                        <div className={`w-full py-6 px-4 rounded-2xl border border-dashed border-white/10 text-center ${textSecondary} text-xs flex flex-col items-center justify-center gap-3 bg-black/10`}>
+                          <p>No assets in your collection. Click below to explore and add assets.</p>
+                          <button
+                            type="button"
+                            onClick={() => setShowAssetSearch(true)}
+                            className="px-4 py-2 rounded-xl bg-[#00D09C]/10 border border-[#00D09C]/30 text-[#00D09C] text-xs font-black flex items-center gap-2 hover:bg-[#00D09C]/20 transition-all shadow-sm"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Discover Assets
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1404,72 +1408,134 @@ export default function AiConfigurationsView({
                 </button>
               </div>
 
-              <div className="p-6 border-b border-white/5">
+              <div className="p-6 border-b border-white/5 space-y-3">
                 <div className="relative">
                   <Search className={`absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 ${textSecondary}`} />
                   <input 
                     autoFocus
                     type="text"
-                    placeholder="Search stocks, crypto, forex..."
+                    placeholder="Search by symbol, company, crypto, forex, index..."
                     value={assetSearchQuery}
                     onChange={(e) => setAssetSearchQuery(e.target.value)}
-                    className={`w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-bold ${textPrimary} outline-none focus:border-[#00D09C] transition-all`}
+                    className={`w-full bg-black/40 border border-white/10 rounded-2xl py-3 pl-11 pr-4 text-sm font-bold ${textPrimary} outline-none focus:border-[#00D09C] transition-all`}
                   />
+                  {assetSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setAssetSearchQuery('')}
+                      className={`absolute right-3.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-white transition-colors`}
+                    >
+                      <CloseIcon className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Filtering Tabs */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
+                  {(['ALL', 'CRYPTO', 'STOCKS', 'FOREX', 'INDICES', 'ETFs', 'COMMODITIES'] as const).map(cat => {
+                    const isCatActive = selectedCategory === cat;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+                          isCatActive 
+                            ? 'bg-[#00D09C] text-black shadow-md shadow-[#00D09C]/20' 
+                            : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-                {SEARCHABLE_ASSETS.filter(a => 
-                  a.symbol.toLowerCase().includes(assetSearchQuery.toLowerCase()) || 
-                  a.name.toLowerCase().includes(assetSearchQuery.toLowerCase())
-                ).map(asset => {
+                {(() => {
                   const currentAssets = editingConfig?.aiTradingRules?.assetSelection || [];
-                  const isAdded = currentAssets.includes(asset.symbol);
-                  return (
-                    <div 
-                      key={asset.symbol}
-                      className={`p-3 rounded-2xl border flex items-center justify-between transition-all group ${
-                        isAdded 
-                          ? 'bg-[#00D09C]/5 border-[#00D09C]/20' 
-                          : 'bg-white/5 border-white/5 hover:border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center border border-white/5 shadow-inner overflow-hidden">
-                          <CoinLogo symbol={asset.symbol} size={32} className="bg-transparent border-none" />
-                        </div>
-                        <div>
-                          <h4 className={`text-sm font-black ${textPrimary}`}>{asset.symbol}</h4>
-                          <p className={`text-[10px] font-bold ${textSecondary}`}>{asset.name} • {asset.category}</p>
-                        </div>
+                  const filteredAssets = ASSET_UNIVERSE.filter(asset => {
+                    if (selectedCategory !== 'ALL' && asset.category !== selectedCategory) {
+                      return false;
+                    }
+                    if (!assetSearchQuery.trim()) {
+                      return true;
+                    }
+                    const q = assetSearchQuery.toLowerCase().trim();
+                    return (
+                      asset.symbol.toLowerCase().includes(q) ||
+                      asset.name.toLowerCase().includes(q) ||
+                      asset.category.toLowerCase().includes(q) ||
+                      asset.keywords?.some(k => k.toLowerCase().includes(q))
+                    );
+                  });
+
+                  if (filteredAssets.length === 0) {
+                    return (
+                      <div className={`p-12 text-center ${textSecondary} text-xs font-mono opacity-60 italic space-y-2`}>
+                        <p>No matching assets found in {selectedCategory} for "{assetSearchQuery}"</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssetSearchQuery('');
+                            setSelectedCategory('ALL');
+                          }}
+                          className="text-[#00D09C] text-[11px] underline font-bold"
+                        >
+                          Clear search & filters
+                        </button>
                       </div>
-                      <button
-                        onClick={() => {
-                          if (!editingConfig) return;
-                          const next = isAdded 
-                            ? currentAssets.filter(x => x !== asset.symbol)
-                            : [...currentAssets, asset.symbol];
-                          handleFieldChange('aiTradingRules', 'assetSelection', next);
-                        }}
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                    );
+                  }
+
+                  return filteredAssets.map(asset => {
+                    const isAdded = currentAssets.includes(asset.symbol);
+                    return (
+                      <div 
+                        key={asset.symbol}
+                        className={`p-3 rounded-2xl border flex items-center justify-between transition-all group ${
                           isAdded 
-                            ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20' 
-                            : 'bg-[#00D09C]/10 text-[#00D09C] hover:bg-[#00D09C]/20 border border-[#00D09C]/20'
+                            ? 'bg-[#00D09C]/5 border-[#00D09C]/20' 
+                            : 'bg-white/5 border-white/5 hover:border-white/10'
                         }`}
                       >
-                        {isAdded ? <Minus className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                      </button>
-                    </div>
-                  );
-                })}
-                {SEARCHABLE_ASSETS.filter(a => 
-                  a.symbol.toLowerCase().includes(assetSearchQuery.toLowerCase()) || 
-                  a.name.toLowerCase().includes(assetSearchQuery.toLowerCase())
-                ).length === 0 && (
-                  <div className={`p-12 text-center ${textSecondary} text-xs font-mono opacity-50 italic`}>
-                    No matching assets found for "{assetSearchQuery}"
-                  </div>
-                )}
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center border border-white/5 shadow-inner overflow-hidden shrink-0">
+                            <CoinLogo symbol={asset.symbol} size={32} className="bg-transparent border-none" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className={`text-sm font-black ${textPrimary}`}>{asset.symbol}</h4>
+                              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/5 text-slate-400">
+                                {asset.category}
+                              </span>
+                            </div>
+                            <p className={`text-[10px] font-bold ${textSecondary}`}>{asset.name}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!editingConfig) return;
+                            const next = isAdded 
+                              ? currentAssets.filter(x => x !== asset.symbol)
+                              : [...currentAssets, asset.symbol];
+                            updateAssetSelection(next);
+                          }}
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                            isAdded 
+                              ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20' 
+                              : 'bg-[#00D09C]/10 text-[#00D09C] hover:bg-[#00D09C]/20 border border-[#00D09C]/20'
+                          }`}
+                          title={isAdded ? `Remove ${asset.symbol} from collection` : `Add ${asset.symbol} to collection`}
+                        >
+                          {isAdded ? <Minus className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                        </button>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
 
               <div className="p-4 bg-black/20 border-t border-white/5">

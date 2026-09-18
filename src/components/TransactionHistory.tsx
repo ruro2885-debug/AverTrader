@@ -110,6 +110,11 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
     }
   }, [showReasonPopup, registerOverlay]);
 
+  // Custom Explorer Lookup Modal
+  const [showExplorerModal, setShowExplorerModal] = useState(false);
+  const [explorerInputHash, setExplorerInputHash] = useState('');
+  const [explorerInputNetwork, setExplorerInputNetwork] = useState('TRC20');
+
   useEffect(() => {
     if (showExplorerModal) {
       return registerOverlay('tx-explorer-modal', () => {
@@ -122,11 +127,6 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [toast, setToast] = useState<string | null>(null);
-  
-  // Custom Explorer Lookup Modal
-  const [showExplorerModal, setShowExplorerModal] = useState(false);
-  const [explorerInputHash, setExplorerInputHash] = useState('');
-  const [explorerInputNetwork, setExplorerInputNetwork] = useState('TRC20');
 
   const showToast = (msg: string) => {
     setToast(msg);

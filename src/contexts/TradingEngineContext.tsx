@@ -162,9 +162,9 @@ export function normalizeAiConfig(raw: any, fallbackOwnerId?: string): AiConfigu
     aiTradingRules: {
       minConfidence: 85,
       maxSimultaneousPositions: 3,
-      assetSelection: Array.isArray(raw?.aiTradingRules?.assetSelection) && raw.aiTradingRules.assetSelection.length > 0 
+      assetSelection: Array.isArray(raw?.aiTradingRules?.assetSelection)
         ? raw.aiTradingRules.assetSelection 
-        : ['BTC', 'ETH', 'SOL'],
+        : ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'],
       tradingStrategy: 'NEURAL_MOMENTUM',
       ...(raw?.aiTradingRules || {})
     },
@@ -370,7 +370,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           aiTradingRules: {
             minConfidence: 85,
             maxSimultaneousPositions: 3,
-            assetSelection: ['BTC', 'ETH', 'SOL'],
+            assetSelection: ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'],
             tradingStrategy: 'NEURAL_MOMENTUM'
           },
           configurationDetails: {

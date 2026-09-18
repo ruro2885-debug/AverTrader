@@ -242,23 +242,54 @@ export function NavigationProvider({
     }
 
     setStack(prev => {
+      let isAuthenticated = false;
+      try {
+        const u1 = safeStorage.getItem('aver_user_session');
+        const u2 = safeStorage.getItem('aver_user');
+        const u3 = localStorage.getItem('aver_user') || sessionStorage.getItem('aver_user');
+        if (u1 || u2 || u3) isAuthenticated = true;
+      } catch (e) {}
+
       if (prev.length > 1) {
-        // Pop exactly one entry to navigate to the immediate previous page the user actually came from
-        const nextStack = prev.slice(0, -1);
-        const prevTop = nextStack[nextStack.length - 1];
+        let targetIdx = prev.length - 2;
 
-        try {
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            window.history.replaceState(prevTop, '', window.location.pathname);
+        // Skip unauthenticated screens if user is authenticated
+        if (isAuthenticated) {
+          while (targetIdx >= 0 && (prev[targetIdx].view === 'auth' || prev[targetIdx].view === 'home')) {
+            targetIdx--;
           }
-        } catch (e) {}
+        }
 
-        return nextStack;
+        if (targetIdx >= 0) {
+          const nextStack = prev.slice(0, targetIdx + 1);
+          const prevTop = nextStack[nextStack.length - 1];
+
+          try {
+            window.history.replaceState(prevTop, '', window.location.pathname);
+          } catch (e) {}
+
+          return nextStack;
+        }
       }
 
-      // No previous history entry exists — use fallback or intended app root entry
+      // No previous valid stack item exists — route to fallback or dashboard
+      if (isAuthenticated) {
+        const rootDashboard: NavigationLocation = {
+          id: `root-${Date.now()}`,
+          view: fallback?.view || 'dashboard',
+          tab: fallback?.tab || 'home',
+          subView: fallback?.subView,
+          aiView: fallback?.aiView || 'HOME',
+          modal: null,
+          asset: fallback?.asset,
+          params: fallback?.params,
+        };
+        try {
+          window.history.replaceState(rootDashboard, '', window.location.pathname);
+        } catch (e) {}
+        return [rootDashboard];
+      }
+
       if (fallback) {
         const fallbackEntry: NavigationLocation = {
           id: `root-${Date.now()}`,
@@ -276,14 +307,9 @@ export function NavigationProvider({
         return [fallbackEntry];
       }
 
-      const current = prev[0] || DEFAULT_LOCATION;
-      if (current.view === 'dashboard' && current.tab === 'home' && !current.modal) {
-        return prev;
-      }
-
       const rootEntry: NavigationLocation = {
         id: `root-${Date.now()}`,
-        view: 'dashboard',
+        view: 'home',
         tab: 'home',
         aiView: 'HOME',
         modal: null,

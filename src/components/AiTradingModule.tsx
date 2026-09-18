@@ -86,7 +86,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
 
   // Navigation state managed centrally via useAppNavigation
-  const { currentLocation, navigateSubView, goBack } = useAppNavigation();
+  const { currentLocation, navigateSubView, goBack, canGoBack, stack } = useAppNavigation();
   const [localActiveView, setLocalActiveView] = useState<AiView>('HOME');
   const activeView: AiView = (currentLocation.subView as AiView) || localActiveView || 'HOME';
 
@@ -654,7 +654,13 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
         {activeView !== 'HOME' && (
           <div className="flex items-center gap-2 mb-4">
             <button
-              onClick={() => goBack()}
+              onClick={() => {
+                if (canGoBack && stack.length > 1) {
+                  goBack();
+                } else {
+                  setActiveView('HOME');
+                }
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />

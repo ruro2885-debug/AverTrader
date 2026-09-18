@@ -88,7 +88,7 @@ function AppContent() {
         navigate('auth', { replace: true });
       }
     }
-  }, [user?.uid, authLoading]);
+  }, [user?.uid, authLoading, currentView, currentLocation.tab]);
 
   // Preference Toggle callback
   useEffect(() => {
