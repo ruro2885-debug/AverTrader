@@ -3,4 +3,10 @@ Allow: /
 Disallow: /admin
 Disallow: /dashboard
 
+User-agent: Googlebot
+Allow: /
+
+User-agent: Googlebot-Image
+Allow: /
+
 Sitemap: https://www.avertrader.space/sitemap.xml
