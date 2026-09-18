@@ -46,17 +46,44 @@
     <meta name="twitter:description" content="AVER is a modern trading platform for intelligent market analysis, trading sessions, portfolio management and advanced trading tools." />
     <meta name="twitter:image" content="https://www.avertrader.space/avertrader_preview.png" />
 
-    <!-- Schema.org JSON-LD Structured Data -->
+    <!-- Schema.org JSON-LD Structured Data for Google Knowledge Graph & AI Overview -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@graph": [
         {
+          "@type": "SoftwareApplication",
+          "@id": "https://www.avertrader.space/#software",
+          "name": "Aver AI-Powered Trading Platform",
+          "alternateName": ["AVER", "Aver Trader", "Aver Trading Platform", "avertrader.space"],
+          "operatingSystem": "Web",
+          "applicationCategory": "FinanceApplication",
+          "url": "https://www.avertrader.space",
+          "description": "Aver is an AI-powered execution suite and neural platform designed for automated trading and market analysis.",
+          "featureList": [
+            "AI-Powered Execution Suite",
+            "Real-Time Market Telemetry & Analysis",
+            "Automated Trading Session Management",
+            "Institutional-Grade Portfolio & Vault Tracking",
+            "30-Day Rolling Performance Verification",
+            "Custom Risk Controls and Autonomous Stop-Loss Management"
+          ],
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "publisher": {
+            "@id": "https://www.avertrader.space/#organization"
+          }
+        },
+        {
           "@type": "WebSite",
           "@id": "https://www.avertrader.space/#website",
           "url": "https://www.avertrader.space/",
-          "name": "AVER",
-          "description": "AVER is a modern trading platform for intelligent market analysis, trading sessions, portfolio management and advanced trading tools.",
+          "name": "Aver AI-Powered Trading Platform",
+          "alternateName": "AVER",
+          "description": "Aver is an AI-powered execution suite and neural platform designed for automated trading and market analysis.",
           "publisher": {
             "@id": "https://www.avertrader.space/#organization"
           }
@@ -64,12 +91,16 @@
         {
           "@type": "Organization",
           "@id": "https://www.avertrader.space/#organization",
-          "name": "AVER",
-          "url": "https://www.avertrader.space/",
+          "name": "Aver",
+          "alternateName": "AVER Trading",
+          "url": "https://www.avertrader.space",
           "logo": {
             "@type": "ImageObject",
             "url": "https://www.avertrader.space/aver_logo_new.png"
-          }
+          },
+          "sameAs": [
+            "https://www.avertrader.space"
+          ]
         }
       ]
     }
