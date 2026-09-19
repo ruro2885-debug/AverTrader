@@ -4,15 +4,6 @@ import App from './App.tsx';
 import './index.css';
 import { PreferencesProvider } from './contexts/PreferencesContext';
 import { AuthProvider } from './contexts/AuthContext';
-import { synchronizePreRenderMetadata, markPrerenderComplete } from './utils/useDynamicCanonical';
-
-// 1. Synchronously pre-populate head metadata before React initialization begins
-// This guarantees search engine and social bot crawlers receive populated tags immediately.
-try {
-  synchronizePreRenderMetadata();
-} catch (err) {
-  console.warn('[Pre-render] Failed initial head metadata synchronization:', err);
-}
 
 // Monkey patch for Google Translate to prevent React unmount crashes
 if (typeof Node === 'function' && Node.prototype) {
@@ -34,14 +25,7 @@ if (typeof Node === 'function' && Node.prototype) {
   };
 }
 
-const rootElement = document.getElementById('root');
-if (!rootElement) {
-  throw new Error('Fatal: #root element missing from DOM.');
-}
-
-const root = createRoot(rootElement);
-
-root.render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
       <PreferencesProvider>
@@ -50,11 +34,3 @@ root.render(
     </AuthProvider>
   </StrictMode>,
 );
-
-// Fallback prerender readiness signal
-if (typeof window !== 'undefined') {
-  requestAnimationFrame(() => {
-    markPrerenderComplete();
-  });
-}
-
