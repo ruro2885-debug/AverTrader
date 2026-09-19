@@ -28,7 +28,6 @@ import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
 import { safeStorage } from './utils/storage';
-import { useDynamicCanonical } from './utils/useDynamicCanonical';
 
 export default function App() {
   return (
@@ -44,9 +43,6 @@ function AppContent() {
   const { user, loading: authLoading, signOutUser } = useAuth();
   const { currentLocation, navigate, navigateView, navigateTab, goBack } = useAppNavigation();
   const currentView = currentLocation.view || 'home';
-
-  // Synchronize dynamic canonical URL tag with custom domain (https://www.avertrader.space)
-  useDynamicCanonical(currentLocation);
 
   const navigateToView = (view: string) => {
     navigateView(view);

@@ -813,7 +813,7 @@ async function startServer() {
       return res.sendFile(publicRobots);
     }
 
-    return res.send("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /dashboard\n\nUser-agent: Googlebot\nAllow: /\n\nUser-agent: Googlebot-Image\nAllow: /\n\nSitemap: https://www.avertrader.space/sitemap.xml\n");
+    return res.send("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /dashboard\n\nSitemap: https://www.avertrader.space/sitemap.xml\n");
   });
 
   // Serve static assets from public folder
