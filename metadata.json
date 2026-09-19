@@ -1,6 +1,6 @@
 {
-  "name": "AVER | Trading Platform",
-  "description": "AVER is a modern trading platform for intelligent market analysis, trading sessions, portfolio management and advanced trading tools.",
+  "name": "AverTrader | Professional Trading Workspace & AI Execution Platform",
+  "description": "AverTrader (avertrader.space) is an advanced financial workspace and AI-powered execution platform engineered for intelligent market telemetry, automated trading session management, multi-asset portfolio tracking, and institutional-grade risk controls.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
