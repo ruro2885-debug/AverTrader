@@ -162,33 +162,20 @@ export function getTierState(user: any, session?: any) {
 
   const isPlatinumComplete = platinumXP >= 100 || 
     (uid ? safeStorage.getItem(`aver_platinum_completed_${uid}`) === 'true' : false) || 
+    safeStorage.getItem('aver_platinum_completed') === 'true' ||
     user?.membershipTier === 'gold';
 
   // Determine current active tier
   let currentTierId: TierId = 'bronze';
   let progress = Math.min(100, Math.floor((bronzeXP / 100) * 100));
 
-  if (isBronzeComplete) {
-    currentTierId = 'platinum';
-    let platProgress = (deposit1000Done ? 25 : 0) + 
-      (trade500Done ? 25 : 0) + 
-      (copy10Done ? 25 : Math.min(25, Math.floor((copyTradingCount / 10) * 25))) + 
-      (strat2Done ? 25 : Math.min(25, Math.floor((usedStrategiesCount / 2) * 25)));
-    
-    // Any completed task from Bronze also adds to percentage
-    if (isKycVerified) platProgress += 35;
-    if (isTwoFactorEnabled) platProgress += 25;
-    if (isEmailVerified) platProgress += 20;
-    if (isDeposited) platProgress += 25;
-    if (isTraded) platProgress += 15;
-    if (referralCount > 0) platProgress += 15;
-
-    progress = Math.min(100, Math.floor(platProgress));
-  }
-
   if (isPlatinumComplete) {
     currentTierId = 'gold';
     progress = 100;
+  } else if (isBronzeComplete) {
+    currentTierId = 'platinum';
+    // Strictly calculate progress from completed Platinum tasks ONLY
+    progress = Math.min(100, platinumXP);
   }
 
   const currentTier = TIERS_DATA[currentTierId];
@@ -374,9 +361,9 @@ export function getTierState(user: any, session?: any) {
   };
 }
 
-export function completePlatinumTask(taskId: string) {
-  if (taskId === 'deposit_1000') safeStorage.setItem('aver_task_deposit_1000', 'true');
-  if (taskId === 'trade_500') safeStorage.setItem('aver_task_trade_500', 'true');
-  if (taskId === 'copy_10') safeStorage.setItem('aver_task_copy_10', 'true');
-  if (taskId === 'strat_2') safeStorage.setItem('aver_task_strat_2', 'true');
+export function completePlatinumTask(taskId: string, uid?: string) {
+  if (uid) {
+    safeStorage.setItem(`aver_task_${taskId}_${uid}`, 'true');
+  }
+  safeStorage.setItem(`aver_task_${taskId}`, 'true');
 }

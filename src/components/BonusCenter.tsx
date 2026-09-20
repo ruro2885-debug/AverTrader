@@ -683,7 +683,7 @@ export default function BonusCenter({
                 {['deposit_1000', 'trade_500', 'copy_10', 'strat_2'].includes(selectedTask.id) && (
                   <button
                     onClick={() => {
-                      completePlatinumTask(selectedTask.id);
+                      completePlatinumTask(selectedTask.id, user?.uid);
                       addNotification('rewards', 'high', `${selectedTask.title} Completed!`, `Successfully earned +${selectedTask.increment}% progress toward your membership tier!`);
                       setSelectedTask(null);
                       setCurrentView('main');
