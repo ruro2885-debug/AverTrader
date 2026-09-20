@@ -31,6 +31,7 @@ import {
 
 import { safeStorage } from '../utils/storage';
 import { getTierState, completePlatinumTask, TaskItem, TIERS_DATA } from '../utils/tierManager';
+import TwoFactorAuthModal from './TwoFactorAuthModal';
 
 // --- TYPES ---
 type SubView = 'main' | 'history' | 'task-details' | 'membership-details';
@@ -142,6 +143,7 @@ export default function BonusCenter({
   const welcomeBonusClaimed = !!(user as any)?.welcomeBonusClaimed || (uid ? safeStorage.getItem(`aver_welcome_bonus_claimed_${uid}`) === 'true' : false);
   const [currentView, setCurrentView] = useState<SubView>('main');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showTwoFactorModal, setShowTwoFactorModal] = useState(false);
 
   // Core Computed State
   const isEmailVerified = !!(user as any)?.emailVerified || (uid ? safeStorage.getItem(`aver_email_verified_${uid}`) === 'true' : false) || auth.currentUser?.emailVerified === true;
@@ -394,11 +396,10 @@ export default function BonusCenter({
         safeStorage.setItem('aver_dashboard_tab', 'profile');
         onNavigate?.('profile');
       }
-    } else if (task.customAction === 'kyc') {
+    } else if (task.customAction === 'kyc' || task.id === 'kyc') {
       onNavigate?.('kyc-verification');
-    } else if (task.customAction === 'enable_2fa') {
-      setSelectedTask(task);
-      setCurrentView('task-details');
+    } else if (task.customAction === 'enable_2fa' || task.id === '2fa') {
+      setShowTwoFactorModal(true);
     } else if (task.customAction === 'verify_email') {
       setSelectedTask(task);
       setCurrentView('task-details');
@@ -837,7 +838,7 @@ export default function BonusCenter({
             { label: 'Invite an active friend', value: '+15%', icon: Users, dest: 'referral-centre' }
           ] : [
             { label: 'Verify email address', value: '+20%', icon: BadgeCheck, dest: 'profile' },
-            { label: 'Enable 2FA security', value: '+25%', icon: ShieldCheck, dest: 'profile' },
+            { label: 'Enable 2FA security', value: '+25%', icon: ShieldCheck, dest: '2fa' },
             { label: 'Complete first deposit', value: '+25%', icon: Wallet, dest: 'deposit' },
             { label: 'Complete KYC verification', value: '+35%', icon: ShieldCheck, dest: 'kyc-verification' },
             { label: 'Execute first trade', value: '+15%', icon: TrendingUp, dest: 'ai' },
@@ -846,7 +847,9 @@ export default function BonusCenter({
             <div 
               key={`level-up-${item.label}-${idx}`}
               onClick={() => {
-                if (item.dest === 'deposit') {
+                if (item.dest === '2fa') {
+                  setShowTwoFactorModal(true);
+                } else if (item.dest === 'deposit') {
                   if (onOpenDeposit) onOpenDeposit();
                   else {
                     safeStorage.setItem('aver_auto_open_deposit', 'true');
@@ -884,8 +887,14 @@ export default function BonusCenter({
             <motion.div 
               key={`task-${task.id || idx}-${idx}`}
               onClick={() => {
-                setSelectedTask(task);
-                setCurrentView('task-details');
+                if (task.id === '2fa' || task.customAction === 'enable_2fa') {
+                  setShowTwoFactorModal(true);
+                } else if (task.id === 'kyc' || task.customAction === 'kyc') {
+                  onNavigate?.('kyc-verification');
+                } else {
+                  setSelectedTask(task);
+                  setCurrentView('task-details');
+                }
               }}
               whileHover={{ x: 4 }}
               className="p-6 rounded-[32px] bg-slate-900 border border-white/5 flex items-center justify-between group cursor-pointer"
@@ -1154,6 +1163,13 @@ export default function BonusCenter({
       <div className="h-[env(safe-area-inset-bottom,20px)] w-full bg-slate-950 border-t border-white/5 flex items-center justify-center">
         <p className="text-[9px] font-black text-gray-700 uppercase tracking-[0.4em]">Avernox Engine</p>
       </div>
+
+      {/* Standalone 2FA Modal */}
+      <TwoFactorAuthModal
+        isOpen={showTwoFactorModal}
+        onClose={() => setShowTwoFactorModal(false)}
+        theme={theme}
+      />
     </motion.div>
   );
 }
