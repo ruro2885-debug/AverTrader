@@ -794,7 +794,7 @@ async function startServer() {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://www.avertrader.space/</loc>
-    <lastmod>2026-09-20</lastmod>
+    <lastmod>2026-09-21</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
@@ -813,7 +813,7 @@ async function startServer() {
       return res.sendFile(publicRobots);
     }
 
-    return res.send("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /dashboard\n\nUser-agent: Googlebot\nAllow: /\n\nUser-agent: Googlebot-Image\nAllow: /\n\nSitemap: https://www.avertrader.space/sitemap.xml\n");
+    return res.send("User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /dashboard\n\nUser-agent: Googlebot\nAllow: /\n\nUser-agent: Googlebot-Image\nAllow: /\n\nUser-agent: Google-Extended\nAllow: /\n\nUser-agent: GoogleOther\nAllow: /\n\nSitemap: https://www.avertrader.space/sitemap.xml\n");
   });
 
   // Serve static assets from public folder

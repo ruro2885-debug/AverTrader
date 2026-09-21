@@ -9,4 +9,10 @@ Allow: /
 User-agent: Googlebot-Image
 Allow: /
 
+User-agent: Google-Extended
+Allow: /
+
+User-agent: GoogleOther
+Allow: /
+
 Sitemap: https://www.avertrader.space/sitemap.xml
