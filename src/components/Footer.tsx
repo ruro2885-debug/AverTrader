@@ -123,10 +123,13 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-6">
           <div className="flex flex-col space-y-2 text-left">
             <p className="text-[10px] font-bold font-mono tracking-wide text-gray-500 uppercase">
-              © 2024 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
+              © 2026 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
             </p>
             <p className="text-[9px] text-gray-600 leading-normal max-w-2xl">
               Risk Disclosure: All operations and balances within the public preview workspace are virtual sandbox allocations provided solely for presentation. They are completely decoupled from external banking pipelines, physical ledgers, or physical cryptocurrency clearing routes. Performance metrics demonstrated on historical configurations do not guarantee future execution optimization.
+            </p>
+            <p className="text-[9px] text-gray-600 leading-normal max-w-2xl">
+              Entity Notice: AverTrader (avertrader.space) is an independent proprietary trading workspace and AI execution platform. AverTrader is not affiliated with, sponsored by, or connected to AvaTrade (avatrade.com) or any third-party broker.
             </p>
           </div>
 
