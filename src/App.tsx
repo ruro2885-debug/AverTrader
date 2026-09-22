@@ -44,6 +44,7 @@ function AppContent() {
   const { user, loading: authLoading, signOutUser } = useAuth();
   const { currentLocation, navigate, navigateView, navigateTab, goBack } = useAppNavigation();
   const currentView = currentLocation.view || 'home';
+  const [showSplash, setShowSplash] = useState(true);
 
   // Synchronize dynamic canonical URL tag with custom domain (https://www.avertrader.space)
   useDynamicCanonical(currentLocation);
@@ -180,8 +181,8 @@ function AppContent() {
     }
   };
 
-  if (authLoading) {
-    return <Loader onComplete={() => {}} />;
+  if (authLoading || showSplash) {
+    return <Loader onComplete={() => setShowSplash(false)} />;
   }
 
   // Account status enforcement

@@ -37,33 +37,27 @@ export default function Loader({ onComplete }: LoaderProps) {
       setStatusText('SYSTEM STATUS: SECURED & OPERATIONAL');
     }, 2100);
 
-    // Complete loader presentation and trigger fade out
-    const fadeTimer = setTimeout(() => {
-      setFadeOut(true);
-      const completeTimer = setTimeout(() => {
-        onComplete();
-      }, 600); // Wait for the smooth fadeout to finish
-      return () => clearTimeout(completeTimer);
-    }, 2500);
+    // Signal completion to parent after the sequence finishes
+    const completeTimer = setTimeout(() => {
+      onComplete();
+    }, 2800);
 
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
-      clearTimeout(fadeTimer);
+      clearTimeout(completeTimer);
     };
   }, [onComplete]);
 
   return (
-    <AnimatePresence>
-      {!fadeOut && (
-        <motion.div
-          key="loader-container"
-          initial={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed inset-0 z-[9999] bg-[#020204] flex flex-col items-center justify-center overflow-hidden select-none"
-        >
+    <motion.div
+      key="loader-container"
+      initial={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      className="fixed inset-0 z-[9999] bg-[#020204] flex flex-col items-center justify-center overflow-hidden select-none"
+    >
           {/* Subtle Financial Grid Texture */}
           <div className="absolute inset-0 opacity-[0.03] bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none z-0" />
           
@@ -294,8 +288,6 @@ export default function Loader({ onComplete }: LoaderProps) {
           <div className="absolute top-8 right-8 w-6 h-6 border-t border-r border-white/5 pointer-events-none" />
           <div className="absolute bottom-8 left-8 w-6 h-6 border-b border-l border-white/5 pointer-events-none" />
           <div className="absolute bottom-8 right-8 w-6 h-6 border-b border-r border-white/5 pointer-events-none" />
-        </motion.div>
-      )}
-    </AnimatePresence>
+    </motion.div>
   );
 }

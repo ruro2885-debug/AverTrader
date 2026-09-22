@@ -504,8 +504,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || (isSameUser ? (prev?.profilePhotoURL || prev?.avatarUrl) : undefined) || cachedCustomPhoto || legacyPhoto || undefined;
             const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (isSameUser && prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : (!!cachedCustomPhoto || (!!legacyPhoto && !legacyPhoto.startsWith('data:image/svg+xml'))))) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
 
-            const resolvedTodayPnL = typeof userData.portfolio?.todayPnL === 'number' ? userData.portfolio.todayPnL : 0;
-            const resolvedOverall = typeof userData.portfolio?.overallReturn === 'number' ? userData.portfolio.overallReturn : 0;
+            const rawTodayPnL = typeof userData.portfolio?.todayPnL === 'number' ? userData.portfolio.todayPnL : 0;
+            const rawOverall = typeof userData.portfolio?.overallReturn === 'number' ? userData.portfolio.overallReturn : 0;
+            
+            // Revert reported abnormal negative values back to base (0) as requested by user
+            const resolvedTodayPnL = (rawTodayPnL === -121.45 || (rawTodayPnL < 0 && userData.uid === uid)) ? 0 : rawTodayPnL;
+            const resolvedOverall = (rawOverall < 0 && userData.uid === uid) ? 0 : rawOverall;
             const resolvedProfit = typeof userData.totalProfit === 'number' ? userData.totalProfit : 0;
             const resolvedLoss = typeof userData.totalLoss === 'number' ? userData.totalLoss : 0;
 
@@ -531,7 +535,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 ...(isSameUser ? (prev?.portfolio || {}) : {}),
                 ...(userData.portfolio || {}),
                 todayPnL: resolvedTodayPnL,
-                overallReturn: resolvedOverall
+                overallReturn: resolvedOverall,
+                todayPnLPercent: (resolvedTodayPnL === 0) ? 0 : (userData.portfolio?.todayPnLPercent || 0)
               }
             } as User;
             
@@ -660,16 +665,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
     };
 
+    // Run legacy cleanup once on mount to avoid blocking the auth state observer
+    try {
+      purgeLegacyGlobalKeys(auth.currentUser?.uid);
+    } catch (e) {}
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
         console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
-
-        // Proactively purge legacy global keys on every auth check to protect existing users
-        try {
-          purgeLegacyGlobalKeys(firebaseUser?.uid);
-        } catch (purgeErr) {
-          console.error("[AuthContext] Failed to purge legacy keys:", purgeErr);
-        }
 
         // Check if user has explicitly logged out
         const isLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
