@@ -15,7 +15,6 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
 
     const walletKey = `aver_wallet_${uid}`;
     const profileKey = `user_profile_${uid}`;
-    const activeUserKey = `aver_active_user`;
     const portfolioCurrentKey = `aver_portfolio_current_${uid}`;
     const sessionKey = `aver_session_${uid}`;
     const positionsKey = `aver_positions_${uid}`;
@@ -183,7 +182,6 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
           profileObj.portfolio.overallReturn = 0;
         }
         safeStorage.setItem(profileKey, JSON.stringify(profileObj));
-        safeStorage.setItem(activeUserKey, JSON.stringify(profileObj));
       } catch {}
     }
 

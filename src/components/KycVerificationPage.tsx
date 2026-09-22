@@ -533,15 +533,6 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
           delete cached.kycResubmissionReason;
           localStorage.setItem(profKey, JSON.stringify(cached));
 
-          const activeUser = JSON.parse(localStorage.getItem('aver_active_user') || '{}');
-          if (activeUser.uid === user.uid || (user.email && activeUser.email?.toLowerCase() === user.email.toLowerCase())) {
-            delete activeUser.kycData;
-            activeUser.kycStatus = 'unverified';
-            delete activeUser.kycRejectionReason;
-            delete activeUser.kycResubmissionReason;
-            localStorage.setItem('aver_active_user', JSON.stringify(activeUser));
-          }
-
           const averProfile = JSON.parse(localStorage.getItem('aver_user_profile') || '{}');
           if (averProfile.uid === user.uid || (user.email && averProfile.email?.toLowerCase() === user.email.toLowerCase())) {
             delete averProfile.kycData;

@@ -851,7 +851,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     try {
       const userCacheKey = `user_profile_${effectiveUid}`;
-      const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
+      const cachedUserStr = safeStorage.getItem(userCacheKey);
       if (cachedUserStr) {
         const uObj = JSON.parse(cachedUserStr);
         uObj.tokenBalance = newTokenBal;
@@ -863,7 +863,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.portfolio.totalValue = totalNetBalance;
         }
         safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
-        localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         window.dispatchEvent(new Event('storage'));
         window.dispatchEvent(new Event('aver_user_updated'));
       }
@@ -1244,7 +1243,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       // 6. Update cached user profile
       try {
         const userCacheKey = `user_profile_${effectiveUid}`;
-        const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
+        const cachedUserStr = safeStorage.getItem(userCacheKey);
         if (cachedUserStr) {
           const uObj = JSON.parse(cachedUserStr);
           uObj.tokenBalance = newTokenBal;
@@ -1263,7 +1262,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             uObj.portfolio.overallReturn = sessionPnl;
           }
           safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
-          localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         }
       } catch (err) {
         console.warn("Failed to update cached user profile in local storage:", err);
@@ -1655,7 +1653,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     try {
       const userId = user.uid;
       const userCacheKey = `user_profile_${userId}`;
-      const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
+      const cachedUserStr = safeStorage.getItem(userCacheKey);
       if (cachedUserStr) {
         const uObj = JSON.parse(cachedUserStr);
         uObj.totalProfit = pnl > 0 ? (uObj.totalProfit || 0) + pnl : (uObj.totalProfit || 0);
@@ -1670,7 +1668,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.portfolio.overallReturn = (uObj.portfolio.overallReturn || 0) + pnl;
         }
         safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
-        localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         window.dispatchEvent(new Event('storage'));
       }
     } catch (err) {

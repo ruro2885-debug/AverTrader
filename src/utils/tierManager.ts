@@ -103,18 +103,15 @@ export function getTierState(user: any, session?: any) {
   const uid = user?.uid || '';
   // 1. Evaluate Bronze Tasks
   const isEmailVerified = !!user?.emailVerified || 
-    (uid ? safeStorage.getItem(`aver_email_verified_${uid}`) === 'true' : false) || 
-    safeStorage.getItem('aver_email_verified') === 'true';
+    (uid ? safeStorage.getItem(`aver_email_verified_${uid}`) === 'true' : false);
 
   const isTwoFactorEnabled = (uid ? safeStorage.getItem(`aver_twoFactorEnabled_${uid}`) === 'true' : false) || 
-    safeStorage.getItem('aver_twoFactorEnabled') === 'true' || 
     !!user?.preferences?.twoFactorEnabled || 
     !!user?.twoFactorEnabled;
 
   const isDeposited = (user?.totalDeposits || 0) > 0 || (user?.deposits?.length || 0) > 0;
   const isKycVerified = user?.kycStatus === 'verified' || 
-    (uid ? safeStorage.getItem(`aver_kyc_verified_${uid}`) === 'true' : false) || 
-    safeStorage.getItem('aver_kyc_verified') === 'true';
+    (uid ? safeStorage.getItem(`aver_kyc_verified_${uid}`) === 'true' : false);
 
   const tradesCount = user?.trades?.length || user?.aiTradesCount || 0;
   const isTraded = (tradesCount > 0 || (session?.status === 'ACTIVE' && (session?.tradingCapital || 0) > 0)) && isDeposited;
@@ -136,23 +133,19 @@ export function getTierState(user: any, session?: any) {
   // 2. Evaluate Platinum Tasks
   const deposit1000Done = (user?.totalDeposits || 0) >= 1000 || 
     user?.deposits?.some((d: any) => d.amount >= 1000) || 
-    (uid ? safeStorage.getItem(`aver_task_deposit_1000_${uid}`) === 'true' : false) ||
-    safeStorage.getItem('aver_task_deposit_1000') === 'true';
+    (uid ? safeStorage.getItem(`aver_task_deposit_1000_${uid}`) === 'true' : false);
 
   const trade500Done = (((session?.initialCapital || 0) >= 500 || (session?.tradingCapital || 0) >= 500) && isDeposited) || 
     user?.trades?.some((t: any) => (t.amountUsd || t.quantity * (t.entry || 1)) >= 500) || 
-    (uid ? safeStorage.getItem(`aver_task_trade_500_${uid}`) === 'true' : false) ||
-    safeStorage.getItem('aver_task_trade_500') === 'true';
+    (uid ? safeStorage.getItem(`aver_task_trade_500_${uid}`) === 'true' : false);
 
   const copyTradingCount = (user?.copyTradingCount || 0) + parseInt(uid ? (safeStorage.getItem(`aver_copy_trades_count_${uid}`) || '0') : '0', 10);
   const copy10Done = copyTradingCount >= 10 || 
-    (uid ? safeStorage.getItem(`aver_task_copy_10_${uid}`) === 'true' : false) ||
-    safeStorage.getItem('aver_task_copy_10') === 'true';
+    (uid ? safeStorage.getItem(`aver_task_copy_10_${uid}`) === 'true' : false);
 
   const usedStrategiesCount = (user?.usedStrategiesCount || 0) + parseInt(uid ? (safeStorage.getItem(`aver_used_strategies_count_${uid}`) || '0') : '0', 10);
   const strat2Done = usedStrategiesCount >= 2 || 
-    (uid ? safeStorage.getItem(`aver_task_strat_2_${uid}`) === 'true' : false) ||
-    safeStorage.getItem('aver_task_strat_2') === 'true';
+    (uid ? safeStorage.getItem(`aver_task_strat_2_${uid}`) === 'true' : false);
 
   let platinumXP = 0;
   if (deposit1000Done) platinumXP += 25;
@@ -162,7 +155,6 @@ export function getTierState(user: any, session?: any) {
 
   const isPlatinumComplete = platinumXP >= 100 || 
     (uid ? safeStorage.getItem(`aver_platinum_completed_${uid}`) === 'true' : false) || 
-    safeStorage.getItem('aver_platinum_completed') === 'true' ||
     user?.membershipTier === 'gold';
 
   // Determine current active tier
@@ -365,5 +357,4 @@ export function completePlatinumTask(taskId: string, uid?: string) {
   if (uid) {
     safeStorage.setItem(`aver_task_${taskId}_${uid}`, 'true');
   }
-  safeStorage.setItem(`aver_task_${taskId}`, 'true');
 }

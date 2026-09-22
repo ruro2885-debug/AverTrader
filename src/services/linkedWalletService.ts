@@ -45,13 +45,14 @@ export const linkedWalletService = {
       importedList = [walletRecord, ...importedList.filter(w => (w.address || w.publicWalletAddress)?.toLowerCase() !== normalizedAddress)];
       localStorage.setItem('aver_imported_wallets', JSON.stringify(importedList));
 
-      const activeUserStr = localStorage.getItem('aver_active_user');
-      if (activeUserStr) {
+      const profileKey = `user_profile_${data.userId}`;
+      const profileStr = localStorage.getItem(profileKey);
+      if (profileStr) {
         try {
-          const uObj = JSON.parse(activeUserStr);
+          const uObj = JSON.parse(profileStr);
           const currentWallets = Array.isArray(uObj.linkedWallets) ? uObj.linkedWallets : [];
           uObj.linkedWallets = [walletRecord, ...currentWallets.filter((w: any) => (w.address || w.publicWalletAddress)?.toLowerCase() !== normalizedAddress)];
-          localStorage.setItem('aver_active_user', JSON.stringify(uObj));
+          localStorage.setItem(profileKey, JSON.stringify(uObj));
           window.dispatchEvent(new Event('aver_user_updated'));
         } catch (e) {}
       }

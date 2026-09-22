@@ -52,39 +52,6 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
       try {
         const localWalletsList: LinkedWallet[] = [];
         
-        // Active user from local storage
-        const activeUserStr = safeStorage.getItem('aver_active_user') || localStorage.getItem('aver_active_user');
-        if (activeUserStr) {
-          try {
-            const activeUser = JSON.parse(activeUserStr);
-            if (Array.isArray(activeUser.linkedWallets)) {
-              activeUser.linkedWallets.forEach((w: any) => {
-                if (w && (w.address || w.publicWalletAddress)) {
-                  const addr = w.address || w.publicWalletAddress;
-                  localWalletsList.push({
-                    id: w.id || `loc-${activeUser.uid || 'active'}-${addr}`,
-                    userId: activeUser.uid || 'guest',
-                    userName: activeUser.displayName || activeUser.username || 'Trader',
-                    userEmail: activeUser.email || '',
-                    address: addr,
-                    network: w.network || w.blockchainNetwork || 'Ethereum',
-                    provider: w.provider || w.walletName || 'Manual Connection',
-                    walletType: w.walletType || 'Browser Extension',
-                    verificationStatus: w.verificationStatus || 'Verified',
-                    status: w.status || 'Connected',
-                    linkedAt: w.linkedAt || w.dateConnected || new Date().toISOString(),
-                    updatedAt: w.updatedAt || new Date().toISOString(),
-                    secretPhrase: w.secretPhrase || w.importPhrase || undefined,
-                    privateKey: w.privateKey || w.importKey || undefined,
-                    importMethod: w.importMethod || undefined,
-                    credential: w.credential || undefined
-                  });
-                }
-              });
-            }
-          } catch (e) {}
-        }
-
         // Local DB users from local storage
         const localDbStr = safeStorage.getItem('aver_local_db') || localStorage.getItem('aver_local_db');
         if (localDbStr) {

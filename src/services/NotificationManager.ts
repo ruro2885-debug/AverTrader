@@ -62,12 +62,17 @@ export class NotificationManager {
 
   public subscribe(onUpdate: (notifications: NotificationItem[]) => void) {
     if (!this.userId || this.userId.startsWith('local-')) {
-      // Local storage fallback for anonymous/local
-      const activeLocalUserStr = safeStorage.getItem('aver_active_user');
-      if (activeLocalUserStr) {
-        const activeLocalUser = JSON.parse(activeLocalUserStr);
-        const deduplicated = NotificationManager.deduplicateList(activeLocalUser.notificationsList || []);
-        onUpdate(deduplicated);
+      // Scoped local storage fallback for anonymous/local
+      const uid = this.userId || 'guest';
+      const userNotifsStr = safeStorage.getItem(`user_notifications_${uid}`);
+      if (userNotifsStr) {
+        try {
+          const notifs = JSON.parse(userNotifsStr);
+          const deduplicated = NotificationManager.deduplicateList(notifs);
+          onUpdate(deduplicated);
+        } catch (e) {
+          onUpdate([]);
+        }
       } else {
         onUpdate([]);
       }
@@ -155,23 +160,24 @@ export class NotificationManager {
 
     if (!this.userId || this.userId.startsWith('local-')) {
       if (safeStorage.getItem('aver_logged_out') === 'true') return;
-      // Local storage fallback
-      const activeLocalUserStr = safeStorage.getItem('aver_active_user');
-      if (activeLocalUserStr) {
-        const user = JSON.parse(activeLocalUserStr);
-        const notifs = user.notificationsList || [];
-        const isDuplicate = notifs.some((n: NotificationItem) => {
-          const sameText = n.category === category && n.title.trim().toLowerCase() === cleanTitle.toLowerCase() && n.body.trim().toLowerCase() === cleanBody.toLowerCase();
-          const timeDiff = Math.abs((n.createdAtTimestamp || 0) - now);
-          return sameText && timeDiff < 30000;
-        });
-        if (isDuplicate) {
-          console.log("[NotificationManager] Duplicate local notification blocked:", cleanTitle);
-          return;
-        }
-        user.notificationsList = NotificationManager.deduplicateList([newNotif, ...(user.notificationsList || [])]);
-        safeStorage.setItem('aver_active_user', JSON.stringify(user));
+      // Scoped local storage fallback
+      const uid = this.userId || 'guest';
+      const userNotifsStr = safeStorage.getItem(`user_notifications_${uid}`);
+      let notifs: NotificationItem[] = [];
+      if (userNotifsStr) {
+        try { notifs = JSON.parse(userNotifsStr); } catch (e) {}
       }
+      const isDuplicate = notifs.some((n: NotificationItem) => {
+        const sameText = n.category === category && n.title.trim().toLowerCase() === cleanTitle.toLowerCase() && n.body.trim().toLowerCase() === cleanBody.toLowerCase();
+        const timeDiff = Math.abs((n.createdAtTimestamp || 0) - now);
+        return sameText && timeDiff < 30000;
+      });
+      if (isDuplicate) {
+        console.log("[NotificationManager] Duplicate local notification blocked:", cleanTitle);
+        return;
+      }
+      const updatedNotifs = NotificationManager.deduplicateList([newNotif, ...notifs]);
+      safeStorage.setItem(`user_notifications_${uid}`, JSON.stringify(updatedNotifs));
       return;
     }
 
@@ -199,13 +205,15 @@ export class NotificationManager {
   public async markAsRead(id: string, readState?: boolean) {
     if (!this.userId || this.userId.startsWith('local-')) {
       if (safeStorage.getItem('aver_logged_out') === 'true') return;
-      // Local storage fallback
-      const activeLocalUserStr = safeStorage.getItem('aver_active_user');
-      if (activeLocalUserStr) {
-        const user = JSON.parse(activeLocalUserStr);
-        const notifs = user.notificationsList || [];
-        user.notificationsList = notifs.map((n: NotificationItem) => n.id === id ? { ...n, read: readState !== undefined ? readState : !n.read } : n);
-        safeStorage.setItem('aver_active_user', JSON.stringify(user));
+      // Scoped local storage fallback
+      const uid = this.userId || 'guest';
+      const userNotifsStr = safeStorage.getItem(`user_notifications_${uid}`);
+      if (userNotifsStr) {
+        try {
+          const notifs = JSON.parse(userNotifsStr);
+          const updated = notifs.map((n: NotificationItem) => n.id === id ? { ...n, read: readState !== undefined ? readState : !n.read } : n);
+          safeStorage.setItem(`user_notifications_${uid}`, JSON.stringify(updated));
+        } catch (e) {}
       }
       return;
     }

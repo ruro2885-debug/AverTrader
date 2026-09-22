@@ -308,17 +308,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
         }
       }
 
-      // Check current browser active user
-      try {
-        const activeUserStr = localStorage.getItem('aver_active_user');
-        if (activeUserStr) {
-          const activeUser = JSON.parse(activeUserStr);
-          if (activeUser?.uid && (!targetUserId || targetUserId === activeUser.uid || (targetEmail && activeUser.email?.toLowerCase() === targetEmail))) {
-            if (!targetUserId) targetUserId = activeUser.uid;
-          }
-        }
-      } catch (e) {}
-
       // Update any other docs in admin_kyc matching targetUserId or targetEmail
       try {
         if (targetUserId) {
@@ -508,20 +497,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
             cachedProf.kycResubmissionReason = userUpdate.kycResubmissionReason;
             cachedProf.kycRewardUnlocked = userUpdate.kycRewardUnlocked;
             localStorage.setItem(profKey, JSON.stringify(cachedProf));
-          }
-
-          const activeUserStr = localStorage.getItem('aver_active_user');
-          if (activeUserStr) {
-            const activeUser = JSON.parse(activeUserStr);
-            if (activeUser.uid === targetUserId || (targetEmail && activeUser.email?.toLowerCase() === targetEmail)) {
-              activeUser.kycStatus = userUpdate.kycStatus;
-              activeUser.kycData = userUpdate.kycData;
-              activeUser.kycHistory = userUpdate.kycHistory;
-              activeUser.kycRejectionReason = userUpdate.kycRejectionReason;
-              activeUser.kycResubmissionReason = userUpdate.kycResubmissionReason;
-              activeUser.kycRewardUnlocked = userUpdate.kycRewardUnlocked;
-              localStorage.setItem('aver_active_user', JSON.stringify(activeUser));
-            }
           }
 
           const averProfileStr = localStorage.getItem('aver_user_profile');

@@ -8,12 +8,11 @@ export const progressionService = {
     if (!userId || safeStorage.getItem('aver_logged_out') === 'true') return;
 
     const profileKey = `user_profile_${userId}`;
-    const activeUserKey = `aver_active_user`;
 
     // 1. Get current profile from local storage if available
     let localProfile: UserProfile | null = null;
     try {
-      const pStr = safeStorage.getItem(profileKey) || safeStorage.getItem(activeUserKey);
+      const pStr = safeStorage.getItem(profileKey);
       if (pStr) {
         const parsed = JSON.parse(pStr);
         if (parsed && (!parsed.uid || parsed.uid === userId)) {
@@ -214,7 +213,6 @@ export const progressionService = {
 
     try {
       safeStorage.setItem(profileKey, JSON.stringify(updatedProfile));
-      safeStorage.setItem(activeUserKey, JSON.stringify(updatedProfile));
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new Event('storage'));
     } catch (err) {}

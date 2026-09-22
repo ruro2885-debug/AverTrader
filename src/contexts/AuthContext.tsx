@@ -33,7 +33,7 @@ import {
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { getDocs } from "firebase/firestore";
 import { auth, db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
-import { safeStorage } from '../utils/storage';
+import { safeStorage, clearAllUserData, purgeLegacyGlobalKeys } from '../utils/storage';
 import { NotificationItem, NotificationCategory, NotificationPriority } from '../types/notifications';
 import { UserProfile, Theme, Language, Holding, TradeHistoryItem, PortfolioSnapshot } from '../types';
 import { NotificationManager } from '../services/NotificationManager';
@@ -258,34 +258,7 @@ const isPermissionError = (error: any): boolean => {
 };
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      if (safeStorage.getItem('aver_logged_out') === 'true') {
-        return null;
-      }
-      const cached = safeStorage.getItem('aver_active_user');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && parsed.uid) {
-          // Restore saved profile photo if available in dedicated local storage
-          const cachedPhoto = safeStorage.getItem(`aver_custom_photo_${parsed.uid}`) || safeStorage.getItem('aver_last_custom_photo');
-          if (cachedPhoto && (!parsed.profilePhotoURL || parsed.profilePhotoURL.startsWith('data:image/svg+xml'))) {
-            parsed.profilePhotoURL = cachedPhoto;
-            parsed.avatarUrl = cachedPhoto;
-            parsed.hasCustomPhoto = true;
-          }
-          // Ensure non-zero balance consistency
-          if (parsed.availableBalance > 0 && (!parsed.tokenBalance || parsed.tokenBalance === 0)) {
-            parsed.tokenBalance = parsed.availableBalance;
-          } else if (parsed.tokenBalance > 0 && (!parsed.availableBalance || parsed.availableBalance === 0)) {
-            parsed.availableBalance = parsed.tokenBalance;
-          }
-          return parsed;
-        }
-      }
-    } catch (e) {}
-    return null;
-  });
+  const [user, setUser] = useState<User | null>(null);
   const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -385,6 +358,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const setupSubscriptions = (uid: string, email: string | null) => {
       if (safeStorage.getItem('aver_logged_out') === 'true') return;
 
+      // Immediately detach previous user state if switching accounts
+      if (userRef.current && userRef.current.uid !== uid) {
+        userRef.current = null;
+        setUser(null);
+        setNotifications([]);
+        setPreviewPhotoURL(null);
+      }
+
       progressionService.updateProgress(uid, 'login').catch(() => {});
       
       const handleVisibilityChange = () => {
@@ -405,33 +386,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       subscriptionsRef.current.unsubWallet = walletService.subscribeWallet(uid, (wData) => {
         if (!wData || safeStorage.getItem('aver_logged_out') === 'true') return;
         setUser(prev => {
-          if (!prev || safeStorage.getItem('aver_logged_out') === 'true') return null;
-          const portVal = wData.portfolioValue || wData.portfolioBalance || prev.portfolio?.totalValue || 0;
+          if (!prev || safeStorage.getItem('aver_logged_out') === 'true' || prev.uid !== uid) return prev;
           
-          // Never overwrite a valid balance with 0 due to temporary subscription state
-          const safePortBal = (typeof wData.portfolioBalance === 'number' && wData.portfolioBalance > 0)
-            ? wData.portfolioBalance
-            : (prev.portfolioBalance || 0);
-          const safeAvailBal = (typeof wData.availableBalance === 'number' && wData.availableBalance > 0)
-            ? wData.availableBalance
-            : (prev.availableBalance || safePortBal);
-          const safeTokenBal = (typeof wData.tokenBalance === 'number' && wData.tokenBalance > 0)
-            ? wData.tokenBalance
-            : (prev.tokenBalance || safeAvailBal);
+          const safePortBal = typeof wData.portfolioBalance === 'number' ? wData.portfolioBalance : 0;
+          const safeAvailBal = typeof wData.availableBalance === 'number' ? wData.availableBalance : safePortBal;
+          const safeTokenBal = typeof wData.tokenBalance === 'number' ? wData.tokenBalance : safeAvailBal;
+          const portVal = typeof wData.portfolioValue === 'number' ? wData.portfolioValue : (safePortBal > 0 ? safePortBal : (prev.portfolio?.totalValue || 0));
 
           const updated: User = {
             ...prev,
             portfolioBalance: safePortBal,
             availableBalance: safeAvailBal,
             vaultBalance: typeof wData.vaultBalance === 'number' ? wData.vaultBalance : (prev.vaultBalance ?? 0),
-            totalDeposits: (typeof wData.totalDeposits === 'number' && wData.totalDeposits > 0) ? wData.totalDeposits : prev.totalDeposits,
+            totalDeposits: typeof wData.totalDeposits === 'number' ? wData.totalDeposits : (prev.totalDeposits ?? 0),
             totalWithdrawals: wData.totalWithdrawals ?? prev.totalWithdrawals,
             tokenBalance: safeTokenBal,
-            aiTradingCapital: typeof wData.aiTradingCapital === 'number' ? wData.aiTradingCapital : prev.aiTradingCapital,
+            aiTradingCapital: typeof wData.aiTradingCapital === 'number' ? wData.aiTradingCapital : (prev.aiTradingCapital ?? 0),
             cashBalance: safeTokenBal,
             portfolio: {
               ...prev.portfolio,
-              totalValue: portVal > 0 ? portVal : (prev.portfolio?.totalValue || safePortBal)
+              totalValue: portVal
             }
           };
           return updated;
@@ -442,60 +416,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       subscriptionsRef.current.unsubPortfolioCurrent = portfolioPersistenceService.subscribePortfolioCurrent(uid, (pState) => {
         if (!pState || safeStorage.getItem('aver_logged_out') === 'true') return;
         setUser(prev => {
-          if (!prev || safeStorage.getItem('aver_logged_out') === 'true') return null;
+          if (!prev || safeStorage.getItem('aver_logged_out') === 'true' || prev.uid !== uid) return prev;
           
-          // Only update wallet balances from pState if they are valid positive values
-          const pPortBal = (typeof pState.walletState?.portfolioBalance === 'number' && pState.walletState.portfolioBalance > 0)
+          const pPortBal = typeof pState.walletState?.portfolioBalance === 'number'
             ? pState.walletState.portfolioBalance
-            : prev.portfolioBalance;
-          const pAvailBal = (typeof pState.walletState?.availableBalance === 'number' && pState.walletState.availableBalance > 0)
+            : (prev.portfolioBalance || 0);
+          const pAvailBal = typeof pState.walletState?.availableBalance === 'number'
             ? pState.walletState.availableBalance
-            : prev.availableBalance;
-          const pTokenBal = (typeof pState.walletState?.tokenBalance === 'number' && pState.walletState.tokenBalance > 0)
+            : (prev.availableBalance || pPortBal);
+          const pTokenBal = typeof pState.walletState?.tokenBalance === 'number'
             ? pState.walletState.tokenBalance
-            : prev.tokenBalance;
+            : (prev.tokenBalance || pAvailBal);
 
-          const cooldownUntil = parseInt(safeStorage.getItem(`aver_session_end_cooldown_${uid}`) || '0', 10);
-          const isInCooldown = Date.now() < cooldownUntil;
+          const resolvedTodayPnL = typeof pState.portfolioMetrics?.todayPnL === 'number'
+            ? pState.portfolioMetrics.todayPnL
+            : (prev.portfolio?.todayPnL || 0);
 
-          const pTodayPnL = pState.portfolioMetrics?.todayPnL;
-          const prevTodayPnL = prev.portfolio?.todayPnL;
-          let resolvedTodayPnL = pTodayPnL;
-          if (isInCooldown) {
-            resolvedTodayPnL = (typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) ? prevTodayPnL : pTodayPnL;
-          } else if ((pTodayPnL === 0 || pTodayPnL === undefined) && typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) {
-            resolvedTodayPnL = prevTodayPnL;
-          }
+          const resolvedOverall = typeof pState.portfolioMetrics?.overallReturn === 'number'
+            ? pState.portfolioMetrics.overallReturn
+            : (prev.portfolio?.overallReturn || 0);
 
-          const pOverall = pState.portfolioMetrics?.overallReturn;
-          const prevOverall = prev.portfolio?.overallReturn;
-          let resolvedOverall = pOverall;
-          if (isInCooldown) {
-            resolvedOverall = (typeof prevOverall === 'number' && prevOverall !== 0) ? prevOverall : pOverall;
-          } else if ((pOverall === 0 || pOverall === undefined) && typeof prevOverall === 'number' && prevOverall !== 0) {
-            resolvedOverall = prevOverall;
-          }
+          const resolvedProfit = typeof pState.walletState?.totalProfit === 'number'
+            ? pState.walletState.totalProfit
+            : 0;
 
-          const pProfit = pState.walletState?.totalProfit;
-          const prevProfit = prev.totalProfit;
-          const resolvedProfit = (typeof pProfit === 'number' && pProfit > 0)
-            ? pProfit
-            : (typeof prevProfit === 'number' && prevProfit > 0 ? prevProfit : (pProfit ?? 0));
-
-          const pLoss = pState.walletState?.totalLoss;
-          const prevLoss = prev.totalLoss;
-          const resolvedLoss = (typeof pLoss === 'number' && pLoss > 0)
-            ? pLoss
-            : (typeof prevLoss === 'number' && prevLoss > 0 ? prevLoss : (pLoss ?? 0));
+          const resolvedLoss = typeof pState.walletState?.totalLoss === 'number'
+            ? pState.walletState.totalLoss
+            : 0;
 
           const updated: User = {
             ...prev,
             portfolioBalance: pPortBal,
             availableBalance: pAvailBal,
             vaultBalance: typeof pState.walletState?.vaultBalance === 'number' ? pState.walletState.vaultBalance : (prev.vaultBalance ?? 0),
-            totalDeposits: (typeof pState.walletState?.totalDeposits === 'number' && pState.walletState.totalDeposits > 0)
+            totalDeposits: typeof pState.walletState?.totalDeposits === 'number'
               ? pState.walletState.totalDeposits
-              : prev.totalDeposits,
+              : (prev.totalDeposits ?? 0),
             totalWithdrawals: pState.walletState?.totalWithdrawals ?? prev.totalWithdrawals,
             totalProfit: resolvedProfit,
             totalLoss: resolvedLoss,
@@ -503,8 +459,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             portfolio: {
               ...prev.portfolio,
               ...(pState.portfolioMetrics || {}),
-              ...(resolvedTodayPnL !== undefined ? { todayPnL: resolvedTodayPnL } : {}),
-              ...(resolvedOverall !== undefined ? { overallReturn: resolvedOverall } : {})
+              todayPnL: resolvedTodayPnL,
+              overallReturn: resolvedOverall
             },
             aiSettings: {
               ...prev.aiSettings,
@@ -528,82 +484,49 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           
           setUser(prev => {
             if (safeStorage.getItem('aver_logged_out') === 'true') return null;
+            const isSameUser = prev?.uid === uid;
             
-            // Retain valid positive balance; never overwrite with 0 on temporary listener updates
-            const pBal = (typeof userData.portfolioBalance === 'number' && userData.portfolioBalance > 0)
-              ? userData.portfolioBalance
-              : (typeof prev?.portfolioBalance === 'number' && prev.portfolioBalance > 0 ? prev.portfolioBalance : (userData.portfolioBalance ?? 0));
-            const aBal = (typeof userData.availableBalance === 'number' && userData.availableBalance > 0)
-              ? userData.availableBalance
-              : (typeof prev?.availableBalance === 'number' && prev.availableBalance > 0 ? prev.availableBalance : (userData.availableBalance ?? pBal));
-            const tBal = (typeof userData.tokenBalance === 'number' && userData.tokenBalance > 0)
-              ? userData.tokenBalance
-              : (typeof prev?.tokenBalance === 'number' && prev.tokenBalance > 0 ? prev.tokenBalance : aBal);
+            const pBal = typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : 0;
+            const aBal = typeof userData.availableBalance === 'number' ? userData.availableBalance : pBal;
+            const tBal = typeof userData.tokenBalance === 'number' ? userData.tokenBalance : aBal;
             
             // Retain saved custom profile photo
-            const cachedCustomPhoto = safeStorage.getItem(`aver_custom_photo_${uid}`) || safeStorage.getItem('aver_last_custom_photo');
-            const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || prev?.profilePhotoURL || prev?.avatarUrl || cachedCustomPhoto || undefined;
-            const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : !!cachedCustomPhoto)) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
+            const cachedCustomPhoto = safeStorage.getItem(`aver_custom_photo_${uid}`);
+            const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || (isSameUser ? (prev?.profilePhotoURL || prev?.avatarUrl) : undefined) || cachedCustomPhoto || undefined;
+            const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (isSameUser && prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : !!cachedCustomPhoto)) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
 
-            const cooldownUntil = parseInt(safeStorage.getItem(`aver_session_end_cooldown_${uid}`) || '0', 10);
-            const isInCooldown = Date.now() < cooldownUntil;
-
-            const uTodayPnL = userData.portfolio?.todayPnL;
-            const prevTodayPnL = prev?.portfolio?.todayPnL;
-            let resolvedTodayPnL = uTodayPnL;
-            if (isInCooldown) {
-              resolvedTodayPnL = (typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) ? prevTodayPnL : uTodayPnL;
-            } else if ((uTodayPnL === 0 || uTodayPnL === undefined) && typeof prevTodayPnL === 'number' && prevTodayPnL !== 0) {
-              resolvedTodayPnL = prevTodayPnL;
-            }
-
-            const uOverall = userData.portfolio?.overallReturn;
-            const prevOverall = prev?.portfolio?.overallReturn;
-            let resolvedOverall = uOverall;
-            if (isInCooldown) {
-              resolvedOverall = (typeof prevOverall === 'number' && prevOverall !== 0) ? prevOverall : uOverall;
-            } else if ((uOverall === 0 || uOverall === undefined) && typeof prevOverall === 'number' && prevOverall !== 0) {
-              resolvedOverall = prevOverall;
-            }
-
-            const uProfit = userData.totalProfit;
-            const prevProfit = prev?.totalProfit;
-            const resolvedProfit = (typeof uProfit === 'number' && uProfit > 0)
-              ? uProfit
-              : (typeof prevProfit === 'number' && prevProfit > 0 ? prevProfit : (uProfit ?? 0));
-
-            const uLoss = userData.totalLoss;
-            const prevLoss = prev?.totalLoss;
-            const resolvedLoss = (typeof uLoss === 'number' && uLoss > 0)
-              ? uLoss
-              : (typeof prevLoss === 'number' && prevLoss > 0 ? prevLoss : (uLoss ?? 0));
+            const resolvedTodayPnL = typeof userData.portfolio?.todayPnL === 'number' ? userData.portfolio.todayPnL : 0;
+            const resolvedOverall = typeof userData.portfolio?.overallReturn === 'number' ? userData.portfolio.overallReturn : 0;
+            const resolvedProfit = typeof userData.totalProfit === 'number' ? userData.totalProfit : 0;
+            const resolvedLoss = typeof userData.totalLoss === 'number' ? userData.totalLoss : 0;
 
             const updatedUser = {
-              ...(prev || {}),
+              ...(isSameUser ? (prev || {}) : {}),
               ...userData,
+              uid,
               profilePhotoURL: resolvedPhoto,
               avatarUrl: resolvedPhoto,
               hasCustomPhoto,
               portfolioBalance: pBal,
               availableBalance: aBal,
-              vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (prev?.vaultBalance ?? 0),
+              vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (isSameUser ? (prev?.vaultBalance ?? 0) : 0),
               tokenBalance: tBal,
-              aiTradingCapital: typeof userData.aiTradingCapital === 'number' ? userData.aiTradingCapital : (prev?.aiTradingCapital ?? 0),
+              aiTradingCapital: typeof userData.aiTradingCapital === 'number' ? userData.aiTradingCapital : (isSameUser ? (prev?.aiTradingCapital ?? 0) : 0),
               cashBalance: typeof userData.cashBalance === 'number' ? userData.cashBalance : tBal,
-              holdings: userData.holdings || prev?.holdings || [],
-              trades: userData.trades || prev?.trades || [],
-              snapshots: userData.snapshots || prev?.snapshots || [],
+              holdings: userData.holdings || (isSameUser ? prev?.holdings : []) || [],
+              trades: userData.trades || (isSameUser ? prev?.trades : []) || [],
+              snapshots: userData.snapshots || (isSameUser ? prev?.snapshots : []) || [],
               totalProfit: resolvedProfit,
               totalLoss: resolvedLoss,
               portfolio: {
-                ...(prev?.portfolio || {}),
+                ...(isSameUser ? (prev?.portfolio || {}) : {}),
                 ...(userData.portfolio || {}),
-                ...(resolvedTodayPnL !== undefined ? { todayPnL: resolvedTodayPnL } : {}),
-                ...(resolvedOverall !== undefined ? { overallReturn: resolvedOverall } : {})
+                todayPnL: resolvedTodayPnL,
+                overallReturn: resolvedOverall
               }
             } as User;
             
-            // Only cache essential profile info if still active and not logged out
+            // Only cache essential profile info for this specific user
             if (safeStorage.getItem('aver_logged_out') !== 'true') {
               const profileToCache = { ...updatedUser };
               delete (profileToCache as any).trades;
@@ -612,7 +535,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               delete (profileToCache as any).history;
               delete (profileToCache as any).notificationsList;
               safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(profileToCache));
-              safeStorage.setItem('aver_active_user', JSON.stringify(profileToCache));
             }
             
             return updatedUser;
@@ -622,12 +544,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const seed = email.toLowerCase();
           const dataUrl = getAvatarDataUrl(seed);
 
-          const cachedStr = safeStorage.getItem(`user_profile_${uid}`) || safeStorage.getItem('aver_active_user');
+          const cachedStr = safeStorage.getItem(`user_profile_${uid}`);
           let existingProfile: any = null;
           if (cachedStr) {
-            try { existingProfile = JSON.parse(cachedStr); } catch (e) {}
+            try { 
+              const parsed = JSON.parse(cachedStr); 
+              if (parsed && parsed.uid === uid) existingProfile = parsed;
+            } catch (e) {}
           }
-          const cachedPhoto = safeStorage.getItem(`aver_custom_photo_${uid}`) || safeStorage.getItem('aver_last_custom_photo');
+          const cachedPhoto = safeStorage.getItem(`aver_custom_photo_${uid}`);
           const finalPhoto = existingProfile?.profilePhotoURL || existingProfile?.avatarUrl || cachedPhoto || dataUrl;
           const finalHasCustom = (finalPhoto && !finalPhoto.startsWith('data:image/svg+xml')) || !!existingProfile?.hasCustomPhoto;
 
@@ -642,17 +567,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             hasCustomPhoto: finalHasCustom,
             accountType: existingProfile?.accountType || 'Standard',
             accountStatus: existingProfile?.accountStatus || 'Active',
-            portfolioBalance: existingProfile?.portfolioBalance ?? 0,
-            availableBalance: existingProfile?.availableBalance ?? (existingProfile?.portfolioBalance ?? 0),
-            vaultBalance: existingProfile?.vaultBalance ?? 0,
-            tokenBalance: existingProfile?.tokenBalance ?? existingProfile?.availableBalance ?? (existingProfile?.portfolioBalance ?? 0),
+            membershipTier: 'bronze',
+            portfolioBalance: 0,
+            availableBalance: 0,
+            vaultBalance: 0,
+            tokenBalance: 0,
+            cashBalance: 0,
+            aiTradingCapital: 0,
+            totalDeposits: 0,
+            totalWithdrawals: 0,
+            totalProfit: 0,
+            totalLoss: 0,
             createdAt: serverTimestamp(),
             lastLogin: serverTimestamp(),
             lastUpdated: serverTimestamp(),
             onboardingCompleted: true,
             notificationsList: [],
             portfolio: {
-              totalValue: existingProfile?.portfolioBalance ?? 0,
+              totalValue: 0,
               todayPnL: 0,
               todayPnLPercent: 0,
               overallReturn: 0,
@@ -680,7 +612,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       subscriptionsRef.current.unsubHoldings = onSnapshot(holdingsRef, (snap) => {
         if (safeStorage.getItem('aver_logged_out') === 'true') return;
         const holdings = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Holding[];
-        setUser(prev => (prev && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, holdings } : null);
+        setUser(prev => (prev && prev.uid === uid && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, holdings } : prev);
       }, (err) => {
         console.error("[AuthContext] unsubHoldings error:", err);
         handleFirestoreError(err, OperationType.GET, `users/${uid}/holdings`);
@@ -690,7 +622,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       subscriptionsRef.current.unsubTrades = onSnapshot(query(tradesRef, orderBy('timestamp', 'desc')), (snap) => {
         if (safeStorage.getItem('aver_logged_out') === 'true') return;
         const trades = snap.docs.map(d => ({ id: d.id, ...d.data() })) as TradeHistoryItem[];
-        setUser(prev => (prev && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, trades } : null);
+        setUser(prev => (prev && prev.uid === uid && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, trades } : prev);
       }, (err) => {
         console.error("[AuthContext] unsubTrades error:", err);
         handleFirestoreError(err, OperationType.GET, `users/${uid}/trades`);
@@ -700,7 +632,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       subscriptionsRef.current.unsubSnapshots = onSnapshot(query(snapshotsRef, orderBy('timestamp', 'desc')), (snap) => {
         if (safeStorage.getItem('aver_logged_out') === 'true') return;
         const snapshots = snap.docs.map(d => ({ id: d.id, ...d.data() })) as PortfolioSnapshot[];
-        setUser(prev => (prev && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, snapshots } : null);
+        setUser(prev => (prev && prev.uid === uid && safeStorage.getItem('aver_logged_out') !== 'true') ? { ...prev, snapshots } : prev);
       }, (err) => {
         console.error("[AuthContext] unsubSnapshots error:", err);
         handleFirestoreError(err, OperationType.GET, `users/${uid}/snapshots`);
@@ -721,6 +653,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
+
+      // Proactively purge legacy global keys on every auth check to protect existing users
+      purgeLegacyGlobalKeys();
 
       // Check if user has explicitly logged out
       const isLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
@@ -744,14 +679,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setupSubscriptions(firebaseUser.uid, firebaseUser.email);
         setLoading(false);
       } else {
-        // User is signed out from Firebase
-        const activeLocalUserStr = safeStorage.getItem('aver_active_user');
+        // Valid signed-in user (persisted local, demo, or fallback)
+        const activeLocalUserStr = null; // No longer using unscoped aver_active_user
         if (activeLocalUserStr && safeStorage.getItem('aver_logged_out') !== 'true') {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
             // Clear invalid profiles without uid so user lands on Login/Register
             if (!activeLocalUser?.uid || activeLocalUser.uid === 'guest_user') {
-              safeStorage.removeItem('aver_active_user');
               setUser(null);
             } else {
               // Valid signed-in user (persisted local, demo, or fallback)
@@ -761,7 +695,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               }
             }
           } catch (e) {
-            safeStorage.removeItem('aver_active_user');
             setUser(null);
           }
         } else {
@@ -782,7 +715,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (!auth.currentUser) {
-        const activeLocalUserStr = safeStorage.getItem('aver_active_user');
+        const activeLocalUserStr = null; // No longer using unscoped aver_active_user
         if (activeLocalUserStr) {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
@@ -798,7 +731,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       } else {
         const uid = auth.currentUser.uid;
-        const profileStr = safeStorage.getItem(`user_profile_${uid}`) || safeStorage.getItem('aver_active_user');
+        const profileStr = safeStorage.getItem(`user_profile_${uid}`);
         if (profileStr) {
           try {
             const pData = JSON.parse(profileStr);
@@ -1062,7 +995,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         // Log the user in locally immediately
-        safeStorage.setItem('aver_active_user', JSON.stringify(newUser));
         setUser(newUser);
         setNotifications([]);
         setLoading(false);
@@ -1179,7 +1111,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             console.warn("Failed sync userProfile to Firestore:", err);
           });
 
-          safeStorage.setItem('aver_active_user', JSON.stringify(userProfile));
           setUser(userProfile);
           setNotifications(userProfile.notificationsList || []);
           setLoading(false);
@@ -1220,23 +1151,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // 3. Clear all user session, cache, and profile keys
       const currentUid = userRef.current?.uid;
       if (currentUid) {
-        safeStorage.removeItem(`user_profile_${currentUid}`);
-        safeStorage.removeItem(`aver_session_${currentUid}`);
-        safeStorage.removeItem(`aver_positions_${currentUid}`);
-        safeStorage.removeItem(`aver_trades_${currentUid}`);
-        safeStorage.removeItem(`aver_activity_${currentUid}`);
-        safeStorage.removeItem(`aver_recommendations_${currentUid}`);
-        safeStorage.removeItem(`aver_session_control_${currentUid}`);
-        safeStorage.removeItem(`aver_wallet_${currentUid}`);
-        safeStorage.removeItem(`aver_portfolio_current_${currentUid}`);
+        clearAllUserData(currentUid);
       }
-
-      safeStorage.removeItem('aver_active_user');
-      safeStorage.removeItem('aver_dashboard_tab');
-      safeStorage.removeItem('portfolio_vault_balance');
-      safeStorage.removeItem('portfolio_active_offset');
-      safeStorage.removeItem('aver_connected_wallet');
-      safeStorage.removeItem('aver_trading_config');
+      purgeLegacyGlobalKeys();
 
       // 4. Update React state immediately
       userRef.current = null;
@@ -1245,6 +1162,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setPreviewPhotoURL(null);
 
       // 5. Notify all listeners
+      window.dispatchEvent(new Event('aver_clear_financials_cache'));
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new Event('storage'));
 
@@ -1334,7 +1252,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (isDup) return prev;
         const updatedNotifs = [newNotif, ...notifs];
         const updated = { ...prev, notificationsList: updatedNotifs } as User;
-        safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
         const dbList = getLocalDB();
         const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1371,7 +1288,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => n.id === id ? { ...n, read: readState !== undefined ? readState : !n.read } : n);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1400,7 +1316,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => ({ ...n, read: true }));
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1434,7 +1349,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.filter(n => n.id !== id);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1468,7 +1382,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.filter(n => n.pinned);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1502,7 +1415,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1536,7 +1448,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const notifs = prev.notificationsList || [];
           const updatedNotifs = notifs.map(n => n.id === id ? { ...n, archived: !n.archived } : n);
           const updated = { ...prev, notificationsList: updatedNotifs } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1582,7 +1493,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(prev => {
           if (!prev) return null;
           const updated = { ...prev, onboardingCompleted: completed, lastUpdated: new Date().toISOString() } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1661,7 +1571,6 @@ function dataURLtoBlob(dataurl: string): Blob {
             } as User;
             
             try {
-              safeStorage.setItem('aver_active_user', JSON.stringify(updated));
               safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
             } catch (storageErr) {
               console.warn("[AuthContext] Failed to cache user profile in safeStorage (quota exceeded fallback):", storageErr);
@@ -1772,7 +1681,6 @@ function dataURLtoBlob(dataurl: string): Blob {
               safeStorage.setItem(`aver_custom_photo_${uid}`, photoURL);
               safeStorage.setItem('aver_last_custom_photo', photoURL);
               safeStorage.setItem(`user_profile_${uid}`, JSON.stringify(updated));
-              safeStorage.setItem('aver_active_user', JSON.stringify(updated));
             } catch (storageErr) {
               console.warn("[AuthContext] Failed to cache user profile in safeStorage (quota exceeded fallback):", storageErr);
             }
@@ -1817,7 +1725,6 @@ function dataURLtoBlob(dataurl: string): Blob {
           if (prefs.twoFactorBackupCodes !== undefined) updates.twoFactorBackupCodes = prefs.twoFactorBackupCodes;
 
           const updated = { ...prev, ...updates, lastUpdated: new Date().toISOString() } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1902,7 +1809,6 @@ function dataURLtoBlob(dataurl: string): Blob {
             history: [newHistoryItem, ...(prev.history || [])],
             lastUpdated: new Date().toISOString()
           } as User;
-          safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
           const dbList = getLocalDB();
           const idx = dbList.findIndex(u => u.email.toLowerCase() === prev.email.toLowerCase());
@@ -1947,7 +1853,6 @@ function dataURLtoBlob(dataurl: string): Blob {
           lastUpdated: new Date().toISOString()
         } as User;
         safeStorage.setItem(`user_profile_${prev.uid}`, JSON.stringify(updated));
-        safeStorage.setItem('aver_active_user', JSON.stringify(updated));
         return updated;
       });
 
@@ -2095,7 +2000,6 @@ function dataURLtoBlob(dataurl: string): Blob {
       };
       setUser(updatedUser as any);
       userRef.current = updatedUser as any;
-      safeStorage.setItem('aver_active_user', JSON.stringify(updatedUser));
       safeStorage.setItem(`user_profile_${userRef.current.uid}`, JSON.stringify(updatedUser));
 
       window.dispatchEvent(new CustomEvent('aver_transaction_created', { detail: txId }));
@@ -2129,7 +2033,6 @@ function dataURLtoBlob(dataurl: string): Blob {
       userRef.current = updatedUser;
       setUser(updatedUser);
       safeStorage.setItem(`user_profile_${oldProfile.uid}`, JSON.stringify(updatedUser));
-      safeStorage.setItem('aver_active_user', JSON.stringify(updatedUser));
 
       if (!auth.currentUser) {
         const dbList = getLocalDB();
@@ -2193,7 +2096,6 @@ function dataURLtoBlob(dataurl: string): Blob {
 
       // Always update local state first for instant UX
       setUser(updated);
-      safeStorage.setItem('aver_active_user', JSON.stringify(updated));
 
       // Also update the local database if running locally/fallback
       const dbList = getLocalDB();
@@ -2393,7 +2295,6 @@ function dataURLtoBlob(dataurl: string): Blob {
           }
         };
         setUser(resetUser);
-        safeStorage.setItem('aver_active_user', JSON.stringify(resetUser));
         safeStorage.setItem(`user_profile_${resetUser.uid}`, JSON.stringify(resetUser));
       }
 

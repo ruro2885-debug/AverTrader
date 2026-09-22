@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
+import { useAuth } from '../contexts/AuthContext';
+import { getUserScopedItem, setUserScopedItem } from '../utils/storage';
 import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
 // Institutional-grade AI Strategies Dataset with Advisor Insights
@@ -26,15 +28,26 @@ export default function DiscoverView({
   const isDark = theme === 'dark';
   const { t } = usePreferences();
   
+  const { user } = useAuth();
   const [showCopyTrade, setShowCopyTrade] = useState(false);
   const [showRoadmapModal, setShowRoadmapModal] = useState(false);
   const [isNotified, setIsNotified] = useState(() => {
-    return localStorage.getItem('aver2_notified') === 'true';
+    return user?.uid ? getUserScopedItem(user.uid, 'aver2_notified') === 'true' : false;
   });
+
+  useEffect(() => {
+    if (user?.uid) {
+      setIsNotified(getUserScopedItem(user.uid, 'aver2_notified') === 'true');
+    } else {
+      setIsNotified(false);
+    }
+  }, [user?.uid]);
 
   const handleNotifyClick = () => {
     setIsNotified(true);
-    localStorage.setItem('aver2_notified', 'true');
+    if (user?.uid) {
+      setUserScopedItem(user.uid, 'aver2_notified', 'true');
+    }
   };
   
   const textPrimary = isDark ? "text-white" : "text-slate-900";

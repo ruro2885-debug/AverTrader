@@ -96,3 +96,120 @@ export const safeStorage = {
     memoryFallbackStore.clear();
   }
 };
+
+/**
+ * Creates an unambiguous user-scoped storage key
+ */
+export function getUserScopedKey(uid: string, key: string): string {
+  if (!uid) return `aver:anon:${key}`;
+  return `aver:user:${uid}:${key}`;
+}
+
+export function setUserScopedItem(uid: string, key: string, value: string): void {
+  if (!uid) return;
+  safeStorage.setItem(getUserScopedKey(uid, key), value);
+}
+
+export function getUserScopedItem(uid: string, key: string): string | null {
+  if (!uid) return null;
+  return safeStorage.getItem(getUserScopedKey(uid, key));
+}
+
+export function removeUserScopedItem(uid: string, key: string): void {
+  if (!uid) return;
+  safeStorage.removeItem(getUserScopedKey(uid, key));
+}
+
+/**
+ * Purges ALL user-scoped storage data for a specific user ID upon signout or switch
+ */
+export function clearAllUserData(uid: string): void {
+  if (!uid) return;
+
+  const prefix1 = `aver:user:${uid}:`;
+  const prefix2 = `_${uid}`;
+  const directKeys = [
+    `user_profile_${uid}`,
+    `aver_wallet_${uid}`,
+    `aver_portfolio_current_${uid}`,
+    `aver_session_${uid}`,
+    `aver_positions_${uid}`,
+    `aver_trades_${uid}`,
+    `aver_activity_${uid}`,
+    `aver_recommendations_${uid}`,
+    `aver_session_control_${uid}`,
+    `aver_configs_${uid}`,
+    `aver_txs_${uid}`,
+    `aver_vault_balance_${uid}`,
+    `portfolio_vault_balance_${uid}`,
+    `vault_passcode_${uid}`,
+    `vault_onboarded_${uid}`,
+    `vault_target_${uid}`,
+    `vault_target_configured_${uid}`,
+    `vault_assets_${uid}`,
+    `aver2_notified_${uid}`,
+    `aver_notified_aver2_${uid}`,
+    `aver_twoFactorEnabled_${uid}`,
+    `aver_email_verified_${uid}`,
+    `aver_kyc_verified_${uid}`,
+    `aver_bronze_completed_${uid}`,
+    `aver_platinum_completed_${uid}`,
+    `aver_welcome_bonus_claimed_${uid}`,
+    `aver_task_deposit_1000_${uid}`,
+    `aver_task_trade_500_${uid}`,
+    `aver_task_copy_10_${uid}`,
+    `aver_task_strat_2_${uid}`,
+    `aver_copy_trades_count_${uid}`,
+    `aver_used_strategies_count_${uid}`,
+    `aver_custom_photo_${uid}`,
+    `aver_session_end_cooldown_${uid}`,
+    `aver_latest_completed_session_${uid}`
+  ];
+
+  directKeys.forEach(k => safeStorage.removeItem(k));
+
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith(prefix1) || k.includes(prefix2) || k.includes(uid))) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => safeStorage.removeItem(k));
+  } catch (e) {}
+}
+
+/**
+ * Purges legacy global unscoped keys that cause cross-account leaks
+ */
+export function purgeLegacyGlobalKeys(): void {
+  const globalLeakKeys = [
+    'aver2_notified',
+    'portfolio_vault_balance',
+    'vault_passcode',
+    'vault_onboarded',
+    'vault_target',
+    'vault_target_configured',
+    'vault_assets',
+    'aver_twoFactorEnabled',
+    'aver_email_verified',
+    'aver_kyc_verified',
+    'aver_bronze_completed',
+    'aver_platinum_completed',
+    'aver_welcome_bonus_claimed',
+    'aver_task_deposit_1000',
+    'aver_task_trade_500',
+    'aver_task_copy_10',
+    'aver_task_strat_2',
+    'portfolio_active_offset',
+    'aver_active_user',
+    'aver_user_profile',
+    'aver_trading_config',
+    'aver_connected_wallet'
+  ];
+
+  globalLeakKeys.forEach(k => {
+    safeStorage.removeItem(k);
+  });
+}
