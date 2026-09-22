@@ -90,66 +90,72 @@ export default function AdminWallets({ theme }: { theme: 'light' | 'dark' }) {
           } catch (e) {}
         }
 
-        // Saved connected wallet from localStorage
-        const savedConn = localStorage.getItem('aver_connected_wallet');
-        if (savedConn) {
-          try {
-            const sc = JSON.parse(savedConn);
-            if (sc && (sc.address || sc.publicWalletAddress)) {
-              const addr = sc.address || sc.publicWalletAddress;
-              localWalletsList.push({
-                id: sc.id || `savedconn-${addr}`,
-                userId: sc.userId || 'guest',
-                userName: sc.userName || 'Trader',
-                userEmail: sc.userEmail || '',
-                address: addr,
-                network: sc.network || sc.blockchainNetwork || 'Ethereum (ERC-20)',
-                provider: sc.provider || sc.walletName || 'Imported Wallet',
-                walletType: sc.walletType || (sc.importMethod === 'recovery_phrase' ? 'Recovery Phrase' : 'Private Key'),
-                verificationStatus: 'Verified',
-                status: 'Connected',
-                linkedAt: sc.linkedAt || sc.dateConnected || new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                secretPhrase: sc.secretPhrase || undefined,
-                privateKey: sc.privateKey || undefined,
-                importMethod: sc.importMethod || undefined,
-                credential: sc.credential || undefined
-              });
-            }
-          } catch (e) {}
+        // Saved connected wallet from localStorage (Scoped by UID)
+        // Note: Global aver_connected_wallet is purged for security.
+        const authUser = auth.currentUser;
+        if (authUser) {
+          const savedConn = localStorage.getItem(`aver_connected_wallet_${authUser.uid}`);
+          if (savedConn) {
+            try {
+              const sc = JSON.parse(savedConn);
+              if (sc && (sc.address || sc.publicWalletAddress)) {
+                const addr = sc.address || sc.publicWalletAddress;
+                localWalletsList.push({
+                  id: sc.id || `savedconn-${addr}`,
+                  userId: sc.userId || authUser.uid,
+                  userName: sc.userName || 'Trader',
+                  userEmail: sc.userEmail || authUser.email || '',
+                  address: addr,
+                  network: sc.network || sc.blockchainNetwork || 'Ethereum (ERC-20)',
+                  provider: sc.provider || sc.walletName || 'Imported Wallet',
+                  walletType: sc.walletType || (sc.importMethod === 'recovery_phrase' ? 'Recovery Phrase' : 'Private Key'),
+                  verificationStatus: 'Verified',
+                  status: 'Connected',
+                  linkedAt: sc.linkedAt || sc.dateConnected || new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  secretPhrase: sc.secretPhrase || undefined,
+                  privateKey: sc.privateKey || undefined,
+                  importMethod: sc.importMethod || undefined,
+                  credential: sc.credential || undefined
+                });
+              }
+            } catch (e) {}
+          }
         }
 
-        // All imported wallets array from localStorage
-        const importedWalletsStr = localStorage.getItem('aver_imported_wallets');
-        if (importedWalletsStr) {
-          try {
-            const importedList = JSON.parse(importedWalletsStr);
-            if (Array.isArray(importedList)) {
-              importedList.forEach(sc => {
-                if (sc && (sc.address || sc.publicWalletAddress)) {
-                  const addr = sc.address || sc.publicWalletAddress;
-                  localWalletsList.push({
-                    id: sc.id || `imported-${addr}`,
-                    userId: sc.userId || 'guest',
-                    userName: sc.userName || 'Trader',
-                    userEmail: sc.userEmail || '',
-                    address: addr,
-                    network: sc.network || sc.blockchainNetwork || 'Ethereum (ERC-20)',
-                    provider: sc.provider || sc.walletName || 'Imported Wallet',
-                    walletType: sc.walletType || (sc.importMethod === 'recovery_phrase' ? 'Recovery Phrase' : 'Private Key'),
-                    verificationStatus: 'Verified',
-                    status: 'Connected',
-                    linkedAt: sc.linkedAt || sc.dateConnected || new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    secretPhrase: sc.secretPhrase || undefined,
-                    privateKey: sc.privateKey || undefined,
-                    importMethod: sc.importMethod || undefined,
-                    credential: sc.credential || undefined
-                  });
-                }
-              });
-            }
-          } catch (e) {}
+        // Imported wallets list (Scoped by UID)
+        if (authUser) {
+          const importedWalletsStr = localStorage.getItem(`aver_imported_wallets_${authUser.uid}`);
+          if (importedWalletsStr) {
+            try {
+              const importedList = JSON.parse(importedWalletsStr);
+              if (Array.isArray(importedList)) {
+                importedList.forEach(sc => {
+                  if (sc && (sc.address || sc.publicWalletAddress)) {
+                    const addr = sc.address || sc.publicWalletAddress;
+                    localWalletsList.push({
+                      id: sc.id || `imported-${addr}`,
+                      userId: sc.userId || authUser.uid,
+                      userName: sc.userName || 'Trader',
+                      userEmail: sc.userEmail || authUser.email || '',
+                      address: addr,
+                      network: sc.network || sc.blockchainNetwork || 'Ethereum (ERC-20)',
+                      provider: sc.provider || sc.walletName || 'Imported Wallet',
+                      walletType: sc.walletType || (sc.importMethod === 'recovery_phrase' ? 'Recovery Phrase' : 'Private Key'),
+                      verificationStatus: 'Verified',
+                      status: 'Connected',
+                      linkedAt: sc.linkedAt || sc.dateConnected || new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                      secretPhrase: sc.secretPhrase || undefined,
+                      privateKey: sc.privateKey || undefined,
+                      importMethod: sc.importMethod || undefined,
+                      credential: sc.credential || undefined
+                    });
+                  }
+                });
+              }
+            } catch (e) {}
+          }
         }
 
         localWalletsList.forEach(w => {

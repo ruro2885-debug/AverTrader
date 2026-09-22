@@ -30,7 +30,6 @@ export function getLocalWithdrawals(): any[] {
         key.startsWith('aver_txs_') ||
         key.startsWith('aver_user_transactions_') || 
         key.startsWith('aver_transactions') || 
-        key === 'aver_active_user' || 
         key.startsWith('user_profile_')
       ) {
         try {

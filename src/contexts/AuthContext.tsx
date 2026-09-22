@@ -652,57 +652,69 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
+      try {
+        console.log("[AuthContext] Auth state changed, user:", firebaseUser ? firebaseUser.uid : "null");
 
-      // Proactively purge legacy global keys on every auth check to protect existing users
-      purgeLegacyGlobalKeys();
-
-      // Check if user has explicitly logged out
-      const isLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
-
-      if (isLoggedOut) {
-        clearAllSubscriptions();
-        setUser(null);
-        setNotifications([]);
-        setPreviewPhotoURL(null);
-        setLoading(false);
-        if (firebaseUser) {
-          signOut(auth).catch(() => {});
+        // Proactively purge legacy global keys on every auth check to protect existing users
+        try {
+          purgeLegacyGlobalKeys();
+        } catch (purgeErr) {
+          console.error("[AuthContext] Failed to purge legacy keys:", purgeErr);
         }
-        return;
-      }
-      
-      // Cleanup existing listeners before attaching new ones
-      clearAllSubscriptions();
 
-      if (firebaseUser) {
-        setupSubscriptions(firebaseUser.uid, firebaseUser.email);
-        setLoading(false);
-      } else {
-        // Valid signed-in user (persisted local, demo, or fallback)
-        const activeLocalUserStr = null; // No longer using unscoped aver_active_user
-        if (activeLocalUserStr && safeStorage.getItem('aver_logged_out') !== 'true') {
-          try {
-            const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
-            // Clear invalid profiles without uid so user lands on Login/Register
-            if (!activeLocalUser?.uid || activeLocalUser.uid === 'guest_user') {
-              setUser(null);
-            } else {
-              // Valid signed-in user (persisted local, demo, or fallback)
-              setUser(activeLocalUser);
-              if (activeLocalUser.uid) {
-                setupSubscriptions(activeLocalUser.uid, activeLocalUser.email);
-              }
-            }
-          } catch (e) {
-            setUser(null);
-          }
-        } else {
+        // Check if user has explicitly logged out
+        const isLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
+
+        if (isLoggedOut) {
+          clearAllSubscriptions();
           setUser(null);
           setNotifications([]);
           setPreviewPhotoURL(null);
+          setLoading(false);
+          if (firebaseUser) {
+            signOut(auth).catch(() => {});
+          }
+          return;
         }
-        setLoading(false);
+        
+        // Cleanup existing listeners before attaching new ones
+        clearAllSubscriptions();
+
+        if (firebaseUser) {
+          setupSubscriptions(firebaseUser.uid, firebaseUser.email);
+          setLoading(false);
+        } else {
+          // Valid signed-in user (persisted local, demo, or fallback)
+          // Try to restore from scoped profile if available
+          const lastUid = safeStorage.getItem('aver_last_active_uid');
+          const activeLocalUserStr = lastUid ? safeStorage.getItem(`user_profile_${lastUid}`) : null;
+
+          if (activeLocalUserStr && safeStorage.getItem('aver_logged_out') !== 'true') {
+            try {
+              const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
+              // Clear invalid profiles without uid so user lands on Login/Register
+              if (!activeLocalUser?.uid || activeLocalUser.uid === 'guest_user') {
+                setUser(null);
+              } else {
+                // Valid signed-in user (persisted local, demo, or fallback)
+                setUser(activeLocalUser);
+                if (activeLocalUser.uid) {
+                  setupSubscriptions(activeLocalUser.uid, activeLocalUser.email);
+                }
+              }
+            } catch (e) {
+              setUser(null);
+            }
+          } else {
+            setUser(null);
+            setNotifications([]);
+            setPreviewPhotoURL(null);
+          }
+          setLoading(false);
+        }
+      } catch (fatalErr) {
+        console.error("[AuthContext] Fatal error in onAuthStateChanged:", fatalErr);
+        setLoading(false); // Ensure loading is ALWAYS resolved
       }
     });
 
@@ -715,7 +727,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (!auth.currentUser) {
-        const activeLocalUserStr = null; // No longer using unscoped aver_active_user
+        const lastUid = safeStorage.getItem('aver_last_active_uid');
+        const activeLocalUserStr = lastUid ? safeStorage.getItem(`user_profile_${lastUid}`) : null;
+
         if (activeLocalUserStr) {
           try {
             const activeLocalUser = JSON.parse(activeLocalUserStr) as User;
@@ -995,6 +1009,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         // Log the user in locally immediately
+        safeStorage.setItem(`user_profile_${targetUid}`, JSON.stringify(newUser));
+        safeStorage.setItem('aver_last_active_uid', targetUid);
+
         setUser(newUser);
         setNotifications([]);
         setLoading(false);
@@ -1113,6 +1130,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
           setUser(userProfile);
           setNotifications(userProfile.notificationsList || []);
+          
+          // Persist scoped user profile and mark as last active
+          safeStorage.setItem(`user_profile_${userProfile.uid}`, JSON.stringify(userProfile));
+          safeStorage.setItem('aver_last_active_uid', userProfile.uid);
+
           setLoading(false);
           return;
         }
