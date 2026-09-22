@@ -147,8 +147,6 @@ export function clearAllUserData(uid: string): void {
     `vault_target_${uid}`,
     `vault_target_configured_${uid}`,
     `vault_assets_${uid}`,
-    `aver2_notified_${uid}`,
-    `aver_notified_aver2_${uid}`,
     `aver_twoFactorEnabled_${uid}`,
     `aver_email_verified_${uid}`,
     `aver_kyc_verified_${uid}`,
@@ -183,9 +181,47 @@ export function clearAllUserData(uid: string): void {
 /**
  * Purges legacy global unscoped keys that cause cross-account leaks
  */
-export function purgeLegacyGlobalKeys(): void {
+export function purgeLegacyGlobalKeys(uid?: string): void {
+  // Before purging, try to migrate legacy data if it exists
+  try {
+    // 1. Migrate legacy profile from aver_user_profile
+    const legacyProfile = localStorage.getItem('aver_user_profile');
+    if (legacyProfile) {
+      const parsed = JSON.parse(legacyProfile);
+      const targetUid = uid || parsed?.uid || 'guest';
+      
+      // Migrate photo
+      if (parsed && (parsed.profilePhotoURL || parsed.avatarUrl)) {
+        const photo = parsed.profilePhotoURL || parsed.avatarUrl;
+        if (photo && !localStorage.getItem(`aver_custom_photo_${targetUid}`)) {
+          console.log(`[Storage] Migrating legacy profile photo for user: ${targetUid}`);
+          localStorage.setItem(`aver_custom_photo_${targetUid}`, photo);
+        }
+      }
+      
+      // Migrate profile to scoped storage if not exists
+      const profileKey = `user_profile_${targetUid}`;
+      if (!localStorage.getItem(profileKey)) {
+        localStorage.setItem(profileKey, legacyProfile);
+      }
+    }
+
+    // 2. Migrate standalone aver_custom_photo if it exists
+    const legacyPhoto = localStorage.getItem('aver_custom_photo');
+    if (legacyPhoto && uid) {
+      if (!localStorage.getItem(`aver_custom_photo_${uid}`)) {
+        localStorage.setItem(`aver_custom_photo_${uid}`, legacyPhoto);
+      }
+    }
+
+    // 3. Migrate aver2_notified to global sticky if it exists
+    const legacyNotified = localStorage.getItem('aver2_notified');
+    if (legacyNotified === 'true') {
+      localStorage.setItem('aver2_notified_global', 'true');
+    }
+  } catch (e) {}
+
   const globalLeakKeys = [
-    'aver2_notified',
     'portfolio_vault_balance',
     'vault_passcode',
     'vault_onboarded',
@@ -206,7 +242,8 @@ export function purgeLegacyGlobalKeys(): void {
     'aver_active_user',
     'aver_user_profile',
     'aver_trading_config',
-    'aver_connected_wallet'
+    'aver_connected_wallet',
+    'aver_custom_photo'
   ];
 
   globalLeakKeys.forEach(k => {

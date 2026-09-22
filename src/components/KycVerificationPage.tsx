@@ -177,7 +177,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   // Synchronous resolution of the newest submission from all available sources
   const [latestSubmission, setLatestSubmission] = useState<any>(() => {
     // Try to get cached status from localStorage first to avoid flash of Step 1
-    const cachedProfile = JSON.parse(localStorage.getItem(`user_profile_${user?.uid}`) || localStorage.getItem('aver_user_profile') || '{}');
+    const cachedProfile = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
     const initialList = resolveUserSubmissions(user || cachedProfile);
     return initialList.length > 0 ? initialList[0] : null;
   });
@@ -200,7 +200,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     
     // 3. Check cached profile if Firestore user is still loading or doesn't have status
     try {
-      const cached = JSON.parse(localStorage.getItem(`user_profile_${user?.uid}`) || localStorage.getItem('aver_user_profile') || '{}');
+      const cached = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
       if (cached.kycStatus === 'unverified' && !submittedSuccess) return 'unverified';
       if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
       if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
@@ -461,7 +461,9 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
             kycHistory: [submissionPayload, ...existingHistory.filter((h: any) => h.id !== submissionId)]
           };
           localStorage.setItem(uKey, JSON.stringify(updatedUser));
-          localStorage.setItem('aver_user_profile', JSON.stringify(updatedUser));
+          if (user?.uid) {
+            localStorage.setItem(`user_profile_${user.uid}`, JSON.stringify(updatedUser));
+          }
           window.dispatchEvent(new Event('aver_user_updated'));
           console.log("[KYC TRACE 6.1 COMPLETED] Local user profile updated.");
         } catch (e) {}
@@ -525,21 +527,15 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       // 2. Clear localStorage caches
       if (user?.uid) {
         try {
+          // Also update the scoped user profile if it's the current user
           const profKey = `user_profile_${user.uid}`;
           const cached = JSON.parse(localStorage.getItem(profKey) || '{}');
-          delete cached.kycData;
-          cached.kycStatus = 'unverified';
-          delete cached.kycRejectionReason;
-          delete cached.kycResubmissionReason;
-          localStorage.setItem(profKey, JSON.stringify(cached));
-
-          const averProfile = JSON.parse(localStorage.getItem('aver_user_profile') || '{}');
-          if (averProfile.uid === user.uid || (user.email && averProfile.email?.toLowerCase() === user.email.toLowerCase())) {
-            delete averProfile.kycData;
-            averProfile.kycStatus = 'unverified';
-            delete averProfile.kycRejectionReason;
-            delete averProfile.kycResubmissionReason;
-            localStorage.setItem('aver_user_profile', JSON.stringify(averProfile));
+          if (cached && cached.uid === user.uid) {
+            delete cached.kycData;
+            cached.kycStatus = 'unverified';
+            delete cached.kycRejectionReason;
+            delete cached.kycResubmissionReason;
+            localStorage.setItem(profKey, JSON.stringify(cached));
           }
 
           // Remove or archive this user's active submission from aver_admin_kyc_local
@@ -619,7 +615,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     rejectionReason: ''
   };
 
-  if (!user && !localStorage.getItem('aver_user_profile')) {
+  if (!user && (typeof window !== 'undefined' && !localStorage.getItem('aver_last_active_uid'))) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'}`}>
         <div className="flex flex-col items-center gap-4">

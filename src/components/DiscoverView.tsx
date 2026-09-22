@@ -8,7 +8,7 @@ import {
 import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserScopedItem, setUserScopedItem } from '../utils/storage';
+import { getUserScopedItem, setUserScopedItem, safeStorage } from '../utils/storage';
 import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
 // Institutional-grade AI Strategies Dataset with Advisor Insights
@@ -32,19 +32,28 @@ export default function DiscoverView({
   const [showCopyTrade, setShowCopyTrade] = useState(false);
   const [showRoadmapModal, setShowRoadmapModal] = useState(false);
   const [isNotified, setIsNotified] = useState(() => {
+    // Check both device-global and user-scoped for maximum persistence
+    const globalState = safeStorage.getItem('aver2_notified_global') === 'true';
+    if (globalState) return true;
     return user?.uid ? getUserScopedItem(user.uid, 'aver2_notified') === 'true' : false;
   });
 
   useEffect(() => {
+    const globalState = safeStorage.getItem('aver2_notified_global') === 'true';
+    if (globalState) {
+      setIsNotified(true);
+      return;
+    }
+
     if (user?.uid) {
       setIsNotified(getUserScopedItem(user.uid, 'aver2_notified') === 'true');
-    } else {
-      setIsNotified(false);
     }
   }, [user?.uid]);
 
   const handleNotifyClick = () => {
     setIsNotified(true);
+    // Set both for redundancy and persistence across logouts
+    safeStorage.setItem('aver2_notified_global', 'true');
     if (user?.uid) {
       setUserScopedItem(user.uid, 'aver2_notified', 'true');
     }
@@ -166,12 +175,12 @@ export default function DiscoverView({
               disabled={isNotified}
               className={`py-3 px-6 rounded-2xl font-bold text-xs tracking-wider uppercase transition-all duration-300 flex items-center justify-center gap-2 shadow-lg active:scale-95 ${
                 isNotified 
-                  ? 'bg-[#042f2e]/60 border border-emerald-500/50 text-emerald-400 cursor-default' 
+                  ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 cursor-default' 
                   : 'bg-white hover:bg-slate-100 text-slate-950 shadow-white/10 cursor-pointer'
               }`}
             >
               <Bell className={`w-4 h-4 ${isNotified ? 'text-emerald-400 fill-emerald-400' : 'text-slate-950'}`} />
-              <span>{isNotified ? 'NOTIFIED' : 'NOTIFY ME'}</span>
+              <span>NOTIFY</span>
             </button>
           </div>
         </div>

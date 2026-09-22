@@ -492,8 +492,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             
             // Retain saved custom profile photo
             const cachedCustomPhoto = safeStorage.getItem(`aver_custom_photo_${uid}`);
-            const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || (isSameUser ? (prev?.profilePhotoURL || prev?.avatarUrl) : undefined) || cachedCustomPhoto || undefined;
-            const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (isSameUser && prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : !!cachedCustomPhoto)) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
+            const legacyProfileStr = localStorage.getItem('aver_user_profile');
+            let legacyPhoto = undefined;
+            if (legacyProfileStr) {
+              try {
+                const lp = JSON.parse(legacyProfileStr);
+                if (lp && (lp.profilePhotoURL || lp.avatarUrl)) legacyPhoto = lp.profilePhotoURL || lp.avatarUrl;
+              } catch (e) {}
+            }
+            
+            const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || (isSameUser ? (prev?.profilePhotoURL || prev?.avatarUrl) : undefined) || cachedCustomPhoto || legacyPhoto || undefined;
+            const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (isSameUser && prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : (!!cachedCustomPhoto || (!!legacyPhoto && !legacyPhoto.startsWith('data:image/svg+xml'))))) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
 
             const resolvedTodayPnL = typeof userData.portfolio?.todayPnL === 'number' ? userData.portfolio.todayPnL : 0;
             const resolvedOverall = typeof userData.portfolio?.overallReturn === 'number' ? userData.portfolio.overallReturn : 0;
@@ -657,7 +666,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         // Proactively purge legacy global keys on every auth check to protect existing users
         try {
-          purgeLegacyGlobalKeys();
+          purgeLegacyGlobalKeys(firebaseUser?.uid);
         } catch (purgeErr) {
           console.error("[AuthContext] Failed to purge legacy keys:", purgeErr);
         }

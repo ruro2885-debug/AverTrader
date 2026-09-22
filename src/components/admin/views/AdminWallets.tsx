@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Wallet, Search, Globe, ExternalLink, Trash2, CheckCircle2, User, Activity, Filter, ArrowUpDown, X, Shield, ShieldCheck, Key } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../../lib/firebase';
+import { collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../../../lib/firebase';
+import { useAuth } from '../../../contexts/AuthContext';
 import { LinkedWallet } from '../../../types';
 import { safeStorage } from '../../../utils/storage';
 

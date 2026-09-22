@@ -499,7 +499,8 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
             localStorage.setItem(profKey, JSON.stringify(cachedProf));
           }
 
-          const averProfileStr = localStorage.getItem('aver_user_profile');
+          const profileKey = `user_profile_${targetUserId}`;
+          const averProfileStr = localStorage.getItem(profileKey);
           if (averProfileStr) {
             const averProfile = JSON.parse(averProfileStr);
             if (averProfile.uid === targetUserId || (targetEmail && averProfile.email?.toLowerCase() === targetEmail)) {
@@ -509,7 +510,7 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
               averProfile.kycRejectionReason = userUpdate.kycRejectionReason;
               averProfile.kycResubmissionReason = userUpdate.kycResubmissionReason;
               averProfile.kycRewardUnlocked = userUpdate.kycRewardUnlocked;
-              localStorage.setItem('aver_user_profile', JSON.stringify(averProfile));
+              localStorage.setItem(profileKey, JSON.stringify(averProfile));
             }
           }
 
