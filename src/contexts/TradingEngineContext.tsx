@@ -819,6 +819,21 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     tokenBalanceRef.current = newTokenBal;
     const totalNetBalance = newTokenBal + allocationAmount + newVaultBal;
 
+    // Immediately synchronize React state so balance never glitches or flashes zero
+    if (updateProfile) {
+      updateProfile({
+        tokenBalance: newTokenBal,
+        availableBalance: newTokenBal,
+        portfolioBalance: totalNetBalance,
+        vaultBalance: newVaultBal,
+        aiTradingCapital: allocationAmount,
+        portfolio: {
+          ...(user?.portfolio || {}),
+          totalValue: totalNetBalance
+        }
+      }, undefined, undefined, true);
+    }
+
     try {
       await walletService.updateWallet(effectiveUid, {
         tokenBalance: newTokenBal,
@@ -851,7 +866,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     try {
       const userCacheKey = `user_profile_${effectiveUid}`;
-      const cachedUserStr = safeStorage.getItem(userCacheKey);
+      const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
       if (cachedUserStr) {
         const uObj = JSON.parse(cachedUserStr);
         uObj.tokenBalance = newTokenBal;
@@ -863,6 +878,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.portfolio.totalValue = totalNetBalance;
         }
         safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
+        localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         window.dispatchEvent(new Event('storage'));
         window.dispatchEvent(new Event('aver_user_updated'));
       }
@@ -1193,6 +1209,27 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const newTotalLoss = sessionPnl < 0 ? (prevLoss + Math.abs(sessionPnl)) : prevLoss;
       const accountPnlPercent = totalNetBalance > 0 ? parseFloat(((sessionPnl / totalNetBalance) * 100).toFixed(4)) : 0;
 
+      // Immediately synchronize React state so balance never drops or glitches on session close
+      if (updateProfile) {
+        updateProfile({
+          tokenBalance: newTokenBal,
+          availableBalance: newTokenBal,
+          portfolioBalance: totalNetBalance,
+          vaultBalance: newVaultBal,
+          aiTradingCapital: 0,
+          totalProfit: newTotalProfit,
+          totalLoss: newTotalLoss,
+          portfolio: {
+            ...(user?.portfolio || {}),
+            totalValue: totalNetBalance,
+            todayPnL: sessionPnl,
+            todayPnLPercent: accountPnlPercent,
+            overallReturn: sessionPnl,
+            realizedPnL: sessionPnl
+          }
+        }, undefined, undefined, true);
+      }
+
       // 5. Update wallet document and portfolio persistence state
       await walletService.updateWallet(effectiveUid, {
         tokenBalance: newTokenBal,
@@ -1243,7 +1280,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       // 6. Update cached user profile
       try {
         const userCacheKey = `user_profile_${effectiveUid}`;
-        const cachedUserStr = safeStorage.getItem(userCacheKey);
+        const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
         if (cachedUserStr) {
           const uObj = JSON.parse(cachedUserStr);
           uObj.tokenBalance = newTokenBal;
@@ -1262,6 +1299,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             uObj.portfolio.overallReturn = sessionPnl;
           }
           safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
+          localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         }
       } catch (err) {
         console.warn("Failed to update cached user profile in local storage:", err);
@@ -1653,7 +1691,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     try {
       const userId = user.uid;
       const userCacheKey = `user_profile_${userId}`;
-      const cachedUserStr = safeStorage.getItem(userCacheKey);
+      const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
       if (cachedUserStr) {
         const uObj = JSON.parse(cachedUserStr);
         uObj.totalProfit = pnl > 0 ? (uObj.totalProfit || 0) + pnl : (uObj.totalProfit || 0);
@@ -1668,6 +1706,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.portfolio.overallReturn = (uObj.portfolio.overallReturn || 0) + pnl;
         }
         safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
+        localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         window.dispatchEvent(new Event('storage'));
       }
     } catch (err) {

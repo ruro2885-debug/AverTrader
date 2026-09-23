@@ -10,6 +10,7 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { ClipboardPaste, UserPlus } from 'lucide-react';
+import { PRESTIGIOUS_COUNTRIES } from '../data/prestigiousCountries';
 
 
 interface AuthPageProps {
@@ -163,33 +164,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     }
   };
   
-  const countries = [
-    "United States", "United Kingdom", "Canada", "Australia", "Germany", 
-    "France", "Switzerland", "Netherlands", "Sweden", "Spain", 
-    "Italy", "Japan", "China", "Brazil", "United Arab Emirates",
-    "Norway", "Denmark", "Finland", "Ireland", "Luxembourg",
-    "Austria", "Belgium", "Singapore", "South Korea", "New Zealand",
-    "Israel", "Qatar", "Saudi Arabia", "Kuwait", "Bahrain",
-    "Oman", "Monaco", "Liechtenstein", "Iceland", "Portugal",
-    "Greece", "Poland", "Czech Republic", "Hungary", "Slovakia",
-    "Slovenia", "Estonia", "Latvia", "Lithuania", "Cyprus",
-    "Malta", "Turkey", "India", "Mexico", "Argentina",
-    "Chile", "Uruguay", "South Africa", "Thailand", "Malaysia",
-    "Indonesia", "Philippines", "Vietnam", "Taiwan", "Hong Kong",
-    "Macao", "Russia", "Kazakhstan", "Vatican City", "San Marino",
-    "Andorra", "Anguilla", "Antigua & Barbuda", "Aruba", "Bahamas", 
-    "Barbados", "Bermuda", "British Virgin Islands", "Brunei", "Cayman Islands", 
-    "Cook Islands", "Costa Rica", "Croatia", "Curacao", "Dominica", 
-    "Faroe Islands", "Fiji", "French Polynesia", "Gibraltar", "Greenland", 
-    "Grenada", "Guam", "Guernsey", "Isle of Man", "Jersey", 
-    "Maldives", "Mauritius", "Montenegro", "Montserrat", "New Caledonia", 
-    "Panama", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent & Grenadines", 
-    "Seychelles", "Sint Maarten", "Turks & Caicos Islands", "US Virgin Islands",
-    "Bulgaria", "Colombia", "Egypt", "Georgia", "Jordan", 
-    "Lebanon", "Morocco", "Peru", "Romania", "Serbia", 
-    "Sri Lanka", "Tunisia", "Ukraine", "Azerbaijan", "Trinidad & Tobago",
-    "Nigeria", "Kenya", "Ghana", "Botswana", "Namibia", "Egypt"
-  ].sort().filter((v, i, a) => a.indexOf(v) === i);
+  const countries = PRESTIGIOUS_COUNTRIES;
 
   // Handle Register Form Submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {

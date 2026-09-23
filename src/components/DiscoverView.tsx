@@ -8,7 +8,6 @@ import {
 import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserScopedItem, setUserScopedItem, safeStorage } from '../utils/storage';
 import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
 // Institutional-grade AI Strategies Dataset with Advisor Insights
@@ -27,42 +26,55 @@ export default function DiscoverView({
 }) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
-  
   const { user, updateProfile } = useAuth();
+  
   const [showCopyTrade, setShowCopyTrade] = useState(false);
   const [showRoadmapModal, setShowRoadmapModal] = useState(false);
-  const [isNotified, setIsNotified] = useState(() => {
-    // Check both device-global and user-scoped for maximum persistence
-    const globalState = safeStorage.getItem('aver2_notified_global') === 'true';
-    if (globalState) return true;
-    const userState = user?.uid ? getUserScopedItem(user.uid, 'aver2_notified') === 'true' : false;
-    if (userState) return true;
-    return !!(user as any)?.aver2_notified;
-  });
 
+  // Compute user-scoped storage key so new users start fresh and NOT hardcoded
+  const userStorageKey = user?.uid 
+    ? `aver2_notified_user_${user.uid}` 
+    : (user?.email ? `aver2_notified_email_${user.email}` : null);
+
+  const [isNotified, setIsNotified] = useState(false);
+
+  // Synchronize on mount and when user changes
   useEffect(() => {
-    const globalState = safeStorage.getItem('aver2_notified_global') === 'true';
-    if (globalState) {
-      setIsNotified(true);
+    // Purge legacy global key that caused all users to be hardcoded to notified
+    try {
+      localStorage.removeItem('aver2_notified');
+    } catch (e) {}
+
+    if (!userStorageKey) {
+      setIsNotified(false);
       return;
     }
 
-    if (user?.uid) {
-      const localState = getUserScopedItem(user.uid, 'aver2_notified') === 'true';
-      const profileState = !!(user as any)?.aver2_notified;
-      setIsNotified(localState || profileState);
+    try {
+      const stored = localStorage.getItem(userStorageKey);
+      const profileFlag = Boolean((user as any)?.aver2Notified);
+      setIsNotified(stored === 'true' || profileFlag);
+    } catch (e) {
+      setIsNotified(false);
     }
-  }, [user?.uid, (user as any)?.aver2_notified]);
+  }, [userStorageKey, user?.uid]);
 
   const handleNotifyClick = () => {
-    setIsNotified(true);
-    // Set both for redundancy and persistence across logouts
-    safeStorage.setItem('aver2_notified_global', 'true');
-    if (user?.uid) {
-      setUserScopedItem(user.uid, 'aver2_notified', 'true');
-      if (updateProfile) {
-        updateProfile({ aver2_notified: true } as any).catch(() => {});
-      }
+    const nextState = !isNotified;
+    setIsNotified(nextState);
+    if (userStorageKey) {
+      try {
+        if (nextState) {
+          localStorage.setItem(userStorageKey, 'true');
+        } else {
+          localStorage.removeItem(userStorageKey);
+        }
+      } catch (e) {}
+    }
+    if (user?.uid && updateProfile) {
+      updateProfile({
+        aver2Notified: nextState
+      } as any, undefined, undefined, true);
     }
   };
   
@@ -182,21 +194,12 @@ export default function DiscoverView({
               disabled={isNotified}
               className={`py-3 px-6 rounded-2xl font-bold text-xs tracking-wider uppercase transition-all duration-300 flex items-center justify-center gap-2 shadow-lg active:scale-95 ${
                 isNotified 
-                  ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 cursor-default' 
+                  ? 'bg-[#042f2e]/60 border border-emerald-500/50 text-emerald-400 cursor-default' 
                   : 'bg-white hover:bg-slate-100 text-slate-950 shadow-white/10 cursor-pointer'
               }`}
             >
-              {isNotified ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>NOTIFIED</span>
-                </>
-              ) : (
-                <>
-                  <Bell className="w-4 h-4 text-slate-950" />
-                  <span>NOTIFY</span>
-                </>
-              )}
+              <Bell className={`w-4 h-4 ${isNotified ? 'text-emerald-400 fill-emerald-400' : 'text-slate-950'}`} />
+              <span>{isNotified ? 'NOTIFIED' : 'NOTIFY ME'}</span>
             </button>
           </div>
         </div>
@@ -262,12 +265,14 @@ export default function DiscoverView({
               <div className="pt-2">
                 <button
                   onClick={() => {
-                    setIsNotified(true);
+                    if (!isNotified) {
+                      handleNotifyClick();
+                    }
                     setShowRoadmapModal(false);
                   }}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold text-xs tracking-wider uppercase hover:opacity-90 transition shadow-xl"
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold text-xs tracking-wider uppercase hover:opacity-90 transition shadow-xl cursor-pointer"
                 >
-                  Join VIP Priority Early Access List
+                  {isNotified ? 'Already on Priority Access List' : 'Join VIP Priority Early Access List'}
                 </button>
               </div>
             </motion.div>

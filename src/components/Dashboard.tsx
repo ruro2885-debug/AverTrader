@@ -4,8 +4,9 @@ import {
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
   Brain, Activity, Star, Newspaper, Zap, ArrowRightLeft, 
   Copy, History, CreditCard, ChevronRight, Bell, X, ShieldCheck,
-  Award, AlertCircle, CheckCircle2, Lock, Flame, Trash2
+  Award, AlertCircle, CheckCircle2, Lock, Flame, Trash2, MessageSquare
 } from 'lucide-react';
+import { useSupportUnread } from '../hooks/useSupportUnread';
 import BottomNavigation from './BottomNavigation';
 import CoinLogo from './CoinLogo';
 import ProfileView from './ProfileView';
@@ -29,8 +30,6 @@ import UserAvatar from './UserAvatar';
 import AverLogo from './AverLogo';
 import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
 import { TradingEngineContext } from '../contexts/TradingEngineContext';
-import { db } from '../lib/firebase';
-import { collection, query, onSnapshot } from 'firebase/firestore';
 
 
 
@@ -45,15 +44,6 @@ import { safeStorage } from '../utils/storage';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService, WalletData } from '../services/walletService';
 import { useAppNavigation } from '../contexts/NavigationContext';
-
-import { memo } from 'react';
-
-// Memoized sub-view wrapper to prevent unnecessary re-renders of heavy modules
-const MemoizedDiscoverView = memo(DiscoverView);
-const MemoizedAiTradingModule = memo(AiTradingModule);
-const MemoizedProfileView = memo(ProfileView);
-const MemoizedPortfolioView = memo(PortfolioViewV2);
-const MemoizedMarketsPage = memo(MarketsPage);
 
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'history') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
@@ -325,6 +315,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Fallback defaults if user profile isn't fully loaded or is null
   const { totalNetBalance, activeTradingBalance, aiTradingCapital, homeNetBalance, walletData } = useFinancials();
   
+  const { hasUnreadAdminMessage, markAsRead: markSupportAsRead } = useSupportUnread(user?.uid, user?.email);
+
+  useEffect(() => {
+    if (activeTab === 'support' || showSupportCenterModal) {
+      markSupportAsRead();
+    }
+  }, [activeTab, showSupportCenterModal, markSupportAsRead]);
+  
   const resetTime = useMemo(() => {
     if (user?.resetPnL && user?.pnlResetAt) {
       const parsed = new Date(user.pnlResetAt).getTime();
@@ -397,10 +395,10 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return 0;
   }, [trades, activeCompletedSessions, user, resetTime]);
 
-  // Home Net Balance represents the single authoritative wallet balance (Home Net Balance = Portfolio Wallet Balance)
+  // Home Net Balance represents the single authoritative consolidated balance (Net Balance = Total Net Portfolio Value)
   const totalValue = useMemo(() => {
-    return homeNetBalance;
-  }, [homeNetBalance]);
+    return totalNetBalance > 0 ? totalNetBalance : (homeNetBalance > 0 ? homeNetBalance : (user?.portfolioBalance || 0));
+  }, [totalNetBalance, homeNetBalance, user?.portfolioBalance]);
 
   // Account baseline for trading return calculations (independent of cash deposits/withdrawals)
   const baselineAccountBalance = useMemo(() => {
@@ -778,33 +776,6 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     }
   };
 
-  const [hasUnreadSupport, setHasUnreadSupport] = useState(false);
-
-  // Real-time listener for unread admin support messages
-  useEffect(() => {
-    if (!user?.uid) return;
-
-    const q = query(collection(db, 'support_tickets'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      let unread = false;
-      snapshot.docs.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data.userId === user.uid || (user.email && data.userEmail?.toLowerCase() === user.email.toLowerCase())) {
-          const messages = data.messages || [];
-          const hasUnreadAdminMsg = messages.some((m: any) => 
-            (m.isAdmin || m.senderRole === 'admin') && m.status !== 'read'
-          );
-          if (hasUnreadAdminMsg) {
-            unread = true;
-          }
-        }
-      });
-      setHasUnreadSupport(unread);
-    });
-
-    return () => unsubscribe();
-  }, [user?.uid, user?.email]);
-
   const handleMarkNotificationsRead = async () => {
     await clearNotifications();
   };
@@ -948,18 +919,55 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             <div id="header-unrealized-pl-wrapper" className="flex items-center justify-center">
             </div>
             
-            <button 
-              onClick={() => setShowNotificationsModal(true)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
-            >
-              <Bell className={`w-4 h-4 ${textPrimary}`} />
-              {(unreadNotificationsCount > 0 || hasUnreadSupport) && (
-                <span className={`absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full ${hasUnreadSupport ? 'bg-red-600 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.8)]' : 'bg-rose-500'} px-1 text-[8px] font-black text-white ring-2 ring-slate-950`}>
-                  {unreadNotificationsCount > 0 ? unreadNotificationsCount : ''}
-                </span>
-              )}
-            </button>
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={() => {
+                  markSupportAsRead();
+                  navigateTab('support');
+                }}
+                title="Customer Support"
+                className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
+              >
+                <MessageSquare className={`w-4 h-4 ${textPrimary}`} />
+                {hasUnreadAdminMessage && (
+                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-slate-950"></span>
+                  </span>
+                )}
+              </button>
+
+              <button 
+                onClick={() => setShowNotificationsModal(true)}
+                className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
+              >
+                <Bell className={`w-4 h-4 ${textPrimary}`} />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-2 ring-slate-950">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+            </div>
           </header>
+        )}
+
+        {/* Global Top-Right Red Notification Dot for Admin Messages */}
+        {hasUnreadAdminMessage && (
+          <button
+            onClick={() => {
+              markSupportAsRead();
+              navigateTab('support');
+            }}
+            title="New message from Support Specialist - Click to view"
+            className="fixed top-3 right-3 sm:right-6 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/20 border border-rose-500/50 backdrop-blur-md text-white shadow-xl shadow-rose-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-white"></span>
+            </span>
+            <span className="text-[11px] font-bold tracking-wider uppercase text-rose-300">Support</span>
+          </button>
         )}
 
         <AnimatePresence mode="wait">
@@ -992,7 +1000,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   </button>
                 </div>
 
-                <h2 className={`text-3xl sm:text-4xl font-black tracking-tight ${textPrimary} mb-4 font-mono`}>
+                <h2 className={`text-3xl sm:text-4xl font-black tracking-tight ${textPrimary} mb-4`}>
                   {totalValueFormatted}
                 </h2>
                 
@@ -1006,11 +1014,11 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                     }}
                   >
                     {totalPlAmount >= 0 ? <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" /> : <TrendingDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />}
-                    <span className="text-xs sm:text-sm font-black whitespace-nowrap font-mono">{todayPnLFormatted}</span>
-                    <span className="text-[11px] sm:text-xs font-bold opacity-90 whitespace-nowrap font-mono">({todayPnLPercentFormatted})</span>
+                    <span className="text-xs sm:text-sm font-black whitespace-nowrap">{todayPnLFormatted}</span>
+                    <span className="text-[11px] sm:text-xs font-bold opacity-90 whitespace-nowrap">({todayPnLPercentFormatted})</span>
                   </div>
                   <div className={`text-xs font-semibold whitespace-nowrap shrink-0 ${textSecondary}`}>
-                    Overall: <span className="font-bold whitespace-nowrap font-mono" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
+                    Overall: <span className="font-bold whitespace-nowrap" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
                   </div>
                 </div>
 
@@ -1220,7 +1228,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           {activeTab === 'copy-trading' && <CopyTrading theme={theme} />}
 
           {activeTab === 'portfolio' && (
-            <MemoizedPortfolioView 
+            <PortfolioViewV2 
               theme={theme} 
               onBack={goBackTab} 
               onNavigate={navigateTab}
@@ -1230,7 +1238,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             />
           )}
 
-          {activeTab === 'markets' && <MemoizedMarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
+          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
           {activeTab === 'coin-details' && (
             <CoinDetailsPage 
               asset={selectedAsset || currentLocation.asset || { symbol: 'BTC', name: 'Bitcoin', price: '$94,200', change: '+2.4%' }} 
@@ -1239,9 +1247,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               onTrade={(symbol) => navigateTab('ai', { asset: symbol })}
             />
           )}
-          {activeTab === 'discover' && <MemoizedDiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
-          {activeTab === 'ai' && <MemoizedAiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
-          {activeTab === 'profile' && <MemoizedProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} />}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
+          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} />}
           
           {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('ai')} />}
           {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}

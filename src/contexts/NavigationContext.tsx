@@ -51,8 +51,21 @@ const DEFAULT_LOCATION: NavigationLocation = {
 };
 
 function getInitialStack(initialView?: string): NavigationLocation[] {
-  const initV = initialView || 'home';
-  const initialStack = [
+  try {
+    const raw = safeStorage.getItem(STORAGE_STACK_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    // Ignore parse errors and use default
+  }
+
+  const hasActiveUser = safeStorage.getItem('aver_active_user') && safeStorage.getItem('aver_logged_out') !== 'true';
+  const initV = initialView || (hasActiveUser ? 'dashboard' : 'home');
+  return [
     {
       id: `root-${Date.now()}`,
       view: initV,
@@ -61,33 +74,6 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
       modal: null,
     },
   ];
-
-  try {
-    const raw = safeStorage.getItem(STORAGE_STACK_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // SAFETY: Strip any 'admin' view from the restored stack UNLESS specifically authorized
-        const isAdminAuthorized = safeStorage.getItem('admin_session_active') === 'true';
-        const sanitized = parsed.map(loc => {
-          if (loc.view === 'admin' && !isAdminAuthorized) return { ...loc, view: 'dashboard', tab: 'home' };
-          return loc;
-        });
-
-        // If the top is still admin (after mapping it to dashboard), or if we want to be safe:
-        const top = sanitized[sanitized.length - 1];
-        if (top.view === 'admin') {
-          return initialStack;
-        }
-        
-        return sanitized;
-      }
-    }
-  } catch (e) {
-    // Ignore parse errors
-  }
-
-  return initialStack;
 }
 
 export function NavigationProvider({

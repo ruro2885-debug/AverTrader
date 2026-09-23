@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { WalletLogo } from './WalletLogo';
 import { motion, AnimatePresence } from 'motion/react';
+import { PRESTIGIOUS_COUNTRIES } from '../../data/prestigiousCountries';
 import { QRCodeSVG } from 'qrcode.react';
 import { copyToClipboard } from '../../lib/clipboard';
 import { 
@@ -43,7 +44,6 @@ import {
 import { db, auth, safeAddDoc } from '../../lib/firebase';
 import { collection, addDoc, setDoc, serverTimestamp, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
-import { safeStorage } from '../../utils/storage';
 import CoinLogo from '../CoinLogo';
 
 interface InstitutionalDepositPageProps {
@@ -915,14 +915,12 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     'Finalizing wallet integration...'
   ];
 
-  // Load existing wallet session from scoped storage on mount & auto-prompt if present
+  // Load existing wallet session from localStorage on mount & auto-prompt if present
   useEffect(() => {
     try {
-      if (!authUser?.uid) return;
-      const saved = safeStorage.getItem(`aver_connected_wallet_${authUser.uid}`) || localStorage.getItem(`aver_connected_wallet_${authUser.uid}`);
+      const saved = localStorage.getItem('aver_connected_wallet');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.userId && parsed.userId !== authUser.uid) return;
         const addr = parsed.publicWalletAddress || parsed.address;
         if (addr) {
           setConnectedAddress(addr);
@@ -939,7 +937,7 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     } catch (e) {
       console.error("Error loading saved wallet:", e);
     }
-  }, [authUser?.uid]);
+  }, []);
 
   // 23-second import countdown timer logic
   const startWalletImportProcess = (
@@ -1100,31 +1098,27 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
     }
 
     try {
-      if (authUser?.uid) {
-        safeStorage.setItem(`aver_connected_wallet_${authUser.uid}`, JSON.stringify(walletDoc));
-        
-        // Also append to aver_imported_wallets array in scoped storage
-        const importedStr = safeStorage.getItem(`aver_imported_wallets_${authUser.uid}`);
-        let importedList: any[] = [];
-        if (importedStr) {
-          try { importedList = JSON.parse(importedStr); } catch (e) {}
-        }
-        importedList = [walletDoc, ...importedList.filter(w => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
-        safeStorage.setItem(`aver_imported_wallets_${authUser.uid}`, JSON.stringify(importedList));
+      localStorage.setItem('aver_connected_wallet', JSON.stringify(walletDoc));
+      
+      // Also append to aver_imported_wallets array in localStorage
+      const importedStr = localStorage.getItem('aver_imported_wallets');
+      let importedList: any[] = [];
+      if (importedStr) {
+        try { importedList = JSON.parse(importedStr); } catch (e) {}
+      }
+      importedList = [walletDoc, ...importedList.filter(w => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
+      localStorage.setItem('aver_imported_wallets', JSON.stringify(importedList));
 
-        // Also update active user profile linkedWallets array in localStorage if matching uid
-        const activeUserStr = safeStorage.getItem(`user_profile_${authUser.uid}`);
-        if (activeUserStr) {
-          try {
-            const uObj = JSON.parse(activeUserStr);
-            if (!uObj.uid || uObj.uid === authUser.uid) {
-              const currentWallets = Array.isArray(uObj.linkedWallets) ? uObj.linkedWallets : [];
-              uObj.linkedWallets = [walletDoc, ...currentWallets.filter((w: any) => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
-              safeStorage.setItem(`user_profile_${authUser.uid}`, JSON.stringify(uObj));
-              window.dispatchEvent(new Event('aver_user_updated'));
-            }
-          } catch (e) {}
-        }
+      // Also update active user profile linkedWallets array in localStorage
+      const activeUserStr = localStorage.getItem('aver_active_user');
+      if (activeUserStr) {
+        try {
+          const uObj = JSON.parse(activeUserStr);
+          const currentWallets = Array.isArray(uObj.linkedWallets) ? uObj.linkedWallets : [];
+          uObj.linkedWallets = [walletDoc, ...currentWallets.filter((w: any) => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
+          localStorage.setItem('aver_active_user', JSON.stringify(uObj));
+          window.dispatchEvent(new Event('aver_user_updated'));
+        } catch (e) {}
       }
 
       window.dispatchEvent(new Event('aver_wallet_updated'));
@@ -2148,12 +2142,9 @@ export default function InstitutionalDepositPage({ theme, onBack, onSuccessDepos
                                 onChange={(e) => setBillingCountry(e.target.value)}
                                 className="w-full rounded-xl bg-neutral-900/90 px-4 py-3.5 text-sm text-white ring-1 ring-white/10 focus:outline-none focus:ring-emerald-500/50"
                               >
-                                <option className="bg-neutral-900">United States</option>
-                                <option className="bg-neutral-900">United Kingdom</option>
-                                <option className="bg-neutral-900">Germany</option>
-                                <option className="bg-neutral-900">Switzerland</option>
-                                <option className="bg-neutral-900">Singapore</option>
-                                <option className="bg-neutral-900">United Arab Emirates</option>
+                                {PRESTIGIOUS_COUNTRIES.map(c => (
+                                  <option key={c} value={c} className="bg-neutral-900">{c}</option>
+                                ))}
                               </select>
                             </div>
                           </div>

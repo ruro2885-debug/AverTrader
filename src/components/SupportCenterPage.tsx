@@ -186,32 +186,15 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     }
   }, [activeTicket?.messages, activeTicket?.id, isTyping, autoScroll]);
 
-  // Mark admin messages as read when viewing ticket
+  // Mark support chat as read immediately when user opens support center or switches active ticket
   useEffect(() => {
-    if (!activeTicket || !user) return;
-
-    const hasUnreadAdmin = activeTicket.messages.some(m => 
-      (m.isAdmin || m.senderRole === 'admin') && m.status !== 'read'
-    );
-
-    if (hasUnreadAdmin) {
-      const updatedMessages = activeTicket.messages.map(m => {
-        if (m.isAdmin || m.senderRole === 'admin') {
-          return { ...m, status: 'read' as const };
-        }
-        return m;
-      });
-
-      const updatedTicket = {
-        ...activeTicket,
-        messages: updatedMessages,
-        updatedAt: new Date().toISOString()
-      };
-
-      // Silence update to avoid infinite loop
-      saveSupportTicket(updatedTicket as any).catch(err => console.warn("Failed to mark messages as read:", err));
+    if (user?.uid) {
+      try {
+        localStorage.setItem(`aver_support_last_read_${user.uid}`, String(Date.now()));
+        window.dispatchEvent(new CustomEvent('aver_support_read', { detail: { timestamp: Date.now(), userId: user.uid } }));
+      } catch (e) {}
     }
-  }, [activeTicket?.id, activeTicket?.messages?.length, user?.uid]);
+  }, [user?.uid, activeTicket?.id]);
 
   // Handle Starting First Conversation from Empty State
   const handleStartFirstConversation = async () => {
