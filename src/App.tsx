@@ -79,10 +79,9 @@ function AppContent() {
     const search = window.location.search;
     
     // Strict admin protection: Never auto-route to admin view based on URL.
-    // Admin access must be triggered via the secret handshake in the NotFound view.
-    if (path === '/admin' || search.includes('admin=true')) {
-      // Force unauthorized admin attempts to the NotFound view for verification
+    if (path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin')) {
       console.warn("[App] Blocking direct admin access attempt.");
+      safeStorage.removeItem('aver_session_initialized');
       navigateView('not-found', {}, { replace: true });
     } else if (path === '/404' || search.includes('404=true')) {
       navigateView('not-found', {}, { replace: true });

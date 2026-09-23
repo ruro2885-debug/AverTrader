@@ -51,18 +51,6 @@ const DEFAULT_LOCATION: NavigationLocation = {
 };
 
 function getInitialStack(initialView?: string): NavigationLocation[] {
-  try {
-    const raw = safeStorage.getItem(STORAGE_STACK_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    // Ignore parse errors and use default
-  }
-
   const initV = initialView || 'home';
   const initialStack = [
     {
@@ -79,16 +67,24 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // SAFETY: If the top of the stack is 'admin', strip it and revert to dashboard or home
-        const top = parsed[parsed.length - 1];
+        // SAFETY: Force strip any 'admin' view from the restored stack
+        const sanitized = parsed.map(loc => {
+          if (loc.view === 'admin') return { ...loc, view: 'dashboard', tab: 'home' };
+          return loc;
+        });
+
+        // If the top is still admin (after mapping it to dashboard), or if we want to be safe:
+        const top = sanitized[sanitized.length - 1];
         if (top.view === 'admin') {
-          console.warn("[Navigation] Stripping unauthorized admin view from initial stack.");
           return initialStack;
         }
-        return parsed;
+        
+        return sanitized;
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    // Ignore parse errors
+  }
 
   return initialStack;
 }
