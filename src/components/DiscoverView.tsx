@@ -28,14 +28,16 @@ export default function DiscoverView({
   const isDark = theme === 'dark';
   const { t } = usePreferences();
   
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const [showCopyTrade, setShowCopyTrade] = useState(false);
   const [showRoadmapModal, setShowRoadmapModal] = useState(false);
   const [isNotified, setIsNotified] = useState(() => {
     // Check both device-global and user-scoped for maximum persistence
     const globalState = safeStorage.getItem('aver2_notified_global') === 'true';
     if (globalState) return true;
-    return user?.uid ? getUserScopedItem(user.uid, 'aver2_notified') === 'true' : false;
+    const userState = user?.uid ? getUserScopedItem(user.uid, 'aver2_notified') === 'true' : false;
+    if (userState) return true;
+    return !!(user as any)?.aver2_notified;
   });
 
   useEffect(() => {
@@ -46,9 +48,11 @@ export default function DiscoverView({
     }
 
     if (user?.uid) {
-      setIsNotified(getUserScopedItem(user.uid, 'aver2_notified') === 'true');
+      const localState = getUserScopedItem(user.uid, 'aver2_notified') === 'true';
+      const profileState = !!(user as any)?.aver2_notified;
+      setIsNotified(localState || profileState);
     }
-  }, [user?.uid]);
+  }, [user?.uid, (user as any)?.aver2_notified]);
 
   const handleNotifyClick = () => {
     setIsNotified(true);
@@ -56,6 +60,9 @@ export default function DiscoverView({
     safeStorage.setItem('aver2_notified_global', 'true');
     if (user?.uid) {
       setUserScopedItem(user.uid, 'aver2_notified', 'true');
+      if (updateProfile) {
+        updateProfile({ aver2_notified: true } as any).catch(() => {});
+      }
     }
   };
   
@@ -179,8 +186,17 @@ export default function DiscoverView({
                   : 'bg-white hover:bg-slate-100 text-slate-950 shadow-white/10 cursor-pointer'
               }`}
             >
-              <Bell className={`w-4 h-4 ${isNotified ? 'text-emerald-400 fill-emerald-400' : 'text-slate-950'}`} />
-              <span>NOTIFY</span>
+              {isNotified ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>NOTIFIED</span>
+                </>
+              ) : (
+                <>
+                  <Bell className="w-4 h-4 text-slate-950" />
+                  <span>NOTIFY</span>
+                </>
+              )}
             </button>
           </div>
         </div>

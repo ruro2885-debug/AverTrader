@@ -29,6 +29,8 @@ import UserAvatar from './UserAvatar';
 import AverLogo from './AverLogo';
 import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
 import { TradingEngineContext } from '../contexts/TradingEngineContext';
+import { db } from '../lib/firebase';
+import { collection, query, onSnapshot } from 'firebase/firestore';
 
 
 
@@ -776,6 +778,33 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     }
   };
 
+  const [hasUnreadSupport, setHasUnreadSupport] = useState(false);
+
+  // Real-time listener for unread admin support messages
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const q = query(collection(db, 'support_tickets'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let unread = false;
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.userId === user.uid || (user.email && data.userEmail?.toLowerCase() === user.email.toLowerCase())) {
+          const messages = data.messages || [];
+          const hasUnreadAdminMsg = messages.some((m: any) => 
+            (m.isAdmin || m.senderRole === 'admin') && m.status !== 'read'
+          );
+          if (hasUnreadAdminMsg) {
+            unread = true;
+          }
+        }
+      });
+      setHasUnreadSupport(unread);
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, user?.email]);
+
   const handleMarkNotificationsRead = async () => {
     await clearNotifications();
   };
@@ -924,9 +953,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
             >
               <Bell className={`w-4 h-4 ${textPrimary}`} />
-              {unreadNotificationsCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-2 ring-slate-950">
-                  {unreadNotificationsCount}
+              {(unreadNotificationsCount > 0 || hasUnreadSupport) && (
+                <span className={`absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full ${hasUnreadSupport && unreadNotificationsCount === 0 ? 'bg-rose-500 animate-pulse' : 'bg-rose-500'} px-1 text-[8px] font-black text-white ring-2 ring-slate-950`}>
+                  {unreadNotificationsCount > 0 ? unreadNotificationsCount : '!'}
                 </span>
               )}
             </button>
@@ -963,7 +992,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   </button>
                 </div>
 
-                <h2 className={`text-3xl sm:text-4xl font-black tracking-tight ${textPrimary} mb-4`}>
+                <h2 className={`text-3xl sm:text-4xl font-black tracking-tight ${textPrimary} mb-4 font-mono`}>
                   {totalValueFormatted}
                 </h2>
                 
@@ -977,11 +1006,11 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                     }}
                   >
                     {totalPlAmount >= 0 ? <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" /> : <TrendingDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />}
-                    <span className="text-xs sm:text-sm font-black whitespace-nowrap">{todayPnLFormatted}</span>
-                    <span className="text-[11px] sm:text-xs font-bold opacity-90 whitespace-nowrap">({todayPnLPercentFormatted})</span>
+                    <span className="text-xs sm:text-sm font-black whitespace-nowrap font-mono">{todayPnLFormatted}</span>
+                    <span className="text-[11px] sm:text-xs font-bold opacity-90 whitespace-nowrap font-mono">({todayPnLPercentFormatted})</span>
                   </div>
                   <div className={`text-xs font-semibold whitespace-nowrap shrink-0 ${textSecondary}`}>
-                    Overall: <span className="font-bold whitespace-nowrap" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
+                    Overall: <span className="font-bold whitespace-nowrap font-mono" style={{ color: overallReturnPercent >= 0 ? '#22c55e' : '#ef4444' }}>{overallReturnFormatted}</span>
                   </div>
                 </div>
 

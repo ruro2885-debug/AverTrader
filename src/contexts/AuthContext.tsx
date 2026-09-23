@@ -262,6 +262,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const firstLoadReceivedRef = useRef<boolean>(false);
   const userRef = useRef<User | null>(null);
   const notificationManagerRef = useRef<NotificationManager | null>(null);
   const avatarSetupRef = useRef<boolean>(false);
@@ -479,6 +480,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const userDocRef = doc(db, 'users', uid);
       subscriptionsRef.current.unsubUserDoc = onSnapshot(userDocRef, (docSnap) => {
         if (safeStorage.getItem('aver_logged_out') === 'true') return;
+        
+        // Resolve loading on first valid doc received
+        if (!firstLoadReceivedRef.current) {
+          firstLoadReceivedRef.current = true;
+          setLoading(false);
+        }
+
         if (docSnap.exists()) {
           const userData = docSnap.data() as User;
 
@@ -505,7 +513,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const isAbnormalPnL = currentPnL === -121.45 || currentPnL < -100;
             
             if (isTargetUser && (isAbnormalBalance || isAbnormalPnL)) {
-              // ... (repair logic remains, but simplified)
+              // ... (repair logic remains)
               userData.portfolioBalance = 0;
               userData.availableBalance = 0;
               userData.tokenBalance = 0;
@@ -517,7 +525,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 totalValue: 0,
                 todayPnL: 0,
                 overallReturn: 0,
-                todayPnLPercent: 0
+                todayPnLPercent: 0,
+                realizedPnL: 0,
+                unrealizedPnL: 0,
+                healthScore: 100,
+                diversificationScore: 100,
+                volatility: 0,
+                sharpeRatio: 0,
+                winRate: 0,
+                maxDrawdown: 0,
+                recoveryFactor: 0,
+                riskAdjustedReturn: 0
               };
 
               const repairData = {
@@ -536,6 +554,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               };
 
               setDoc(userDocRef, repairData, { merge: true }).catch(() => {});
+            }
+
+            // ONE-TIME RESET: Notify state for ruro2885@gmail.com
+            if (isTargetUser) {
+              const resetKey = `aver:user:${uid}:notify_reset_v1`;
+              if (!safeStorage.getItem(resetKey)) {
+                safeStorage.removeItem('aver2_notified_global');
+                safeStorage.removeItem(`aver:user:${uid}:aver2_notified`);
+                safeStorage.setItem(resetKey, 'true');
+              }
             }
 
             const pBal = typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : 0;
@@ -659,8 +687,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }, (err) => {
         console.error("[AuthContext] unsubUserDoc error:", err);
+        // Ensure loading is resolved even on error
+        if (!firstLoadReceivedRef.current) {
+          firstLoadReceivedRef.current = true;
+          setLoading(false);
+        }
         handleFirestoreError(err, OperationType.GET, `users/${uid}`);
       });
+
+      // Safety timeout to ensure app never hangs if Firestore is unresponsive
+      setTimeout(() => {
+        if (!firstLoadReceivedRef.current) {
+          console.warn("[AuthContext] Loading resolution safety timeout triggered.");
+          firstLoadReceivedRef.current = true;
+          setLoading(false);
+        }
+      }, 5000);
 
       // Holdings, Trades, Snapshots subscriptions
       const holdingsRef = collection(db, 'users', uid, 'holdings');
@@ -745,7 +787,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (firebaseUser) {
           setupSubscriptions(firebaseUser.uid, firebaseUser.email);
-          setLoading(false);
+          // Don't set loading false yet; wait for initial user data in setupSubscriptions
         } else {
           // Valid signed-in user (persisted local, demo, or fallback)
           // Try to restore from scoped profile if available

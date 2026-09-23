@@ -990,10 +990,7 @@ export default function ProfileView({
                   onClick={() => {
                     setErrorMsg('');
                     setSuccessMsg('');
-                    if (item.id === 'admin') {
-                      localStorage.setItem('admin_session_active', 'true');
-                      window.location.href = '/admin';
-                    } else if (item.id === 'referral') {
+                    if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();
                       } else {

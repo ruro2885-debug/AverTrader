@@ -24,7 +24,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      return this.props.fallback || (
+      const { fallback } = (this as any).props;
+      return fallback || (
         <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
           <div className="max-w-md w-full bg-slate-900 border border-white/10 rounded-3xl p-8 space-y-6">
             <div className="w-16 h-16 bg-rose-500/10 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/20">
@@ -47,6 +48,6 @@ export class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    return (this as any).props.children;
   }
 }

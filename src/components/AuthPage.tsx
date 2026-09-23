@@ -176,8 +176,20 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     "Malta", "Turkey", "India", "Mexico", "Argentina",
     "Chile", "Uruguay", "South Africa", "Thailand", "Malaysia",
     "Indonesia", "Philippines", "Vietnam", "Taiwan", "Hong Kong",
-    "Macao", "Russia", "Kazakhstan", "Vatican City", "San Marino"
-  ].sort();
+    "Macao", "Russia", "Kazakhstan", "Vatican City", "San Marino",
+    "Andorra", "Anguilla", "Antigua & Barbuda", "Aruba", "Bahamas", 
+    "Barbados", "Bermuda", "British Virgin Islands", "Brunei", "Cayman Islands", 
+    "Cook Islands", "Costa Rica", "Croatia", "Curacao", "Dominica", 
+    "Faroe Islands", "Fiji", "French Polynesia", "Gibraltar", "Greenland", 
+    "Grenada", "Guam", "Guernsey", "Isle of Man", "Jersey", 
+    "Maldives", "Mauritius", "Montenegro", "Montserrat", "New Caledonia", 
+    "Panama", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent & Grenadines", 
+    "Seychelles", "Sint Maarten", "Turks & Caicos Islands", "US Virgin Islands",
+    "Bulgaria", "Colombia", "Egypt", "Georgia", "Jordan", 
+    "Lebanon", "Morocco", "Peru", "Romania", "Serbia", 
+    "Sri Lanka", "Tunisia", "Ukraine", "Azerbaijan", "Trinidad & Tobago",
+    "Nigeria", "Kenya", "Ghana", "Botswana", "Namibia", "Egypt"
+  ].sort().filter((v, i, a) => a.indexOf(v) === i);
 
   // Handle Register Form Submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {

@@ -67,9 +67,10 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // SAFETY: Force strip any 'admin' view from the restored stack
+        // SAFETY: Strip any 'admin' view from the restored stack UNLESS specifically authorized
+        const isAdminAuthorized = safeStorage.getItem('admin_session_active') === 'true';
         const sanitized = parsed.map(loc => {
-          if (loc.view === 'admin') return { ...loc, view: 'dashboard', tab: 'home' };
+          if (loc.view === 'admin' && !isAdminAuthorized) return { ...loc, view: 'dashboard', tab: 'home' };
           return loc;
         });
 

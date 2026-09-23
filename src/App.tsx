@@ -52,12 +52,14 @@ function AppContent() {
   // Ready state logic: Wait for auth and a minimum splash duration
   useEffect(() => {
     if (!authLoading) {
+      // Small additional delay if user is present to allow Dashboard components to pre-initialize
+      const settleDelay = user ? 3200 : 2800;
       const timer = setTimeout(() => {
         setIsReady(true);
-      }, 2800); // Institutional minimum splash duration (matches Loader sequence)
+      }, settleDelay);
       return () => clearTimeout(timer);
     }
-  }, [authLoading]);
+  }, [authLoading, user?.uid]);
 
   const navigateToView = (view: string) => {
     navigateView(view);
@@ -78,11 +80,21 @@ function AppContent() {
     const path = window.location.pathname;
     const search = window.location.search;
     
-    // Strict admin protection: Never auto-route to admin view based on URL.
-    if (path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin')) {
+    // Strict admin protection: Never auto-route to admin view based on URL unless verified admin user.
+    const isAdminUser = user?.email === 'ruro2885@gmail.com' || localStorage.getItem('admin_session_active') === 'true';
+    
+    // Improved routing: Only hijack /admin if we are SURE we want to block it.
+    // If they are ALREADY on admin view, don't mess with it unless they lost permissions.
+    const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
+    
+    if (isAtAdminUrl && !isAdminUser) {
       console.warn("[App] Blocking direct admin access attempt.");
       safeStorage.removeItem('aver_session_initialized');
       navigateView('not-found', {}, { replace: true });
+    } else if (isAtAdminUrl && isAdminUser) {
+      if (currentView !== 'admin') {
+        navigateToView('admin');
+      }
     } else if (path === '/404' || search.includes('404=true')) {
       navigateView('not-found', {}, { replace: true });
     } else if (path === '/auth') {
@@ -92,11 +104,17 @@ function AppContent() {
       if (!user && !authLoading) {
         navigateView('home', {}, { replace: true });
       }
+    } else if (currentView === 'home' || currentView === 'hero') {
+      // Stay on home/hero
     } else {
-      // Any other path defaults to home or not-found
-      navigateView('home', {}, { replace: true });
+      // Only default to home if we are truly lost
+      if (currentView === 'not-found' || currentView === 'auth') {
+        // preserve current view
+      } else if (!user) {
+        navigateView('home', {}, { replace: true });
+      }
     }
-  }, [user?.uid, authLoading]);
+  }, [user?.uid, authLoading, currentView]);
 
   // Unified startup and session management
   useEffect(() => {
@@ -104,17 +122,16 @@ function AppContent() {
 
     // Handle session restoration and view management
     if (user) {
-      if (currentView === 'home' || currentView === 'auth' || currentView === 'admin') {
-        // SAFETY: Redirect away from admin on cold start/session restore unless specifically triggered
-        const isColdStart = !safeStorage.getItem('aver_session_initialized');
-        if (currentView === 'admin' && isColdStart) {
-          console.warn("[App] Redirecting from admin to dashboard on cold start.");
-          navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
-          safeStorage.setItem('aver_session_initialized', 'true');
-          return;
-        }
-        
+      const isAdminAuthorized = user.email === 'ruro2885@gmail.com' || localStorage.getItem('admin_session_active') === 'true';
+
+      // Only force redirect from home/auth to dashboard. 
+      // Do NOT force redirect FROM admin if they are authorized.
+      if (currentView === 'home' || currentView === 'auth') {
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
+        safeStorage.setItem('aver_session_initialized', 'true');
+      } else if (currentView === 'admin' && !isAdminAuthorized) {
+        // Redirect away from admin if NOT authorized
+        navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
@@ -123,7 +140,7 @@ function AppContent() {
         navigate('auth', { replace: true });
       }
     }
-  }, [user?.uid, authLoading, currentView, currentLocation.tab]);
+  }, [user?.uid, authLoading, currentView]);
 
   // Preference Toggle callback
   useEffect(() => {
@@ -223,7 +240,7 @@ function AppContent() {
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.7-system-reset">
       <AnimatePresence mode="wait">
         {!isReady ? (
-          <Loader key="app-splash" onComplete={() => {}} />
+          <Loader onComplete={() => {}} />
         ) : isAccountBlocked ? (
           <motion.div
             key="blocked-screen"
