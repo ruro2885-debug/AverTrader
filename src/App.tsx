@@ -23,7 +23,7 @@ import TransactionHistory from './components/TransactionHistory';
 import AdminRoot from './components/admin/AdminRoot';
 import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
-import { NavigationProvider, useAppNavigation } from './contexts/NavigationContext';
+import { NavigationProvider, useAppNavigation, parsePathToLocation, locationToPath } from './contexts/NavigationContext';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
@@ -75,7 +75,7 @@ function AppContent() {
   // Navigation section tracker
   const [activeSection, setActiveSection] = useState('hero');
 
-  // Route detection
+  // Route detection & independent page URL synchronization
   useEffect(() => {
     const path = window.location.pathname;
     const search = window.location.search;
@@ -84,29 +84,46 @@ function AppContent() {
     const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
     
     if (isAtAdminUrl) {
-      // ALWAYS allow the admin view to render. AdminRoot handles its own unauthorized state (the "404" look)
-      // and code prompt. This ensures /admin is a dedicated route as requested.
       if (currentView !== 'admin') {
         console.log("[App] Explicit admin route detected. Rendering Admin Terminal.");
         navigateToView('admin');
       }
     } else if (path === '/404' || search.includes('404=true')) {
       if (currentView !== 'not-found') navigateView('not-found', {}, { replace: true });
-    } else if (path === '/auth') {
+    } else if (path === '/auth' || path === '/login' || path === '/register') {
       if (user && !authLoading) {
-        // If already logged in, auth page should redirect to dashboard
+        const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
+        if (savedRedirect) {
+          safeStorage.removeItem('aver_redirect_after_login');
+          const targetLoc = parsePathToLocation(savedRedirect);
+          if (targetLoc) {
+            navigate(targetLoc, { replace: true });
+            return;
+          }
+        }
         navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
       } else if (currentView !== 'auth') {
         navigateView('auth', {}, { replace: true });
       }
     } else if (path === '/' || path === '' || path === '/index.html') {
-      // FORCE home view on the root path. This fixes the reported root 404 issue.
       if (currentView !== 'home' && currentView !== 'hero') {
         console.log("[App] Root path detected. Restoring landing page.");
         navigateView('home', {}, { replace: true });
       }
+    } else {
+      // Independent page route detected (e.g. /deposit, /withdraw, /markets, /ai, /portfolio, /support, /kyc-verification, etc.)
+      const parsedLoc = parsePathToLocation(path);
+      if (parsedLoc) {
+        const matchesCurrent =
+          currentLocation.view === parsedLoc.view &&
+          (parsedLoc.tab === undefined || currentLocation.tab === parsedLoc.tab) &&
+          (parsedLoc.modal === undefined || currentLocation.modal === parsedLoc.modal);
+        if (!matchesCurrent) {
+          navigate(parsedLoc, { replace: true });
+        }
+      }
     }
-  }, [user?.uid, authLoading, currentView]);
+  }, [user?.uid, authLoading, currentView, currentLocation.tab, currentLocation.modal]);
 
   // Unified startup and session management
   useEffect(() => {
@@ -123,27 +140,39 @@ function AppContent() {
       const path = window.location.pathname;
       const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
 
-      // DO NOT automatically redirect from home/hero to dashboard. 
-      // The user wants the landing page to remain visible at the root.
       if (currentView === 'auth') {
+        const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
+        if (savedRedirect) {
+          safeStorage.removeItem('aver_redirect_after_login');
+          const targetLoc = parsePathToLocation(savedRedirect);
+          if (targetLoc) {
+            navigate(targetLoc, { replace: true });
+            safeStorage.setItem('aver_session_initialized', 'true');
+            return;
+          }
+        }
         console.log("[App] Logged in, moving from auth to dashboard.");
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
       } else if (currentView === 'admin' && !isAdminAuthorized && !isAtAdminUrl) {
-        // Only redirect away from admin IF they aren't on the admin URL and aren't authorized.
         console.warn("[App] Admin view active but not authorized, redirecting to dashboard.");
         navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
-      // If no user and we were on a protected view, go to login
-      const isProtectedRoute = ['dashboard', 'referral-centre', 'preferences', 'bonus-center', 'history', 'kyc-verification', 'deposit'].includes(currentView);
+      // If no user and we were on a protected view, save destination and go to login
+      const isProtectedRoute = [
+        'dashboard', 'referral-centre', 'preferences', 'bonus-center', 
+        'history', 'kyc-verification', 'deposit', 'withdraw'
+      ].includes(currentView) || currentLocation.modal === 'deposit' || currentLocation.modal === 'withdraw';
+
       if (isProtectedRoute) {
-        console.log("[App] No session, redirecting to auth.");
+        console.log("[App] No session on protected route, redirecting to auth.");
+        safeStorage.setItem('aver_redirect_after_login', window.location.pathname);
         navigate('auth', { replace: true });
       }
     }
-  }, [user?.uid, authLoading, currentView]);
+  }, [user?.uid, authLoading, currentView, currentLocation.modal]);
 
   // Preference Toggle callback
   useEffect(() => {
@@ -371,7 +400,7 @@ function AppContent() {
             <AnimatePresence mode="wait">
               {currentView === 'admin' ? (
                 <AdminRoot theme={theme} />
-              ) : currentView === 'dashboard' ? (
+              ) : currentView === 'dashboard' || currentView === 'deposit' || currentView === 'withdraw' ? (
                 <Dashboard theme={theme} onNavigate={(view) => navigateToView(view)} />
               ) : currentView === 'preferences' ? (
                 <Preferences theme={theme} onBack={goBackView} />
