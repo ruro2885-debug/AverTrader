@@ -82,11 +82,22 @@ function AppContent() {
     // Admin access must be triggered via the secret handshake in the NotFound view.
     if (path === '/admin' || search.includes('admin=true')) {
       // Force unauthorized admin attempts to the NotFound view for verification
-      navigateView('not-found');
-    } else if (path === '/404' || search.includes('404=true') || (path !== '/' && path !== '' && path !== '/index.html')) {
-      navigateView('not-found');
+      console.warn("[App] Blocking direct admin access attempt.");
+      navigateView('not-found', {}, { replace: true });
+    } else if (path === '/404' || search.includes('404=true')) {
+      navigateView('not-found', {}, { replace: true });
+    } else if (path === '/auth') {
+      navigateView('auth', {}, { replace: true });
+    } else if (path === '/' || path === '' || path === '/index.html') {
+      // Land on home if not logged in, otherwise dashboard handles it in session management
+      if (!user && !authLoading) {
+        navigateView('home', {}, { replace: true });
+      }
+    } else {
+      // Any other path defaults to home or not-found
+      navigateView('home', {}, { replace: true });
     }
-  }, []);
+  }, [user?.uid, authLoading]);
 
   // Unified startup and session management
   useEffect(() => {
@@ -94,8 +105,18 @@ function AppContent() {
 
     // Handle session restoration and view management
     if (user) {
-      if (currentView === 'home' || currentView === 'auth') {
+      if (currentView === 'home' || currentView === 'auth' || currentView === 'admin') {
+        // SAFETY: Redirect away from admin on cold start/session restore unless specifically triggered
+        const isColdStart = !safeStorage.getItem('aver_session_initialized');
+        if (currentView === 'admin' && isColdStart) {
+          console.warn("[App] Redirecting from admin to dashboard on cold start.");
+          navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
+          safeStorage.setItem('aver_session_initialized', 'true');
+          return;
+        }
+        
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
+        safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
       // If no user and we were on a protected view, go to login
@@ -200,7 +221,7 @@ function AppContent() {
     : 'bg-slate-50 text-slate-900';
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.6">
+    <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.7-system-reset">
       <AnimatePresence mode="wait">
         {!isReady ? (
           <Loader key="app-splash" onComplete={() => {}} />

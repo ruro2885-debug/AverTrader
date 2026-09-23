@@ -164,8 +164,20 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   };
   
   const countries = [
-    "United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Switzerland", "Netherlands", "Sweden", "Spain", "Italy", "Japan", "China", "Brazil", "United Arab Emirates"
-  ];
+    "United States", "United Kingdom", "Canada", "Australia", "Germany", 
+    "France", "Switzerland", "Netherlands", "Sweden", "Spain", 
+    "Italy", "Japan", "China", "Brazil", "United Arab Emirates",
+    "Norway", "Denmark", "Finland", "Ireland", "Luxembourg",
+    "Austria", "Belgium", "Singapore", "South Korea", "New Zealand",
+    "Israel", "Qatar", "Saudi Arabia", "Kuwait", "Bahrain",
+    "Oman", "Monaco", "Liechtenstein", "Iceland", "Portugal",
+    "Greece", "Poland", "Czech Republic", "Hungary", "Slovakia",
+    "Slovenia", "Estonia", "Latvia", "Lithuania", "Cyprus",
+    "Malta", "Turkey", "India", "Mexico", "Argentina",
+    "Chile", "Uruguay", "South Africa", "Thailand", "Malaysia",
+    "Indonesia", "Philippines", "Vietnam", "Taiwan", "Hong Kong",
+    "Macao", "Russia", "Kazakhstan", "Vatican City", "San Marino"
+  ].sort();
 
   // Handle Register Form Submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {

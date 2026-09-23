@@ -64,7 +64,7 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
   }
 
   const initV = initialView || 'home';
-  return [
+  const initialStack = [
     {
       id: `root-${Date.now()}`,
       view: initV,
@@ -73,6 +73,24 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
       modal: null,
     },
   ];
+
+  try {
+    const raw = safeStorage.getItem(STORAGE_STACK_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // SAFETY: If the top of the stack is 'admin', strip it and revert to dashboard or home
+        const top = parsed[parsed.length - 1];
+        if (top.view === 'admin') {
+          console.warn("[Navigation] Stripping unauthorized admin view from initial stack.");
+          return initialStack;
+        }
+        return parsed;
+      }
+    }
+  } catch (e) {}
+
+  return initialStack;
 }
 
 export function NavigationProvider({
