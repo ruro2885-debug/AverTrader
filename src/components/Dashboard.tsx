@@ -167,12 +167,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const handleCloseWithdraw = useCallback(() => {
     setShowWithdrawModal(false);
-    if (currentLocation.view === 'withdraw' || currentLocation.view === 'withdrawal') {
-      navigate({ view: 'dashboard', modal: null });
-    } else {
-      closeModal();
-    }
-  }, [closeModal, currentLocation.view, navigate]);
+    closeModal();
+  }, [closeModal]);
 
   const handleOpenDeposit = useCallback(() => {
     setShowDepositModal(true);
@@ -181,12 +177,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const handleCloseDeposit = useCallback(() => {
     setShowDepositModal(false);
-    if (currentLocation.view === 'deposit') {
-      navigate({ view: 'dashboard', modal: null });
-    } else {
-      closeModal();
-    }
-  }, [closeModal, currentLocation.view, navigate]);
+    closeModal();
+  }, [closeModal]);
   const watchlist = useMemo(() => {
     if (user?.holdings && user.holdings.length > 0) {
       return user.holdings.map((h: any) => {
@@ -1299,7 +1291,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 1. INSTITUTIONAL FULL-SCREEN DEPOSIT EXPERIENCE */}
       <AnimatePresence>
-        {(showDepositModal || currentLocation.modal === 'deposit' || currentLocation.view === 'deposit') && (
+        {(showDepositModal || currentLocation.modal === 'deposit') && (
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
@@ -1325,7 +1317,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 2. DEDICATED FULL-SCREEN WITHDRAWAL EXPERIENCE */}
       <AnimatePresence>
-        {(showWithdrawModal || currentLocation.modal === 'withdraw' || currentLocation.view === 'withdraw' || currentLocation.view === 'withdrawal') && (
+        {(showWithdrawModal || currentLocation.modal === 'withdraw') && (
           <InstitutionalWithdrawalPage 
             onClose={handleCloseWithdraw}
             onOpenHistory={() => {
