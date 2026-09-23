@@ -47,10 +47,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import CoinLogo from '../CoinLogo';
 
 interface InstitutionalDepositPageProps {
-  theme: 'light' | 'dark';
-  onBack: () => void;
-  onSuccessDeposit: (amount: number, method: string) => void;
+  theme?: 'light' | 'dark';
+  onBack?: () => void;
+  onClose?: () => void;
+  onSuccessDeposit?: (amount: number, method: string) => void;
   onOpenSupport?: (ticketData: any) => void;
+  onOpenHistory?: () => void;
 }
 
 type FundingMethod = 'card' | 'walletconnect' | 'crypto' | 'bank';
@@ -496,7 +498,8 @@ const ImportWalletAnimatedLogo = ({ icon: IconComponent = Wallet, colorClass = "
   </div>
 );
 
-export default function InstitutionalDepositPage({ theme, onBack, onSuccessDeposit, onOpenSupport }: InstitutionalDepositPageProps) {
+export default function InstitutionalDepositPage({ theme = 'dark', onBack: propOnBack, onClose, onSuccessDeposit, onOpenSupport, onOpenHistory }: InstitutionalDepositPageProps) {
+  const onBack = propOnBack || onClose || (() => {});
   const isDark = theme === 'dark';
   const { user: authUser } = useAuth();
 

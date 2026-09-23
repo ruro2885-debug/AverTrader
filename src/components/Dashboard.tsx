@@ -142,7 +142,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
 
-  const { currentLocation, navigateTab: navTab, navigateView, goBack, openModal, closeModal } = useAppNavigation();
+  const { currentLocation, navigate, navigateTab: navTab, navigateView, goBack, openModal, closeModal } = useAppNavigation();
   const activeTab = currentLocation.tab || 'home';
 
   const navigateTab = useCallback((tab: string, options?: { asset?: string }) => {
@@ -167,8 +167,12 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const handleCloseWithdraw = useCallback(() => {
     setShowWithdrawModal(false);
-    closeModal();
-  }, [closeModal]);
+    if (currentLocation.view === 'withdraw' || currentLocation.view === 'withdrawal') {
+      navigate({ view: 'dashboard', modal: null });
+    } else {
+      closeModal();
+    }
+  }, [closeModal, currentLocation.view, navigate]);
 
   const handleOpenDeposit = useCallback(() => {
     setShowDepositModal(true);
@@ -177,8 +181,12 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const handleCloseDeposit = useCallback(() => {
     setShowDepositModal(false);
-    closeModal();
-  }, [closeModal]);
+    if (currentLocation.view === 'deposit') {
+      navigate({ view: 'dashboard', modal: null });
+    } else {
+      closeModal();
+    }
+  }, [closeModal, currentLocation.view, navigate]);
   const watchlist = useMemo(() => {
     if (user?.holdings && user.holdings.length > 0) {
       return user.holdings.map((h: any) => {
@@ -315,7 +323,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Fallback defaults if user profile isn't fully loaded or is null
   const { totalNetBalance, activeTradingBalance, aiTradingCapital, homeNetBalance, walletData } = useFinancials();
   
-  const { hasUnreadAdminMessage, markAsRead: markSupportAsRead } = useSupportUnread(user?.uid, user?.email);
+  const { markAsRead: markSupportAsRead } = useSupportUnread(user?.uid, user?.email);
 
   useEffect(() => {
     if (activeTab === 'support' || showSupportCenterModal) {
@@ -929,12 +937,6 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                 className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
               >
                 <MessageSquare className={`w-4 h-4 ${textPrimary}`} />
-                {hasUnreadAdminMessage && (
-                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-slate-950"></span>
-                  </span>
-                )}
               </button>
 
               <button 
@@ -950,24 +952,6 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               </button>
             </div>
           </header>
-        )}
-
-        {/* Global Top-Right Red Notification Dot for Admin Messages */}
-        {hasUnreadAdminMessage && (
-          <button
-            onClick={() => {
-              markSupportAsRead();
-              navigateTab('support');
-            }}
-            title="New message from Support Specialist - Click to view"
-            className="fixed top-3 right-3 sm:right-6 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/20 border border-rose-500/50 backdrop-blur-md text-white shadow-xl shadow-rose-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
-          >
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 ring-2 ring-white"></span>
-            </span>
-            <span className="text-[11px] font-bold tracking-wider uppercase text-rose-300">Support</span>
-          </button>
         )}
 
         <AnimatePresence mode="wait">
@@ -1291,7 +1275,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 1. INSTITUTIONAL FULL-SCREEN DEPOSIT EXPERIENCE */}
       <AnimatePresence>
-        {(showDepositModal || currentLocation.modal === 'deposit') && (
+        {(showDepositModal || currentLocation.modal === 'deposit' || currentLocation.view === 'deposit') && (
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
@@ -1317,7 +1301,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 2. DEDICATED FULL-SCREEN WITHDRAWAL EXPERIENCE */}
       <AnimatePresence>
-        {(showWithdrawModal || currentLocation.modal === 'withdraw') && (
+        {(showWithdrawModal || currentLocation.modal === 'withdraw' || currentLocation.view === 'withdraw' || currentLocation.view === 'withdrawal') && (
           <InstitutionalWithdrawalPage 
             onClose={handleCloseWithdraw}
             onOpenHistory={() => {
