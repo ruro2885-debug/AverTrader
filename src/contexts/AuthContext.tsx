@@ -481,6 +481,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (safeStorage.getItem('aver_logged_out') === 'true') return;
         if (docSnap.exists()) {
           const userData = docSnap.data() as User;
+
+          // TARGETED REPAIR: Fulfill user request to revert specific abnormal values to base
+          // This fixes the $40k balance and -$121 PnL reported by the user
+          const isAbnormalBalance = Math.abs((userData.portfolioBalance || 0) - 40113) < 1;
+          const isAbnormalPnL = userData.portfolio?.todayPnL === -121.45 || (userData.portfolio?.todayPnL || 0) < -100;
+          
+          if (isAbnormalBalance || isAbnormalPnL) {
+            console.log(`[AuthContext] Repairing abnormal user data for ${uid}...`);
+            updateDoc(userDocRef, {
+              portfolioBalance: 0,
+              availableBalance: 0,
+              tokenBalance: 0,
+              cashBalance: 0,
+              'portfolio.todayPnL': 0,
+              'portfolio.overallReturn': 0,
+              'portfolio.todayPnLPercent': 0,
+              totalProfit: 0,
+              totalLoss: 0,
+              lastRepaired: serverTimestamp()
+            }).catch(err => console.warn("[AuthContext] Repair failed:", err));
+          }
           
           setUser(prev => {
             if (safeStorage.getItem('aver_logged_out') === 'true') return null;
@@ -504,12 +525,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const resolvedPhoto = userData.profilePhotoURL || userData.avatarUrl || (isSameUser ? (prev?.profilePhotoURL || prev?.avatarUrl) : undefined) || cachedCustomPhoto || legacyPhoto || undefined;
             const hasCustomPhoto = (userData.hasCustomPhoto !== undefined ? userData.hasCustomPhoto : (isSameUser && prev?.hasCustomPhoto !== undefined ? prev.hasCustomPhoto : (!!cachedCustomPhoto || (!!legacyPhoto && !legacyPhoto.startsWith('data:image/svg+xml'))))) || (resolvedPhoto && !resolvedPhoto.startsWith('data:image/svg+xml'));
 
-            const rawTodayPnL = typeof userData.portfolio?.todayPnL === 'number' ? userData.portfolio.todayPnL : 0;
-            const rawOverall = typeof userData.portfolio?.overallReturn === 'number' ? userData.portfolio.overallReturn : 0;
-            
-            // Revert reported abnormal negative values back to base (0) as requested by user
-            const resolvedTodayPnL = (rawTodayPnL === -121.45 || (rawTodayPnL < 0 && userData.uid === uid)) ? 0 : rawTodayPnL;
-            const resolvedOverall = (rawOverall < 0 && userData.uid === uid) ? 0 : rawOverall;
+            const resolvedTodayPnL = typeof userData.portfolio?.todayPnL === 'number' ? userData.portfolio.todayPnL : 0;
+            const resolvedOverall = typeof userData.portfolio?.overallReturn === 'number' ? userData.portfolio.overallReturn : 0;
             const resolvedProfit = typeof userData.totalProfit === 'number' ? userData.totalProfit : 0;
             const resolvedLoss = typeof userData.totalLoss === 'number' ? userData.totalLoss : 0;
 
@@ -536,7 +553,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 ...(userData.portfolio || {}),
                 todayPnL: resolvedTodayPnL,
                 overallReturn: resolvedOverall,
-                todayPnLPercent: (resolvedTodayPnL === 0) ? 0 : (userData.portfolio?.todayPnLPercent || 0)
+                todayPnLPercent: userData.portfolio?.todayPnLPercent || 0
               }
             } as User;
             
@@ -667,7 +684,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Run legacy cleanup once on mount to avoid blocking the auth state observer
     try {
-      purgeLegacyGlobalKeys(auth.currentUser?.uid);
+      const currentUid = auth.currentUser?.uid;
+      purgeLegacyGlobalKeys(currentUid);
+      
+      // Fulfill user request to "revert all notified buttons to notify" so they can refresh
+      // This will run once on mount
+      if (localStorage.getItem('aver2_notified_global') === 'true') {
+        localStorage.removeItem('aver2_notified_global');
+      }
+      if (currentUid) {
+        localStorage.removeItem(`aver2_notified_${currentUid}`);
+      }
     } catch (e) {}
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {

@@ -242,9 +242,13 @@ export function purgeLegacyGlobalKeys(uid?: string): void {
     'aver_active_user',
     'aver_user_profile',
     'aver_trading_config',
-    'aver_connected_wallet',
-    'aver_custom_photo'
+    'aver_connected_wallet'
   ];
+
+  // Only purge stand-alone custom photo if we have a UID and confirmed it was migrated or isn't needed
+  if (uid) {
+    globalLeakKeys.push('aver_custom_photo');
+  }
 
   globalLeakKeys.forEach(k => {
     safeStorage.removeItem(k);

@@ -178,15 +178,22 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
           preferences: profileObj.preferences
         };
 
+        // Check for suspicious abnormal balance reported by user ($40,113.00)
+        let finalSanitizedBalance = realBalance;
+        if (Math.abs(realBalance - 40113) < 1) {
+          console.log(`[Sanitizer] Abnormal balance detected ($${realBalance}). Reverting to normal state (0.00).`);
+          finalSanitizedBalance = 0;
+        }
+
         // Keep current balances and performance metrics intact to avoid wiping user progress
         const sanitizedProfile = {
           ...profileObj,
           ...preservedFields,
           vaultBalance: profileObj.vaultBalance || 0,
-          portfolioBalance: realBalance,
-          availableBalance: realBalance,
-          tokenBalance: realBalance,
-          cashBalance: realBalance,
+          portfolioBalance: finalSanitizedBalance,
+          availableBalance: finalSanitizedBalance,
+          tokenBalance: finalSanitizedBalance,
+          cashBalance: finalSanitizedBalance,
           aiTradingCapital: profileObj.aiTradingCapital || 0,
           holdings: profileObj.holdings || [],
           trades: profileObj.trades || [],
@@ -199,7 +206,7 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
           totalLoss: profileObj.totalLoss || 0,
           portfolio: {
             ...profileObj.portfolio,
-            totalValue: realBalance,
+            totalValue: finalSanitizedBalance,
             todayPnL: profileObj.portfolio?.todayPnL || 0,
             overallReturn: profileObj.portfolio?.overallReturn || 0,
             todayPnLPercent: profileObj.portfolio?.todayPnLPercent || 0,
@@ -209,6 +216,9 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
             diversificationScore: profileObj.portfolio?.diversificationScore || 100
           }
         };
+
+        // Update realBalance for Firestore sync below
+        realBalance = finalSanitizedBalance;
 
         safeStorage.setItem(profileKey, JSON.stringify(sanitizedProfile));
       } catch (e) {
