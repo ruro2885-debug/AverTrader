@@ -4,8 +4,10 @@ import { AlertCircle, Home, Search, Shield, Bot, Lock, Key, Cpu, RefreshCw } fro
 import AdminLayout from './AdminLayout';
 import { db, auth } from '../../lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { useAppNavigation } from '../../contexts/NavigationContext';
 
 export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
+  const { navigateToView } = useAppNavigation() as any;
   const [showAdmin, setShowAdmin] = useState(false); // Default to false, check session in useEffect
   const [clickCount, setClickCount] = useState(0);
   const [showAccessPrompt, setShowAccessPrompt] = useState(false);
@@ -57,6 +59,11 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
 
       setShowAdmin(true);
       setShowAccessPrompt(false);
+      
+      // Force App.tsx to re-evaluate routing
+      if (navigateToView) {
+        navigateToView('admin');
+      }
     } else {
       setError('Invalid access credentials');
       setTimeout(() => setError(''), 3000);

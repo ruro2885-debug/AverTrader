@@ -954,8 +954,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             >
               <Bell className={`w-4 h-4 ${textPrimary}`} />
               {(unreadNotificationsCount > 0 || hasUnreadSupport) && (
-                <span className={`absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full ${hasUnreadSupport && unreadNotificationsCount === 0 ? 'bg-rose-500 animate-pulse' : 'bg-rose-500'} px-1 text-[8px] font-black text-white ring-2 ring-slate-950`}>
-                  {unreadNotificationsCount > 0 ? unreadNotificationsCount : '!'}
+                <span className={`absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full ${hasUnreadSupport ? 'bg-red-600 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.8)]' : 'bg-rose-500'} px-1 text-[8px] font-black text-white ring-2 ring-slate-950`}>
+                  {unreadNotificationsCount > 0 ? unreadNotificationsCount : ''}
                 </span>
               )}
             </button>

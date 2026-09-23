@@ -242,8 +242,7 @@ export function purgeLegacyGlobalKeys(uid?: string): void {
     'aver_active_user',
     'aver_user_profile',
     'aver_trading_config',
-    'aver_connected_wallet',
-    'admin_session_active'
+    'aver_connected_wallet'
   ];
 
   // Only purge stand-alone custom photo if we have a UID and confirmed it was migrated or isn't needed

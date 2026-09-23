@@ -80,37 +80,29 @@ function AppContent() {
     const path = window.location.pathname;
     const search = window.location.search;
     
-    // Strict admin protection: Never auto-route to admin view based on URL unless verified admin user.
-    const isAdminUser = user?.email === 'ruro2885@gmail.com' || localStorage.getItem('admin_session_active') === 'true';
-    
-    // Improved routing: Only hijack /admin if we are SURE we want to block it.
-    // If they are ALREADY on admin view, don't mess with it unless they lost permissions.
+    // Check if we are at an admin-related URL
     const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
     
-    if (isAtAdminUrl && !isAdminUser) {
-      console.warn("[App] Blocking direct admin access attempt.");
-      safeStorage.removeItem('aver_session_initialized');
-      navigateView('not-found', {}, { replace: true });
-    } else if (isAtAdminUrl && isAdminUser) {
+    if (isAtAdminUrl) {
+      // ALWAYS allow the admin view to render. AdminRoot handles its own unauthorized state (the "404" look)
+      // and code prompt. This ensures /admin is a dedicated route as requested.
       if (currentView !== 'admin') {
+        console.log("[App] Explicit admin route detected. Rendering Admin Terminal.");
         navigateToView('admin');
       }
     } else if (path === '/404' || search.includes('404=true')) {
-      navigateView('not-found', {}, { replace: true });
+      if (currentView !== 'not-found') navigateView('not-found', {}, { replace: true });
     } else if (path === '/auth') {
-      navigateView('auth', {}, { replace: true });
-    } else if (path === '/' || path === '' || path === '/index.html') {
-      // Land on home if not logged in, otherwise dashboard handles it in session management
-      if (!user && !authLoading) {
-        navigateView('home', {}, { replace: true });
+      if (user && !authLoading) {
+        // If already logged in, auth page should redirect to dashboard
+        navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
+      } else if (currentView !== 'auth') {
+        navigateView('auth', {}, { replace: true });
       }
-    } else if (currentView === 'home' || currentView === 'hero') {
-      // Stay on home/hero
-    } else {
-      // Only default to home if we are truly lost
-      if (currentView === 'not-found' || currentView === 'auth') {
-        // preserve current view
-      } else if (!user) {
+    } else if (path === '/' || path === '' || path === '/index.html') {
+      // FORCE home view on the root path. This fixes the reported root 404 issue.
+      if (currentView !== 'home' && currentView !== 'hero') {
+        console.log("[App] Root path detected. Restoring landing page.");
         navigateView('home', {}, { replace: true });
       }
     }
@@ -122,21 +114,32 @@ function AppContent() {
 
     // Handle session restoration and view management
     if (user) {
-      const isAdminAuthorized = user.email === 'ruro2885@gmail.com' || localStorage.getItem('admin_session_active') === 'true';
+      const isAdminAuthorized = localStorage.getItem('admin_session_active') === 'true' || 
+                               user.role === 'super_admin' || 
+                               user.role === 'admin' || 
+                               user.email === 'ruro2885@gmail.com' ||
+                               (user as any).isAdmin === true;
 
-      // Only force redirect from home/auth to dashboard. 
-      // Do NOT force redirect FROM admin if they are authorized.
-      if (currentView === 'home' || currentView === 'auth') {
+      const path = window.location.pathname;
+      const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
+
+      // DO NOT automatically redirect from home/hero to dashboard. 
+      // The user wants the landing page to remain visible at the root.
+      if (currentView === 'auth') {
+        console.log("[App] Logged in, moving from auth to dashboard.");
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
-      } else if (currentView === 'admin' && !isAdminAuthorized) {
-        // Redirect away from admin if NOT authorized
+      } else if (currentView === 'admin' && !isAdminAuthorized && !isAtAdminUrl) {
+        // Only redirect away from admin IF they aren't on the admin URL and aren't authorized.
+        console.warn("[App] Admin view active but not authorized, redirecting to dashboard.");
         navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
       // If no user and we were on a protected view, go to login
-      if (currentView === 'dashboard' || currentView === 'referral-centre' || currentView === 'preferences' || currentView === 'bonus-center' || currentView === 'history' || currentView === 'kyc-verification' || currentView === 'deposit' || currentView === 'admin') {
+      const isProtectedRoute = ['dashboard', 'referral-centre', 'preferences', 'bonus-center', 'history', 'kyc-verification', 'deposit'].includes(currentView);
+      if (isProtectedRoute) {
+        console.log("[App] No session, redirecting to auth.");
         navigate('auth', { replace: true });
       }
     }
