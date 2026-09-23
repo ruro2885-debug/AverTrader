@@ -44,6 +44,15 @@ import { portfolioPersistenceService } from '../services/portfolioPersistenceSer
 import { walletService, WalletData } from '../services/walletService';
 import { useAppNavigation } from '../contexts/NavigationContext';
 
+import { memo } from 'react';
+
+// Memoized sub-view wrapper to prevent unnecessary re-renders of heavy modules
+const MemoizedDiscoverView = memo(DiscoverView);
+const MemoizedAiTradingModule = memo(AiTradingModule);
+const MemoizedProfileView = memo(ProfileView);
+const MemoizedPortfolioView = memo(PortfolioViewV2);
+const MemoizedMarketsPage = memo(MarketsPage);
+
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'history') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
   const { preferences, t, formatCurrency } = usePreferences();
@@ -1182,7 +1191,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           {activeTab === 'copy-trading' && <CopyTrading theme={theme} />}
 
           {activeTab === 'portfolio' && (
-            <PortfolioViewV2 
+            <MemoizedPortfolioView 
               theme={theme} 
               onBack={goBackTab} 
               onNavigate={navigateTab}
@@ -1192,7 +1201,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             />
           )}
 
-          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
+          {activeTab === 'markets' && <MemoizedMarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
           {activeTab === 'coin-details' && (
             <CoinDetailsPage 
               asset={selectedAsset || currentLocation.asset || { symbol: 'BTC', name: 'Bitcoin', price: '$94,200', change: '+2.4%' }} 
@@ -1201,9 +1210,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               onTrade={(symbol) => navigateTab('ai', { asset: symbol })}
             />
           )}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
-          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} />}
+          {activeTab === 'discover' && <MemoizedDiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
+          {activeTab === 'ai' && <MemoizedAiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
+          {activeTab === 'profile' && <MemoizedProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} />}
           
           {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('ai')} />}
           {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}

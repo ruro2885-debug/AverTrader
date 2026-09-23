@@ -25,12 +25,16 @@ if (typeof Node === 'function' && Node.prototype) {
   };
 }
 
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider>
-      <PreferencesProvider>
-        <App />
-      </PreferencesProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <PreferencesProvider>
+          <App />
+        </PreferencesProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
