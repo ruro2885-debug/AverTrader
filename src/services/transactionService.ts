@@ -1,6 +1,7 @@
 import { 
   collection, 
   doc, 
+  getDoc,
   getDocs, 
   setDoc, 
   addDoc, 
@@ -293,7 +294,10 @@ export const transactionService = {
     try {
       const localAdminWithdrawals = getLocalWithdrawals();
       localAdminWithdrawals.forEach(w => {
-        const matchesUser = w.userId === userId || (!w.userId && userId === 'anonymous') || (userProfile?.email && w.email && w.email.toLowerCase() === userProfile.email.toLowerCase());
+        const matchesUser = w.userId === userId || 
+                            (!w.userId && userId === 'anonymous') || 
+                            (userProfile?.email && w.email && w.email.toLowerCase() === userProfile.email.toLowerCase()) ||
+                            findExistingInMap(w.id, w.refId, w.txHash) !== undefined;
         if (matchesUser) {
           const id = w.id;
           const status = normalizeStatus(w.status);
@@ -503,6 +507,22 @@ export const transactionService = {
           });
         }
       });
+
+      if (userProfile?.email) {
+        const qEmailWth = query(collection(db, 'admin_withdrawals'), where('email', '==', userProfile.email));
+        const snapEmailWth = await getDocs(qEmailWth);
+        snapEmailWth.forEach(docSnap => {
+          const w = docSnap.data();
+          const id = docSnap.id;
+          const status = normalizeStatus(w.status);
+          const existing = findExistingInMap(id, w.refId, w.txHash);
+          if (existing) {
+            applyStatusIfHigher(existing, status);
+            if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
+            if (w.txHash) existing.txHash = w.txHash;
+          }
+        });
+      }
     } catch (err) {
       console.warn("Firestore admin_withdrawals sync notice:", err);
     }
@@ -541,6 +561,35 @@ export const transactionService = {
       });
     } catch (err) {
       console.warn("Firestore withdrawals sync notice:", err);
+    }
+
+    // 7. Direct doc ID verification for any known withdrawal in the map
+    const mappedWithdrawals = Array.from(map.values()).filter(t => t.type === 'withdrawal' || t.id.startsWith('wth-'));
+    for (const item of mappedWithdrawals) {
+      const checkIds = Array.from(new Set([item.id, item.refId, item.txHash].filter(Boolean))) as string[];
+      for (const cid of checkIds) {
+        try {
+          const wSnap = await getDoc(doc(db, 'admin_withdrawals', cid));
+          if (wSnap.exists()) {
+            const data = wSnap.data();
+            const s = normalizeStatus(data.status);
+            applyStatusIfHigher(item, s);
+            if (data.reversalReason || data.reason) item.reversalReason = data.reversalReason || data.reason;
+            if (data.txHash) item.txHash = data.txHash;
+          }
+        } catch (e) {}
+
+        try {
+          const txSnap = await getDoc(doc(db, 'transactions', cid));
+          if (txSnap.exists()) {
+            const data = txSnap.data();
+            const s = normalizeStatus(data.status);
+            applyStatusIfHigher(item, s);
+            if (data.reversalReason || data.reason) item.reversalReason = data.reversalReason || data.reason;
+            if (data.txHash) item.txHash = data.txHash;
+          }
+        } catch (e) {}
+      }
     }
 
     const list = Array.from(map.values());

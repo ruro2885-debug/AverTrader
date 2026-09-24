@@ -14,6 +14,9 @@ import { TransactionRecord } from '../types';
 import { safeStorage } from '../utils/storage';
 import { useAppNavigation } from '../contexts/NavigationContext';
 import CoinLogo from './CoinLogo';
+import { doc, onSnapshot, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { getLocalWithdrawals } from '../lib/withdrawalStore';
 
 type TabType = 'transactions' | 'orders' | 'order-history';
 
@@ -206,7 +209,12 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       setTransactions(data);
       setSelectedReceipt(prev => {
         if (!prev) return null;
-        const updated = data.find(t => t.id === prev.id || t.refId === prev.id || (prev.refId && t.refId === prev.refId));
+        const updated = data.find(t => 
+          t.id === prev.id || 
+          t.refId === prev.id || 
+          (prev.refId && (t.refId === prev.refId || t.id === prev.refId)) ||
+          (prev.txHash && (t.txHash === prev.txHash || t.id === prev.txHash))
+        );
         return updated ? { ...prev, ...updated } : prev;
       });
       setLoading(false);
@@ -215,6 +223,93 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
 
     return () => unsub();
   }, [user?.uid]);
+
+  // Dedicated real-time sync for the currently selected receipt
+  useEffect(() => {
+    if (!selectedReceipt || !selectedReceipt.id) return;
+    const receiptId = selectedReceipt.id;
+    const refId = selectedReceipt.refId;
+    const txHash = selectedReceipt.txHash;
+
+    const updateFromSnapshot = (data: any) => {
+      if (!data) return;
+      const rawStatus = (data.status || '').toLowerCase();
+      let normalizedStatus: TransactionRecord['status'] = 'Pending';
+      if (rawStatus === 'completed' || rawStatus === 'approved' || rawStatus === 'successful' || rawStatus === 'success') {
+        normalizedStatus = 'Completed';
+      } else if (rawStatus === 'reversed') {
+        normalizedStatus = 'Reversed';
+      } else if (rawStatus === 'failed' || rawStatus === 'rejected' || rawStatus === 'declined' || rawStatus === 'cancelled') {
+        normalizedStatus = 'Failed';
+      } else if (rawStatus === 'processing') {
+        normalizedStatus = 'Processing';
+      }
+
+      setSelectedReceipt(prev => {
+        if (!prev) return null;
+        const isTarget = prev.id === receiptId || (refId && prev.refId === refId) || (txHash && prev.txHash === txHash);
+        if (!isTarget) return prev;
+        return {
+          ...prev,
+          status: normalizedStatus,
+          reversalReason: data.reversalReason || data.reason || prev.reversalReason,
+          destination: data.destination || data.destinationAddress || prev.destination,
+          network: data.network || prev.network,
+          txHash: data.txHash || prev.txHash,
+          amount: data.amount !== undefined ? (Number(data.amount) < 0 ? data.amount : -Math.abs(Number(data.amount))) : prev.amount
+        };
+      });
+
+      // Synchronize in the transactions list
+      setTransactions(prev => prev.map(t => {
+        if (t.id === receiptId || (refId && t.refId === refId) || (txHash && t.txHash === txHash)) {
+          return {
+            ...t,
+            status: normalizedStatus,
+            reversalReason: data.reversalReason || data.reason || t.reversalReason
+          };
+        }
+        return t;
+      }));
+    };
+
+    // 1. Check local withdrawals store first
+    try {
+      const local = getLocalWithdrawals();
+      const localMatch = local.find(w => w && (w.id === receiptId || (refId && w.refId === refId) || (txHash && w.txHash === txHash)));
+      if (localMatch && localMatch.status) {
+        updateFromSnapshot(localMatch);
+      }
+    } catch (e) {}
+
+    // 2. Direct Firestore document listeners
+    const unsubAdmin = onSnapshot(doc(db, 'admin_withdrawals', receiptId), (snap) => {
+      if (snap.exists()) updateFromSnapshot(snap.data());
+    }, () => {});
+
+    const unsubWth = onSnapshot(doc(db, 'withdrawals', receiptId), (snap) => {
+      if (snap.exists()) updateFromSnapshot(snap.data());
+    }, () => {});
+
+    const unsubTx = onSnapshot(doc(db, 'transactions', receiptId), (snap) => {
+      if (snap.exists()) updateFromSnapshot(snap.data());
+    }, () => {});
+
+    // Also check alternate doc keys (refId or txHash) if different
+    let unsubRef: (() => void) | undefined;
+    if (refId && refId !== receiptId) {
+      unsubRef = onSnapshot(doc(db, 'admin_withdrawals', refId), (snap) => {
+        if (snap.exists()) updateFromSnapshot(snap.data());
+      }, () => {});
+    }
+
+    return () => {
+      unsubAdmin();
+      unsubWth();
+      unsubTx();
+      if (unsubRef) unsubRef();
+    };
+  }, [selectedReceipt?.id, selectedReceipt?.refId, selectedReceipt?.txHash]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -384,7 +479,7 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       return 'Reversed';
     }
     if (s === 'failed' || s === 'rejected' || s === 'declined' || s === 'expired' || s === 'cancelled') {
-      return 'Transaction Failed';
+      return 'Failed';
     }
     if (s === 'pending' || s === 'verifying') {
       return 'Pending';
@@ -939,12 +1034,25 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                           <span className={`font-bold ${
                             getStatusLabel(selectedReceipt.status) === 'Successful' ? 'text-emerald-500' :
                             getStatusLabel(selectedReceipt.status) === 'Reversed' ? 'text-purple-400' :
-                            getStatusLabel(selectedReceipt.status) === 'Transaction Failed' ? 'text-rose-500' : 'text-amber-500'
+                            getStatusLabel(selectedReceipt.status) === 'Failed' || getStatusLabel(selectedReceipt.status) === 'Transaction Failed' ? 'text-rose-500' : 'text-amber-500'
                           }`}>
                             {getStatusLabel(selectedReceipt.status)}
                           </span>
                         </div>
                       </div>
+
+                      {/* Prominent Reversal Reason on Reversed Receipts */}
+                      {isReversed && (
+                        <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-[11px] space-y-1 text-left">
+                          <div className="flex items-center gap-1.5 text-purple-400 font-bold uppercase tracking-wider text-[10px]">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            <span>Reversal Reason</span>
+                          </div>
+                          <p className={`font-medium ${isDark ? 'text-neutral-200' : 'text-slate-700'} leading-relaxed`}>
+                            {selectedReceipt.reversalReason || 'Administrative correction and compliance review.'}
+                          </p>
+                        </div>
+                      )}
 
                       <div className="flex justify-between items-center text-[11px]">
                         <span className="text-neutral-500 font-medium">Type</span>

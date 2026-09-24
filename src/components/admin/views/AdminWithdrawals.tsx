@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, ShieldAlert, CheckCircle2, XCircle, Clock, ExternalLink, ArrowUpCircle, RotateCcw, AlertTriangle, X, Check, Copy } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, doc, serverTimestamp, increment, arrayUnion, addDoc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, serverTimestamp, increment, arrayUnion, addDoc, getDoc, setDoc, where, getDocs } from 'firebase/firestore';
 import { db, auth, safeSetDoc, safeUpdateDoc } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
@@ -259,8 +259,23 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         console.log(`[AdminWithdrawals TRACE 3.3] Fallback withdrawal item constructed:`, withdrawalData.id);
       }
 
+      let resolvedUserId = withdrawalData.userId;
+      const userEmail = withdrawalData.email;
+
+      // Try resolving real user ID from email if missing or anonymous
+      if ((!resolvedUserId || resolvedUserId === 'anonymous' || resolvedUserId.startsWith('local-')) && userEmail && userEmail !== 'User') {
+        try {
+          const userQuery = query(collection(db, 'users'), where('email', '==', userEmail.toLowerCase()));
+          const userQuerySnap = await getDocs(userQuery);
+          if (!userQuerySnap.empty) {
+            resolvedUserId = userQuerySnap.docs[0].id;
+            console.log(`[AdminWithdrawals] Resolved userId ${resolvedUserId} from email ${userEmail}`);
+          }
+        } catch (e) {}
+      }
+
       const currentStatus = (withdrawalData.status || 'pending').toLowerCase();
-      const userId = withdrawalData.userId;
+      const userId = resolvedUserId;
       const amount = Number(withdrawalData.amount) || 0;
 
       // 2. Prepare update payloads
@@ -269,7 +284,11 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         status: newStatus,
         processedAt: serverTimestamp(),
         processedBy: adminEmail,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        ...(resolvedUserId ? { userId: resolvedUserId } : {}),
+        ...(userEmail ? { email: userEmail } : {}),
+        ...(withdrawalData.refId ? { refId: withdrawalData.refId } : {}),
+        ...(withdrawalData.txHash ? { txHash: withdrawalData.txHash } : {})
       };
 
       if (newStatus === 'reversed' && reason) {
@@ -280,7 +299,11 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
       const txUpdatePayload: any = {
         id,
         status: txStatus,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        ...(resolvedUserId ? { userId: resolvedUserId } : {}),
+        ...(userEmail ? { email: userEmail } : {}),
+        ...(withdrawalData.refId ? { refId: withdrawalData.refId } : {}),
+        ...(withdrawalData.txHash ? { txHash: withdrawalData.txHash } : {})
       };
       if (newStatus === 'reversed' && reason) {
         txUpdatePayload.reversalReason = reason.trim();
