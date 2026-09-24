@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ArrowRight, CheckCircle2, Send, ChevronDown, Clock } from 'lucide-react';
+import { X, ArrowRight, CheckCircle2, Send, ChevronDown, Clock, RotateCcw, XCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinancials } from '../../hooks/useFinancials';
 import { usePreferences } from '../../contexts/PreferencesContext';
+import { useAppNavigation } from '../../contexts/NavigationContext';
+import { getLocalWithdrawals } from '../../lib/withdrawalStore';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import CoinLogo from '../CoinLogo';
 
 interface InstitutionalWithdrawalPageProps {
@@ -51,6 +55,7 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
   const { user, addWithdrawal } = useAuth();
   const { homeNetBalance } = useFinancials();
   const { preferences } = usePreferences();
+  const { navigate } = useAppNavigation();
 
   // Step state: 1 = Amount Entry, 2 = Destination Address, 3 = Complete Receipt
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -95,6 +100,9 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
   const [addressError, setAddressError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [txHash, setTxHash] = useState<string>('');
+  const [createdId, setCreatedId] = useState<string>('');
+  const [refId, setRefId] = useState<string>('');
+  const [liveStatus, setLiveStatus] = useState<string>('pending');
 
   // 1. REAL-TIME AVAILABLE BALANCE FROM FIRESTORE / FINANCIALS
   // Strictly synced to total Net balance in portfolio
@@ -300,9 +308,15 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
       };
       const network = assetNetworkMap[selectedAsset] || 'Mainnet';
 
-      await addWithdrawal(numericAmountInUsd, destinationAddress, selectedAsset, network);
       const hash = '0x' + Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       setTxHash(hash);
+      const res: any = await addWithdrawal(numericAmountInUsd, destinationAddress, selectedAsset, network, hash);
+      if (res) {
+        if (res.txHash) setTxHash(res.txHash);
+        if (res.id) setCreatedId(res.id);
+        if (res.refId) setRefId(res.refId);
+      }
+      setLiveStatus('pending');
       setStep(3);
     } catch (err: any) {
       setAddressError(err?.message || 'Failed to submit withdrawal. Please try again.');
@@ -310,6 +324,63 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
       setIsSubmitting(false);
     }
   };
+
+  // Real-time live status listener when on receipt step
+  useEffect(() => {
+    if (step !== 3) return;
+
+    const evaluateStatus = () => {
+      const local = getLocalWithdrawals();
+      const match = local.find(w => 
+        w && (
+          (txHash && (w.txHash === txHash || w.id === txHash || w.refId === txHash)) ||
+          (createdId && (w.id === createdId || w.refId === createdId || w.txHash === createdId)) ||
+          (refId && (w.refId === refId || w.id === refId || w.txHash === refId))
+        )
+      );
+      if (match && match.status) {
+        const s = match.status.toLowerCase();
+        setLiveStatus(s);
+      }
+    };
+
+    evaluateStatus();
+
+    const handleUpdate = () => evaluateStatus();
+    window.addEventListener('withdrawal_updated', handleUpdate);
+    window.addEventListener('aver_transaction_created', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    let unsub1: (() => void) | undefined;
+    let unsub2: (() => void) | undefined;
+    if (createdId) {
+      unsub1 = onSnapshot(doc(db, 'admin_withdrawals', createdId), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.status) setLiveStatus(data.status.toLowerCase());
+        }
+      }, () => {});
+    }
+    if (refId && refId !== createdId) {
+      unsub2 = onSnapshot(doc(db, 'admin_withdrawals', refId), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.status) setLiveStatus(data.status.toLowerCase());
+        }
+      }, () => {});
+    }
+
+    const interval = setInterval(evaluateStatus, 1000);
+
+    return () => {
+      window.removeEventListener('withdrawal_updated', handleUpdate);
+      window.removeEventListener('aver_transaction_created', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      if (unsub1) unsub1();
+      if (unsub2) unsub2();
+      clearInterval(interval);
+    };
+  }, [step, txHash, createdId, refId]);
 
   const formattedConvertedBalance = `${activeFiatInfo.symbol}${convertedAvailableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -552,14 +623,43 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
               transition={{ duration: 0.3 }}
               className="space-y-6 flex flex-col items-center text-center max-w-md mx-auto w-full px-4"
             >
-              <div className="w-16 h-16 rounded-full border border-amber-500/40 flex items-center justify-center text-amber-400 animate-pulse bg-amber-500/10">
-                <Clock className="w-8 h-8 stroke-[1.5]" />
-              </div>
+              {(liveStatus === 'completed' || liveStatus === 'successful' || liveStatus === 'success' || liveStatus === 'approved') ? (
+                <div className="w-16 h-16 rounded-full border border-emerald-500/40 flex items-center justify-center text-emerald-400 bg-emerald-500/10 shadow-lg shadow-emerald-500/20">
+                  <CheckCircle2 className="w-8 h-8 stroke-[1.5]" />
+                </div>
+              ) : liveStatus === 'reversed' ? (
+                <div className="w-16 h-16 rounded-full border border-purple-500/40 flex items-center justify-center text-purple-400 bg-purple-500/10 shadow-lg shadow-purple-500/20">
+                  <RotateCcw className="w-8 h-8 stroke-[1.5]" />
+                </div>
+              ) : (liveStatus === 'failed' || liveStatus === 'rejected') ? (
+                <div className="w-16 h-16 rounded-full border border-rose-500/40 flex items-center justify-center text-rose-400 bg-rose-500/10 shadow-lg shadow-rose-500/20">
+                  <XCircle className="w-8 h-8 stroke-[1.5]" />
+                </div>
+              ) : (
+                <div className="w-16 h-16 rounded-full border border-amber-500/40 flex items-center justify-center text-amber-400 animate-pulse bg-amber-500/10">
+                  <Clock className="w-8 h-8 stroke-[1.5]" />
+                </div>
+              )}
 
               <div className="space-y-2">
-                <div className="inline-block px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest">
-                  Status: Pending Admin Review
-                </div>
+                {(liveStatus === 'completed' || liveStatus === 'successful' || liveStatus === 'success' || liveStatus === 'approved') ? (
+                  <div className="inline-block px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-black uppercase tracking-widest">
+                    Status: Successful
+                  </div>
+                ) : liveStatus === 'reversed' ? (
+                  <div className="inline-block px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 text-[10px] font-black uppercase tracking-widest">
+                    Status: Reversed & Refunded
+                  </div>
+                ) : (liveStatus === 'failed' || liveStatus === 'rejected') ? (
+                  <div className="inline-block px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[10px] font-black uppercase tracking-widest">
+                    Status: Rejected
+                  </div>
+                ) : (
+                  <div className="inline-block px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest">
+                    Status: Pending Admin Review
+                  </div>
+                )}
+
                 <div className="pt-2">
                   <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider block mb-1">
                     Withdrawal Amount
@@ -572,7 +672,15 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
                   ≈ {activeFiatInfo.symbol}{numericAmountInActiveFiat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeFiat}
                 </div>
                 <p className="text-xs text-neutral-400 leading-relaxed pt-1">
-                  Your withdrawal request has been submitted successfully and is currently being reviewed by our administration team.
+                  {(liveStatus === 'completed' || liveStatus === 'successful' || liveStatus === 'success' || liveStatus === 'approved') ? (
+                    'Your withdrawal request has been approved by the administration team and successfully executed.'
+                  ) : liveStatus === 'reversed' ? (
+                    'This withdrawal was reversed by administration and the total amount has been refunded to your available balance.'
+                  ) : (liveStatus === 'failed' || liveStatus === 'rejected') ? (
+                    'Your withdrawal request was declined. Please contact support if you require assistance.'
+                  ) : (
+                    'Your withdrawal request has been submitted successfully and is currently being reviewed by our administration team.'
+                  )}
                 </p>
               </div>
 
@@ -587,7 +695,17 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
                 </div>
                 <div className="flex justify-between text-neutral-400">
                   <span>Reference ID:</span>
-                  <span className="text-white">{txHash.slice(0, 16)}...</span>
+                  <span className="text-white">{refId ? refId : (txHash ? `${txHash.slice(0, 16)}...` : 'Pending')}</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Live Status:</span>
+                  <span className={`font-semibold capitalize ${
+                    (liveStatus === 'completed' || liveStatus === 'successful' || liveStatus === 'success' || liveStatus === 'approved') ? 'text-emerald-400' :
+                    liveStatus === 'reversed' ? 'text-purple-400' :
+                    (liveStatus === 'failed' || liveStatus === 'rejected') ? 'text-rose-400' : 'text-amber-400'
+                  }`}>
+                    {(liveStatus === 'completed' || liveStatus === 'successful' || liveStatus === 'success' || liveStatus === 'approved') ? 'Successful' : liveStatus}
+                  </span>
                 </div>
               </div>
             </motion.div>
@@ -655,7 +773,15 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
             </button>
 
             <button
-              onClick={onOpenHistory}
+              type="button"
+              onClick={() => {
+                onClose();
+                if (onOpenHistory) {
+                  onOpenHistory();
+                } else {
+                  navigate({ view: 'history', modal: null });
+                }
+              }}
               className="text-xs text-neutral-400 hover:text-white transition underline underline-offset-4 tracking-wider py-1 cursor-pointer font-medium"
             >
               View all your transactions history here

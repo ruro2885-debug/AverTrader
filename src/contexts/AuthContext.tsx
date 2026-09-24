@@ -2146,6 +2146,7 @@ function dataURLtoBlob(dataurl: string): Blob {
       window.dispatchEvent(new Event('storage'));
       
       await addNotification('withdrawal', 'high', 'Withdrawal Request Submitted', `Your withdrawal of $${amount.toLocaleString()} is under review by admin.`).catch(() => {});
+      return { id: txId, refId, txHash };
     }
   }, [addNotification]);
 

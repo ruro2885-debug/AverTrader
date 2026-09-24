@@ -1072,19 +1072,16 @@ export default function PortfolioViewV2({
     { symbol: 'BTC', name: 'Bitcoin', baseConfidence: 96, category: 'high_conviction' },
     { symbol: 'ETH', name: 'Ethereum', baseConfidence: 89, category: 'preparing_entry' },
     { symbol: 'SOL', name: 'Solana', baseConfidence: 79, category: 'watching' },
-    { symbol: 'NVDA', name: 'NVIDIA', baseConfidence: 73, category: 'watching' },
     { symbol: 'XRP', name: 'Ripple', baseConfidence: 65, category: 'preparing_entry' },
-    { symbol: 'Gold', name: 'Gold Spot', baseConfidence: 95, category: 'high_conviction' },
-    { symbol: 'DOGE', name: 'Dogecoin', baseConfidence: 18, category: 'avoiding' },
-    { symbol: 'PEPE', name: 'Pepe', baseConfidence: 11, category: 'avoiding' },
+    { symbol: 'ADA', name: 'Cardano', baseConfidence: 58, category: 'watching' },
   ]);
 
   const handleRescanRadar = () => {
     setIsRescanningRadar(true);
     setTimeout(() => {
-      // Pick 7 to 9 random assets from the pool
+      // Pick 5 random assets from the pool
       const shuffled = [...MASTER_ASSET_POOL].sort(() => Math.random() - 0.5);
-      const count = Math.floor(Math.random() * 3) + 7; // 7, 8, or 9
+      const count = 5;
       const selected = shuffled.slice(0, count);
 
       const newAssets = selected.map(asset => {

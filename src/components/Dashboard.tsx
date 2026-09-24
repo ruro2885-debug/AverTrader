@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
@@ -954,16 +955,22 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           </header>
         )}
 
-        <AnimatePresence mode="wait">
-          {activeTab === 'home' && (
-            <motion.div
-              key="home"
-              variants={containerVariants}
-              initial="hidden"
-              animate="visible"
-              exit={{ opacity: 0, y: -20, transition: { duration: 0.2 } }}
-              className="space-y-6"
-            >
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.16 }}
+            className="w-full"
+          >
+            {activeTab === 'home' && (
+              <motion.div
+                variants={containerVariants}
+                initial="hidden"
+                animate="visible"
+                className="space-y-6"
+              >
               
               {/* Section 1: Portfolio Card */}
               <motion.div variants={itemVariants} className={`rounded-[24px] p-6 relative overflow-hidden ${cardClasses}`}>
@@ -1206,59 +1213,53 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   </motion.div>
               </div>
 
-            </motion.div>
-          )}
+              </motion.div>
+            )}
 
-          {activeTab === 'copy-trading' && <CopyTrading theme={theme} />}
+            {activeTab === 'copy-trading' && <CopyTrading theme={theme} />}
 
-          {activeTab === 'portfolio' && (
-            <PortfolioViewV2 
-              theme={theme} 
-              onBack={goBackTab} 
-              onNavigate={navigateTab}
-              onOpenDeposit={handleOpenDeposit}
-              onOpenWithdraw={handleOpenWithdraw}
-              onViewModeChange={setPortfolioViewMode}
-            />
-          )}
+            {activeTab === 'portfolio' && (
+              <PortfolioViewV2 
+                theme={theme} 
+                onBack={goBackTab} 
+                onNavigate={navigateTab}
+                onOpenDeposit={handleOpenDeposit} 
+                onOpenWithdraw={handleOpenWithdraw}
+                onViewModeChange={setPortfolioViewMode}
+              />
+            )}
 
-          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
-          {activeTab === 'coin-details' && (
-            <CoinDetailsPage 
-              asset={selectedAsset || currentLocation.asset || { symbol: 'BTC', name: 'Bitcoin', price: '$94,200', change: '+2.4%' }} 
-              theme={theme} 
-              onBack={goBackTab}
-              onTrade={(symbol) => navigateTab('ai', { asset: symbol })}
-            />
-          )}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
-          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} />}
-          
-          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('ai')} />}
-          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}
-          
-          {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              className="py-10 text-center"
-            >
-              <h1 className={`text-2xl font-bold ${textPrimary} mb-4 capitalize`}>{activeTab}</h1>
-              <div className={`rounded-2xl p-10 flex flex-col items-center justify-center ${cardClasses}`}>
-                <div className={`w-16 h-16 rounded-full mb-4 flex items-center justify-center ${isDark ? 'bg-white/5' : 'bg-slate-100'}`}>
-                  {activeTab === 'markets' && <Activity className={`w-8 h-8 ${textSecondary}`} />}
-                  {activeTab === 'ai' && <Brain className={`w-8 h-8 ${textSecondary}`} />}
+            {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
+            {activeTab === 'coin-details' && (
+              <CoinDetailsPage 
+                asset={selectedAsset || currentLocation.asset || { symbol: 'BTC', name: 'Bitcoin', price: '$94,200', change: '+2.4%' }} 
+                theme={theme} 
+                onBack={goBackTab}
+                onTrade={(symbol) => navigateTab('ai', { asset: symbol })}
+              />
+            )}
+            {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
+            {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
+            {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} />}
+            
+            {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('ai')} />}
+            {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}
+            
+            {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
+              <div className="py-10 text-center">
+                <h1 className={`text-2xl font-bold ${textPrimary} mb-4 capitalize`}>{activeTab}</h1>
+                <div className={`rounded-2xl p-10 flex flex-col items-center justify-center ${cardClasses}`}>
+                  <div className={`w-16 h-16 rounded-full mb-4 flex items-center justify-center ${isDark ? 'bg-white/5' : 'bg-slate-100'}`}>
+                    {activeTab === 'markets' && <Activity className={`w-8 h-8 ${textSecondary}`} />}
+                    {activeTab === 'ai' && <Brain className={`w-8 h-8 ${textSecondary}`} />}
+                  </div>
+                  <p className={`${textSecondary} font-medium`}>
+                    {activeTab} module is coming soon.
+                  </p>
                 </div>
-                <p className={`${textSecondary} font-medium`}>
-                  {activeTab} module is coming soon.
-                </p>
               </div>
-            </motion.div>
-          )}
+            )}
+          </motion.div>
         </AnimatePresence>
       </div>
     </div>
@@ -1274,121 +1275,130 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       {/* --- SLEEK FLOATING MODALS (SATISFIES ALL REQUIREMENTS FOR PERSISTENCE TESTABILITY) --- */}
 
       {/* 1. INSTITUTIONAL FULL-SCREEN DEPOSIT EXPERIENCE */}
-      <AnimatePresence>
-        {(showDepositModal || currentLocation.modal === 'deposit' || currentLocation.view === 'deposit') && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className={`fixed inset-0 z-[100] ${isDark ? 'bg-black' : 'bg-slate-50'} overflow-hidden flex flex-col`}
-          >
-            <InstitutionalDepositPage 
-              theme={theme}
-              onBack={handleCloseDeposit}
-              onSuccessDeposit={async (amountValue, method) => {
-                handleCloseDeposit();
-              }}
-              onOpenSupport={async (ticketData) => {
-                await saveSupportTicket(ticketData);
-                handleCloseDeposit();
-                navigateTab('support');
-              }}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {(showDepositModal || currentLocation.modal === 'deposit' || currentLocation.view === 'deposit') && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`fixed inset-0 z-[100] ${isDark ? 'bg-black' : 'bg-slate-50'} overflow-hidden flex flex-col`}
+            >
+              <InstitutionalDepositPage 
+                theme={theme}
+                onBack={handleCloseDeposit}
+                onClose={handleCloseDeposit}
+                onSuccessDeposit={async (amountValue, method) => {
+                  handleCloseDeposit();
+                }}
+                onOpenSupport={async (ticketData) => {
+                  await saveSupportTicket(ticketData);
+                  handleCloseDeposit();
+                  navigateTab('support');
+                }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* 2. DEDICATED FULL-SCREEN WITHDRAWAL EXPERIENCE */}
-      <AnimatePresence>
-        {(showWithdrawModal || currentLocation.modal === 'withdraw' || currentLocation.view === 'withdraw' || currentLocation.view === 'withdrawal') && (
-          <InstitutionalWithdrawalPage 
-            onClose={handleCloseWithdraw}
-            onOpenHistory={() => {
-              handleCloseWithdraw();
-              if (onNavigate) {
-                onNavigate('history');
-              } else {
-                navigateView('history');
-              }
-            }}
-            theme={theme}
-          />
-        )}
-      </AnimatePresence>
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {(showWithdrawModal || currentLocation.modal === 'withdraw' || currentLocation.view === 'withdraw' || currentLocation.view === 'withdrawal') && (
+            <InstitutionalWithdrawalPage 
+              onClose={handleCloseWithdraw}
+              onOpenHistory={() => {
+                setShowWithdrawModal(false);
+                if (onNavigate) {
+                  onNavigate('history');
+                }
+                navigate({ view: 'history', modal: null });
+              }}
+              theme={theme}
+            />
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* 3. TRANSACTION HISTORY MODAL */}
-      <AnimatePresence>
-        {showHistoryModal && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }} 
-            className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
-          >
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {showHistoryModal && (
             <motion.div 
-              initial={{ scale: 0.95, y: 20 }} 
-              animate={{ scale: 1, y: 0 }} 
-              exit={{ scale: 0.95, y: 20 }}
-              className={`w-full max-w-lg rounded-[28px] p-6 max-h-[80vh] flex flex-col ${modalBgClasses}`}
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
             >
-              <div className="flex justify-between items-center mb-6 flex-shrink-0">
-                <h3 className={`text-lg font-black tracking-tight ${textPrimary} flex items-center`}>
-                  <History className="w-5 h-5 mr-2 text-emerald-500" />
-                  Transaction History
-                </h3>
-                <button 
-                  onClick={() => setShowHistoryModal(false)}
-                  className={`p-1.5 rounded-full hover:bg-white/5 ${textSecondary} cursor-pointer`}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              <motion.div 
+                initial={{ scale: 0.95, y: 20 }} 
+                animate={{ scale: 1, y: 0 }} 
+                exit={{ scale: 0.95, y: 20 }}
+                className={`w-full max-w-lg rounded-[28px] p-6 max-h-[80vh] flex flex-col ${modalBgClasses}`}
+              >
+                <div className="flex justify-between items-center mb-6 flex-shrink-0">
+                  <h3 className={`text-lg font-black tracking-tight ${textPrimary} flex items-center`}>
+                    <History className="w-5 h-5 mr-2 text-emerald-500" />
+                    Transaction History
+                  </h3>
+                  <button 
+                    onClick={() => setShowHistoryModal(false)}
+                    className={`p-1.5 rounded-full hover:bg-white/5 ${textSecondary} cursor-pointer`}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
 
-              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-                {(!user?.history || user.history.length === 0) ? (
-                  <div className="text-center py-12 text-gray-500 font-medium">
-                    No transactions recorded.
-                  </div>
-                ) : (
-                  user.history.map((hist, i) => (
-                    <div 
-                      key={`hist-${hist.id || 'h'}-${i}-${hist.date || i}`} 
-                      className={`p-4 rounded-xl flex items-center justify-between border ${
-                        isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
-                          hist.type === 'deposit' 
-                            ? 'bg-emerald-500/10 text-emerald-500' 
-                            : 'bg-rose-500/10 text-rose-500'
-                        }`}>
-                          {hist.type === 'deposit' ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
-                        </div>
-                        <div>
-                          <p className={`font-bold text-sm ${textPrimary} capitalize`}>{hist.type}</p>
-                          <p className={`text-[10px] ${textSecondary}`}>{hist.date}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className={`font-black text-sm ${
-                          hist.type === 'deposit' ? 'text-emerald-500' : 'text-rose-500'
-                        }`}>
-                          {hist.type === 'deposit' ? '+' : '-'}{formatCurrency(hist.amount)}
-                        </p>
-                        <p className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded uppercase font-mono tracking-wider inline-block mt-1">
-                          {hist.status}
-                        </p>
-                      </div>
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                  {(!user?.history || user.history.length === 0) ? (
+                    <div className="text-center py-12 text-gray-500 font-medium">
+                      No transactions recorded.
                     </div>
-                  ))
-                )}
-              </div>
+                  ) : (
+                    user.history.map((hist, i) => (
+                      <div 
+                        key={`hist-${hist.id || 'h'}-${i}-${hist.date || i}`} 
+                        className={`p-4 rounded-xl flex items-center justify-between border ${
+                          isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                            hist.type === 'deposit' 
+                              ? 'bg-emerald-500/10 text-emerald-500' 
+                              : 'bg-rose-500/10 text-rose-500'
+                          }`}>
+                            {hist.type === 'deposit' ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <p className={`font-bold text-sm ${textPrimary} capitalize`}>{hist.type}</p>
+                            <p className={`text-[10px] ${textSecondary}`}>{hist.date}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-black text-sm ${
+                            hist.type === 'deposit' ? 'text-emerald-500' : 'text-rose-500'
+                          }`}>
+                            {hist.type === 'deposit' ? '+' : '-'}{formatCurrency(hist.amount)}
+                          </p>
+                          <p className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded uppercase font-mono tracking-wider inline-block mt-1">
+                            {hist.status}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* 4. NOTIFICATIONS MODAL */}
       <AnimatePresence>
@@ -1405,60 +1415,63 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       />
 
       {/* Clear Timeline Confirmation Modal */}
-      <AnimatePresence>
-        {showClearTimelineModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 sm:p-0">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowClearTimelineModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className={`relative w-full max-w-sm rounded-[32px] overflow-hidden border p-8 ${
-                isDark ? 'bg-[#0a0b10] border-white/10' : 'bg-white border-slate-200'
-              } shadow-2xl`}
-            >
-              <div className="flex flex-col items-center text-center">
-                <div className="w-16 h-16 rounded-3xl bg-rose-500/10 flex items-center justify-center mb-6 border border-rose-500/20">
-                  <Trash2 className="w-8 h-8 text-rose-500" />
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {showClearTimelineModal && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 sm:p-0">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowClearTimelineModal(false)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className={`relative w-full max-w-sm rounded-[32px] overflow-hidden border p-8 ${
+                  isDark ? 'bg-[#0a0b10] border-white/10' : 'bg-white border-slate-200'
+                } shadow-2xl z-10`}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-3xl bg-rose-500/10 flex items-center justify-center mb-6 border border-rose-500/20">
+                    <Trash2 className="w-8 h-8 text-rose-500" />
+                  </div>
+                  
+                  <h3 className={`text-xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} mb-2`}>
+                    Clear Timeline?
+                  </h3>
+                  <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'} mb-8 leading-relaxed px-2`}>
+                    Completing this action will clear your current timeline history. Are you sure you want to continue?
+                  </p>
+                  
+                  <div className="flex flex-col w-full gap-3">
+                    <button
+                      onClick={() => {
+                        setShowClearTimelineModal(false);
+                        clearActivityHistory();
+                      }}
+                      className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      onClick={() => setShowClearTimelineModal(false)}
+                      className={`w-full py-4 font-black rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer ${
+                        isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-                
-                <h3 className={`text-xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} mb-2`}>
-                  Clear Timeline?
-                </h3>
-                <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'} mb-8 leading-relaxed px-2`}>
-                  Completing this action will clear your current timeline history. Are you sure you want to continue?
-                </p>
-                
-                <div className="flex flex-col w-full gap-3">
-                  <button
-                    onClick={() => {
-                      setShowClearTimelineModal(false);
-                      clearActivityHistory();
-                    }}
-                    className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                  <button
-                    onClick={() => setShowClearTimelineModal(false)}
-                    className={`w-full py-4 font-black rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer ${
-                      isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
-                    }`}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

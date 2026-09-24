@@ -21,7 +21,13 @@ export default function AiSettingsView({ config, onSaveConfig, isDark }: AiSetti
   const [exposureLimit, setExposureLimit] = useState<number>(500); // Fixed or derived if needed
   const [maxSimultaneousPositions, setMaxSimultaneousPositions] = useState<number>(config?.aiTradingRules?.maxSimultaneousPositions ?? 3);
   const [positionSizingPreference, setPositionSizingPreference] = useState<'FIXED' | 'PERCENTAGE'>('PERCENTAGE');
-  const [preferredMarkets, setPreferredMarkets] = useState<string[]>(config?.aiTradingRules?.assetSelection ?? ['BTC', 'ETH', 'SOL']);
+  const [preferredMarkets, setPreferredMarkets] = useState<string[]>(() => {
+    const raw = config?.aiTradingRules?.assetSelection;
+    if (Array.isArray(raw) && raw.length === 22 && raw.includes('ARKK') && raw.includes('GLD')) {
+      return ['BTC', 'ETH', 'SOL', 'XRP', 'ADA'];
+    }
+    return (raw && raw.length > 0) ? raw : ['BTC', 'ETH', 'SOL', 'XRP', 'ADA'];
+  });
   const [riskProfile, setRiskProfile] = useState<RiskRating>('MEDIUM');
   const [tradingStyle, setTradingStyle] = useState<'SCALPING' | 'DAY_TRADING' | 'SWING_TRADING'>('DAY_TRADING');
 
@@ -55,7 +61,8 @@ export default function AiSettingsView({ config, onSaveConfig, isDark }: AiSetti
           if (saved.maxSimultaneousPositions !== undefined) setMaxSimultaneousPositions(saved.maxSimultaneousPositions);
           if (saved.defaultPositionSizing !== undefined) setPositionSizingPreference(saved.defaultPositionSizing);
           if (saved.preferredMarkets && Array.isArray(saved.preferredMarkets) && saved.preferredMarkets.length > 0) {
-            setPreferredMarkets(saved.preferredMarkets);
+            const isOld22 = saved.preferredMarkets.length === 22 && saved.preferredMarkets.includes('ARKK');
+            setPreferredMarkets(isOld22 ? ['BTC', 'ETH', 'SOL', 'XRP', 'ADA'] : saved.preferredMarkets);
           }
           if (saved.riskProfile) setRiskProfile(saved.riskProfile);
           if (saved.tradingStyle) setTradingStyle(saved.tradingStyle);

@@ -13,7 +13,7 @@ import {
 import { db } from '../lib/firebase';
 import { TransactionRecord, TransactionType } from '../types';
 import { getLocalDeposits } from '../lib/depositStore';
-import { getLocalWithdrawals } from '../lib/withdrawalStore';
+import { getLocalWithdrawals, getStatusPriority } from '../lib/withdrawalStore';
 
 export const isTradeEngineTransaction = (tx: any): boolean => {
   if (!tx) return false;
@@ -202,6 +202,30 @@ export const transactionService = {
       return 'Pending';
     };
 
+    const findExistingInMap = (id?: string, refId?: string, txHash?: string): TransactionRecord | undefined => {
+      if (id && map.has(id)) return map.get(id);
+      if (refId && map.has(refId)) return map.get(refId);
+      if (txHash && map.has(txHash)) return map.get(txHash);
+      for (const existing of map.values()) {
+        if (
+          (id && (existing.id === id || existing.refId === id || existing.txHash === id)) ||
+          (refId && (existing.refId === refId || existing.id === refId || existing.txHash === refId)) ||
+          (txHash && (existing.txHash === txHash || existing.id === txHash || existing.refId === txHash))
+        ) {
+          return existing;
+        }
+      }
+      return undefined;
+    };
+
+    const applyStatusIfHigher = (existing: TransactionRecord, newStatus: TransactionRecord['status']) => {
+      const curPri = getStatusPriority(existing.status);
+      const incPri = getStatusPriority(newStatus);
+      if (incPri >= curPri) {
+        existing.status = newStatus;
+      }
+    };
+
     // 1. Read from localStorage and purge any existing trade engine records
     try {
       const storageKey = `aver_txs_${userId}`;
@@ -214,7 +238,15 @@ export const transactionService = {
             hasEngineTx = true;
             return;
           }
-          if (item.id) map.set(item.id, { ...item, status: normalizeStatus(item.status) });
+          if (item.id) {
+            const normalized = normalizeStatus(item.status);
+            const existing = findExistingInMap(item.id, item.refId, item.txHash);
+            if (existing) {
+              applyStatusIfHigher(existing, normalized);
+            } else {
+              map.set(item.id, { ...item, status: normalized });
+            }
+          }
         });
         if (hasEngineTx) {
           const cleaned = localList.filter(item => !isTradeEngineTransaction(item));
@@ -231,9 +263,9 @@ export const transactionService = {
         if (matchesUser) {
           const id = d.id;
           const status = normalizeStatus(d.status);
-          const existing = map.get(id);
+          const existing = findExistingInMap(id, d.refId, d.txHash);
           if (existing) {
-            existing.status = status;
+            applyStatusIfHigher(existing, status);
             if (d.amount) existing.amount = Number(d.amount);
             if (d.cryptoAmount) existing.cryptoAmount = Number(d.cryptoAmount);
             if (d.cryptoSymbol || d.asset) existing.asset = d.cryptoSymbol || d.asset;
@@ -265,9 +297,9 @@ export const transactionService = {
         if (matchesUser) {
           const id = w.id;
           const status = normalizeStatus(w.status);
-          const existing = map.get(id);
+          const existing = findExistingInMap(id, w.refId, w.txHash);
           if (existing) {
-            existing.status = status;
+            applyStatusIfHigher(existing, status);
             if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
             if (w.amount) existing.amount = -Math.abs(Number(w.amount));
             if (w.cryptoAmount) existing.cryptoAmount = -Math.abs(Number(w.cryptoAmount));
@@ -304,7 +336,8 @@ export const transactionService = {
           const asset = d.asset || d.symbol || 'USDT';
           const network = d.network || d.cryptoNetwork || 'TRC20';
           const status = normalizeStatus(d.status || 'Completed');
-          if (!map.has(id)) {
+          const existing = findExistingInMap(id, d.refId, d.txHash);
+          if (!existing) {
             map.set(id, {
               id,
               userId,
@@ -320,8 +353,7 @@ export const transactionService = {
               txHash: d.txHash || d.hash || undefined
             });
           } else {
-            const existing = map.get(id)!;
-            if (d.status && !existing.status) existing.status = status;
+            applyStatusIfHigher(existing, status);
           }
         });
       }
@@ -332,9 +364,9 @@ export const transactionService = {
           const asset = w.asset || w.symbol || 'USDT';
           const network = w.network || w.cryptoNetwork || 'TRC20';
           const status = normalizeStatus(w.status || 'Processing');
-          const existing = map.get(id);
+          const existing = findExistingInMap(id, w.refId, w.txHash);
           if (existing) {
-            existing.status = status;
+            applyStatusIfHigher(existing, status);
             if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
             if (w.txHash) existing.txHash = w.txHash || w.hash;
           } else {
@@ -391,9 +423,9 @@ export const transactionService = {
           return;
         }
         const normalized = normalizeStatus(data.status);
-        const existing = map.get(d.id);
+        const existing = findExistingInMap(d.id, data.refId, data.txHash);
         if (existing) {
-          existing.status = normalized;
+          applyStatusIfHigher(existing, normalized);
           if (data.txHash) existing.txHash = data.txHash;
         } else {
           map.set(d.id, { ...data, id: d.id, status: normalized });
@@ -411,9 +443,9 @@ export const transactionService = {
         const d = docSnap.data();
         const id = docSnap.id;
         const status = normalizeStatus(d.status);
-        const existing = map.get(id);
+        const existing = findExistingInMap(id, d.refId, d.txHash);
         if (existing) {
-          existing.status = status;
+          applyStatusIfHigher(existing, status);
           if (d.amount) existing.amount = Number(d.amount);
           if (d.cryptoAmount) existing.cryptoAmount = Number(d.cryptoAmount);
           if (d.cryptoSymbol || d.asset) existing.asset = d.cryptoSymbol || d.asset;
@@ -446,9 +478,9 @@ export const transactionService = {
         const w = docSnap.data();
         const id = docSnap.id;
         const status = normalizeStatus(w.status);
-        const existing = map.get(id);
+        const existing = findExistingInMap(id, w.refId, w.txHash);
         if (existing) {
-          existing.status = status;
+          applyStatusIfHigher(existing, status);
           if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
           if (w.txHash) existing.txHash = w.txHash;
         } else {
@@ -482,9 +514,9 @@ export const transactionService = {
         const w = docSnap.data();
         const id = docSnap.id;
         const status = normalizeStatus(w.status);
-        const existing = map.get(id);
+        const existing = findExistingInMap(id, w.refId, w.txHash);
         if (existing) {
-          existing.status = status;
+          applyStatusIfHigher(existing, status);
           if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
           if (w.txHash) existing.txHash = w.txHash;
         } else {

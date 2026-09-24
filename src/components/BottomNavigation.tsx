@@ -53,6 +53,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
                 <div className="absolute bottom-[-16px] w-6 h-[4px] bg-emerald-500/40 blur-[3px] rounded-full pointer-events-none" />
 
                 <motion.button
+                  type="button"
                   whileHover={{ scale: 1.08, y: -2 }}
                   whileTap={{ scale: 0.94 }}
                   onClick={() => onTabChange(item.id)}
@@ -68,7 +69,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
                       inset 0 3px 6px rgba(16, 185, 129, 0.15)
                     `
                   }}
-                  className="absolute -top-[12px] w-[32px] h-[32px] rounded-full flex items-center justify-center z-20 cursor-pointer border focus:outline-none backdrop-blur-xl"
+                  className="absolute -top-[12px] w-[32px] h-[32px] rounded-full flex items-center justify-center z-20 cursor-pointer border focus:outline-none backdrop-blur-xl touch-manipulation pointer-events-auto"
                 >
                   {/* Frosted emerald breathing core */}
                   <motion.div
@@ -97,8 +98,9 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
           return (
             <button
               key={item.id}
+              type="button"
               onClick={() => onTabChange(item.id)}
-              className="relative flex flex-col items-center justify-center w-[48px] h-[36px] cursor-pointer group focus:outline-none select-none"
+              className="relative flex flex-col items-center justify-center w-[48px] h-[36px] cursor-pointer group focus:outline-none select-none touch-manipulation pointer-events-auto"
             >
               {/* Active Glass lens reflection */}
               {isActive && (

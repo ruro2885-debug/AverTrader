@@ -26,6 +26,17 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
   const clean = pathname.replace(/\/+$/, '') || '/';
   const lower = clean.toLowerCase();
 
+  // Root / or empty
+  if (lower === '/' || lower === '') {
+    return {
+      id: `nav-root`,
+      view: 'dashboard',
+      tab: 'home',
+      aiView: 'HOME',
+      modal: null,
+    };
+  }
+
   // Explicit Home landing page (/home)
   if (lower === '/home') {
     return {
