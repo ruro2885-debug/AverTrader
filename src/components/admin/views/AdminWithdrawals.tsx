@@ -5,7 +5,15 @@ import { collection, onSnapshot, query, orderBy, doc, serverTimestamp, increment
 import { db, auth, safeSetDoc, safeUpdateDoc } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
-import { mergeWithdrawalsWithLocal, saveLocalWithdrawal, getLocalWithdrawals, resolveStatus, getStatusPriority } from '../../../lib/withdrawalStore';
+import { 
+  mergeWithdrawalsWithLocal, 
+  saveLocalWithdrawal, 
+  getLocalWithdrawals, 
+  resolveStatus, 
+  getStatusPriority,
+  recordWithdrawalAction,
+  isActionedStatus 
+} from '../../../lib/withdrawalStore';
 
 interface Withdrawal {
   id: string;
@@ -278,7 +286,19 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
       const userId = resolvedUserId;
       const amount = Number(withdrawalData.amount) || 0;
 
-      // 2. Prepare update payloads
+      // 2. Prepare candidate IDs and update payloads
+      const allCandidateIds = Array.from(new Set([
+        id,
+        withdrawalData.id,
+        withdrawalData.refId,
+        withdrawalData.txHash,
+        withdrawalData.customId
+      ].filter(Boolean) as string[]));
+
+      const effectiveReason = newStatus === 'reversed' 
+        ? ((reason && reason.trim()) || withdrawalData.reversalReason || 'Administrative correction and compliance review.') 
+        : undefined;
+
       const updatePayload: any = {
         id,
         status: newStatus,
@@ -291,8 +311,8 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         ...(withdrawalData.txHash ? { txHash: withdrawalData.txHash } : {})
       };
 
-      if (newStatus === 'reversed' && reason) {
-        updatePayload.reversalReason = reason.trim();
+      if (effectiveReason) {
+        updatePayload.reversalReason = effectiveReason;
       }
 
       const txStatus = newStatus === 'completed' ? 'Successful' : (newStatus === 'failed' ? 'Failed' : 'Reversed');
@@ -305,25 +325,23 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         ...(withdrawalData.refId ? { refId: withdrawalData.refId } : {}),
         ...(withdrawalData.txHash ? { txHash: withdrawalData.txHash } : {})
       };
-      if (newStatus === 'reversed' && reason) {
-        txUpdatePayload.reversalReason = reason.trim();
+      if (effectiveReason) {
+        txUpdatePayload.reversalReason = effectiveReason;
       }
 
-      console.log(`[AdminWithdrawals TRACE 4] Writing updates to admin_withdrawals, withdrawals, and transactions for ${id}...`);
-      // 3. Update remote Firestore collections using safeSetDoc (avoids missing permission / doc errors)
-      await safeSetDoc(doc(db, 'admin_withdrawals', id), updatePayload, { merge: true });
-      await safeSetDoc(doc(db, 'withdrawals', id), updatePayload, { merge: true });
-      await safeSetDoc(doc(db, 'transactions', id), txUpdatePayload, { merge: true });
+      // Record in persistent action registry across all candidate IDs
+      recordWithdrawalAction(allCandidateIds, {
+        status: txStatus,
+        reversalReason: effectiveReason
+      });
 
-      if (withdrawalData.refId && withdrawalData.refId !== id) {
-        await safeSetDoc(doc(db, 'admin_withdrawals', withdrawalData.refId), updatePayload, { merge: true }).catch(() => {});
-        await safeSetDoc(doc(db, 'withdrawals', withdrawalData.refId), updatePayload, { merge: true }).catch(() => {});
-        await safeSetDoc(doc(db, 'transactions', withdrawalData.refId), txUpdatePayload, { merge: true }).catch(() => {});
-      }
-      if (withdrawalData.txHash && withdrawalData.txHash !== id) {
-        await safeSetDoc(doc(db, 'admin_withdrawals', withdrawalData.txHash), updatePayload, { merge: true }).catch(() => {});
-        await safeSetDoc(doc(db, 'withdrawals', withdrawalData.txHash), updatePayload, { merge: true }).catch(() => {});
-        await safeSetDoc(doc(db, 'transactions', withdrawalData.txHash), txUpdatePayload, { merge: true }).catch(() => {});
+      console.log(`[AdminWithdrawals TRACE 4] Writing updates to admin_withdrawals, withdrawals, and transactions for ${allCandidateIds.join(', ')}...`);
+      // 3. Update remote Firestore collections for all candidate IDs
+      for (const cid of allCandidateIds) {
+        await safeSetDoc(doc(db, 'admin_withdrawals', cid), updatePayload, { merge: true }).catch(() => {});
+        await safeSetDoc(doc(db, 'withdrawals', cid), updatePayload, { merge: true }).catch(() => {});
+        await safeSetDoc(doc(db, 'transactions', cid), txUpdatePayload, { merge: true }).catch(() => {});
+        await safeSetDoc(doc(db, 'user_transactions', cid), txUpdatePayload, { merge: true }).catch(() => {});
       }
       console.log(`[AdminWithdrawals TRACE 4 COMPLETED] Firestore document writes completed.`);
 
@@ -334,7 +352,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         id,
         status: newStatus,
         processedBy: adminEmail,
-        reversalReason: newStatus === 'reversed' ? (reason || withdrawalData.reversalReason) : withdrawalData.reversalReason,
+        reversalReason: effectiveReason,
         updatedAt: new Date().toISOString()
       };
       saveLocalWithdrawal(updatedLocalRecord);
@@ -344,12 +362,8 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
       console.log(`[AdminWithdrawals TRACE 6] Processing balance adjustments for status ${newStatus}, user ${userId}, amount $${amount}...`);
       const matchesWithdrawal = (w: any) => {
         if (!w) return false;
-        return (
-          w.id === id ||
-          w.refId === id ||
-          w.txHash === id ||
-          (withdrawalData.refId && (w.id === withdrawalData.refId || w.refId === withdrawalData.refId)) ||
-          (withdrawalData.txHash && (w.txHash === withdrawalData.txHash || w.id === withdrawalData.txHash))
+        return allCandidateIds.some(cid => 
+          w.id === cid || w.refId === cid || w.txHash === cid
         );
       };
 
@@ -467,7 +481,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         } catch (e) {}
 
         showNotification(`Withdrawal unsuccessful. Transaction of $${amount.toLocaleString()} rejected.`);
-      } else if (newStatus === 'reversed' && userId && amount > 0) {
+      } else if (newStatus === 'reversed' && userId) {
         if (!userId.startsWith('local-') && userId !== 'anonymous') {
           const userRef = doc(db, 'users', userId);
           const userSnap = await getDoc(userRef).catch(() => null);
@@ -476,20 +490,25 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                matchesWithdrawal(w) ? { ...w, status: 'Reversed', reversalReason: reason || 'Administrative Reversal' } : w
+                matchesWithdrawal(w) ? { ...w, status: 'Reversed', reversalReason: effectiveReason } : w
               );
             }
           }
 
-          await safeSetDoc(userRef, {
-            availableBalance: increment(amount),
-            portfolioBalance: increment(amount),
-            tokenBalance: increment(amount),
-            cashBalance: increment(amount),
-            totalWithdrawals: increment(-amount),
+          const userDocPayload: any = {
             ...(updatedUserWithdrawals.length > 0 ? { withdrawals: updatedUserWithdrawals } : {}),
             lastUpdated: serverTimestamp()
-          }, { merge: true });
+          };
+
+          if (amount > 0) {
+            userDocPayload.availableBalance = increment(amount);
+            userDocPayload.portfolioBalance = increment(amount);
+            userDocPayload.tokenBalance = increment(amount);
+            userDocPayload.cashBalance = increment(amount);
+            userDocPayload.totalWithdrawals = increment(-amount);
+          }
+
+          await safeSetDoc(userRef, userDocPayload, { merge: true });
           console.log(`[AdminWithdrawals TRACE 6.1 REVERSED COMPLETED] User balance refunded.`);
         }
 
@@ -502,13 +521,15 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
               if (u) {
                 if (Array.isArray(u.withdrawals)) {
                   u.withdrawals = u.withdrawals.map((w: any) => 
-                    matchesWithdrawal(w) ? { ...w, status: 'Reversed', reversalReason: reason || 'Administrative Reversal' } : w
+                    matchesWithdrawal(w) ? { ...w, status: 'Reversed', reversalReason: effectiveReason } : w
                   );
                 }
-                u.portfolioBalance = (Number(u.portfolioBalance) || 0) + amount;
-                u.availableBalance = (Number(u.availableBalance) || 0) + amount;
-                u.cashBalance = (Number(u.cashBalance) || 0) + amount;
-                u.totalWithdrawals = Math.max(0, (Number(u.totalWithdrawals) || 0) - amount);
+                if (amount > 0) {
+                  u.portfolioBalance = (Number(u.portfolioBalance) || 0) + amount;
+                  u.availableBalance = (Number(u.availableBalance) || 0) + amount;
+                  u.cashBalance = (Number(u.cashBalance) || 0) + amount;
+                  u.totalWithdrawals = Math.max(0, (Number(u.totalWithdrawals) || 0) - amount);
+                }
                 u.lastUpdated = new Date().toISOString();
                 localStorage.setItem(k, JSON.stringify(u));
               }

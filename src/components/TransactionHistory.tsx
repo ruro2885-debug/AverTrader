@@ -16,7 +16,7 @@ import { useAppNavigation } from '../contexts/NavigationContext';
 import CoinLogo from './CoinLogo';
 import { doc, onSnapshot, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { getLocalWithdrawals } from '../lib/withdrawalStore';
+import { getLocalWithdrawals, getStatusPriority, isActionedStatus, getActionForWithdrawal, recordWithdrawalAction } from '../lib/withdrawalStore';
 
 type TabType = 'transactions' | 'orders' | 'order-history';
 
@@ -215,7 +215,17 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
           (prev.refId && (t.refId === prev.refId || t.id === prev.refId)) ||
           (prev.txHash && (t.txHash === prev.txHash || t.id === prev.txHash))
         );
-        return updated ? { ...prev, ...updated } : prev;
+        if (!updated) return prev;
+        const curPri = getStatusPriority(prev.status);
+        const incPri = getStatusPriority(updated.status);
+        // An actioned withdrawal (Completed, Failed, Reversed) can NEVER revert to Pending!
+        const effectiveStatus = (curPri >= 2 && incPri < 2) ? prev.status : (incPri >= curPri ? updated.status : prev.status);
+        return {
+          ...prev,
+          ...updated,
+          status: effectiveStatus,
+          reversalReason: updated.reversalReason || prev.reversalReason
+        };
       });
       setLoading(false);
       setIsRefreshing(false);
@@ -249,10 +259,25 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
         if (!prev) return null;
         const isTarget = prev.id === receiptId || (refId && prev.refId === refId) || (txHash && prev.txHash === txHash);
         if (!isTarget) return prev;
+
+        const actionRecord = getActionForWithdrawal(prev.id, prev.refId, prev.txHash);
+        const targetStatus = actionRecord ? actionRecord.status : normalizedStatus;
+        const targetIsActioned = isActionedStatus(targetStatus);
+        const curIsActioned = isActionedStatus(prev.status);
+
+        let effectiveStatus = prev.status;
+        if (targetIsActioned) {
+          effectiveStatus = targetStatus;
+        } else if (curIsActioned && !targetIsActioned) {
+          effectiveStatus = prev.status;
+        } else {
+          effectiveStatus = targetStatus;
+        }
+
         return {
           ...prev,
-          status: normalizedStatus,
-          reversalReason: data.reversalReason || data.reason || prev.reversalReason,
+          status: effectiveStatus,
+          reversalReason: (actionRecord?.reversalReason) || data.reversalReason || data.reason || prev.reversalReason,
           destination: data.destination || data.destinationAddress || prev.destination,
           network: data.network || prev.network,
           txHash: data.txHash || prev.txHash,
@@ -263,10 +288,24 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       // Synchronize in the transactions list
       setTransactions(prev => prev.map(t => {
         if (t.id === receiptId || (refId && t.refId === refId) || (txHash && t.txHash === txHash)) {
+          const tActionRecord = getActionForWithdrawal(t.id, t.refId, t.txHash);
+          const tTargetStatus = tActionRecord ? tActionRecord.status : normalizedStatus;
+          const tTargetIsActioned = isActionedStatus(tTargetStatus);
+          const tCurIsActioned = isActionedStatus(t.status);
+
+          let tEffectiveStatus = t.status;
+          if (tTargetIsActioned) {
+            tEffectiveStatus = tTargetStatus;
+          } else if (tCurIsActioned && !tTargetIsActioned) {
+            tEffectiveStatus = t.status;
+          } else {
+            tEffectiveStatus = tTargetStatus;
+          }
+
           return {
             ...t,
-            status: normalizedStatus,
-            reversalReason: data.reversalReason || data.reason || t.reversalReason
+            status: tEffectiveStatus,
+            reversalReason: (tActionRecord?.reversalReason) || data.reversalReason || data.reason || t.reversalReason
           };
         }
         return t;
@@ -295,6 +334,15 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       if (snap.exists()) updateFromSnapshot(snap.data());
     }, () => {});
 
+    // Global shared action registry listeners to heal local state and ensure absolute status consistency
+    const unsubRegistry = onSnapshot(doc(db, 'withdrawal_actions_registry', receiptId), (snap) => {
+      if (snap.exists()) {
+        const actionData = snap.data();
+        recordWithdrawalAction([receiptId, refId, txHash], actionData as any);
+        updateFromSnapshot({ status: actionData.rawStatus || actionData.status, reversalReason: actionData.reversalReason });
+      }
+    }, () => {});
+
     // Also check alternate doc keys (refId or txHash) if different
     let unsubRef: (() => void) | undefined;
     if (refId && refId !== receiptId) {
@@ -303,11 +351,24 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       }, () => {});
     }
 
+    let unsubRegistryRef: (() => void) | undefined;
+    if (refId && refId !== receiptId) {
+      unsubRegistryRef = onSnapshot(doc(db, 'withdrawal_actions_registry', refId), (snap) => {
+        if (snap.exists()) {
+          const actionData = snap.data();
+          recordWithdrawalAction([receiptId, refId, txHash], actionData as any);
+          updateFromSnapshot({ status: actionData.rawStatus || actionData.status, reversalReason: actionData.reversalReason });
+        }
+      }, () => {});
+    }
+
     return () => {
       unsubAdmin();
       unsubWth();
       unsubTx();
+      unsubRegistry();
       if (unsubRef) unsubRef();
+      if (unsubRegistryRef) unsubRegistryRef();
     };
   }, [selectedReceipt?.id, selectedReceipt?.refId, selectedReceipt?.txHash]);
 
@@ -988,8 +1049,8 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                       
                       {isWithdrawal ? (
                         <>
-                          <h2 className="text-3xl font-black tracking-tight mb-1 text-rose-500 font-mono">
-                            -{tokenAmountDisplay} {tokenSymbol}
+                          <h2 className="text-3xl font-black tracking-tight mb-1 text-rose-500 font-mono whitespace-nowrap flex items-baseline justify-center gap-1.5">
+                            -{tokenAmountDisplay} <span className="text-xl font-bold">{tokenSymbol}</span>
                           </h2>
                           <p className="text-xs text-neutral-400 font-medium mb-3">
                             ≈ ${Math.abs(Number(selectedReceipt.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
@@ -1002,8 +1063,8 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                             {Math.abs(Number(selectedReceipt.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </h2>
                           {(selectedReceipt.cryptoAmount || (selectedReceipt.asset !== 'USD' && selectedReceipt.asset !== 'USDT' && selectedReceipt.asset !== 'USDC')) && (
-                            <p className="text-xs text-neutral-400 font-medium mb-3">
-                              ~{selectedReceipt.cryptoAmount ? Math.abs(Number(selectedReceipt.cryptoAmount)).toLocaleString(undefined, { maximumFractionDigits: 6 }) : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(4)} {selectedReceipt.asset}
+                            <p className="text-xs text-neutral-400 font-medium mb-3 whitespace-nowrap flex items-baseline justify-center gap-1">
+                              ~{selectedReceipt.cryptoAmount ? Math.abs(Number(selectedReceipt.cryptoAmount)).toLocaleString(undefined, { maximumFractionDigits: 6 }) : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(4)} <span className="font-semibold">{selectedReceipt.asset}</span>
                             </p>
                           )}
                         </>
@@ -1392,7 +1453,16 @@ const TransactionItem = memo(({
       setSwipedItemId(null);
     } else {
       // Show full receipt details on tap
-      setSelectedReceipt(item);
+      const action = getActionForWithdrawal(item.id, item.refId, item.txHash);
+      if (action) {
+        setSelectedReceipt({
+          ...item,
+          status: action.status,
+          reversalReason: action.reversalReason || item.reversalReason
+        });
+      } else {
+        setSelectedReceipt(item);
+      }
     }
   };
 

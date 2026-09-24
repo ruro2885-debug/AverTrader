@@ -1568,11 +1568,11 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
       setTimeout(() => {
         setCardStageFailed(true);
         setCardStageStatus('failed');
-      }, 30000);
+      }, 50000); // Loads for exactly 26 seconds after starting at 24s (24 + 26 = 50s)
       
       setTimeout(() => {
         setStep('card_gateway_error');
-      }, 30500);
+      }, 50500);
 
       return;
     }

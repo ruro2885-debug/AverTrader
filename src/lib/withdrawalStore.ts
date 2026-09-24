@@ -1,21 +1,115 @@
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
+
 export const WITHDRAWALS_STORAGE_KEY = 'aver_admin_withdrawals_local';
+export const WITHDRAWAL_ACTIONS_REGISTRY_KEY = 'aver_withdrawal_actions_registry';
+
+export interface WithdrawalActionRecord {
+  status: 'Completed' | 'Failed' | 'Reversed';
+  rawStatus: 'completed' | 'failed' | 'reversed';
+  reversalReason?: string;
+  updatedAt: string;
+}
+
+export function isActionedStatus(status?: string): boolean {
+  if (!status) return false;
+  const s = status.toLowerCase();
+  return (
+    s === 'completed' || s === 'successful' || s === 'success' || s === 'approved' ||
+    s === 'failed' || s === 'rejected' || s === 'declined' || s === 'cancelled' ||
+    s === 'reversed'
+  );
+}
 
 export function getStatusPriority(status?: string): number {
   const s = (status || '').toLowerCase();
-  if (s === 'reversed') return 4;
-  if (s === 'completed' || s === 'approved' || s === 'successful' || s === 'success') return 3;
-  if (s === 'failed' || s === 'rejected' || s === 'declined' || s === 'cancelled') return 2;
+  if (isActionedStatus(s)) return 2;
   if (s === 'processing' || s === 'verifying') return 1;
   return 0; // 'pending' or unknown
 }
 
 export function resolveStatus(currentStatus?: string, incomingStatus?: string): string {
-  const curPri = getStatusPriority(currentStatus);
-  const incPri = getStatusPriority(incomingStatus);
-  if (incPri >= curPri) {
-    return (incomingStatus || 'pending').toLowerCase();
+  const curIsActioned = isActionedStatus(currentStatus);
+  const incIsActioned = isActionedStatus(incomingStatus);
+
+  // If incoming status is an action taken by admin (completed, failed, reversed), it ALWAYS wins!
+  if (incIsActioned) {
+    return (incomingStatus || '').toLowerCase();
   }
-  return (currentStatus || 'pending').toLowerCase();
+
+  // If current status was already actioned and incoming is NOT actioned (pending/processing),
+  // NEVER revert to pending! Retain the actioned status forever!
+  if (curIsActioned && !incIsActioned) {
+    return (currentStatus || 'pending').toLowerCase();
+  }
+
+  return (incomingStatus || currentStatus || 'pending').toLowerCase();
+}
+
+export function getWithdrawalActionsRegistry(): Record<string, WithdrawalActionRecord> {
+  try {
+    const raw = localStorage.getItem(WITHDRAWAL_ACTIONS_REGISTRY_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+export function recordWithdrawalAction(
+  identifiers: (string | undefined)[],
+  action: {
+    status: 'completed' | 'failed' | 'reversed' | 'Successful' | 'Failed' | 'Reversed' | string;
+    reversalReason?: string;
+  }
+) {
+  try {
+    const registry = getWithdrawalActionsRegistry();
+    const raw = (action.status || '').toLowerCase();
+    const canonicalStatus: 'Completed' | 'Failed' | 'Reversed' =
+      (raw === 'completed' || raw === 'approved' || raw === 'successful' || raw === 'success') ? 'Completed' :
+      (raw === 'failed' || raw === 'rejected' || raw === 'declined' || raw === 'cancelled') ? 'Failed' :
+      'Reversed';
+    
+    const canonicalRaw: 'completed' | 'failed' | 'reversed' =
+      canonicalStatus === 'Completed' ? 'completed' :
+      canonicalStatus === 'Failed' ? 'failed' : 'reversed';
+
+    const record: WithdrawalActionRecord = {
+      status: canonicalStatus,
+      rawStatus: canonicalRaw,
+      reversalReason: action.reversalReason,
+      updatedAt: new Date().toISOString()
+    };
+
+    identifiers.filter(Boolean).forEach(id => {
+      if (id) {
+        registry[id] = record;
+        // Also persist to global Firestore withdrawal_actions_registry collection so any session / device gets healed automatically!
+        setDoc(doc(db, 'withdrawal_actions_registry', id), {
+          ...record,
+          id
+        }, { merge: true }).catch((err) => {
+          console.warn("[withdrawalStore] setDoc withdrawal_actions_registry failed:", err);
+        });
+      }
+    });
+
+    localStorage.setItem(WITHDRAWAL_ACTIONS_REGISTRY_KEY, JSON.stringify(registry));
+  } catch (e) {
+    console.warn("Failed to record withdrawal action in registry:", e);
+  }
+}
+
+export function getActionForWithdrawal(
+  ...ids: (string | undefined)[]
+): WithdrawalActionRecord | undefined {
+  const registry = getWithdrawalActionsRegistry();
+  for (const id of ids) {
+    if (id && registry[id]) {
+      return registry[id];
+    }
+  }
+  return undefined;
 }
 
 export function getLocalWithdrawals(): any[] {
@@ -62,6 +156,7 @@ export function getLocalWithdrawals(): any[] {
                   const existing = map.get(id);
                   if (existing) {
                     existing.status = resolveStatus(existing.status, t.status);
+                    if (t.reversalReason) existing.reversalReason = t.reversalReason;
                   } else {
                     map.set(id, {
                       ...t,
@@ -79,6 +174,7 @@ export function getLocalWithdrawals(): any[] {
                   const existing = map.get(id);
                   if (existing) {
                     existing.status = resolveStatus(existing.status, w.status);
+                    if (w.reversalReason) existing.reversalReason = w.reversalReason;
                   } else {
                     map.set(id, {
                       ...w,
@@ -97,12 +193,24 @@ export function getLocalWithdrawals(): any[] {
     }
   } catch (err) {}
 
-  return Array.from(map.values());
+  // Forcibly apply persistent action registry to guarantee actioned statuses persist
+  const list = Array.from(map.values()).map(w => {
+    const action = getActionForWithdrawal(w.id, w.refId, w.txHash);
+    if (action) {
+      return {
+        ...w,
+        status: action.rawStatus,
+        reversalReason: action.reversalReason || w.reversalReason
+      };
+    }
+    return w;
+  });
+
+  return list;
 }
 
 export function saveLocalWithdrawal(withdrawal: any) {
   try {
-    const current = getLocalWithdrawals();
     const rawStatus = (withdrawal.status || 'pending').toLowerCase();
     const cleanWithdrawal = {
       ...withdrawal,
@@ -111,6 +219,21 @@ export function saveLocalWithdrawal(withdrawal: any) {
       updatedAt: typeof withdrawal.updatedAt === 'string' ? withdrawal.updatedAt : new Date().toISOString()
     };
 
+    // Determine normalized transaction status for history display
+    const txStatus: 'Successful' | 'Failed' | 'Reversed' | 'Pending' = 
+      (rawStatus === 'completed' || rawStatus === 'approved' || rawStatus === 'successful' || rawStatus === 'success') ? 'Successful' :
+      (rawStatus === 'failed' || rawStatus === 'rejected' || rawStatus === 'declined' || rawStatus === 'cancelled') ? 'Failed' :
+      (rawStatus === 'reversed') ? 'Reversed' : 'Pending';
+
+    // If an action was taken, register in WITHDRAWAL_ACTIONS_REGISTRY immediately
+    if (isActionedStatus(rawStatus)) {
+      recordWithdrawalAction(
+        [cleanWithdrawal.id, cleanWithdrawal.refId, cleanWithdrawal.txHash],
+        { status: txStatus, reversalReason: cleanWithdrawal.reversalReason }
+      );
+    }
+
+    const current = getLocalWithdrawals();
     const map = new Map<string, any>();
     current.forEach(w => {
       if (w && w.id) map.set(w.id, w);
@@ -135,18 +258,14 @@ export function saveLocalWithdrawal(withdrawal: any) {
         ...existing,
         ...cleanWithdrawal,
         id: matchedExistingId,
-        status: resolveStatus(existing?.status, rawStatus)
+        status: resolveStatus(existing?.status, rawStatus),
+        reversalReason: cleanWithdrawal.reversalReason || existing?.reversalReason
       });
     } else {
       map.set(cleanWithdrawal.id, cleanWithdrawal);
     }
 
     localStorage.setItem(WITHDRAWALS_STORAGE_KEY, JSON.stringify(Array.from(map.values())));
-
-    // Determine normalized transaction status for history display
-    const txStatus = (rawStatus === 'completed' || rawStatus === 'approved' || rawStatus === 'successful') ? 'Completed' :
-                     (rawStatus === 'failed' || rawStatus === 'rejected') ? 'Failed' :
-                     (rawStatus === 'reversed') ? 'Reversed' : 'Pending';
 
     // Synchronize status across all aver_txs_* and user profile keys in localStorage
     try {
@@ -166,15 +285,15 @@ export function saveLocalWithdrawal(withdrawal: any) {
                   item &&
                   (item.id === cleanWithdrawal.id ||
                    item.refId === cleanWithdrawal.id ||
+                   item.txHash === cleanWithdrawal.id ||
                    (cleanWithdrawal.refId && (item.refId === cleanWithdrawal.refId || item.id === cleanWithdrawal.refId)) ||
                    (cleanWithdrawal.txHash && (item.txHash === cleanWithdrawal.txHash || item.id === cleanWithdrawal.txHash)))
                 ) {
                   updated = true;
-                  const newPri = getStatusPriority(txStatus);
-                  const curPri = getStatusPriority(item.status);
+                  const targetStatus = isActionedStatus(rawStatus) ? txStatus : (isActionedStatus(item.status) ? item.status : txStatus);
                   return {
                     ...item,
-                    status: newPri >= curPri ? txStatus : item.status,
+                    status: targetStatus,
                     ...(cleanWithdrawal.reversalReason ? { reversalReason: cleanWithdrawal.reversalReason } : {}),
                     updatedAt: new Date().toISOString()
                   };
@@ -206,11 +325,10 @@ export function saveLocalWithdrawal(withdrawal: any) {
                   );
                   if (isMatch) {
                     userUpdated = true;
-                    const newPri = getStatusPriority(txStatus);
-                    const curPri = getStatusPriority(w.status);
+                    const targetStatus = isActionedStatus(rawStatus) ? txStatus : (isActionedStatus(w.status) ? w.status : txStatus);
                     return {
                       ...w,
-                      status: newPri >= curPri ? txStatus : w.status,
+                      status: targetStatus,
                       ...(cleanWithdrawal.reversalReason ? { reversalReason: cleanWithdrawal.reversalReason } : {}),
                       updatedAt: new Date().toISOString()
                     };
@@ -307,8 +425,21 @@ export function mergeWithdrawalsWithLocal(firestoreWithdrawals: any[]): any[] {
       });
     }
   });
+
+  // Apply action registry to ensure absolute consistency
+  const list = Array.from(map.values()).map(item => {
+    const action = getActionForWithdrawal(item.id, item.refId, item.txHash);
+    if (action) {
+      return {
+        ...item,
+        status: action.rawStatus,
+        reversalReason: action.reversalReason || item.reversalReason
+      };
+    }
+    return item;
+  });
   
-  return Array.from(map.values()).sort((a, b) => {
+  return list.sort((a, b) => {
     const timeA = getMs(a.timestamp) || getMs(a.createdAt) || getMs(a.updatedAt);
     const timeB = getMs(b.timestamp) || getMs(b.createdAt) || getMs(b.updatedAt);
     return timeB - timeA;

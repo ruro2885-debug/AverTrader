@@ -14,7 +14,7 @@ import {
 import { db } from '../lib/firebase';
 import { TransactionRecord, TransactionType } from '../types';
 import { getLocalDeposits } from '../lib/depositStore';
-import { getLocalWithdrawals, getStatusPriority } from '../lib/withdrawalStore';
+import { getLocalWithdrawals, getStatusPriority, isActionedStatus, getActionForWithdrawal, recordWithdrawalAction } from '../lib/withdrawalStore';
 
 export const isTradeEngineTransaction = (tx: any): boolean => {
   if (!tx) return false;
@@ -220,11 +220,21 @@ export const transactionService = {
     };
 
     const applyStatusIfHigher = (existing: TransactionRecord, newStatus: TransactionRecord['status']) => {
-      const curPri = getStatusPriority(existing.status);
-      const incPri = getStatusPriority(newStatus);
-      if (incPri >= curPri) {
+      const curIsActioned = isActionedStatus(existing.status);
+      const incIsActioned = isActionedStatus(newStatus);
+
+      // If incoming status is actioned, it ALWAYS supersedes/overwrites!
+      if (incIsActioned) {
         existing.status = newStatus;
+        return;
       }
+
+      // If current status is actioned and incoming is not, never downgrade to pending/processing!
+      if (curIsActioned && !incIsActioned) {
+        return;
+      }
+
+      existing.status = newStatus;
     };
 
     // 1. Read from localStorage and purge any existing trade engine records
@@ -592,13 +602,44 @@ export const transactionService = {
       }
     }
 
-    const list = Array.from(map.values());
+    // Sync actions registry from Firestore first to heal local memory and ensure absolute persistence
+    try {
+      const qReg = query(collection(db, 'withdrawal_actions_registry'));
+      const snapReg = await getDocs(qReg);
+      snapReg.forEach(docSnap => {
+        const act = docSnap.data();
+        if (act && act.status) {
+          recordWithdrawalAction([docSnap.id], act as any);
+        }
+      });
+    } catch (e) {
+      console.warn("Notice syncing withdrawal_actions_registry:", e);
+    }
+
+    // Apply action registry to ensure absolute status persistence before deduplication
+    const list = Array.from(map.values()).map(tx => {
+      if (tx.type === 'withdrawal' || (tx.id && tx.id.startsWith('wth-')) || (tx.refId && tx.refId.startsWith('WTH-'))) {
+        const action = getActionForWithdrawal(tx.id, tx.refId, tx.txHash);
+        if (action) {
+          tx.status = action.status;
+          if (action.reversalReason) tx.reversalReason = action.reversalReason;
+        }
+      }
+      return tx;
+    });
+
+    // Sort list so actioned status records come first (ensures deduplication keeps actioned records)
+    const sortedForDeduplication = [...list].sort((a, b) => {
+      const aAct = isActionedStatus(a.status) ? 1 : 0;
+      const bAct = isActionedStatus(b.status) ? 1 : 0;
+      return bAct - aAct; // Actioned items first
+    });
 
     // Deduplicate duplicate entries created during legacy deposit/history sync
     const deduplicated: TransactionRecord[] = [];
     const seenKeys = new Set<string>();
 
-    list.forEach(tx => {
+    sortedForDeduplication.forEach(tx => {
       // Priority 1: Unique ID
       if (seenKeys.has(`id-${tx.id}`)) return;
       seenKeys.add(`id-${tx.id}`);
