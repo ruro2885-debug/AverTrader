@@ -49,6 +49,56 @@ interface TransactionHistoryProps {
   onOpenSupport?: () => void;
 }
 
+const ReversalReasonTab = ({ 
+  reason, 
+  isDark, 
+  onPress 
+}: { 
+  reason: string; 
+  isDark: boolean; 
+  onPress: () => void; 
+}) => {
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    if (textRef.current) {
+      const el = textRef.current;
+      // Check if scrollWidth > clientWidth to detect horizontal overflow
+      setIsOverflowing(el.scrollWidth > el.clientWidth);
+    }
+  }, [reason]);
+
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      className={`w-full p-3.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/20 hover:border-purple-500/30 text-[11px] space-y-1 text-left transition-all cursor-pointer flex flex-col gap-1 focus:outline-none focus:ring-1 focus:ring-purple-500/40`}
+    >
+      <div className="flex items-center gap-1.5 text-purple-400 font-bold uppercase tracking-wider text-[10px]">
+        <AlertCircle className="w-3.5 h-3.5" />
+        <span>Reversal Reason</span>
+      </div>
+      
+      <div className="flex items-center justify-between w-full gap-2">
+        <p
+          ref={textRef}
+          className={`font-medium ${
+            isDark ? 'text-neutral-200' : 'text-slate-700'
+          } truncate flex-1 block whitespace-nowrap overflow-hidden`}
+        >
+          {reason}
+        </p>
+        {isOverflowing && (
+          <span className="text-purple-400 font-bold shrink-0 text-[10px] whitespace-nowrap">
+            see more...
+          </span>
+        )}
+      </div>
+    </button>
+  );
+};
+
 export default function TransactionHistory({ onBack, onOpenSupport }: TransactionHistoryProps) {
   const { user } = useAuth();
   const { formatCurrency, theme } = usePreferences();
@@ -1071,16 +1121,6 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                       )}
                       
                       <div className="flex flex-col items-center gap-1.5">
-                        {isReversed && (
-                          <button
-                            type="button"
-                            onClick={() => setShowReasonPopup(true)}
-                            className="px-3 py-1 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-bold text-[11px] border border-amber-500/30 transition-colors cursor-pointer flex items-center gap-1 shadow-sm"
-                          >
-                            <span>Reason</span>
-                            <AlertCircle className="w-3 h-3" />
-                          </button>
-                        )}
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(selectedReceipt.status)}`}>
                           {getStatusLabel(selectedReceipt.status)}
                         </span>
@@ -1104,15 +1144,11 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
 
                       {/* Prominent Reversal Reason on Reversed Receipts */}
                       {isReversed && (
-                        <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-[11px] space-y-1 text-left">
-                          <div className="flex items-center gap-1.5 text-purple-400 font-bold uppercase tracking-wider text-[10px]">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            <span>Reversal Reason</span>
-                          </div>
-                          <p className={`font-medium ${isDark ? 'text-neutral-200' : 'text-slate-700'} leading-relaxed`}>
-                            {selectedReceipt.reversalReason || 'Administrative correction and compliance review.'}
-                          </p>
-                        </div>
+                        <ReversalReasonTab 
+                          reason={selectedReceipt.reversalReason || 'Administrative correction and compliance review.'}
+                          isDark={isDark}
+                          onPress={() => setShowReasonPopup(true)}
+                        />
                       )}
 
                       <div className="flex justify-between items-center text-[11px]">

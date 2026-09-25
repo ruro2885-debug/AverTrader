@@ -276,21 +276,21 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
                   href={headline.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`p-6 rounded-[24px] border group transition-all duration-300 ${isDark ? 'bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10' : 'bg-white border-slate-200 hover:shadow-xl hover:shadow-slate-200/50'}`}
+                  className={`p-6 rounded-[24px] border group transition-all duration-300 ${isDark ? 'bg-[#0B0F17]/95 backdrop-blur-md border-white/10 hover:bg-[#121824]/95 hover:border-white/20' : 'bg-white border-slate-200 hover:shadow-xl hover:shadow-slate-200/50'}`}
                 >
                   <div className="flex items-center gap-3 mb-4">
-                    <span className={`text-[9px] font-black uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    <span className={`text-[9px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
                       {headline.source}
                     </span>
-                    <div className={`w-1 h-1 rounded-full ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
-                    <span className={`text-[9px] font-mono font-bold uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    <div className={`w-1 h-1 rounded-full ${isDark ? 'bg-white/20' : 'bg-slate-200'}`} />
+                    <span className={`text-[9px] font-mono font-bold uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
                       {formatDate(headline.publishedAt)}
                     </span>
                   </div>
-                  <h3 className={`text-xl font-serif leading-snug mb-4 transition-colors group-hover:text-emerald-500 ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                  <h3 className={`text-xl font-serif font-bold leading-snug mb-4 transition-colors group-hover:text-[#00D09C] ${isDark ? 'text-slate-50' : 'text-slate-800'}`}>
                     {headline.title}
                   </h3>
-                  <p className={`text-xs leading-relaxed line-clamp-2 font-light ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  <p className={`text-xs leading-relaxed line-clamp-2 font-light ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                     {headline.summary}
                   </p>
                 </motion.a>
@@ -304,14 +304,14 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
             <motion.div 
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              className={`p-8 rounded-[32px] border ${isDark ? 'bg-white/[0.02] border-white/5' : 'bg-white border-slate-200'}`}
+              className={`p-8 rounded-[32px] border ${isDark ? 'bg-[#0B0F17]/95 backdrop-blur-md border-white/10 shadow-lg' : 'bg-white border-slate-200 shadow-sm'}`}
             >
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h3 className={`text-sm font-black uppercase tracking-[0.2em] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>Market Dynamics</h3>
-                  <p className={`text-[10px] font-mono text-emerald-500 mt-1 uppercase tracking-widest`}>Volatility Index Low</p>
+                  <h3 className={`text-sm font-black uppercase tracking-[0.2em] ${isDark ? 'text-slate-300 font-bold' : 'text-slate-400'}`}>Market Dynamics</h3>
+                  <p className={`text-[10px] font-mono text-[#00D09C] mt-1 uppercase tracking-widest font-bold`}>Volatility Index Low</p>
                 </div>
-                <Activity className={`w-5 h-5 ${isDark ? 'text-white/20' : 'text-slate-300'}`} />
+                <Activity className={`w-5 h-5 ${isDark ? 'text-[#00D09C]/40' : 'text-slate-300'}`} />
               </div>
 
               <div className="space-y-8">
@@ -328,12 +328,12 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
                           {mover.symbol.charAt(0)}
                         </div>
                         <div>
-                          <div className={`text-xs font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{mover.symbol}</div>
-                          <div className={`text-[10px] font-medium opacity-40 uppercase tracking-tighter`}>${mover.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                          <div className={`text-xs font-black tracking-tight ${isDark ? 'text-slate-100 font-bold' : 'text-slate-900'}`}>{mover.symbol}</div>
+                          <div className={`text-[10px] font-mono font-semibold opacity-70 uppercase tracking-tighter ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>${mover.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs font-mono font-black text-emerald-500">+{mover.change24h.toFixed(2)}%</div>
+                        <div className="text-xs font-mono font-black text-emerald-500 font-bold">+{mover.change24h.toFixed(2)}%</div>
                         <div className="w-12 h-1 ml-auto mt-1 rounded-full bg-emerald-500/10 overflow-hidden">
                           <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, mover.change24h * 5)}%` }} />
                         </div>
@@ -355,12 +355,12 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
                           {mover.symbol.charAt(0)}
                         </div>
                         <div>
-                          <div className={`text-xs font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{mover.symbol}</div>
-                          <div className={`text-[10px] font-medium opacity-40 uppercase tracking-tighter`}>${mover.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                          <div className={`text-xs font-black tracking-tight ${isDark ? 'text-slate-100 font-bold' : 'text-slate-900'}`}>{mover.symbol}</div>
+                          <div className={`text-[10px] font-mono font-semibold opacity-70 uppercase tracking-tighter ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>${mover.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs font-mono font-black text-rose-500">{mover.change24h.toFixed(2)}%</div>
+                        <div className="text-xs font-mono font-black text-rose-500 font-bold">{mover.change24h.toFixed(2)}%</div>
                         <div className="w-12 h-1 ml-auto mt-1 rounded-full bg-rose-500/10 overflow-hidden">
                           <div className="h-full bg-rose-500" style={{ width: `${Math.abs(Math.max(-100, mover.change24h * 5))}%` }} />
                         </div>
