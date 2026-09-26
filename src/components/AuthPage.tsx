@@ -120,7 +120,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isFormValid = useMemo(() => {
     return (
       username.trim() !== '' &&
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
       Object.values(pwdCriteria).every(Boolean) &&
       password === confirmPassword &&
       password !== '' &&
@@ -131,7 +131,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
   const isLoginFormValid = useMemo(() => {
     return (
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail) &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail.trim()) &&
       loginPassword.length >= 6
     );
   }, [loginEmail, loginPassword]);
@@ -177,7 +177,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       // Proceed with Firebase Auth signup
       await signUp({
         username,
-        email,
+        email: email.trim(),
         password,
         country,
         phoneNumber,
@@ -216,7 +216,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setLoading(true);
     setErrorMsg('');
     try {
-      await signIn(loginEmail, loginPassword, rememberMe);
+      await signIn(loginEmail.trim(), loginPassword, rememberMe);
       onSuccess();
     } catch (error: any) {
       console.warn("Login note:", error?.message || error);

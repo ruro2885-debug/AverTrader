@@ -30,7 +30,7 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
   if (lower === '/' || lower === '') {
     return {
       id: `nav-root`,
-      view: 'dashboard',
+      view: 'home',
       tab: 'home',
       aiView: 'HOME',
       modal: null,

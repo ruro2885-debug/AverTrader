@@ -123,7 +123,7 @@ function AppContent() {
       const path = window.location.pathname;
       const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
 
-      if (currentView === 'auth') {
+      if (currentView === 'auth' || currentView === 'home') {
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
         if (savedRedirect) {
           safeStorage.removeItem('aver_redirect_after_login');
@@ -134,7 +134,7 @@ function AppContent() {
             return;
           }
         }
-        console.log("[App] Logged in, moving from auth to dashboard.");
+        console.log("[App] Logged in, moving from auth/home to dashboard.");
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
       } else if (currentView === 'admin' && !isAdminAuthorized && !isAtAdminUrl) {
