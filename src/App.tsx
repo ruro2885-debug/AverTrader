@@ -142,6 +142,13 @@ function AppContent() {
         navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
       }
+    } else {
+      // Access control enforcement: send anonymous sessions on protected views to auth view
+      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin'];
+      if (protectedViews.includes(currentView)) {
+        console.log(`[App] Access denied for anonymous session on view ${currentView}. Redirecting to Auth Page.`);
+        navigateView('auth', {}, { replace: true });
+      }
     }
   }, [user?.uid, authLoading, currentView]);
 
