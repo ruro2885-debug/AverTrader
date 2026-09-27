@@ -1279,6 +1279,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       safeStorage.removeItem('portfolio_active_offset');
       safeStorage.removeItem('aver_connected_wallet');
       safeStorage.removeItem('aver_trading_config');
+      safeStorage.removeItem('aver_real_nav_stack_v2');
+      safeStorage.setItem('aver_real_nav_stack_v2', JSON.stringify([{ id: 'root-home', view: 'home', tab: 'home', aiView: 'HOME', modal: null }]));
+      safeStorage.removeItem('aver_redirect_after_login');
+      safeStorage.removeItem('aver_session_initialized');
 
       // 4. Update React state immediately
       userRef.current = null;
@@ -1286,9 +1290,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setNotifications([]);
       setPreviewPhotoURL(null);
 
-      // 5. Notify all listeners
+      // 5. Notify all listeners and trigger navigation reset to home landing page
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('aver_nav_reset', { detail: { view: 'home' } }));
+
+      // Immediately synchronize browser location to root '/'
+      if (typeof window !== 'undefined' && window.history) {
+        try {
+          window.history.replaceState({ id: 'root-home', view: 'home', tab: 'home' }, '', '/');
+        } catch (e) {}
+      }
 
       // 6. Sign out from Firebase Auth
       if (auth) {

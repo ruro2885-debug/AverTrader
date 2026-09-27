@@ -271,6 +271,17 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
     };
   }
 
+  // Dedicated About Page
+  if (lower === '/about' || lower === '/about-us') {
+    return {
+      id: `nav-route-about`,
+      view: 'about',
+      tab: 'home',
+      aiView: 'HOME',
+      modal: null,
+    };
+  }
+
   // Platform Showcase
   if (lower === '/showcase') {
     return {
@@ -297,6 +308,7 @@ export function locationToPath(loc: NavigationLocation): string {
   }
 
   // 2. Distinct standalone views
+  if (loc.view === 'about') return '/about';
   if (loc.view === 'admin') return '/admin';
   if (loc.view === 'auth') return '/auth';
   if (loc.view === 'preferences') return '/preferences';
@@ -363,10 +375,22 @@ const DEFAULT_LOCATION: NavigationLocation = {
 };
 
 function getInitialStack(initialView?: string): NavigationLocation[] {
+  const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
+  const hasActiveUser = !isExplicitlyLoggedOut && !!safeStorage.getItem('aver_active_user');
+  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin', 'auth'];
+
+  // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
+  if (isExplicitlyLoggedOut) {
+    return [DEFAULT_LOCATION];
+  }
+
   // 1. Direct browser address bar path (e.g. https://www.avertrader.space/deposit)
   if (typeof window !== 'undefined' && window.location) {
     const fromUrl = parsePathToLocation(window.location.pathname);
     if (fromUrl) {
+      if (!hasActiveUser && protectedViews.includes(fromUrl.view)) {
+        return [DEFAULT_LOCATION];
+      }
       return [fromUrl];
     }
   }
@@ -377,6 +401,10 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        const topView = parsed[parsed.length - 1]?.view;
+        if (!hasActiveUser && protectedViews.includes(topView)) {
+          return [DEFAULT_LOCATION];
+        }
         return parsed;
       }
     }
@@ -384,7 +412,6 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
     // Ignore parse errors and use default
   }
 
-  const hasActiveUser = safeStorage.getItem('aver_active_user') && safeStorage.getItem('aver_logged_out') !== 'true';
   const initV = initialView || (hasActiveUser ? 'dashboard' : 'home');
   return [
     {
@@ -468,6 +495,8 @@ export function NavigationProvider({
       title = 'Aver | Special Events & Promotions';
     } else if (currentLocation.view === 'showcase') {
       title = 'Aver | Platform Showcase';
+    } else if (currentLocation.view === 'about') {
+      title = 'Aver | About AVER Technologies — AI Trading Workspace';
     }
 
     document.title = title;
@@ -520,6 +549,34 @@ export function NavigationProvider({
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Listen to navigation reset events (e.g. on logout) to instantly navigate to landing page
+  useEffect(() => {
+    const handleNavReset = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const targetView = customEvent?.detail?.view || 'home';
+      const rootLocation: NavigationLocation = {
+        id: `root-${Date.now()}`,
+        view: targetView,
+        tab: 'home',
+        aiView: 'HOME',
+        modal: null,
+      };
+      setStack([rootLocation]);
+      try {
+        safeStorage.removeItem(STORAGE_STACK_KEY);
+        safeStorage.setItem(STORAGE_STACK_KEY, JSON.stringify([rootLocation]));
+      } catch (err) {}
+      if (typeof window !== 'undefined' && window.history) {
+        try {
+          window.history.replaceState(rootLocation, '', '/');
+        } catch (e) {}
+      }
+    };
+
+    window.addEventListener('aver_nav_reset', handleNavReset);
+    return () => window.removeEventListener('aver_nav_reset', handleNavReset);
   }, []);
 
   const registerOverlay = useCallback((id: string, onClose: () => boolean | void) => {
@@ -628,12 +685,15 @@ export function NavigationProvider({
 
     setStack(prev => {
       let isAuthenticated = false;
-      try {
-        const u1 = safeStorage.getItem('aver_user_session');
-        const u2 = safeStorage.getItem('aver_user');
-        const u3 = localStorage.getItem('aver_user') || sessionStorage.getItem('aver_user');
-        if (u1 || u2 || u3) isAuthenticated = true;
-      } catch (e) {}
+      const isLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
+      if (!isLoggedOut) {
+        try {
+          const u1 = safeStorage.getItem('aver_user_session');
+          const u2 = safeStorage.getItem('aver_user');
+          const u3 = localStorage.getItem('aver_user') || sessionStorage.getItem('aver_user');
+          if (u1 || u2 || u3) isAuthenticated = true;
+        } catch (e) {}
+      }
 
       if (prev.length > 1) {
         let targetIdx = prev.length - 2;
@@ -658,7 +718,7 @@ export function NavigationProvider({
         }
       }
 
-      // No previous valid stack item exists — route to fallback or dashboard
+      // No previous valid stack item exists — route to fallback, or home for unauthenticated
       if (isAuthenticated) {
         const rootDashboard: NavigationLocation = {
           id: `root-${Date.now()}`,
@@ -680,7 +740,7 @@ export function NavigationProvider({
       if (fallback) {
         const fallbackEntry: NavigationLocation = {
           id: `root-${Date.now()}`,
-          view: fallback.view || 'dashboard',
+          view: fallback.view || 'home',
           tab: fallback.tab || 'home',
           subView: fallback.subView,
           aiView: fallback.aiView || 'HOME',

@@ -138,11 +138,71 @@ export default function Navbar({
                   onShowcase();
                   setMobileMenuOpen(false);
                 }}
-                className="py-3 text-center rounded-lg bg-emerald-500 text-white text-sm font-medium shadow-lg shadow-emerald-500/25 hover:bg-emerald-600 transition-all flex items-center justify-center space-x-2"
+                className="py-3 text-center rounded-lg bg-emerald-500 text-white text-sm font-medium shadow-lg shadow-emerald-500/25 hover:bg-emerald-600 transition-all flex items-center justify-center space-x-2 cursor-pointer"
               >
                 <span>{t('nav.access')}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
+            </div>
+
+            {/* Upper menu links (Admin Terminal, Help & Knowledge Center) */}
+            <div className="flex flex-col space-y-2 pt-2 border-t border-slate-800/60">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  if (onAdminAccess) onAdminAccess();
+                  else handleNavClick('admin');
+                }}
+                className="flex items-center justify-between py-2 text-sm text-slate-300 hover:text-emerald-400 transition-colors text-left cursor-pointer"
+              >
+                <span>Admin Terminal</span>
+                <span className="text-[10px] font-mono text-slate-500">/admin</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onShowcase();
+                }}
+                className="flex items-center justify-between py-2 text-sm text-slate-300 hover:text-emerald-400 transition-colors text-left cursor-pointer"
+              >
+                <span>Help &amp; Knowledge Center</span>
+                <span className="text-[10px] font-mono text-slate-500">Docs &amp; Support</span>
+              </button>
+            </div>
+
+            {/* NEW: Dedicated About Us Button - Directly ABOVE copyright text */}
+            <div className="my-2 pt-4 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleNavClick('about');
+                }}
+                className="group w-full flex items-center justify-between py-2 text-base font-semibold text-slate-200 hover:text-emerald-400 transition-colors cursor-pointer"
+              >
+                <span className="tracking-wide">About Us</span>
+                <span className="text-xs px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-400 bg-emerald-500/10 opacity-80 group-hover:opacity-100 transition-opacity">
+                  avertrader.space/about →
+                </span>
+              </button>
+            </div>
+
+            {/* Target Position: Directly above copyright text */}
+            <p className="text-xs font-mono text-slate-500 tracking-wider">
+              © 2022–2026 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
+            </p>
+
+            {/* Risk Disclaimer and Entity Notice text */}
+            <div className="space-y-2 text-[10px] text-slate-500 leading-relaxed font-sans">
+              <p>
+                Risk Disclosure: All operations and balances within the public preview workspace are virtual sandbox allocations provided solely for presentation.
+              </p>
+              <p>
+                Entity Notice: AverTrader (avertrader.space) is an independent proprietary trading workspace and AI execution platform. AverTrader is not affiliated with, sponsored by, or connected to AvaTrade (avatrade.com) or any third-party broker.
+              </p>
             </div>
           </div>
         </div>
