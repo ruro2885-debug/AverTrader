@@ -271,17 +271,6 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
     };
   }
 
-  // Dedicated About Page
-  if (lower === '/about' || lower === '/about-us') {
-    return {
-      id: `nav-route-about`,
-      view: 'about',
-      tab: 'home',
-      aiView: 'HOME',
-      modal: null,
-    };
-  }
-
   // Platform Showcase
   if (lower === '/showcase') {
     return {
@@ -308,7 +297,6 @@ export function locationToPath(loc: NavigationLocation): string {
   }
 
   // 2. Distinct standalone views
-  if (loc.view === 'about') return '/about';
   if (loc.view === 'admin') return '/admin';
   if (loc.view === 'auth') return '/auth';
   if (loc.view === 'preferences') return '/preferences';
@@ -377,7 +365,7 @@ const DEFAULT_LOCATION: NavigationLocation = {
 function getInitialStack(initialView?: string): NavigationLocation[] {
   const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
   const hasActiveUser = !isExplicitlyLoggedOut && !!safeStorage.getItem('aver_active_user');
-  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'auth'];
+  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin', 'auth'];
 
   // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
   if (isExplicitlyLoggedOut) {
@@ -495,8 +483,6 @@ export function NavigationProvider({
       title = 'Aver | Special Events & Promotions';
     } else if (currentLocation.view === 'showcase') {
       title = 'Aver | Platform Showcase';
-    } else if (currentLocation.view === 'about') {
-      title = 'Aver | About AVER Technologies — AI Trading Workspace';
     }
 
     document.title = title;
@@ -685,15 +671,12 @@ export function NavigationProvider({
 
     setStack(prev => {
       let isAuthenticated = false;
-      const isLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
-      if (!isLoggedOut) {
-        try {
-          const u1 = safeStorage.getItem('aver_user_session');
-          const u2 = safeStorage.getItem('aver_user');
-          const u3 = localStorage.getItem('aver_user') || sessionStorage.getItem('aver_user');
-          if (u1 || u2 || u3) isAuthenticated = true;
-        } catch (e) {}
-      }
+      try {
+        const u1 = safeStorage.getItem('aver_user_session');
+        const u2 = safeStorage.getItem('aver_user');
+        const u3 = localStorage.getItem('aver_user') || sessionStorage.getItem('aver_user');
+        if (u1 || u2 || u3) isAuthenticated = true;
+      } catch (e) {}
 
       if (prev.length > 1) {
         let targetIdx = prev.length - 2;
@@ -718,7 +701,7 @@ export function NavigationProvider({
         }
       }
 
-      // No previous valid stack item exists — route to fallback, or home for unauthenticated
+      // No previous valid stack item exists — route to fallback or dashboard
       if (isAuthenticated) {
         const rootDashboard: NavigationLocation = {
           id: `root-${Date.now()}`,
@@ -740,7 +723,7 @@ export function NavigationProvider({
       if (fallback) {
         const fallbackEntry: NavigationLocation = {
           id: `root-${Date.now()}`,
-          view: fallback.view || 'home',
+          view: fallback.view || 'dashboard',
           tab: fallback.tab || 'home',
           subView: fallback.subView,
           aiView: fallback.aiView || 'HOME',

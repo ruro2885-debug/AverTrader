@@ -23,7 +23,6 @@ import TransactionHistory from './components/TransactionHistory';
 import AdminRoot from './components/admin/AdminRoot';
 import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
-import AboutPage from './components/AboutPage';
 import { NavigationProvider, useAppNavigation, parsePathToLocation, locationToPath } from './contexts/NavigationContext';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
@@ -76,11 +75,10 @@ function AppContent() {
   // Navigation section tracker
   const [activeSection, setActiveSection] = useState('hero');
 
-  // Route detection on initial load (e.g. cold load of /admin or /404 or /auth or /about)
+  // Route detection on initial load (e.g. cold load of /admin or /404 or /auth)
   useEffect(() => {
     const path = window.location.pathname;
     const search = window.location.search;
-    const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
     
     // Check if we are at an admin-related URL
     const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
@@ -90,16 +88,9 @@ function AppContent() {
         console.log("[App] Explicit admin route detected. Rendering Admin Terminal.");
         navigateToView('admin');
       }
-    } else if (path === '/about' || path === '/about-us') {
-      if (currentView !== 'about') navigateToView('about');
     } else if (path === '/404' || search.includes('404=true')) {
       if (currentView !== 'not-found') navigateView('not-found', {}, { replace: true });
     } else if (path === '/auth' || path === '/login' || path === '/register') {
-      if (isExplicitlyLoggedOut) {
-        // Enforce landing page for explicitly logged out sessions
-        navigateView('home', {}, { replace: true });
-        return;
-      }
       if (user && !authLoading) {
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
         if (savedRedirect) {
@@ -131,10 +122,6 @@ function AppContent() {
       const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
 
       if (currentView === 'auth' || currentView === 'home') {
-        if (isAtAdminUrl) {
-          if (currentView !== 'admin') navigateToView('admin');
-          return;
-        }
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
         if (savedRedirect) {
           safeStorage.removeItem('aver_redirect_after_login');
@@ -154,31 +141,9 @@ function AppContent() {
         safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
-      const path = window.location.pathname;
-      const search = window.location.search;
-      const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
-
-      if (isAtAdminUrl || currentView === 'admin') {
-        // Admin view is sovereign with its own passkey authentication in AdminRoot
-        if (currentView !== 'admin') {
-          navigateToView('admin');
-        }
-        return;
-      }
-
-      const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
-      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
-
-      // If user has explicitly logged out, guarantee they land on the landing page ('home') and never on 'auth'
-      if (isExplicitlyLoggedOut && (currentView === 'auth' || protectedViews.includes(currentView))) {
-        console.log(`[App] Explicitly logged out session detected on view ${currentView}. Enforcing Landing Page.`);
-        navigateView('home', {}, { replace: true });
-        if (typeof window !== 'undefined' && window.history) {
-          try {
-            window.history.replaceState({ id: 'root-home', view: 'home', tab: 'home' }, '', '/');
-          } catch (e) {}
-        }
-      } else if (protectedViews.includes(currentView)) {
+      // Access control enforcement: send anonymous/logged-out sessions on protected views to the landing page
+      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin'];
+      if (protectedViews.includes(currentView)) {
         console.log(`[App] Access denied or session signed out on view ${currentView}. Redirecting to Landing Page.`);
         navigateView('home', {}, { replace: true });
       }
@@ -264,30 +229,11 @@ function AppContent() {
 
   // Navigation click routing
   const handleNavigate = (sectionId: string) => {
-    if (sectionId === 'about') {
-      navigateToView('about');
-      return;
-    }
-    if (sectionId === 'admin') {
-      navigateToView('admin');
-      return;
-    }
-    if (sectionId === 'preview' || sectionId === 'showcase') {
-      navigateToView('showcase');
-      return;
-    }
     const el = document.getElementById(sectionId);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setActiveSection(sectionId);
     }
-  };
-
-  const handleStartAuth = () => {
-    safeStorage.removeItem('aver_logged_out');
-    localStorage.removeItem('aver_logged_out');
-    sessionStorage.removeItem('aver_logged_out');
-    navigateToView('auth');
   };
 
   // Account status enforcement
@@ -490,12 +436,7 @@ function AppContent() {
                   key="showcase"
                   theme={theme}
                   onBack={goBackView}
-                  onGetStarted={handleStartAuth}
-                />
-              ) : currentView === 'about' ? (
-                <AboutPage
-                  theme={theme}
-                  onBack={goBackView}
+                  onGetStarted={() => navigateToView('auth')}
                 />
               ) : currentView === 'not-found' ? (
                 <NotFound 
@@ -537,7 +478,7 @@ function AppContent() {
                     <Hero
                       theme={theme}
                       onShowcase={() => navigateToView('showcase')}
-                      onGetStarted={handleStartAuth}
+                      onGetStarted={() => navigateToView('auth')}
                     />
 
                     {/* Technology Innovations */}

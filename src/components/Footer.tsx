@@ -37,7 +37,6 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
     {
       title: 'Client Desk',
       links: [
-        { label: 'About Us', href: '/about' },
         { label: 'Client Authorization', href: '#dashboard' },
         { label: 'System Preferences', href: '#preview' },
         { label: 'Help & Knowledge Center', href: '#preview' },
@@ -123,19 +122,8 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
         {/* Bottom bar with Disclaimers & Credits */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-6">
           <div className="flex flex-col space-y-2 text-left">
-            {/* Dedicated About Us Button */}
-            <div className="mb-2 pb-2">
-              <button
-                type="button"
-                onClick={() => onNavigate('about')}
-                className="group inline-flex items-center justify-between gap-3 py-1 text-sm font-semibold text-slate-200 hover:text-emerald-400 transition-colors cursor-pointer"
-              >
-                <span className="tracking-wide">About Us</span>
-              </button>
-            </div>
-
             <p className="text-[10px] font-bold font-mono tracking-wide text-gray-500 uppercase">
-              © 2022–2026 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
+              © 2026 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
             </p>
             <p className="text-[9px] text-gray-600 leading-normal max-w-2xl">
               Risk Disclosure: All operations and balances within the public preview workspace are virtual sandbox allocations provided solely for presentation. They are completely decoupled from external banking pipelines, physical ledgers, or physical cryptocurrency clearing routes. Performance metrics demonstrated on historical configurations do not guarantee future execution optimization.
