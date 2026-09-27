@@ -105,7 +105,7 @@ export default function NavigationDrawer({
         {/* Footer Area with Dedicated About Us button above copyright */}
         <div className="pt-4 border-t border-slate-800/80 space-y-4">
           
-          {/* NEW: Dedicated About Us Button */}
+          {/* Dedicated About Us Button */}
           <div className="my-2">
             <button
               type="button"
@@ -115,9 +115,6 @@ export default function NavigationDrawer({
               <span className="tracking-wide flex items-center gap-2">
                 <Info size={18} className="text-emerald-400" />
                 About Us
-              </span>
-              <span className="text-xs px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-400 bg-emerald-500/10 opacity-80 group-hover:opacity-100 transition-opacity">
-                avertrader.space/about →
               </span>
             </button>
           </div>

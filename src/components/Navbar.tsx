@@ -173,7 +173,7 @@ export default function Navbar({
               </button>
             </div>
 
-            {/* NEW: Dedicated About Us Button - Directly ABOVE copyright text */}
+            {/* Dedicated About Us Button - Directly ABOVE copyright text */}
             <div className="my-2 pt-4 border-t border-slate-800/80">
               <button
                 type="button"
@@ -184,9 +184,6 @@ export default function Navbar({
                 className="group w-full flex items-center justify-between py-2 text-base font-semibold text-slate-200 hover:text-emerald-400 transition-colors cursor-pointer"
               >
                 <span className="tracking-wide">About Us</span>
-                <span className="text-xs px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-400 bg-emerald-500/10 opacity-80 group-hover:opacity-100 transition-opacity">
-                  avertrader.space/about →
-                </span>
               </button>
             </div>
 

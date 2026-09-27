@@ -131,6 +131,10 @@ function AppContent() {
       const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
 
       if (currentView === 'auth' || currentView === 'home') {
+        if (isAtAdminUrl) {
+          if (currentView !== 'admin') navigateToView('admin');
+          return;
+        }
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
         if (savedRedirect) {
           safeStorage.removeItem('aver_redirect_after_login');
@@ -150,8 +154,20 @@ function AppContent() {
         safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
+      const path = window.location.pathname;
+      const search = window.location.search;
+      const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
+
+      if (isAtAdminUrl || currentView === 'admin') {
+        // Admin view is sovereign with its own passkey authentication in AdminRoot
+        if (currentView !== 'admin') {
+          navigateToView('admin');
+        }
+        return;
+      }
+
       const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
-      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin'];
+      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
 
       // If user has explicitly logged out, guarantee they land on the landing page ('home') and never on 'auth'
       if (isExplicitlyLoggedOut && (currentView === 'auth' || protectedViews.includes(currentView))) {

@@ -131,9 +131,6 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
                 className="group inline-flex items-center justify-between gap-3 py-1 text-sm font-semibold text-slate-200 hover:text-emerald-400 transition-colors cursor-pointer"
               >
                 <span className="tracking-wide">About Us</span>
-                <span className="text-xs px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-400 bg-emerald-500/10 opacity-80 group-hover:opacity-100 transition-opacity">
-                  avertrader.space/about →
-                </span>
               </button>
             </div>
 
