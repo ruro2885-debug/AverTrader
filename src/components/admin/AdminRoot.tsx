@@ -10,7 +10,7 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
   const { navigateToView } = useAppNavigation() as any;
   const [showAdmin, setShowAdmin] = useState(false); // Default to false, check session in useEffect
   const [clickCount, setClickCount] = useState(0);
-  const [showAccessPrompt, setShowAccessPrompt] = useState(true); // Default to TRUE so /admin directly shows authentication
+  const [showAccessPrompt, setShowAccessPrompt] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
   const [promoting, setPromoting] = useState(false);
