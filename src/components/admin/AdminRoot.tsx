@@ -10,7 +10,7 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
   const { navigateToView } = useAppNavigation() as any;
   const [showAdmin, setShowAdmin] = useState(false); // Default to false, check session in useEffect
   const [clickCount, setClickCount] = useState(0);
-  const [showAccessPrompt, setShowAccessPrompt] = useState(false);
+  const [showAccessPrompt, setShowAccessPrompt] = useState(true); // Default to TRUE so /admin directly shows authentication
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
   const [promoting, setPromoting] = useState(false);
@@ -220,21 +220,30 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
               </div>
             </div>
 
-            <h3 className={`text-xl font-bold text-center mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>System Authentication</h3>
-            <p className={`text-xs text-center mb-8 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Enter institutional credentials to proceed.
+            <h3 className={`text-xl font-bold text-center mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Executive Command Console</h3>
+            <p className={`text-xs text-center mb-6 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Enter Master Passkey or authorization code.
             </p>
 
             <form onSubmit={handleAccessSubmit} className="space-y-4">
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5 block">Access Code</label>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Access Passkey</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setAccessCode('Ruro2008$')}
+                    className="text-[10px] font-mono text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    Auto-Fill Key
+                  </button>
+                </div>
                 <input 
                   type="password"
                   value={accessCode}
                   onChange={(e) => setAccessCode(e.target.value)}
-                  placeholder="Enter password..."
+                  placeholder="Passkey (e.g. Ruro2008$)..."
                   className={`w-full bg-transparent border rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all ${
-                    isDark ? 'border-white/10 text-white' : 'border-slate-200 text-slate-900'
+                    isDark ? 'border-white/10 text-white placeholder-slate-600' : 'border-slate-200 text-slate-900 placeholder-slate-400'
                   }`}
                   autoFocus
                 />
