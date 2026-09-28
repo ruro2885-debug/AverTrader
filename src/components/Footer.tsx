@@ -1,5 +1,6 @@
-import { ArrowUp, Cpu, Sparkles, Send, Globe, Mail, ShieldAlert } from 'lucide-react';
+import { ArrowUp, Cpu, Sparkles, Send, Globe, Mail, ShieldAlert, Info } from 'lucide-react';
 import { usePreferences } from '../contexts/PreferencesContext';
+import { useAppNavigation } from '../contexts/NavigationContext';
 import AverLogo from './AverLogo';
 
 interface FooterProps {
@@ -10,6 +11,7 @@ interface FooterProps {
 export default function Footer({ theme, onNavigate }: FooterProps) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
+  const { navigateView } = useAppNavigation();
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -100,6 +102,16 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
                         >
                           {link.label}
                         </a>
+                      ) : link.href === '/admin' ? (
+                        <button
+                          type="button"
+                          onClick={() => navigateView('admin')}
+                          className={`text-xs font-sans hover:text-emerald-400 transition-colors cursor-pointer text-left ${
+                            isDark ? 'text-gray-400' : 'text-gray-600'
+                          }`}
+                        >
+                          {link.label}
+                        </button>
                       ) : (
                         <a
                           href={link.href}
@@ -121,14 +133,26 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
 
         {/* Bottom bar with Disclaimers & Credits */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-6">
-          <div className="flex flex-col space-y-2 text-left">
-            <p className="text-[10px] font-bold font-mono tracking-wide text-gray-500 uppercase">
+          <div className="flex flex-col space-y-3 text-left">
+            {/* About Us Button directly above the text */}
+            <div>
+              <button
+                type="button"
+                onClick={() => navigateView('about')}
+                className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-white text-black hover:bg-neutral-200 transition-all cursor-pointer shadow-lg hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Info className="w-3.5 h-3.5 text-black" />
+                <span>About Us</span>
+              </button>
+            </div>
+
+            <p className={`text-[10px] font-bold font-mono tracking-wide uppercase ${isDark ? 'text-gray-200' : 'text-gray-900'}`}>
               © 2026 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
             </p>
-            <p className="text-[9px] text-gray-600 leading-normal max-w-2xl">
+            <p className={`text-[9.5px] font-bold leading-relaxed max-w-2xl ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
               Risk Disclosure: All operations and balances within the public preview workspace are virtual sandbox allocations provided solely for presentation. They are completely decoupled from external banking pipelines, physical ledgers, or physical cryptocurrency clearing routes. Performance metrics demonstrated on historical configurations do not guarantee future execution optimization.
             </p>
-            <p className="text-[9px] text-gray-600 leading-normal max-w-2xl">
+            <p className={`text-[9.5px] font-bold leading-relaxed max-w-2xl ${isDark ? 'text-gray-300' : 'text-gray-800'}`}>
               Entity Notice: AverTrader (avertrader.space) is an independent proprietary trading workspace and AI execution platform. AverTrader is not affiliated with, sponsored by, or connected to AvaTrade (avatrade.com) or any third-party broker.
             </p>
           </div>

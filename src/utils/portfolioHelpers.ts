@@ -106,8 +106,8 @@ export function generateChartData(timeframe: string, benchmark: string): ChartDa
 
     const macd = (ema - sma) * 0.1;
     let macdSignal = macd * 0.8;
-    if (i > 0 && points[i - 1] && points[i - 1].macdSignal !== undefined) {
-      macdSignal = macd * 0.2 + points[i - 1].macdSignal * 0.8;
+    if (i > 0 && points[i - 1] && points[i - 1]?.macdSignal !== undefined) {
+      macdSignal = macd * 0.2 + (points[i - 1]?.macdSignal ?? 0) * 0.8;
     }
     const macdHist = macd - macdSignal;
     const rsi = 45 + Math.sin(i * 0.3) * 15 + (pseudoRandom() - 0.5) * 10;

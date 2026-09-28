@@ -23,6 +23,7 @@ import TransactionHistory from './components/TransactionHistory';
 import AdminRoot from './components/admin/AdminRoot';
 import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
+import AboutPage from './components/AboutPage';
 import { NavigationProvider, useAppNavigation, parsePathToLocation, locationToPath } from './contexts/NavigationContext';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
@@ -121,6 +122,11 @@ function AppContent() {
       const path = window.location.pathname;
       const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
 
+      if (currentView === 'admin') {
+        // Allow admin terminal to handle its own authorization
+        return;
+      }
+
       if (currentView === 'auth' || currentView === 'home') {
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
         if (savedRedirect) {
@@ -135,14 +141,11 @@ function AppContent() {
         console.log("[App] Logged in, moving from auth/home to dashboard.");
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
-      } else if (currentView === 'admin' && !isAdminAuthorized && !isAtAdminUrl) {
-        console.warn("[App] Admin view active but not authorized, redirecting to dashboard.");
-        navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
-        safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
       // Access control enforcement: send anonymous/logged-out sessions on protected views to the landing page
-      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin'];
+      // Note: 'admin' handles its own authentication gate (AdminRoot) so unauthenticated direct visits are not kicked to home
+      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
       if (protectedViews.includes(currentView)) {
         console.log(`[App] Access denied or session signed out on view ${currentView}. Redirecting to Landing Page.`);
         navigateView('home', {}, { replace: true });
@@ -438,6 +441,8 @@ function AppContent() {
                   onBack={goBackView}
                   onGetStarted={() => navigateToView('auth')}
                 />
+              ) : currentView === 'about' ? (
+                <AboutPage onBack={goBackView} />
               ) : currentView === 'not-found' ? (
                 <NotFound 
                   theme={theme} 

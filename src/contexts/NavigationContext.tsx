@@ -282,6 +282,17 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
     };
   }
 
+  // About Us
+  if (lower === '/about' || lower === '/about-us') {
+    return {
+      id: `nav-route-about`,
+      view: 'about',
+      tab: 'home',
+      aiView: 'HOME',
+      modal: null,
+    };
+  }
+
   return null;
 }
 
@@ -307,6 +318,7 @@ export function locationToPath(loc: NavigationLocation): string {
   if (loc.view === 'market-highlights') return '/market-highlights';
   if (loc.view === 'events-promos') return '/events-promos';
   if (loc.view === 'showcase') return '/showcase';
+  if (loc.view === 'about') return '/about';
   if (loc.view === 'not-found') return '/404';
 
   // 3. Dashboard sub-tabs
@@ -365,7 +377,7 @@ const DEFAULT_LOCATION: NavigationLocation = {
 function getInitialStack(initialView?: string): NavigationLocation[] {
   const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
   const hasActiveUser = !isExplicitlyLoggedOut && !!safeStorage.getItem('aver_active_user');
-  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin', 'auth'];
+  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'auth'];
 
   // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
   if (isExplicitlyLoggedOut) {
@@ -483,6 +495,8 @@ export function NavigationProvider({
       title = 'Aver | Special Events & Promotions';
     } else if (currentLocation.view === 'showcase') {
       title = 'Aver | Platform Showcase';
+    } else if (currentLocation.view === 'about') {
+      title = 'Aver | About Us — Building Intelligent Infrastructure';
     }
 
     document.title = title;

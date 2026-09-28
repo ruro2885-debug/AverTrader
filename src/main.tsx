@@ -25,6 +25,32 @@ if (typeof Node === 'function' && Node.prototype) {
   };
 }
 
+// Resilience handler for IndexedDB connection loss and iframe storage drops
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  const msg = reason?.message || String(reason || '');
+  if (
+    msg.toLowerCase().includes('indexed database') || 
+    msg.toLowerCase().includes('indexeddb') || 
+    msg.toLowerCase().includes('connection to indexed')
+  ) {
+    console.warn('[Global] Suppressed IndexedDB event:', msg);
+    event.preventDefault();
+  }
+});
+
+window.addEventListener('error', (event) => {
+  const msg = event.message || '';
+  if (
+    msg.toLowerCase().includes('indexed database') || 
+    msg.toLowerCase().includes('indexeddb') || 
+    msg.toLowerCase().includes('connection to indexed')
+  ) {
+    console.warn('[Global] Suppressed IndexedDB window error:', msg);
+    event.preventDefault();
+  }
+});
+
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 createRoot(document.getElementById('root')!).render(

@@ -253,10 +253,31 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
+const defaultContextValue: PreferencesContextType = {
+  preferences: defaultPreferences,
+  updatePreference: () => {},
+  resetPreferences: () => {},
+  t: (key: string) => {
+    const fallbackDict = translations['EN'];
+    return fallbackDict[key] || key;
+  },
+  formatCurrency: (usdValue: number, compact: boolean = false): string => {
+    const formatter = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      currencyDisplay: 'symbol',
+      notation: compact ? 'compact' : 'standard',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return formatter.format(usdValue);
+  }
+};
+
 export const usePreferences = () => {
   const context = useContext(PreferencesContext);
   if (context === undefined) {
-    throw new Error('usePreferences must be used within a PreferencesProvider');
+    return defaultContextValue;
   }
   return context;
 };

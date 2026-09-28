@@ -568,7 +568,7 @@ export const useFinancials = () => {
         portfolio: {
           ...(user?.portfolio || {}),
           totalValue: newCashBal + newVaultBal
-        }
+        } as any
       }, undefined, undefined, true).catch(() => {});
     }
 

@@ -138,11 +138,12 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
         ]);
         
         if (isMounted) {
-          setCryptoPricesUsd({
+          setCryptoPricesUsd(prev => ({
+            ...prev,
             BTC: parseFloat(btcRes.price) || 64850,
             ETH: parseFloat(ethRes.price) || 3480.5,
             SOL: parseFloat(solRes.price) || 148.2
-          });
+          }));
         }
         
         // Crypto prices are fetched from server-side proxy
@@ -290,8 +291,8 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
       setAddressError("Please enter a valid Bitcoin address (e.g. 1..., 3..., or bc1...).");
       return;
     }
-    if ((selectedAsset === 'ETH' || selectedAsset === 'BNB') && addr.startsWith('0x') && addr.length !== 42) {
-      setAddressError("Ethereum / BNB address must be 42 characters starting with 0x.");
+    if (selectedAsset === 'ETH' && addr.startsWith('0x') && addr.length !== 42) {
+      setAddressError("Ethereum address must be 42 characters starting with 0x.");
       return;
     }
 
@@ -310,7 +311,7 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
 
       const hash = '0x' + Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       setTxHash(hash);
-      const res: any = await addWithdrawal(numericAmountInUsd, destinationAddress, selectedAsset, network, hash);
+      const res: any = await (addWithdrawal as any)(numericAmountInUsd, destinationAddress, selectedAsset, network, hash);
       if (res) {
         if (res.txHash) setTxHash(res.txHash);
         if (res.id) setCreatedId(res.id);

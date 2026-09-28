@@ -848,7 +848,21 @@ export default function ProfileView({
     }
   };
 
+  const isUserAdmin = 
+    user?.email?.toLowerCase() === 'ruro2885@gmail.com' ||
+    user?.role === 'super_admin' ||
+    user?.role === 'admin' ||
+    (user as any)?.isAdmin === true ||
+    (user as any)?.isSuperAdmin === true ||
+    safeStorage.getItem('admin_session_active') === 'true';
+
   const menuSections = [
+    ...(isUserAdmin ? [{
+      title: 'Platform Administration',
+      items: [
+        { icon: Shield, label: 'Admin Terminal (Executive Operations)', id: 'admin_terminal' }
+      ]
+    }] : []),
     {
       title: 'Account Settings',
       items: [
@@ -971,7 +985,7 @@ export default function ProfileView({
         </div>
 
         {/* Membership Tier Badge */}
-        <div className="mt-4 flex justify-center">
+        <div className="mt-4 flex flex-col items-center gap-2">
           <button 
             onClick={() => {
               if (onOpenBonusCenter) onOpenBonusCenter();
@@ -983,6 +997,20 @@ export default function ProfileView({
               {activeTier.name}
             </span>
           </button>
+
+          {isUserAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                safeStorage.setItem('admin_session_active', 'true');
+                navigateView('admin');
+              }}
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold hover:bg-emerald-500 hover:text-black transition-all shadow-[0_0_15px_rgba(16,185,129,0.15)] cursor-pointer"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>Launch Admin Terminal</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1001,7 +1029,10 @@ export default function ProfileView({
                   onClick={() => {
                     setErrorMsg('');
                     setSuccessMsg('');
-                    if (item.id === 'referral') {
+                    if (item.id === 'admin_terminal') {
+                      safeStorage.setItem('admin_session_active', 'true');
+                      navigateView('admin');
+                    } else if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();
                       } else {

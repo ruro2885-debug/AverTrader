@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
   Brain, Activity, Star, Newspaper, Zap, ArrowRightLeft, 
-  Copy, History, CreditCard, ChevronRight, Bell, X, ShieldCheck,
+  Copy, History, CreditCard, ChevronRight, Bell, X, ShieldCheck, Shield,
   Award, AlertCircle, CheckCircle2, Lock, Flame, Trash2, MessageSquare
 } from 'lucide-react';
 import { useSupportUnread } from '../hooks/useSupportUnread';
@@ -145,6 +145,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const { currentLocation, navigate, navigateTab: navTab, navigateView, goBack, openModal, closeModal } = useAppNavigation();
   const activeTab = currentLocation.tab || 'home';
+
+  const isUserAdmin = 
+    user?.email?.toLowerCase() === 'ruro2885@gmail.com' ||
+    user?.role === 'super_admin' ||
+    user?.role === 'admin' ||
+    (user as any)?.isAdmin === true ||
+    (user as any)?.isSuperAdmin === true ||
+    safeStorage.getItem('admin_session_active') === 'true';
 
   const navigateTab = useCallback((tab: string, options?: { asset?: string }) => {
     navTab(tab, options);
@@ -862,6 +870,24 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
               </button>
             );
           })}
+
+          {isUserAdmin && (
+            <div className="pt-3">
+              <button
+                onClick={() => {
+                  safeStorage.setItem('admin_session_active', 'true');
+                  navigateView('admin');
+                }}
+                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.12)] group"
+              >
+                <div className="flex items-center space-x-3">
+                  <Shield className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                  <span>Admin Terminal</span>
+                </div>
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono bg-emerald-500/25 text-emerald-300 font-black">ROOT</span>
+              </button>
+            </div>
+          )}
         </nav>
 
         {/* User profile section at the bottom of sidebar */}
@@ -929,6 +955,20 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             </div>
             
             <div className="flex items-center space-x-2">
+              {isUserAdmin && (
+                <button 
+                  onClick={() => {
+                    safeStorage.setItem('admin_session_active', 'true');
+                    navigateView('admin');
+                  }}
+                  title="Open Executive Admin Terminal"
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500 hover:text-black text-emerald-400 text-xs font-bold transition-all shadow-[0_0_15px_rgba(16,185,129,0.15)] cursor-pointer"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Admin Terminal</span>
+                </button>
+              )}
+
               <button 
                 onClick={() => {
                   markSupportAsRead();
