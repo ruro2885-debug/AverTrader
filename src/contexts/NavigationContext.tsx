@@ -397,20 +397,24 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
   const hasActiveUser = !isExplicitlyLoggedOut && !!safeStorage.getItem('aver_active_user');
   const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'auth'];
 
-  // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
-  if (isExplicitlyLoggedOut) {
-    return [DEFAULT_LOCATION];
-  }
-
-  // 1. Direct browser address bar path (e.g. https://www.avertrader.space/deposit)
+  // 1. Direct browser address bar path (e.g. https://www.avertrader.space/admin or /404)
   if (typeof window !== 'undefined' && window.location) {
     const fromUrl = parsePathToLocation(window.location.pathname);
     if (fromUrl) {
+      // Admin, 404, and home are always accessible directly via URL
+      if (fromUrl.view === 'admin' || fromUrl.view === 'not-found' || fromUrl.view === 'home') {
+        return [fromUrl];
+      }
       if (!hasActiveUser && protectedViews.includes(fromUrl.view)) {
         return [DEFAULT_LOCATION];
       }
       return [fromUrl];
     }
+  }
+
+  // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
+  if (isExplicitlyLoggedOut) {
+    return [DEFAULT_LOCATION];
   }
 
   // 2. Persisted navigation stack in sessionStorage
