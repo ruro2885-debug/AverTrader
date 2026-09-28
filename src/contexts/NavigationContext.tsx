@@ -261,7 +261,7 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
   }
 
   // Admin Terminal
-  if (lower === '/admin' || lower.startsWith('/admin/')) {
+  if (lower === '/admin' || lower.startsWith('/admin')) {
     return {
       id: `nav-route-admin`,
       view: 'admin',
@@ -293,7 +293,25 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
     };
   }
 
-  return null;
+  // 404 Not Found route
+  if (lower === '/404' || lower === '/not-found') {
+    return {
+      id: `nav-route-404`,
+      view: 'not-found',
+      tab: 'home',
+      aiView: 'HOME',
+      modal: null,
+    };
+  }
+
+  // Any other unrecognized path -> 404
+  return {
+    id: `nav-route-404`,
+    view: 'not-found',
+    tab: 'home',
+    aiView: 'HOME',
+    modal: null,
+  };
 }
 
 export function locationToPath(loc: NavigationLocation): string {
