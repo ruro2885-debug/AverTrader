@@ -297,8 +297,8 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
   // Form Data
   const [formData, setFormData] = useState({
-    firstName: user?.name?.split(' ')[0] || '',
-    lastName: user?.name?.split(' ').slice(1).join(' ') || '',
+    firstName: (user?.displayName || (user as any)?.name || '').split(' ')[0] || '',
+    lastName: (user?.displayName || (user as any)?.name || '').split(' ').slice(1).join(' ') || '',
     dob: '',
     nationality: 'United States',
     phone: '',
@@ -380,9 +380,9 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       const submissionPayload = {
         id: submissionId,
         userId: user?.uid || 'guest_user',
-        name: `${formData.firstName} ${formData.lastName}`.trim() || user?.name || 'Verified User',
+        name: `${formData.firstName} ${formData.lastName}`.trim() || user?.displayName || (user as any)?.name || 'Verified User',
         email: user?.email || 'user@aver.platform',
-        profilePhoto: user?.photoURL || compressedSelfie,
+        profilePhoto: user?.profilePhotoURL || (user as any)?.photoURL || compressedSelfie,
         tier: 'Tier 1',
         idType: formData.idType,
         personalInfo: {
@@ -491,8 +491,8 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       // Pre-fill personal info from active submission if available, but ALWAYS clear image documents for fresh upload
       if (active) {
         setFormData({
-          firstName: active.name?.split(' ')[0] || user?.name?.split(' ')[0] || '',
-          lastName: active.name?.split(' ').slice(1).join(' ') || user?.name?.split(' ').slice(1).join(' ') || '',
+          firstName: active.name?.split(' ')[0] || (user?.displayName || (user as any)?.name || '').split(' ')[0] || '',
+          lastName: active.name?.split(' ').slice(1).join(' ') || (user?.displayName || (user as any)?.name || '').split(' ').slice(1).join(' ') || '',
           dob: active.personalInfo?.dob || '',
           nationality: active.personalInfo?.nationality || 'United States',
           phone: active.personalInfo?.phone || '',
@@ -582,8 +582,8 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   const activeSubmission = latestSubmission || (resolveUserSubmissions(user)[0]) || null;
 
   const displayData = activeSubmission ? {
-    firstName: activeSubmission.name?.split(' ')[0] || user?.name?.split(' ')[0] || '',
-    lastName: activeSubmission.name?.split(' ').slice(1).join(' ') || user?.name?.split(' ').slice(1).join(' ') || '',
+    firstName: activeSubmission.name?.split(' ')[0] || (user?.displayName || (user as any)?.name || '').split(' ')[0] || '',
+    lastName: activeSubmission.name?.split(' ').slice(1).join(' ') || (user?.displayName || (user as any)?.name || '').split(' ').slice(1).join(' ') || '',
     dob: activeSubmission.personalInfo?.dob || '',
     nationality: activeSubmission.personalInfo?.nationality || 'United States',
     phone: activeSubmission.personalInfo?.phone || '',
@@ -598,8 +598,8 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     status: activeSubmission.status || user?.kycStatus || 'pending',
     rejectionReason: activeSubmission.rejectionReason || ''
   } : {
-    firstName: formData.firstName || user?.name?.split(' ')[0] || '',
-    lastName: formData.lastName || user?.name?.split(' ').slice(1).join(' ') || '',
+    firstName: formData.firstName || (user?.displayName || (user as any)?.name || '').split(' ')[0] || '',
+    lastName: formData.lastName || (user?.displayName || (user as any)?.name || '').split(' ').slice(1).join(' ') || '',
     dob: formData.dob || '',
     nationality: formData.nationality || 'United States',
     phone: formData.phone || '',

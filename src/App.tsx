@@ -232,7 +232,7 @@ function AppContent() {
   };
 
   // Account status enforcement
-  const userAccountStatus = (user?.accountStatus || user?.status || 'Active').toLowerCase();
+  const userAccountStatus = (user?.accountStatus || (user as any)?.status || 'Active').toLowerCase();
   const isAccountBlocked = user && (userAccountStatus === 'suspended' || userAccountStatus === 'deactivated');
 
   const containerBg = theme === 'dark' 

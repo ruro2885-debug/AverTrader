@@ -2,9 +2,17 @@ User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /dashboard
+Disallow: /auth
+Disallow: /login
+Disallow: /register
 
 User-agent: Googlebot
 Allow: /
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /auth
+Disallow: /login
+Disallow: /register
 
 User-agent: Googlebot-Image
 Allow: /

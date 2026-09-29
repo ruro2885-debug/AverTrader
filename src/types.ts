@@ -3,8 +3,14 @@ export interface UserProfile {
   username: string;
   email: string;
   displayName?: string;
+  name?: string;
+  fullName?: string;
+  photoURL?: string;
   profilePhotoURL?: string;
   avatarUrl?: string;
+  pnlResetAt?: string | number | null;
+  resetPnL?: boolean;
+  referredUsers?: any;
   country: string;
   phoneNumber?: string;
   accountType: string;
@@ -76,6 +82,7 @@ export interface UserProfile {
   kycApprovedAt?: string;
   kycRewardUnlocked?: boolean;
   kycRejectionReason?: string | null;
+  kycResubmissionReason?: string | null;
   role?: 'user' | 'super_admin' | 'admin';
   watchlist?: string[];
 }

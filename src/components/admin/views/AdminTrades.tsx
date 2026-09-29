@@ -578,7 +578,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
           }
         }
       }
-      setActiveSessions(prev => prev.filter(s => s.status === 'ACTIVE' && !s.isDeleted));
+      setActiveSessions(prev => prev.filter(s => s.status === 'ACTIVE' && !(s as any).isDeleted));
       alert(`Purge complete: Cleaned up ${count} inactive session documents.`);
     } catch (err) {
       console.error("Purge error:", err);

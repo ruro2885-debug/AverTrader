@@ -875,7 +875,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             </div>
             <div className="truncate max-w-[120px]">
               <p className={`text-xs font-bold ${textPrimary} truncate`}>
-                {user?.displayName || user?.fullName || user?.username || user?.email || 'User'}
+                {user?.displayName || (user as any)?.fullName || user?.username || user?.email || 'User'}
               </p>
               <p className="text-[10px] text-emerald-500 font-medium">Pro Account</p>
             </div>
@@ -918,7 +918,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   <div className="w-20 h-4 rounded animate-pulse bg-slate-700" />
                 ) : (
                   <h1 className={`text-sm font-bold tracking-tight ${textPrimary}`}>
-                    {user?.displayName || user?.fullName || user?.username || user?.email || 'User'}
+                    {user?.displayName || (user as any)?.fullName || user?.username || user?.email || 'User'}
                   </h1>
                 )}
               </div>

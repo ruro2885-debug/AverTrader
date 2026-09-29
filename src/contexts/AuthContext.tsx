@@ -149,7 +149,7 @@ interface AuthContextType {
   updateTradingConfig: (config: Partial<TradingEngineConfig>) => Promise<void>;
   toggleWatchlist: (symbol: string) => Promise<void>;
   addDeposit: (amount: number) => Promise<void>;
-  addWithdrawal: (amount: number) => Promise<void>;
+  addWithdrawal: (amount: number, destinationAddress?: string, asset?: string, network?: string, hash?: string) => Promise<any>;
   
   addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string, action?: string, metadata?: Record<string, any>, userId?: string) => Promise<void>;
   markNotificationRead: (id: string, readState?: boolean) => Promise<void>;

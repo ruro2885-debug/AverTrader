@@ -200,7 +200,7 @@ export default function BonusCenter({
 
     try {
       safeStorage.setItem('aver_twoFactorEnabled', 'true');
-      await updateProfile({ preferences: { ...(user as any)?.preferences, twoFactorEnabled: true } });
+      await updateProfile({ preferences: { ...(user as any)?.preferences, twoFactorEnabled: true } } as any);
       addNotification('security', 'high', '2FA Enabled Successfully', 'Authenticator verified! +25% progress added.');
       setSelectedTask(null);
       setCurrentView('main');
