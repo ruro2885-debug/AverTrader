@@ -289,6 +289,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Failsafe timer to prevent infinite loading/blinking state if onAuthStateChanged hangs
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
   const userRef = useRef<User | null>(null);
   const notificationManagerRef = useRef<NotificationManager | null>(null);
   const avatarSetupRef = useRef<boolean>(false);
@@ -1294,8 +1302,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (auth) {
         await signOut(auth).catch(() => {});
       }
+
+      window.location.href = '/';
     } catch (error) {
       console.error("Error signing out:", error);
+      window.location.href = '/';
     }
   }, [clearAllSubscriptions]);
 
