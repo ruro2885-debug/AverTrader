@@ -81,14 +81,15 @@ function AppContent() {
     const search = window.location.search;
     
     // Check if we are at an admin-related URL
-    const isAtAdminUrl = path === '/admin' || path.startsWith('/admin/') || search.includes('admin=true') || path.toLowerCase().includes('admin');
-    const isAt404Url = path === '/404' || path === '/not-found' || search.includes('404=true');
+    const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
     
-    if (isAtAdminUrl || isAt404Url) {
+    if (isAtAdminUrl) {
       if (currentView !== 'admin') {
-        console.log("[App] Explicit admin/404 route detected. Rendering Admin Terminal.");
+        console.log("[App] Explicit admin route detected. Rendering Admin Terminal.");
         navigateToView('admin');
       }
+    } else if (path === '/404' || search.includes('404=true')) {
+      if (currentView !== 'not-found') navigateView('not-found', {}, { replace: true });
     } else if (path === '/auth' || path === '/login' || path === '/register') {
       if (user && !authLoading) {
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
@@ -118,14 +119,9 @@ function AppContent() {
                                (user as any).isAdmin === true;
 
       const path = window.location.pathname;
-      const isAtAdminUrl = path === '/admin' || path.startsWith('/admin/') || path.toLowerCase().includes('admin') || path === '/404' || path === '/not-found';
+      const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
 
-      // Sovereign Admin & 404 access: never redirect away from admin view or admin URL
-      if (currentView === 'admin' || isAtAdminUrl) {
-        return;
-      }
-
-      if (currentView === 'auth') {
+      if (currentView === 'auth' || currentView === 'home') {
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
         if (savedRedirect) {
           safeStorage.removeItem('aver_redirect_after_login');
@@ -136,14 +132,17 @@ function AppContent() {
             return;
           }
         }
-        console.log("[App] Logged in, moving from auth to dashboard.");
+        console.log("[App] Logged in, moving from auth/home to dashboard.");
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
+        safeStorage.setItem('aver_session_initialized', 'true');
+      } else if (currentView === 'admin' && !isAdminAuthorized && !isAtAdminUrl) {
+        console.warn("[App] Admin view active but not authorized, redirecting to dashboard.");
+        navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
       // Access control enforcement: send anonymous/logged-out sessions on protected views to the landing page
-      // NEVER include 'admin' or 'not-found'! The Admin terminal handles its own 404 security gate.
-      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
+      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin'];
       if (protectedViews.includes(currentView)) {
         console.log(`[App] Access denied or session signed out on view ${currentView}. Redirecting to Landing Page.`);
         navigateView('home', {}, { replace: true });

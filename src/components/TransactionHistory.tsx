@@ -101,8 +101,8 @@ const ReversalReasonTab = ({
 
 export default function TransactionHistory({ onBack, onOpenSupport }: TransactionHistoryProps) {
   const { user } = useAuth();
-  const { formatCurrency, preferences } = usePreferences();
-  const isDark = preferences?.theme === 'dark';
+  const { formatCurrency, theme } = usePreferences();
+  const isDark = theme === 'dark';
 
   const [activeTab, setActiveTab] = useState<TabType>('transactions');
   const [filters, setFilters] = useState<FilterState>({

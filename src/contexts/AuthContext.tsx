@@ -149,7 +149,7 @@ interface AuthContextType {
   updateTradingConfig: (config: Partial<TradingEngineConfig>) => Promise<void>;
   toggleWatchlist: (symbol: string) => Promise<void>;
   addDeposit: (amount: number) => Promise<void>;
-  addWithdrawal: (amount: number) => Promise<any>;
+  addWithdrawal: (amount: number) => Promise<void>;
   
   addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string, action?: string, metadata?: Record<string, any>, userId?: string) => Promise<void>;
   markNotificationRead: (id: string, readState?: boolean) => Promise<void>;
@@ -578,19 +578,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ? uLoss
               : (typeof prevLoss === 'number' && prevLoss > 0 ? prevLoss : (uLoss ?? 0));
 
-            // Retain active kycStatus: if a submission is pending, never drop to unverified
-            const activeKycPending = safeStorage.getItem(`aver_kyc_active_status_${uid}`) === 'pending' || 
-              (email ? safeStorage.getItem(`aver_kyc_active_status_${email.toLowerCase()}`) === 'pending' : false);
-            let resolvedKycStatus = userData.kycStatus || prev?.kycStatus;
-            if (activeKycPending && (!resolvedKycStatus || resolvedKycStatus === 'unverified')) {
-              resolvedKycStatus = 'pending';
-            }
-
             const updatedUser = {
               ...(prev || {}),
               ...userData,
-              kycStatus: resolvedKycStatus,
-              kycData: userData.kycData || prev?.kycData,
               profilePhotoURL: resolvedPhoto,
               avatarUrl: resolvedPhoto,
               hasCustomPhoto,

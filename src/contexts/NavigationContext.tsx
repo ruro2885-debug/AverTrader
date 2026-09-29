@@ -70,28 +70,6 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
     };
   }
 
-  // 404 Page Not Found (and hidden Admin gate)
-  if (lower === '/404' || lower === '/not-found') {
-    return {
-      id: `nav-route-404`,
-      view: 'admin',
-      tab: 'home',
-      aiView: 'HOME',
-      modal: null,
-    };
-  }
-
-  // Admin Terminal
-  if (lower === '/admin' || lower.startsWith('/admin/')) {
-    return {
-      id: `nav-route-admin`,
-      view: 'admin',
-      tab: 'home',
-      aiView: 'HOME',
-      modal: null,
-    };
-  }
-
   // Dashboard root
   if (lower === '/dashboard') {
     return {
@@ -282,6 +260,17 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
     };
   }
 
+  // Admin Terminal
+  if (lower === '/admin' || lower.startsWith('/admin/')) {
+    return {
+      id: `nav-route-admin`,
+      view: 'admin',
+      tab: 'home',
+      aiView: 'HOME',
+      modal: null,
+    };
+  }
+
   // Platform Showcase
   if (lower === '/showcase') {
     return {
@@ -376,31 +365,22 @@ const DEFAULT_LOCATION: NavigationLocation = {
 function getInitialStack(initialView?: string): NavigationLocation[] {
   const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
   const hasActiveUser = !isExplicitlyLoggedOut && !!safeStorage.getItem('aver_active_user');
-  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
+  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin', 'auth'];
 
-  // 1. Direct browser address bar path (e.g. /admin, /404, /deposit, /)
+  // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
+  if (isExplicitlyLoggedOut) {
+    return [DEFAULT_LOCATION];
+  }
+
+  // 1. Direct browser address bar path (e.g. https://www.avertrader.space/deposit)
   if (typeof window !== 'undefined' && window.location) {
     const fromUrl = parsePathToLocation(window.location.pathname);
     if (fromUrl) {
-      // Admin Terminal and 404 access are sovereign and never blocked by user login status
-      if (fromUrl.view === 'admin' || fromUrl.view === 'not-found') {
-        return [fromUrl];
-      }
-      // Public landing page, auth, or showcase views
-      if (fromUrl.view === 'home' || fromUrl.view === 'auth' || fromUrl.view === 'showcase') {
-        return [fromUrl];
-      }
-      // Protected trader views require active session; otherwise start clean on landing page
       if (!hasActiveUser && protectedViews.includes(fromUrl.view)) {
         return [DEFAULT_LOCATION];
       }
       return [fromUrl];
     }
-  }
-
-  // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
-  if (isExplicitlyLoggedOut) {
-    return [DEFAULT_LOCATION];
   }
 
   // 2. Persisted navigation stack in sessionStorage

@@ -224,7 +224,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     tickInterval?: any;
     positionInterval?: any;
     orderTimeout?: any;
-    statusInterval?: any;
   }>({});
 
   const isInitialSyncGracePeriod = useRef(true);
@@ -833,19 +832,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         vaultBalance: newVaultBal,
         aiTradingCapital: allocationAmount,
         portfolio: {
-          todayPnL: 0,
-          todayPnLPercent: 0,
-          overallReturn: 0,
-          realizedPnL: 0,
-          unrealizedPnL: 0,
-          healthScore: 90,
-          diversificationScore: 85,
-          volatility: 12,
-          sharpeRatio: 1.8,
-          winRate: 65,
-          maxDrawdown: 5,
-          recoveryFactor: 2,
-          riskAdjustedReturn: 15,
           ...(user?.portfolio || {}),
           totalValue: totalNetBalance
         }
@@ -1238,15 +1224,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           totalProfit: newTotalProfit,
           totalLoss: newTotalLoss,
           portfolio: {
-            unrealizedPnL: 0,
-            healthScore: 90,
-            diversificationScore: 85,
-            volatility: 12,
-            sharpeRatio: 1.8,
-            winRate: 65,
-            maxDrawdown: 5,
-            recoveryFactor: 2,
-            riskAdjustedReturn: 15,
             ...(user?.portfolio || {}),
             totalValue: totalNetBalance,
             todayPnL: sessionPnl,

@@ -8,7 +8,6 @@ import {
 import { doc, setDoc, updateDoc, serverTimestamp, collection, addDoc, query, where, onSnapshot, limit, arrayUnion } from 'firebase/firestore';
 import { db, safeSetDoc } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { ALL_WORLD_COUNTRIES } from '../data/prestigiousCountries';
 
 interface KycVerificationPageProps {
   theme: 'light' | 'dark';
@@ -16,7 +15,7 @@ interface KycVerificationPageProps {
   onComplete: () => void;
 }
 
-const downscaleImage = (dataUrl: string, maxWidth = 600, maxHeight = 600, quality = 0.55): Promise<string> => {
+const downscaleImage = (dataUrl: string, maxWidth = 800, maxHeight = 800, quality = 0.7): Promise<string> => {
   return new Promise((resolve) => {
     if (!dataUrl || !dataUrl.startsWith('data:image')) {
       resolve(dataUrl);
@@ -41,8 +40,6 @@ const downscaleImage = (dataUrl: string, maxWidth = 600, maxHeight = 600, qualit
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL('image/jpeg', quality));
       } else {
@@ -73,115 +70,93 @@ export function getKycTimestamp(sub: any): number {
 
 // Consolidates all candidate KYC records across memory, user profile, kycHistory, localStorage, and Firestore
 export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
-  const map = new Map<string, any>();
-  const uid = user?.uid;
-  const email = user?.email?.toLowerCase();
-
-  // 1. Extra docs (from Firestore admin_kyc collection snapshot or direct query)
-  if (Array.isArray(extraDocs)) {
-    extraDocs.forEach((d: any) => {
-      const raw = typeof d.data === 'function' ? d.data() : d;
-      if (raw && typeof raw === 'object') {
-        const id = d.id || raw.id || `firestore_${getKycTimestamp(raw)}`;
-        const isUserMatch = !uid || raw.userId === uid || (email && raw.email && raw.email.toLowerCase() === email) || raw.userId === 'guest_user';
-        if (isUserMatch) {
-          map.set(id, { ...raw, id, userId: uid || raw.userId });
-        }
-      }
-    });
+  // If user is explicitly set to unverified and no extra docs from active query, start fresh
+  if (user?.kycStatus === 'unverified' && (!extraDocs || extraDocs.length === 0)) {
+    return [];
   }
 
-  // 2. Load from user.kycData (active submission in active user profile)
+  const map = new Map<string, any>();
+
+  // 1. Load from user.kycData (the active submission on active user profile)
   if (user?.kycData && typeof user.kycData === 'object') {
     const kData = user.kycData;
-    const id = kData.id || `kyc_${uid || 'user'}_active`;
+    const id = kData.id || `kyc_${user?.uid || 'user'}_active`;
     const resolvedStatus = (user?.kycStatus && user.kycStatus !== 'unverified') ? user.kycStatus : (kData.status || 'pending');
     map.set(id, { 
       ...kData, 
       id, 
       status: resolvedStatus, 
       rejectionReason: user?.kycRejectionReason || kData.rejectionReason || null,
-      userId: uid || kData.userId 
+      userId: user?.uid || kData.userId 
     });
   }
 
-  // 3. Load from user.kycHistory (array of past and current submissions)
+  // 2. Load from user.kycHistory (array of past and current submissions on user profile)
   if (Array.isArray(user?.kycHistory)) {
     user.kycHistory.forEach((h: any, idx: number) => {
       if (h && typeof h === 'object') {
-        const id = h.id || `hist_${uid || 'user'}_${idx}_${getKycTimestamp(h)}`;
+        const id = h.id || `hist_${user?.uid || 'user'}_${idx}_${getKycTimestamp(h)}`;
         if (!map.has(id)) {
-          map.set(id, { ...h, id, userId: uid || h.userId });
+          map.set(id, { ...h, id, userId: user?.uid || h.userId });
         }
       }
     });
   }
 
-  // 4. Load from dedicated user localStorage caches
-  if (uid) {
+  // 3. Load from user_profile_${uid} cached profile in localStorage
+  if (user?.uid) {
     try {
-      const activeSubStr = localStorage.getItem(`aver_kyc_active_sub_${uid}`);
-      if (activeSubStr) {
-        const activeSub = JSON.parse(activeSubStr);
-        if (activeSub?.id && !map.has(activeSub.id)) {
-          map.set(activeSub.id, { ...activeSub, userId: uid });
-        }
-      }
-    } catch (e) {}
-  }
-  if (email) {
-    try {
-      const activeSubStr = localStorage.getItem(`aver_kyc_active_sub_${email}`);
-      if (activeSubStr) {
-        const activeSub = JSON.parse(activeSubStr);
-        if (activeSub?.id && !map.has(activeSub.id)) {
-          map.set(activeSub.id, { ...activeSub, email });
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 5. Load from user_profile_${uid} cached profile in localStorage
-  if (uid) {
-    try {
-      const cached = JSON.parse(localStorage.getItem(`user_profile_${uid}`) || '{}');
-      if (cached.kycData && typeof cached.kycData === 'object') {
-        const id = cached.kycData.id || `cached_${uid}`;
-        if (!map.has(id)) {
-          map.set(id, { ...cached.kycData, id, userId: uid });
-        }
-      }
-      if (Array.isArray(cached.kycHistory)) {
-        cached.kycHistory.forEach((h: any, idx: number) => {
-          if (h && typeof h === 'object') {
-            const id = h.id || `cached_hist_${idx}`;
-            if (!map.has(id)) {
-              map.set(id, { ...h, id, userId: uid });
-            }
+      const cached = JSON.parse(localStorage.getItem(`user_profile_${user.uid}`) || '{}');
+      if (cached.kycStatus !== 'unverified') {
+        if (cached.kycData && typeof cached.kycData === 'object') {
+          const id = cached.kycData.id || `cached_${user.uid}`;
+          if (!map.has(id)) {
+            map.set(id, { ...cached.kycData, id, userId: user.uid });
           }
-        });
+        }
+        if (Array.isArray(cached.kycHistory)) {
+          cached.kycHistory.forEach((h: any, idx: number) => {
+            if (h && typeof h === 'object') {
+              const id = h.id || `cached_hist_${idx}`;
+              if (!map.has(id)) {
+                map.set(id, { ...h, id, userId: user.uid });
+              }
+            }
+          });
+        }
       }
     } catch (e) {}
   }
 
-  // 6. Load from aver_admin_kyc_local in localStorage
+  // 4. Load from aver_admin_kyc_local in localStorage
   try {
     const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
     if (Array.isArray(locals)) {
       locals.forEach((item: any) => {
         if (item && typeof item === 'object') {
-          const isUserMatch = !uid || item.userId === uid || item.userId === 'guest_user';
-          const isEmailMatch = email && item.email && item.email.toLowerCase() === email;
+          const isUserMatch = !user?.uid || item.userId === user.uid || item.userId === 'guest_user';
+          const isEmailMatch = user?.email && item.email && item.email.toLowerCase() === user.email.toLowerCase();
           if (isUserMatch || isEmailMatch) {
             const id = item.id || `local_${getKycTimestamp(item)}`;
             if (!map.has(id)) {
-              map.set(id, { ...item, id, userId: uid || item.userId });
+              map.set(id, { ...item, id, userId: user?.uid || item.userId });
             }
           }
         }
       });
     }
   } catch (e) {}
+
+  // 5. Load from extraDocs (e.g. from Firestore admin_kyc snapshot)
+  if (Array.isArray(extraDocs)) {
+    extraDocs.forEach((d: any) => {
+      const raw = typeof d.data === 'function' ? d.data() : d;
+      if (raw && typeof raw === 'object') {
+        const id = d.id || raw.id || `firestore_${getKycTimestamp(raw)}`;
+        map.set(id, { ...raw, id, userId: user?.uid || raw.userId });
+      }
+    });
+  }
 
   const list = Array.from(map.values());
   // Sort strictly by timestamp descending: newest submission is index 0
@@ -201,58 +176,47 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
   // Synchronous resolution of the newest submission from all available sources
   const [latestSubmission, setLatestSubmission] = useState<any>(() => {
+    // Try to get cached status from localStorage first to avoid flash of Step 1
     const cachedProfile = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
     const initialList = resolveUserSubmissions(user || cachedProfile);
     return initialList.length > 0 ? initialList[0] : null;
   });
+  const [loadingSubmission, setLoadingSubmission] = useState(false);
 
-  // Effective status calculation that guarantees pending submissions never disappear
+  // Derive effective status to avoid Step 1 flicker during reload and preserve pending status across sessions
   const effectiveStatus = useMemo(() => {
-    // 1. If latestSubmission exists in React state:
-    if (latestSubmission?.status && latestSubmission.status !== 'unverified') {
+    // If the user's kycStatus is explicitly set to 'unverified' and user didn't just submit right now:
+    if (user?.kycStatus === 'unverified' && !submittedSuccess) {
+      return 'unverified';
+    }
+
+    // 1. Check user.kycStatus first (instant from auth/profile)
+    if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
+
+    // 2. Check latestSubmission status
+    if (latestSubmission && latestSubmission.status && latestSubmission.status !== 'unverified') {
       return latestSubmission.status;
     }
+    
+    // 3. Check cached profile if Firestore user is still loading or doesn't have status
+    try {
+      const cached = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
+      if (cached.kycStatus === 'unverified' && !submittedSuccess) return 'unverified';
+      if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
+      if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
+    } catch (e) {}
 
-    // 2. If user?.kycStatus is explicitly set:
-    if (user?.kycStatus && user.kycStatus !== 'unverified') {
-      return user.kycStatus;
-    }
-
-    // 3. Check persistent localStorage active status marker:
-    const uid = user?.uid;
-    const email = user?.email?.toLowerCase();
-    const storedStatus = (uid && localStorage.getItem(`aver_kyc_active_status_${uid}`)) ||
-                         (email && localStorage.getItem(`aver_kyc_active_status_${email}`));
-    if (storedStatus && storedStatus !== 'unverified') {
-      return storedStatus;
-    }
-
-    // 4. Check cached user profile:
-    if (uid) {
-      try {
-        const cached = JSON.parse(localStorage.getItem(`user_profile_${uid}`) || '{}');
-        if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
-        if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
-      } catch (e) {}
-    }
-
-    // 5. Check aver_admin_kyc_local:
+    // 4. Check aver_admin_kyc_local in localStorage
     try {
       const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
-      if (Array.isArray(locals)) {
-        const matched = locals.find((item: any) => 
-          (uid && item.userId === uid) ||
-          (email && item.email?.toLowerCase() === email) ||
-          item.userId === 'guest_user'
-        );
-        if (matched?.status && matched.status !== 'unverified') {
-          return matched.status;
-        }
+      if (Array.isArray(locals) && locals.length > 0) {
+        const userLocal = locals.find((item: any) => !user?.uid || item.userId === user.uid || item.userId === 'guest_user' || (user?.email && item.email && item.email.toLowerCase() === user.email.toLowerCase()));
+        if (userLocal?.status && userLocal.status !== 'unverified') return userLocal.status;
       }
     } catch (e) {}
 
     if (submittedSuccess) return 'pending';
-
+    
     return 'unverified';
   }, [user?.kycStatus, submittedSuccess, user?.uid, user?.email, latestSubmission]);
 
@@ -261,7 +225,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     if (effectiveStatus === 'verified' && !submittedSuccess) {
       const timer = setTimeout(() => {
         onComplete();
-      }, 4000);
+      }, 4000); // 4 seconds of "brief moment"
       return () => clearTimeout(timer);
     }
   }, [effectiveStatus, submittedSuccess, onComplete]);
@@ -269,6 +233,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   useEffect(() => {
     // Real-time listener for local storage and window submission events
     const handleSync = (e?: any) => {
+      // If a specific kyc status change was broadcast
       if (e?.type === 'aver_kyc_status_changed' && e.detail) {
         const detail = e.detail;
         const isMatch = !user?.uid || detail.userId === user.uid || (user?.email && detail.email?.toLowerCase() === user.email.toLowerCase());
@@ -285,9 +250,12 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       const updatedList = resolveUserSubmissions(user);
       if (updatedList.length > 0) {
         setLatestSubmission(updatedList[0]);
+      } else if (user?.kycStatus === 'unverified') {
+        setLatestSubmission(null);
       }
     };
 
+    // Initial sync
     handleSync();
 
     window.addEventListener('storage', handleSync);
@@ -297,8 +265,13 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
     // Real-time listener for admin_kyc collection
     let unsub: (() => void) | null = null;
-    if (user?.uid || user?.email) {
-      unsub = onSnapshot(collection(db, 'admin_kyc'), (snap) => {
+    if (user?.uid) {
+      const q = query(
+        collection(db, 'admin_kyc'),
+        where('userId', '==', user.uid)
+      );
+
+      unsub = onSnapshot(q, (snap) => {
         const firestoreDocs = snap.empty ? [] : snap.docs.map(d => ({ id: d.id, ...d.data() }));
         const updatedList = resolveUserSubmissions(user, firestoreDocs);
         if (updatedList.length > 0) {
@@ -322,23 +295,24 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     };
   }, [user?.uid, user?.email, user?.kycStatus, user?.kycData, user?.kycHistory]);
 
-  // Form Data with complete Country and County / State / Province support
+  // Form Data
   const [formData, setFormData] = useState({
     firstName: user?.name?.split(' ')[0] || '',
     lastName: user?.name?.split(' ').slice(1).join(' ') || '',
     dob: '',
     nationality: 'United States',
     phone: '',
-    country: 'United States',
-    county: '',
-    state: '',
-    city: '',
     address: '',
+    city: '',
+    state: '',
     postalCode: '',
-    idType: 'Passport',
+    idType: 'Passport', // 'Passport' | 'National ID' | "Driver's License"
     frontIdUrl: '',
+    frontIdOriginalUrl: '',
     backIdUrl: '',
-    selfieUrl: ''
+    backIdOriginalUrl: '',
+    selfieUrl: '',
+    selfieOriginalUrl: ''
   });
 
   const [error, setError] = useState('');
@@ -350,10 +324,12 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     reader.onload = async (uploadEvent) => {
       const result = uploadEvent.target?.result as string;
       if (result) {
-        const compressed = await downscaleImage(result, 600, 600, 0.55);
+        const compressed = await downscaleImage(result, 800, 800, 0.7);
+        const originalField = field === 'frontIdUrl' ? 'frontIdOriginalUrl' : field === 'backIdUrl' ? 'backIdOriginalUrl' : 'selfieOriginalUrl';
         setFormData(prev => ({ 
           ...prev, 
-          [field]: compressed
+          [field]: compressed,
+          [originalField]: compressed
         }));
       }
     };
@@ -387,25 +363,26 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   };
 
   const handleSubmitKYC = async () => {
-    console.log("[KYC SUBMIT] Initiating KYC submission...");
+    console.log("[KYC TRACE 1] Submit button clicked. Entering handleSubmitKYC...");
     try {
       setSubmitting(true);
       setError('');
 
       const submissionId = `kyc_${user?.uid || 'guest'}_${Date.now()}`;
       const nowIso = new Date().toISOString();
+      console.log("[KYC TRACE 2] Generated submission ID:", submissionId);
 
-      // Optimize images to lightweight clean payloads (<35KB each)
-      const compressedFront = await downscaleImage(formData.frontIdUrl, 600, 600, 0.55);
-      const compressedBack = await downscaleImage(formData.backIdUrl, 600, 600, 0.55);
-      const compressedSelfie = await downscaleImage(formData.selfieUrl, 600, 600, 0.55);
+      console.log("[KYC TRACE 2.1] Compressing image uploads to safe payload size (<100KB)...");
+      const compressedFront = await downscaleImage(formData.frontIdUrl, 800, 800, 0.7);
+      const compressedBack = await downscaleImage(formData.backIdUrl, 800, 800, 0.7);
+      const compressedSelfie = await downscaleImage(formData.selfieUrl, 800, 800, 0.7);
 
       const submissionPayload = {
         id: submissionId,
         userId: user?.uid || 'guest_user',
         name: `${formData.firstName} ${formData.lastName}`.trim() || user?.name || 'Verified User',
         email: user?.email || 'user@aver.platform',
-        profilePhoto: compressedSelfie || user?.photoURL || '',
+        profilePhoto: user?.photoURL || compressedSelfie,
         tier: 'Tier 1',
         idType: formData.idType,
         personalInfo: {
@@ -416,106 +393,102 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         address: {
           street: formData.address,
           city: formData.city,
-          county: formData.county || formData.state,
-          state: formData.state || formData.county,
-          country: formData.country || formData.nationality,
+          state: formData.state,
           postalCode: formData.postalCode
         },
-        frontIdUrl: compressedFront,
-        backIdUrl: compressedBack,
-        selfieUrl: compressedSelfie,
         documents: [compressedFront, compressedBack, compressedSelfie].filter(Boolean),
+        frontIdUrl: compressedFront,
+        frontIdOriginalUrl: compressedFront,
+        backIdUrl: compressedBack,
+        backIdOriginalUrl: compressedBack,
+        selfieUrl: compressedSelfie,
+        selfieOriginalUrl: compressedSelfie,
         status: 'pending',
         submittedAt: nowIso,
         createdAt: nowIso
       };
 
-      // Set immediately in local state
+      console.log("[KYC TRACE 3] Constructed payload successfully.");
+
+      // Set newest submission immediately in local React state so Pending view is instant & guaranteed
       setLatestSubmission(submissionPayload);
 
-      // 1. Write to admin_kyc collection for real-time compliance review
+      // 1. Save to admin_kyc collection for real-time admin review
+      console.log("[KYC TRACE 4] Writing to admin_kyc document:", submissionId);
       await safeSetDoc(doc(db, 'admin_kyc', submissionId), submissionPayload);
-      console.log("[KYC SUBMIT] admin_kyc document persisted successfully.");
+      console.log("[KYC TRACE 4 COMPLETED] admin_kyc document written.");
 
-      // 2. Local storage fallback for cross-tab and offline persistence
+      // 2. Local storage fallback so Admin and User can see it across all views/sessions
+      console.log("[KYC TRACE 5] Updating local storage fallback...");
       try {
         const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
         const filtered = Array.isArray(locals) ? locals.filter((item: any) => item.id !== submissionId) : [];
         filtered.unshift(submissionPayload);
-        localStorage.setItem('aver_admin_kyc_local', JSON.stringify(filtered.slice(0, 20)));
+        try {
+          localStorage.setItem('aver_admin_kyc_local', JSON.stringify(filtered));
+        } catch (storageErr) {
+          const trimmed = filtered.slice(0, 10);
+          localStorage.setItem('aver_admin_kyc_local', JSON.stringify(trimmed));
+        }
+        window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new CustomEvent('aver_kyc_submitted', { detail: submissionPayload }));
+        console.log("[KYC TRACE 5 COMPLETED] Local storage aver_admin_kyc_local updated.");
       } catch (e) {
-        console.warn("[KYC SUBMIT] Local storage sync notice:", e);
+        console.warn("[KYC TRACE 5 NOTICE] Local storage sync notice:", e);
       }
 
-      // 3. Update user document with kycStatus: 'pending' and slim kycData
+      // 3. Update user document with kycStatus, full kycData and append to kycHistory
       if (user?.uid) {
-        const slimKycData = {
-          ...submissionPayload,
-          documents: []
-        };
-
+        console.log("[KYC TRACE 6] Updating user document in users collection...");
         await safeSetDoc(doc(db, 'users', user.uid), {
           kycStatus: 'pending',
           kycSubmittedAt: nowIso,
-          kycData: slimKycData,
-          kycHistory: arrayUnion({
-            id: submissionId,
-            status: 'pending',
-            idType: formData.idType,
-            submittedAt: nowIso,
-            name: submissionPayload.name
-          }),
+          kycData: submissionPayload,
+          kycHistory: arrayUnion(submissionPayload),
           lastUpdated: serverTimestamp()
         }, { merge: true });
+        console.log("[KYC TRACE 6 COMPLETED] User document updated.");
 
-        // Update in-memory user profile in AuthContext
-        await updateProfile({
-          kycStatus: 'pending',
-          kycSubmittedAt: nowIso,
-          kycData: submissionPayload
-        } as any, undefined, undefined, true);
-
-        // Store permanent active pending status in localStorage
-        safeStorage.setItem(`aver_kyc_active_status_${user.uid}`, 'pending');
-        safeStorage.setItem(`aver_kyc_active_sub_${user.uid}`, JSON.stringify(submissionPayload));
-        if (user.email) {
-          safeStorage.setItem(`aver_kyc_active_status_${user.email.toLowerCase()}`, 'pending');
-          safeStorage.setItem(`aver_kyc_active_sub_${user.email.toLowerCase()}`, JSON.stringify(submissionPayload));
-        }
-
-        const uKey = `user_profile_${user.uid}`;
-        const cachedUser = JSON.parse(localStorage.getItem(uKey) || '{}');
-        const updatedUser = {
-          ...cachedUser,
-          kycStatus: 'pending',
-          kycData: submissionPayload
-        };
-        localStorage.setItem(uKey, JSON.stringify(updatedUser));
+        // Update cached profile in localStorage
+        try {
+          const uKey = `user_profile_${user.uid}`;
+          const cachedUser = JSON.parse(localStorage.getItem(uKey) || '{}');
+          const existingHistory = Array.isArray(cachedUser.kycHistory) ? cachedUser.kycHistory : [];
+          const updatedUser = {
+            ...cachedUser,
+            kycStatus: 'pending',
+            kycData: submissionPayload,
+            kycHistory: [submissionPayload, ...existingHistory.filter((h: any) => h.id !== submissionId)]
+          };
+          localStorage.setItem(uKey, JSON.stringify(updatedUser));
+          if (user?.uid) {
+            localStorage.setItem(`user_profile_${user.uid}`, JSON.stringify(updatedUser));
+          }
+          window.dispatchEvent(new Event('aver_user_updated'));
+          console.log("[KYC TRACE 6.1 COMPLETED] Local user profile updated.");
+        } catch (e) {}
       }
 
-      // Broadcast real-time events
-      window.dispatchEvent(new CustomEvent('aver_kyc_submitted', { detail: submissionPayload }));
-      window.dispatchEvent(new Event('aver_user_updated'));
-      window.dispatchEvent(new Event('storage'));
-
+      console.log("[KYC TRACE 7] Setting step=7 and submittedSuccess=true...");
       setSubmittedSuccess(true);
       setStep(7);
-      console.log("[KYC SUBMIT] Submission completed with pending status guaranteed.");
+      console.log("[KYC TRACE 8] Submission flow completed successfully.");
     } catch (err: any) {
-      console.error("[KYC SUBMIT ERROR]:", err);
+      console.error("[KYC TRACE EXCEPTION] Exception caught during submission:", err);
       setError(err?.message || 'Failed to submit KYC. Please try again.');
     } finally {
+      console.log("[KYC TRACE FINALLY] Clearing submitting state (setSubmitting(false)).");
       setSubmitting(false);
     }
   };
 
-  // Only allow resubmission if compliance has explicitly rejected or requested resubmission
   const handleRestartVerification = async () => {
     try {
       setSubmitting(true);
       setError('');
       
       const active = latestSubmission || (resolveUserSubmissions(user)[0]) || null;
+      // Pre-fill personal info from active submission if available, but ALWAYS clear image documents for fresh upload
       if (active) {
         setFormData({
           firstName: active.name?.split(' ')[0] || user?.name?.split(' ')[0] || '',
@@ -523,20 +496,80 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
           dob: active.personalInfo?.dob || '',
           nationality: active.personalInfo?.nationality || 'United States',
           phone: active.personalInfo?.phone || '',
-          country: active.address?.country || 'United States',
-          county: active.address?.county || '',
-          state: active.address?.state || '',
-          city: active.address?.city || '',
           address: active.address?.street || '',
+          city: active.address?.city || '',
+          state: active.address?.state || '',
           postalCode: active.address?.postalCode || '',
           idType: active.idType || 'Passport',
           frontIdUrl: '',
+          frontIdOriginalUrl: '',
           backIdUrl: '',
-          selfieUrl: ''
+          backIdOriginalUrl: '',
+          selfieUrl: '',
+          selfieOriginalUrl: ''
         });
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          frontIdUrl: '',
+          frontIdOriginalUrl: '',
+          backIdUrl: '',
+          backIdOriginalUrl: '',
+          selfieUrl: '',
+          selfieOriginalUrl: ''
+        }));
       }
 
-      setStep(2);
+      // 1. Clear component states immediately so effectiveStatus turns 'unverified'
+      setLatestSubmission(null);
+      setSubmittedSuccess(false);
+
+      // 2. Clear localStorage caches
+      if (user?.uid) {
+        try {
+          // Also update the scoped user profile if it's the current user
+          const profKey = `user_profile_${user.uid}`;
+          const cached = JSON.parse(localStorage.getItem(profKey) || '{}');
+          if (cached && cached.uid === user.uid) {
+            delete cached.kycData;
+            cached.kycStatus = 'unverified';
+            delete cached.kycRejectionReason;
+            delete cached.kycResubmissionReason;
+            localStorage.setItem(profKey, JSON.stringify(cached));
+          }
+
+          // Remove or archive this user's active submission from aver_admin_kyc_local
+          const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
+          if (Array.isArray(locals)) {
+            const updatedLocals = locals.filter((k: any) => k.userId !== user.uid && (!user.email || k.email?.toLowerCase() !== user.email.toLowerCase()));
+            localStorage.setItem('aver_admin_kyc_local', JSON.stringify(updatedLocals));
+          }
+        } catch (e) {}
+
+        // 3. Update AuthContext profile
+        await updateProfile({
+          kycStatus: 'unverified',
+          kycData: null,
+          kycRejectionReason: null,
+          kycResubmissionReason: null
+        }, undefined, undefined, true);
+
+        // 4. Update Firestore user doc explicitly
+        await safeSetDoc(doc(db, 'users', user.uid), {
+          kycStatus: 'unverified',
+          kycData: null,
+          kycRejectionReason: null,
+          kycResubmissionReason: null,
+          lastUpdated: serverTimestamp()
+        }, { merge: true });
+      }
+
+      // 5. Broadcast update events
+      window.dispatchEvent(new Event('aver_user_updated'));
+      window.dispatchEvent(new Event('aver_kyc_submitted'));
+      window.dispatchEvent(new Event('storage'));
+
+      setStep(1);
     } catch (err: any) {
       console.error("Failed to restart KYC:", err);
       setError(err.message || "Failed to reset verification. Please try again.");
@@ -545,6 +578,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     }
   };
 
+  // Active submission strictly prioritizes the newest resolved submission record
   const activeSubmission = latestSubmission || (resolveUserSubmissions(user)[0]) || null;
 
   const displayData = activeSubmission ? {
@@ -553,16 +587,14 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     dob: activeSubmission.personalInfo?.dob || '',
     nationality: activeSubmission.personalInfo?.nationality || 'United States',
     phone: activeSubmission.personalInfo?.phone || '',
-    country: activeSubmission.address?.country || activeSubmission.personalInfo?.nationality || 'United States',
-    county: activeSubmission.address?.county || '',
-    state: activeSubmission.address?.state || activeSubmission.address?.county || '',
-    city: activeSubmission.address?.city || '',
     address: activeSubmission.address?.street || '',
+    city: activeSubmission.address?.city || '',
+    state: activeSubmission.address?.state || '',
     postalCode: activeSubmission.address?.postalCode || '',
     idType: activeSubmission.idType || 'Passport',
-    frontIdUrl: activeSubmission.frontIdUrl || activeSubmission.documents?.[0] || '',
-    backIdUrl: activeSubmission.backIdUrl || activeSubmission.documents?.[1] || '',
-    selfieUrl: activeSubmission.selfieUrl || activeSubmission.documents?.[2] || '',
+    frontIdUrl: activeSubmission.frontIdUrl || activeSubmission.frontIdOriginalUrl || activeSubmission.documents?.[0] || '',
+    backIdUrl: activeSubmission.backIdUrl || activeSubmission.backIdOriginalUrl || activeSubmission.documents?.[1] || '',
+    selfieUrl: activeSubmission.selfieUrl || activeSubmission.selfieOriginalUrl || activeSubmission.documents?.[2] || '',
     status: activeSubmission.status || user?.kycStatus || 'pending',
     rejectionReason: activeSubmission.rejectionReason || ''
   } : {
@@ -571,16 +603,14 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
     dob: formData.dob || '',
     nationality: formData.nationality || 'United States',
     phone: formData.phone || '',
-    country: formData.country || 'United States',
-    county: formData.county || '',
-    state: formData.state || '',
-    city: formData.city || '',
     address: formData.address || '',
+    city: formData.city || '',
+    state: formData.state || '',
     postalCode: formData.postalCode || '',
     idType: formData.idType || 'Passport',
-    frontIdUrl: formData.frontIdUrl || '',
-    backIdUrl: formData.backIdUrl || '',
-    selfieUrl: formData.selfieUrl || '',
+    frontIdUrl: formData.frontIdUrl || formData.frontIdOriginalUrl || '',
+    backIdUrl: formData.backIdUrl || formData.backIdOriginalUrl || '',
+    selfieUrl: formData.selfieUrl || formData.selfieOriginalUrl || '',
     status: user?.kycStatus || 'pending',
     rejectionReason: ''
   };
@@ -661,10 +691,10 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                     <Clock className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className="text-lg font-black tracking-tight">Verification Pending Review</h3>
+                    <h3 className="text-lg font-black tracking-tight">Verification Pending</h3>
                     <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Your identity verification application is active and securely queued for compliance review. 
-                      Standard audit is completed within 24–48 hours. Your verification status remains pending until review is finalized.
+                      Your identity verification application is currently under review by our compliance desk. 
+                      This standard audit is completed within 24–48 hours. No action is required.
                     </p>
                   </div>
                 </div>
@@ -678,8 +708,12 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                   <div className="space-y-2">
                     <h3 className="text-3xl font-black tracking-tight">Verification Approved!</h3>
                     <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'} max-w-sm mx-auto leading-relaxed`}>
-                      Your identity has been verified successfully. Your high-limit access and premium platform features are active.
+                      Your identity has been verified successfully. Your high-limit access and premium features are now active.
                     </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                    Redirecting to Bonus Center...
                   </div>
                 </div>
               )}
@@ -692,7 +726,8 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                   <div className="space-y-1 flex-1">
                     <h3 className="text-lg font-black tracking-tight">Verification Rejected</h3>
                     <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'} mb-2`}>
-                      Your identity verification application was rejected by compliance. Please review the note below and update your details.
+                      Your identity verification application was rejected by our compliance team. 
+                      Please correct the issues and submit a new application.
                     </p>
                     {displayData.rejectionReason && (
                       <div className="p-3 rounded-xl bg-rose-500/10 text-xs font-bold border border-rose-500/20">
@@ -738,12 +773,12 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       <span className="text-sm font-semibold mt-0.5">{displayData.dob || '—'}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Nationality / Citizenship</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Nationality</span>
                       <span className="text-sm font-semibold mt-0.5">{displayData.nationality}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Country of Residence</span>
-                      <span className="text-sm font-semibold mt-0.5">{displayData.country}</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Phone Number</span>
+                      <span className="text-sm font-semibold mt-0.5">{displayData.phone || '—'}</span>
                     </div>
                   </div>
 
@@ -757,14 +792,10 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       <span className="text-sm font-semibold mt-0.5">{displayData.address || '—'}</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">City / County / State / Zip</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">City / State / Zip</span>
                       <span className="text-sm font-semibold mt-0.5">
-                        {[displayData.city, displayData.county || displayData.state, displayData.postalCode].filter(Boolean).join(', ') || '—'}
+                        {displayData.city ? `${displayData.city}, ${displayData.state || ''} ${displayData.postalCode || ''}` : '—'}
                       </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Phone Number</span>
-                      <span className="text-sm font-semibold mt-0.5">{displayData.phone || '—'}</span>
                     </div>
                   </div>
                 </div>
@@ -780,7 +811,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       {displayData.frontIdUrl ? (
                         <img src={displayData.frontIdUrl} alt="Front ID" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">Document Uploaded</div>
+                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">Not Uploaded</div>
                       )}
                     </div>
                   </div>
@@ -791,7 +822,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       {displayData.backIdUrl ? (
                         <img src={displayData.backIdUrl} alt="Back ID" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 bg-white/5">Optional / Document Uploaded</div>
+                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 bg-white/5">No Back ID Required / Provided</div>
                       )}
                     </div>
                   </div>
@@ -802,7 +833,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       {displayData.selfieUrl ? (
                         <img src={displayData.selfieUrl} alt="Selfie" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">Document Uploaded</div>
+                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">Not Uploaded</div>
                       )}
                     </div>
                   </div>
@@ -818,7 +849,18 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                     disabled={submitting}
                     className="w-full md:w-auto px-8 py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm transition-all shadow-xl shadow-emerald-500/10 flex-1 text-center"
                   >
-                    {submitting ? 'Resetting...' : 'Update & Resubmit Documents'}
+                    {submitting ? 'Resetting...' : 'Resubmit & Restart Verification'}
+                  </button>
+                )}
+
+                {effectiveStatus === 'pending' && (
+                  <button 
+                    id="restart-pending-kyc-btn"
+                    onClick={handleRestartVerification}
+                    disabled={submitting}
+                    className="w-full md:w-auto px-6 py-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-500 dark:text-amber-400 font-bold text-sm transition-all flex-1 text-center"
+                  >
+                    {submitting ? 'Resetting...' : 'Cancel & Submit New Application'}
                   </button>
                 )}
 
@@ -844,7 +886,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       : 'bg-emerald-500 text-slate-950 font-black hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 flex-1'
                   }`}
                 >
-                  Return to Dashboard
+                  {['rejected', 'requires_resubmission'].includes(effectiveStatus || '') ? 'Close' : effectiveStatus === 'pending' ? 'Back to App' : 'Return to Bonus Center'}
                 </button>
               </div>
             </motion.div>
@@ -875,64 +917,95 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                     <Clock className="w-4 h-4" />
                     <span>Review Process</span>
                   </h4>
-                  <p className="text-xs text-slate-400">Verification requests are reviewed within 24–48 hours. Once submitted, your verification status stays active and pending review.</p>
+                  <p className="text-xs text-slate-400">Verification requests are typically reviewed within 24–48 hours. You'll receive a notification once your application has been reviewed and a decision has been made.</p>
                 </div>
-
                 <div className={`p-5 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
                   <h4 className="font-bold text-sm mb-2 flex items-center gap-2 text-emerald-400">
                     <ShieldCheck className="w-4 h-4" />
-                    <span>Data Privacy</span>
+                    <span>Privacy & Data Protection</span>
                   </h4>
-                  <p className="text-xs text-slate-400">Your personal information is encrypted, handled securely, and reviewed only by authorized compliance specialists for identity verification.</p>
+                  <p className="text-xs text-slate-400">Your personal information is encrypted, handled securely, and reviewed only by authorised compliance specialists for identity verification and regulatory compliance.</p>
                 </div>
               </div>
 
-              <div className="pt-4 flex justify-end">
-                <button 
+              <div className={`p-6 rounded-3xl border ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-100 border-slate-200'} space-y-4`}>
+                <h4 className="font-black text-xs uppercase tracking-widest text-slate-400">Accepted Identity Documents</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {[
+                    { name: 'Passport', icon: BookOpen, desc: 'International travel document' },
+                    { name: 'National ID', icon: CreditCard, desc: 'Government issued card' },
+                    { name: "Driver's License", icon: Car, desc: 'Valid driving permit' }
+                  ].map((docItem) => {
+                    const IconComponent = docItem.icon;
+                    return (
+                      <motion.div 
+                        key={docItem.name} 
+                        whileHover={{ y: -3, scale: 1.02 }}
+                        transition={{ duration: 0.2 }}
+                        className={`p-5 rounded-2xl border flex flex-col items-center text-center gap-3 ${
+                          isDark ? 'bg-white/5 border-white/10 hover:border-emerald-500/40' : 'bg-white border-slate-200 hover:border-emerald-500/40 shadow-sm'
+                        }`}
+                      >
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                          <IconComponent className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="font-black text-sm">{docItem.name}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">{docItem.desc}</div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <button
                   onClick={() => setShowConsentModal(true)}
-                  className="w-full md:w-auto px-8 py-4 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  className="px-8 py-4 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20 flex items-center gap-2"
                 >
                   <span>Start Verification</span>
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Consent Modal */}
+              {/* Consent Dialog Modal */}
               <AnimatePresence>
                 {showConsentModal && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-                    <motion.div 
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className={`max-w-md w-full p-6 rounded-3xl border ${isDark ? 'bg-[#0E131F] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'} space-y-6 shadow-2xl`}
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                      className={`max-w-md w-full p-6 md:p-8 rounded-3xl border shadow-2xl space-y-6 ${
+                        isDark ? 'bg-slate-900 border-white/15 text-slate-100' : 'bg-white border-slate-200 text-slate-950'
+                      }`}
                     >
                       <div className="space-y-2">
-                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4">
-                          <BookOpen className="w-6 h-6" />
-                        </div>
                         <h3 className="text-xl font-black tracking-tight">Consent to Identity Verification</h3>
                         <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                          To comply with global regulatory requirements, we collect and process your identity documents to verify your account. Your information is encrypted and used solely for compliance verification.
+                          To comply with regulatory requirements, we'll collect and process your identity documents to verify your account. Your information will be handled securely and used only for identity verification and compliance purposes.
                         </p>
                       </div>
 
-                      <div className="flex gap-3">
-                        <button 
+                      <div className="flex items-center gap-3 pt-2">
+                        <button
                           onClick={() => setShowConsentModal(false)}
-                          className={`flex-1 py-3 rounded-2xl border font-bold text-xs ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-300 hover:bg-slate-100'}`}
+                          className={`flex-1 py-3.5 px-4 rounded-2xl border font-bold text-xs transition-all ${
+                            isDark ? 'border-white/15 hover:bg-white/5 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-700'
+                          }`}
                         >
                           Cancel
                         </button>
-                        <button 
+                        <button
                           onClick={() => {
-                            setShowConsentModal(false);
                             setConsentTimestamp(new Date().toISOString());
+                            setShowConsentModal(false);
                             setStep(2);
                           }}
-                          className="flex-1 py-3 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+                          className="flex-1 py-3.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-emerald-500/20"
                         >
-                          I Agree & Proceed
+                          Continue
                         </button>
                       </div>
                     </motion.div>
@@ -952,35 +1025,35 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
               className="space-y-6"
             >
               <div>
-                <h2 className="text-2xl font-black tracking-tight mb-1">Personal Details</h2>
-                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Enter your legal information exactly as it appears on your government-issued ID.</p>
+                <h2 className="text-2xl font-black tracking-tight mb-1">Personal Information</h2>
+                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Enter your legal identity details as shown on your official document.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Legal First Name *</label>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">First Name *</label>
                   <input 
                     type="text" 
                     value={formData.firstName}
                     onChange={e => setFormData({...formData, firstName: e.target.value})}
-                    placeholder="John"
+                    placeholder="e.g. Alexander"
                     className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Legal Last Name *</label>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Last Name *</label>
                   <input 
                     type="text" 
                     value={formData.lastName}
                     onChange={e => setFormData({...formData, lastName: e.target.value})}
-                    placeholder="Doe"
+                    placeholder="e.g. Hamilton"
                     className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 max-w-[280px]">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Date of Birth *</label>
                   <input 
                     type="date" 
@@ -990,14 +1063,40 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Nationality / Citizenship *</label>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Nationality *</label>
                   <select 
                     value={formData.nationality}
                     onChange={e => setFormData({...formData, nationality: e.target.value})}
                     className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent appearance-none cursor-pointer ${isDark ? 'border-white/10 bg-[#0E131F]' : 'border-slate-300 bg-white'}`}
                   >
-                    {ALL_WORLD_COUNTRIES.map(c => (
-                      <option key={`nat-${c}`} value={c}>{c}</option>
+                    {[
+                      "United States", "United Kingdom", "Canada", "Australia", "Germany", 
+                      "France", "Switzerland", "Netherlands", "Sweden", "Spain", 
+                      "Italy", "Japan", "China", "Brazil", "United Arab Emirates",
+                      "Norway", "Denmark", "Finland", "Ireland", "Luxembourg",
+                      "Austria", "Belgium", "Singapore", "South Korea", "New Zealand",
+                      "Israel", "Qatar", "Saudi Arabia", "Kuwait", "Bahrain",
+                      "Oman", "Monaco", "Liechtenstein", "Iceland", "Portugal",
+                      "Greece", "Poland", "Czech Republic", "Hungary", "Slovakia",
+                      "Slovenia", "Estonia", "Latvia", "Lithuania", "Cyprus",
+                      "Malta", "Turkey", "India", "Mexico", "Argentina",
+                      "Chile", "Uruguay", "South Africa", "Thailand", "Malaysia",
+                      "Indonesia", "Philippines", "Vietnam", "Taiwan", "Hong Kong",
+                      "Macao", "Russia", "Kazakhstan", "Vatican City", "San Marino",
+                      "Andorra", "Anguilla", "Antigua & Barbuda", "Aruba", "Bahamas", 
+                      "Barbados", "Bermuda", "British Virgin Islands", "Brunei", "Cayman Islands", 
+                      "Cook Islands", "Costa Rica", "Croatia", "Curacao", "Dominica", 
+                      "Faroe Islands", "Fiji", "French Polynesia", "Gibraltar", "Greenland", 
+                      "Grenada", "Guam", "Guernsey", "Isle of Man", "Jersey", 
+                      "Maldives", "Mauritius", "Montenegro", "Montserrat", "New Caledonia", 
+                      "Panama", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent & Grenadines", 
+                      "Seychelles", "Sint Maarten", "Turks & Caicos Islands", "US Virgin Islands",
+                      "Bulgaria", "Colombia", "Egypt", "Georgia", "Jordan", 
+                      "Lebanon", "Morocco", "Peru", "Romania", "Serbia", 
+                      "Sri Lanka", "Tunisia", "Ukraine", "Azerbaijan", "Trinidad & Tobago",
+                      "Nigeria", "Kenya", "Ghana", "Botswana", "Namibia", "Egypt"
+                    ].sort().filter((v, i, a) => a.indexOf(v) === i).map(c => (
+                      <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
                 </div>
@@ -1013,63 +1112,48 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Country of Residence *</label>
-                  <select 
-                    value={formData.country}
-                    onChange={e => setFormData({...formData, country: e.target.value})}
-                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent appearance-none cursor-pointer ${isDark ? 'border-white/10 bg-[#0E131F]' : 'border-slate-300 bg-white'}`}
-                  >
-                    {ALL_WORLD_COUNTRIES.map(c => (
-                      <option key={`country-${c}`} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">County / State / Province *</label>
-                  <input 
-                    type="text" 
-                    value={formData.county || formData.state}
-                    onChange={e => setFormData({...formData, county: e.target.value, state: e.target.value})}
-                    placeholder="County, State, or Province"
-                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Residential Address *</label>
+                <input 
+                  type="text" 
+                  value={formData.address}
+                  onChange={e => setFormData({...formData, address: e.target.value})}
+                  placeholder="123 Wall Street, Suite 400"
+                  className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1.5 md:col-span-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Residential Street Address *</label>
-                  <input 
-                    type="text" 
-                    value={formData.address}
-                    onChange={e => setFormData({...formData, address: e.target.value})}
-                    placeholder="123 Financial Blvd, Suite 400"
-                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
-                  />
-                </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">City / Municipality *</label>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">City *</label>
                   <input 
                     type="text" 
                     value={formData.city}
                     onChange={e => setFormData({...formData, city: e.target.value})}
-                    placeholder="City"
+                    placeholder="New York"
                     className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
                   />
                 </div>
-              </div>
-
-              <div className="space-y-1.5 max-w-xs">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Postal / ZIP Code</label>
-                <input 
-                  type="text" 
-                  value={formData.postalCode}
-                  onChange={e => setFormData({...formData, postalCode: e.target.value})}
-                  placeholder="10005"
-                  className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
-                />
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">State / Province</label>
+                  <input 
+                    type="text" 
+                    value={formData.state}
+                    onChange={e => setFormData({...formData, state: e.target.value})}
+                    placeholder="NY"
+                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Postal Code</label>
+                  <input 
+                    type="text" 
+                    value={formData.postalCode}
+                    onChange={e => setFormData({...formData, postalCode: e.target.value})}
+                    placeholder="10005"
+                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-4">
@@ -1180,7 +1264,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       <>
                         <Upload className="w-8 h-8 text-emerald-400 mb-2" />
                         <span className="text-xs font-bold mb-1">Click to upload or drag & drop</span>
-                        <span className="text-[10px] text-slate-400">PNG, JPG, or PDF</span>
+                        <span className="text-[10px] text-slate-400">PNG, JPG, or PDF (Max 10MB)</span>
                       </>
                     )}
                     <input type="file" accept="image/*" onChange={e => handleFileUpload(e, 'frontIdUrl')} className="hidden" />
@@ -1201,7 +1285,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                       <>
                         <Upload className="w-8 h-8 text-emerald-400 mb-2" />
                         <span className="text-xs font-bold mb-1">Click to upload or drag & drop</span>
-                        <span className="text-[10px] text-slate-400">PNG, JPG, or PDF</span>
+                        <span className="text-[10px] text-slate-400">PNG, JPG, or PDF (Max 10MB)</span>
                       </>
                     )}
                     <input type="file" accept="image/*" onChange={e => handleFileUpload(e, 'backIdUrl')} className="hidden" />
@@ -1297,7 +1381,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
             >
               <div className="mb-2">
                 <h2 className="text-3xl font-black tracking-tight mb-2">Review & Submit</h2>
-                <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'} leading-relaxed`}>Please review your information carefully. Ensure all details match your official documents before submitting.</p>
+                <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'} leading-relaxed`}>Please review your information carefully. Ensure all details match your official documents before final submission.</p>
               </div>
 
               {error && (
@@ -1322,20 +1406,12 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                     <span className={`font-medium text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{formData.dob}</span>
                   </div>
                   <div className="flex flex-col space-y-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Nationality / Citizenship</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Nationality</span>
                     <span className={`font-medium text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{formData.nationality}</span>
                   </div>
                   <div className="flex flex-col space-y-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Country of Residence</span>
-                    <span className={`font-medium text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{formData.country}</span>
-                  </div>
-                  <div className="flex flex-col space-y-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">County / State / Province</span>
-                    <span className={`font-medium text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{formData.county || formData.state || '—'}</span>
-                  </div>
-                  <div className="flex flex-col space-y-1">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Residential Address</span>
-                    <span className={`font-medium text-base leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{formData.address}, {formData.city} {formData.postalCode}</span>
+                    <span className={`font-medium text-base leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{formData.address}, {formData.city} {formData.state} {formData.postalCode}</span>
                   </div>
                 </div>
               </div>
@@ -1396,7 +1472,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
             </motion.div>
           )}
 
-          {/* STEP 7: SUBMISSION COMPLETE & CONFIRMATION MODAL */}
+          {/* STEP 7: SUBMISSION COMPLETE */}
           {step === 7 && (
             <motion.div 
               key="step7"
@@ -1411,7 +1487,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
               <div className="space-y-2">
                 <h2 className="text-3xl font-black tracking-tight">Verification Submitted</h2>
                 <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                  Your documents have been securely submitted to our compliance team for audit.
+                  Your documents have been securely submitted to our compliance team for review.
                 </p>
               </div>
 
@@ -1430,33 +1506,17 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                   <span className="text-xs text-slate-400 font-bold uppercase">Submitted ID</span>
                   <span className="font-black text-sm">{formData.idType}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-slate-400 font-bold uppercase">Country</span>
-                  <span className="font-black text-sm">{formData.country || formData.nationality}</span>
-                </div>
               </div>
 
-              <div className="flex flex-col gap-3 pt-2">
-                <button
-                  id="return-to-dashboard-btn"
-                  onClick={() => {
-                    setSubmittedSuccess(false);
-                    onComplete();
-                  }}
-                  className="w-full py-4 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20"
-                >
-                  Return to Dashboard
-                </button>
-                <button
-                  onClick={() => {
-                    setSubmittedSuccess(false);
-                    setStep(1);
-                  }}
-                  className={`w-full py-3.5 rounded-2xl border font-bold text-xs ${isDark ? 'border-white/10 hover:bg-white/5 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-700'}`}
-                >
-                  View Verification Status
-                </button>
-              </div>
+              <button
+                onClick={() => {
+                  setSubmittedSuccess(false);
+                  onComplete();
+                }}
+                className="w-full py-4 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20"
+              >
+                Return to Bonus Center
+              </button>
             </motion.div>
           )}
             </>

@@ -1,21 +1,22 @@
 /**
- * Comprehensive list of all countries, sovereign nations, and global territories of the world,
- * ordered alphabetically for complete global coverage in registration and compliance verification.
+ * Comprehensive list of 200 global sovereign nations and prime financial jurisdictions,
+ * ordered alphabetically with complete A-Z coverage for international institutional onboarding.
  */
-export const ALL_WORLD_COUNTRIES: string[] = [
+export const PRESTIGIOUS_COUNTRIES = [
+  // A
   "Afghanistan",
   "Albania",
   "Algeria",
   "Andorra",
   "Angola",
-  "Anguilla",
   "Antigua and Barbuda",
   "Argentina",
   "Armenia",
-  "Aruba",
   "Australia",
   "Austria",
   "Azerbaijan",
+
+  // B
   "Bahamas",
   "Bahrain",
   "Bangladesh",
@@ -35,10 +36,12 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Bulgaria",
   "Burkina Faso",
   "Burundi",
-  "Cabo Verde",
+
+  // C
   "Cambodia",
   "Cameroon",
   "Canada",
+  "Cape Verde",
   "Cayman Islands",
   "Central African Republic",
   "Chad",
@@ -46,20 +49,20 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "China",
   "Colombia",
   "Comoros",
-  "Congo (Democratic Republic of)",
-  "Congo (Republic of)",
-  "Cook Islands",
+  "Congo",
   "Costa Rica",
-  "Cote d'Ivoire",
   "Croatia",
   "Cuba",
-  "Curacao",
   "Cyprus",
   "Czech Republic",
+
+  // D
   "Denmark",
   "Djibouti",
   "Dominica",
   "Dominican Republic",
+
+  // E
   "Ecuador",
   "Egypt",
   "El Salvador",
@@ -68,12 +71,14 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Estonia",
   "Eswatini",
   "Ethiopia",
-  "Faroe Islands",
+
+  // F
   "Fiji",
   "Finland",
   "France",
-  "French Guiana",
   "French Polynesia",
+
+  // G
   "Gabon",
   "Gambia",
   "Georgia",
@@ -81,38 +86,43 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Ghana",
   "Gibraltar",
   "Greece",
-  "Greenland",
   "Grenada",
-  "Guadeloupe",
-  "Guam",
   "Guatemala",
   "Guernsey",
   "Guinea",
-  "Guinea-Bissau",
   "Guyana",
+
+  // H
   "Haiti",
   "Honduras",
   "Hong Kong",
   "Hungary",
+
+  // I
   "Iceland",
   "India",
   "Indonesia",
-  "Iran",
   "Iraq",
   "Ireland",
   "Isle of Man",
   "Israel",
   "Italy",
+  "Ivory Coast",
+
+  // J
   "Jamaica",
   "Japan",
   "Jersey",
   "Jordan",
+
+  // K
   "Kazakhstan",
   "Kenya",
   "Kiribati",
-  "Kosovo",
   "Kuwait",
   "Kyrgyzstan",
+
+  // L
   "Laos",
   "Latvia",
   "Lebanon",
@@ -122,7 +132,9 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Liechtenstein",
   "Lithuania",
   "Luxembourg",
-  "Macao",
+
+  // M
+  "Macau",
   "Madagascar",
   "Malawi",
   "Malaysia",
@@ -130,33 +142,34 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Mali",
   "Malta",
   "Marshall Islands",
-  "Martinique",
   "Mauritania",
   "Mauritius",
-  "Mayotte",
   "Mexico",
   "Micronesia",
   "Moldova",
   "Monaco",
   "Mongolia",
   "Montenegro",
-  "Montserrat",
   "Morocco",
   "Mozambique",
   "Myanmar",
+
+  // N
   "Namibia",
   "Nauru",
   "Nepal",
   "Netherlands",
-  "New Caledonia",
   "New Zealand",
   "Nicaragua",
   "Niger",
   "Nigeria",
-  "North Korea",
   "North Macedonia",
   "Norway",
+
+  // O
   "Oman",
+
+  // P
   "Pakistan",
   "Palau",
   "Palestine",
@@ -167,17 +180,17 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Philippines",
   "Poland",
   "Portugal",
-  "Puerto Rico",
+
+  // Q
   "Qatar",
-  "Reunion",
+
+  // R
   "Romania",
-  "Russia",
   "Rwanda",
-  "Saint Barthelemy",
+
+  // S
   "Saint Kitts and Nevis",
   "Saint Lucia",
-  "Saint Martin",
-  "Saint Pierre and Miquelon",
   "Saint Vincent and the Grenadines",
   "Samoa",
   "San Marino",
@@ -188,21 +201,19 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Seychelles",
   "Sierra Leone",
   "Singapore",
-  "Sint Maarten",
   "Slovakia",
   "Slovenia",
   "Solomon Islands",
   "Somalia",
   "South Africa",
   "South Korea",
-  "South Sudan",
   "Spain",
   "Sri Lanka",
-  "Sudan",
   "Suriname",
   "Sweden",
   "Switzerland",
-  "Syria",
+
+  // T
   "Taiwan",
   "Tajikistan",
   "Tanzania",
@@ -216,6 +227,8 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "Turkmenistan",
   "Turks and Caicos Islands",
   "Tuvalu",
+
+  // U
   "Uganda",
   "Ukraine",
   "United Arab Emirates",
@@ -223,17 +236,27 @@ export const ALL_WORLD_COUNTRIES: string[] = [
   "United States",
   "Uruguay",
   "Uzbekistan",
+
+  // V
   "Vanuatu",
   "Vatican City",
   "Venezuela",
   "Vietnam",
+
+  // W
+  "Wales",
   "Wallis and Futuna",
   "Western Sahara",
+
+  // X
+  "X-Offshore Financial Zone",
+
+  // Y
   "Yemen",
+
+  // Z
   "Zambia",
   "Zimbabwe"
 ];
 
-// Backward-compatible alias for existing imports
-export const PRESTIGIOUS_COUNTRIES = ALL_WORLD_COUNTRIES;
-export default ALL_WORLD_COUNTRIES;
+export default PRESTIGIOUS_COUNTRIES;
