@@ -365,7 +365,7 @@ const DEFAULT_LOCATION: NavigationLocation = {
 function getInitialStack(initialView?: string): NavigationLocation[] {
   const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
   const hasActiveUser = !isExplicitlyLoggedOut && !!safeStorage.getItem('aver_active_user');
-  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin', 'auth'];
+  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'auth'];
 
   // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
   if (isExplicitlyLoggedOut) {

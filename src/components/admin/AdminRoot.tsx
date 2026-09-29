@@ -184,7 +184,13 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button 
-                  onClick={() => window.location.href = '/'}
+                  onClick={() => {
+                    if (navigateToView) {
+                      navigateToView('home');
+                    } else {
+                      window.location.href = '/';
+                    }
+                  }}
                   className="w-full sm:w-auto px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
                 >
                   <Home className="w-5 h-5" />

@@ -110,7 +110,7 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
       }).catch(() => {});
       if (addNotification) {
         addNotification(
-          'rewards',
+          'referral',
           'high',
           'Premium Referral Reward Added to Main Balance!',
           `+$${bonus}.00 USDT credited directly to your main balance for Premium referee(s)!`

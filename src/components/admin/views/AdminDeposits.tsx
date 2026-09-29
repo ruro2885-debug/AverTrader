@@ -662,13 +662,13 @@ export default function AdminDeposits({ theme }: { theme: 'light' | 'dark' }) {
                         <span className="text-base font-black text-emerald-400">
                           ${Number(item.amount || 0).toLocaleString()} USD
                         </span>
-                        {item.cryptoAmount && item.cryptoSymbol && item.cryptoSymbol !== 'USD' && item.cryptoSymbol !== 'USDT' && (
+                        {(item as any).cryptoAmount && item.cryptoSymbol && item.cryptoSymbol !== 'USD' && item.cryptoSymbol !== 'USDT' && (
                           <span className="text-xs font-mono font-bold text-amber-400">
-                            {item.cryptoAmount} {item.cryptoSymbol}
+                            {(item as any).cryptoAmount} {item.cryptoSymbol}
                           </span>
                         )}
                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          {item.currency || item.asset || 'USD'}
+                          {item.currency || (item as any).asset || 'USD'}
                         </span>
                       </div>
                     </td>

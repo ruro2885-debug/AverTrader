@@ -1172,7 +1172,7 @@ export default function PortfolioViewV2({
         return { ...a, quantity: user.availableBalance };
       }
       if (user?.holdings && user.holdings.length > 0) {
-        const match = user.holdings.find(h => h.ticker === a.ticker || h.symbol === a.ticker);
+        const match = user.holdings.find(h => h.ticker === a.ticker || (h as any).symbol === a.ticker);
         if (match) {
           return { ...a, quantity: match.quantity };
         }
@@ -1226,8 +1226,8 @@ export default function PortfolioViewV2({
 
   // Missing States for Vault and Trading dialogs
   const [activeDialog, setActiveDialog] = useState<'trade' | 'vault' | null>(null);
-  const [vaultState, setVaultState] = useState<'closed' | 'deposit' | 'withdraw' | 'goal'>('closed');
-  const [vaultActionType, setVaultActionType] = useState<'DEPOSIT' | 'WITHDRAW' | null>(null);
+  const [vaultState, setVaultState] = useState<'closed' | 'unlocked' | 'locked' | 'setup' | 'deposit' | 'withdraw' | 'goal'>('closed');
+  const [vaultActionType, setVaultActionType] = useState<'deposit' | 'withdraw' | 'DEPOSIT' | 'WITHDRAW' | null>(null);
   const [vaultActionAsset, setVaultActionAsset] = useState<string>('BTC');
   const [vaultActionAmount, setVaultActionAmount] = useState<string>('');
   const [vaultGoalName, setVaultGoalName] = useState<string>('');
@@ -1235,7 +1235,7 @@ export default function PortfolioViewV2({
   const [showWithdrawPasscodeVerify, setShowWithdrawPasscodeVerify] = useState<boolean>(false);
   const [withdrawVerifyInput, setWithdrawVerifyInput] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
-  const [shakeTrigger, setShakeTrigger] = useState<number>(0);
+  const [shakeTrigger, setShakeTrigger] = useState<boolean>(false);
 
   const [tradeType, setTradeType] = useState<'BUY' | 'SELL'>('BUY');
   const [tradeAsset, setTradeAsset] = useState<string>('BTC');
@@ -1464,7 +1464,7 @@ export default function PortfolioViewV2({
             : Math.floor((record.timestamp?.toMillis ? record.timestamp.toMillis() : Date.now()) / 1000);
           points.push({
             time: timeSec,
-            value: Number(record.totalNetBalance ?? record.equity ?? 0)
+            value: Number(record.totalNetBalance ?? (record as any).equity ?? 0)
           });
         });
       }
@@ -1532,7 +1532,7 @@ export default function PortfolioViewV2({
     }
     if (filteredEquityHistory && filteredEquityHistory.length > 0) {
       const firstRec = filteredEquityHistory[0];
-      return firstRec.totalNetBalance ?? firstRec.equity ?? 0;
+      return firstRec.totalNetBalance ?? (firstRec as any).equity ?? 0;
     }
     if (mergedChartData.length > 0) {
       return mergedChartData[0].value;
@@ -1567,7 +1567,7 @@ export default function PortfolioViewV2({
   const executionEvents = useMemo(() => {
     // Markers are LIVE SESSION UI markers ONLY.
     // When session is NOT ACTIVE/RUNNING (ENDED/STOPPED/INACTIVE), immediately return empty list to remove all markers.
-    if (!session || (session.status !== 'ACTIVE' && session.status !== 'RUNNING')) {
+    if (!session || (session.status !== 'ACTIVE' && (session.status as string) !== 'RUNNING')) {
       return [];
     }
 

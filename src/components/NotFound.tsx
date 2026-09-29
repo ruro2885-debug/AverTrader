@@ -10,7 +10,7 @@ interface NotFoundProps {
 }
 
 export default function NotFound({ theme, onBack, onAdminAccess }: NotFoundProps) {
-  const { navigateToView } = useAppNavigation() as any;
+  const { navigateView, navigateToView } = useAppNavigation() as any;
   const isDark = theme === 'dark';
   const [tapCount, setTapCount] = useState(0);
   const [showAuth, setShowAuth] = useState(false);
@@ -32,7 +32,9 @@ export default function NotFound({ theme, onBack, onAdminAccess }: NotFoundProps
     const code = password.trim();
     if (code === 'Ruro2008$' || code === 'Ruro2008') {
       localStorage.setItem('admin_session_active', 'true');
-      if (navigateToView) {
+      if (navigateView) {
+        navigateView('admin');
+      } else if (navigateToView) {
         navigateToView('admin');
       } else if (onAdminAccess) {
         onAdminAccess();

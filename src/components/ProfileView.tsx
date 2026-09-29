@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
-import { useAppNavigation } from '../contexts/NavigationContext';
 import { multiFactor, TotpMultiFactorGenerator } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { authenticator } from '@otplib/preset-default';
@@ -67,20 +66,6 @@ export default function ProfileView({
     verifyCurrentPassword
   } = useAuth();
   const { preferences, updatePreference, t } = usePreferences();
-  const { navigateView } = useAppNavigation();
-
-  const handleLogout = async () => {
-    try {
-      await signOutUser();
-    } finally {
-      navigateView('home', {}, { replace: true });
-      if (typeof window !== 'undefined' && window.history) {
-        try {
-          window.history.replaceState({ id: 'root-home', view: 'home', tab: 'home' }, '', '/');
-        } catch (e) {}
-      }
-    }
-  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
@@ -683,7 +668,7 @@ export default function ProfileView({
       
       if (!mfaSecret) {
         // Start enrollment
-        const mfa = multiFactor(user);
+        const mfa = multiFactor(user as any);
         const session = await mfa.getSession();
         const secret = await TotpMultiFactorGenerator.generateSecret(session);
         setMfaSecret(secret);
@@ -697,7 +682,7 @@ export default function ProfileView({
         twoFactorCode
       );
       
-      const mfa = multiFactor(user);
+      const mfa = multiFactor(user as any);
       await mfa.enroll(multiFactorAssertion, 'My 2FA Device');
 
       // Update Firestore preference for persistent state
@@ -1037,7 +1022,7 @@ export default function ProfileView({
       <div className={`rounded-[24px] overflow-hidden ${cardClasses} mt-8`}>
         <button 
           type="button"
-          onClick={handleLogout}
+          onClick={signOutUser}
           className={`w-full flex items-center justify-between p-4 transition-all cursor-pointer touch-manipulation select-none active:scale-[0.99] ${
             isDark ? 'hover:bg-rose-500/10' : 'hover:bg-rose-50'
           }`}

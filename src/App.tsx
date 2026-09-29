@@ -49,17 +49,12 @@ function AppContent() {
   // Synchronize dynamic canonical URL tag with custom domain (https://www.avertrader.space)
   useDynamicCanonical(currentLocation);
 
-  // Ready state logic: Wait for auth and a minimum splash duration
+  // Ready state: Synchronize directly with authentication resolution
   useEffect(() => {
     if (!authLoading) {
-      // Small additional delay if user is present to allow Dashboard components to pre-initialize
-      const settleDelay = user ? 3200 : 2800;
-      const timer = setTimeout(() => {
-        setIsReady(true);
-      }, settleDelay);
-      return () => clearTimeout(timer);
+      setIsReady(true);
     }
-  }, [authLoading, user?.uid]);
+  }, [authLoading]);
 
   const navigateToView = (view: string) => {
     navigateView(view);
@@ -142,7 +137,7 @@ function AppContent() {
       }
     } else {
       // Access control enforcement: send anonymous/logged-out sessions on protected views to the landing page
-      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'admin'];
+      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
       if (protectedViews.includes(currentView)) {
         console.log(`[App] Access denied or session signed out on view ${currentView}. Redirecting to Landing Page.`);
         navigateView('home', {}, { replace: true });
@@ -248,7 +243,7 @@ function AppContent() {
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.7-system-reset">
       <AnimatePresence mode="wait">
         {!isReady ? (
-          <Loader onComplete={() => {}} />
+          <Loader onComplete={() => setIsReady(true)} />
         ) : isAccountBlocked ? (
           <motion.div
             key="blocked-screen"

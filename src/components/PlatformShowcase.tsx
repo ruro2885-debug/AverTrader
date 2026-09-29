@@ -176,7 +176,9 @@ export default function PlatformShowcase({ theme, onBack, onGetStarted }: Platfo
             initial={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed inset-0 bg-[#020204] z-[9999] flex flex-col items-center justify-center overflow-hidden"
+            onClick={() => setIsIntroActive(false)}
+            className="fixed inset-0 bg-[#020204] z-[9999] flex flex-col items-center justify-center overflow-hidden cursor-pointer"
+            title="Click or tap to skip intro"
           >
             {/* Ambient Background Grid and Glows */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.15)_0%,transparent_65%)] z-0 pointer-events-none" />
