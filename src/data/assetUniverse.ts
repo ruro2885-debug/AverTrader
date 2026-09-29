@@ -207,7 +207,5 @@ export const ASSET_UNIVERSE: UniverseAsset[] = [
 ];
 
 export const INITIAL_DEFAULT_ASSET_COLLECTION: string[] = [
-  'BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB',
-  'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC',
-  'SPY', 'QQQ', 'ARKK', 'GLD'
+  'BTC', 'ETH', 'SOL', 'XRP', 'ADA'
 ];

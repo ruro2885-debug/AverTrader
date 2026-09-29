@@ -273,7 +273,7 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
           label="Strategy Accuracy" 
           value={accuracyResult.value} 
           trend={accuracyResult.subtitle} 
-          isPositive={accuracyResult.isPositive} 
+          trendColor={accuracyResult.isPositive ? 'text-emerald-500/90' : 'text-rose-500/90'}
           icon={<Target className="w-4 h-4 text-[#00D09C]" />} 
           isDark={isDark} 
         />
@@ -281,7 +281,7 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
           label="Total Trades" 
           value={totalTradesResult.value} 
           trend={totalTradesResult.subtitle} 
-          isPositive={true} 
+          trendColor={isDark ? 'text-slate-400' : 'text-slate-500'}
           icon={<Activity className="w-4 h-4 text-blue-500" />} 
           isDark={isDark} 
         />
@@ -289,7 +289,7 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
           label="Avg Holding Time" 
           value={avgHoldingTimeResult.value} 
           trend={avgHoldingTimeResult.subtitle} 
-          isPositive={true} 
+          trendColor={isDark ? 'text-slate-400' : 'text-slate-500'}
           icon={<Clock className="w-4 h-4 text-amber-500" />} 
           isDark={isDark} 
         />
@@ -297,7 +297,7 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
           label="Profit Factor" 
           value={profitFactorResult.value} 
           trend={profitFactorResult.subtitle} 
-          isPositive={profitFactorResult.isPositive} 
+          trendColor={profitFactorResult.isPositive ? 'text-emerald-500/90' : 'text-rose-500/90'}
           icon={<ShieldCheck className="w-4 h-4 text-emerald-500" />} 
           isDark={isDark} 
         />
@@ -469,16 +469,18 @@ export default function AiPerformanceHub({ isDark, trades = [], recommendations 
   );
 }
 
-function MetricCard({ label, value, trend, isPositive, icon, isDark }: any) {
+function MetricCard({ label, value, trend, isDark, icon, trendColor }: any) {
   return (
-    <div className={`rounded-2xl border p-5 ${isDark ? 'bg-[#0B0E14] border-white/5' : 'bg-white border-slate-200'}`}>
-      <div className="flex items-center gap-2 mb-3">
-        {icon}
-        <span className={`text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{label}</span>
+    <div className={`rounded-2xl border p-4 flex flex-col justify-between ${isDark ? 'bg-[#0B0E14] border-white/5' : 'bg-white border-slate-200'}`}>
+      <div>
+        <div className="flex items-center gap-1.5 mb-2.5">
+          {icon}
+          <span className={`text-[9px] font-black uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{label}</span>
+        </div>
+        <span className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'} leading-none`}>{value}</span>
       </div>
-      <div className="flex items-end justify-between">
-        <span className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</span>
-        <span className={`text-[10px] font-bold ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+      <div className="mt-2 flex items-center justify-between">
+        <span className={`text-[10px] font-medium block truncate ${trendColor}`}>
           {trend}
         </span>
       </div>

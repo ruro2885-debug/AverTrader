@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, ShieldAlert, CheckCircle2, XCircle, Clock, ExternalLink, ArrowUpCircle, RotateCcw, AlertTriangle, X, Check, Copy } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, doc, serverTimestamp, increment, arrayUnion, addDoc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, serverTimestamp, increment, arrayUnion, addDoc, getDoc, setDoc, where, getDocs } from 'firebase/firestore';
 import { db, auth, safeSetDoc, safeUpdateDoc } from '../../../lib/firebase';
 import { portfolioPersistenceService } from '../../../services/portfolioPersistenceService';
 import { walletService } from '../../../services/walletService';
-import { mergeWithdrawalsWithLocal, saveLocalWithdrawal, getLocalWithdrawals } from '../../../lib/withdrawalStore';
+import { 
+  mergeWithdrawalsWithLocal, 
+  saveLocalWithdrawal, 
+  getLocalWithdrawals, 
+  resolveStatus, 
+  getStatusPriority,
+  recordWithdrawalAction,
+  isActionedStatus 
+} from '../../../lib/withdrawalStore';
 
 interface Withdrawal {
   id: string;
@@ -61,66 +69,80 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
     const aggregateAndSetWithdrawals = () => {
       const combinedMap = new Map<string, any>();
 
+      const findExisting = (item: any) => {
+        if (!item) return null;
+        if (item.id && combinedMap.has(item.id)) return combinedMap.get(item.id);
+        if (item.refId && combinedMap.has(item.refId)) return combinedMap.get(item.refId);
+        if (item.txHash && combinedMap.has(item.txHash)) return combinedMap.get(item.txHash);
+        for (const existing of combinedMap.values()) {
+          if (
+            (item.id && (existing.id === item.id || existing.refId === item.id || existing.txHash === item.id)) ||
+            (item.refId && (existing.id === item.refId || existing.refId === item.refId || existing.txHash === item.refId)) ||
+            (item.txHash && (existing.id === item.txHash || existing.refId === item.txHash || existing.txHash === item.txHash))
+          ) {
+            return existing;
+          }
+        }
+        return null;
+      };
+
+      const mergeItem = (w: any) => {
+        if (!w) return;
+        const existing = findExisting(w);
+        const primaryId = existing?.id || w.id || w.refId || w.txHash;
+        if (!primaryId) return;
+
+        const mergedStatus = resolveStatus(existing?.status, w.status);
+        const mergedRecord = {
+          ...existing,
+          ...w,
+          id: primaryId,
+          userId: w.userId && w.userId !== 'anonymous' ? w.userId : (existing?.userId || w.userId || 'anonymous'),
+          email: w.email && w.email !== 'User' ? w.email : (existing?.email || w.email || 'User'),
+          userName: w.userName && w.userName !== 'User' ? w.userName : (existing?.userName || w.userName || 'User'),
+          amount: Number(w.amount) || Number(existing?.amount) || 0,
+          asset: w.asset || existing?.asset || 'USDT',
+          destination: w.destination || w.destinationAddress || existing?.destination || existing?.destinationAddress || 'N/A',
+          refId: existing?.refId || w.refId || (w.id?.startsWith('WTH-') ? w.id : undefined),
+          txHash: existing?.txHash || w.txHash,
+          status: mergedStatus,
+          reversalReason: w.reversalReason || existing?.reversalReason,
+          processedBy: w.processedBy || existing?.processedBy,
+          updatedAt: w.updatedAt || existing?.updatedAt
+        };
+
+        combinedMap.set(primaryId, mergedRecord);
+        if (w.refId && w.refId !== primaryId) combinedMap.set(w.refId, mergedRecord);
+        if (w.txHash && w.txHash !== primaryId) combinedMap.set(w.txHash, mergedRecord);
+      };
+
       // 1. Start from local withdrawals
       const local = getLocalWithdrawals();
-      local.forEach(w => {
-        if (w && w.id) {
-          combinedMap.set(w.id, {
-            ...w,
-            status: (w.status || 'pending').toLowerCase()
-          });
-        }
-      });
+      local.forEach(w => mergeItem(w));
 
       // 2. Add admin_withdrawals
-      adminWithdrawalsList.forEach(w => {
-        if (w && w.id) {
-          const existing = combinedMap.get(w.id);
-          combinedMap.set(w.id, { 
-            ...existing, 
-            ...w,
-            status: (w.status || existing?.status || 'pending').toLowerCase()
-          });
-        }
-      });
+      adminWithdrawalsList.forEach(w => mergeItem(w));
 
       // 3. Add withdrawals collection
-      withdrawalsList.forEach(w => {
-        if (w && w.id) {
-          const existing = combinedMap.get(w.id);
-          combinedMap.set(w.id, { 
-            ...existing, 
-            ...w,
-            status: (w.status || existing?.status || 'pending').toLowerCase()
-          });
-        }
-      });
+      withdrawalsList.forEach(w => mergeItem(w));
 
       // 4. Add transaction withdrawals
-      transactionsWithdrawalsList.forEach(w => {
-        if (w && w.id) {
-          const existing = combinedMap.get(w.id);
-          combinedMap.set(w.id, {
-            ...existing,
-            ...w,
-            status: (w.status || existing?.status || 'pending').toLowerCase()
-          });
-        }
-      });
+      transactionsWithdrawalsList.forEach(w => mergeItem(w));
 
       // 5. Add user doc withdrawals
-      userWithdrawalsList.forEach(w => {
-        if (w && w.id) {
-          const existing = combinedMap.get(w.id);
-          combinedMap.set(w.id, {
-            ...existing,
-            ...w,
-            status: (w.status || existing?.status || 'pending').toLowerCase()
-          });
-        }
-      });
+      userWithdrawalsList.forEach(w => mergeItem(w));
 
-      const merged = mergeWithdrawalsWithLocal(Array.from(combinedMap.values()));
+      // Deduplicate by unique primary id
+      const uniqueList: any[] = [];
+      const seenIds = new Set<string>();
+      for (const item of combinedMap.values()) {
+        if (item && item.id && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          uniqueList.push(item);
+        }
+      }
+
+      const merged = mergeWithdrawalsWithLocal(uniqueList);
       setWithdrawals(merged as Withdrawal[]);
       setLoading(false);
     };
@@ -251,38 +273,82 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         console.log(`[AdminWithdrawals TRACE 3.3] Fallback withdrawal item constructed:`, withdrawalData.id);
       }
 
+      let resolvedUserId = withdrawalData.userId;
+      const userEmail = withdrawalData.email;
+
+      // Try resolving real user ID from email if missing or anonymous
+      if ((!resolvedUserId || resolvedUserId === 'anonymous' || resolvedUserId.startsWith('local-')) && userEmail && userEmail !== 'User') {
+        try {
+          const userQuery = query(collection(db, 'users'), where('email', '==', userEmail.toLowerCase()));
+          const userQuerySnap = await getDocs(userQuery);
+          if (!userQuerySnap.empty) {
+            resolvedUserId = userQuerySnap.docs[0].id;
+            console.log(`[AdminWithdrawals] Resolved userId ${resolvedUserId} from email ${userEmail}`);
+          }
+        } catch (e) {}
+      }
+
       const currentStatus = (withdrawalData.status || 'pending').toLowerCase();
-      const userId = withdrawalData.userId;
+      const userId = resolvedUserId;
       const amount = Number(withdrawalData.amount) || 0;
 
-      // 2. Prepare update payloads
+      // 2. Prepare candidate IDs and update payloads
+      const allCandidateIds = Array.from(new Set([
+        id,
+        withdrawalData.id,
+        withdrawalData.refId,
+        withdrawalData.txHash,
+        withdrawalData.customId
+      ].filter(Boolean) as string[]));
+
+      const effectiveReason = newStatus === 'reversed' 
+        ? ((reason && reason.trim()) || withdrawalData.reversalReason || 'Administrative correction and compliance review.') 
+        : undefined;
+
       const updatePayload: any = {
         id,
         status: newStatus,
         processedAt: serverTimestamp(),
         processedBy: adminEmail,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        ...(resolvedUserId ? { userId: resolvedUserId } : {}),
+        ...(userEmail ? { email: userEmail } : {}),
+        ...(withdrawalData.refId ? { refId: withdrawalData.refId } : {}),
+        ...(withdrawalData.txHash ? { txHash: withdrawalData.txHash } : {})
       };
 
-      if (newStatus === 'reversed' && reason) {
-        updatePayload.reversalReason = reason.trim();
+      if (effectiveReason) {
+        updatePayload.reversalReason = effectiveReason;
       }
 
       const txStatus = newStatus === 'completed' ? 'Successful' : (newStatus === 'failed' ? 'Failed' : 'Reversed');
       const txUpdatePayload: any = {
         id,
         status: txStatus,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        ...(resolvedUserId ? { userId: resolvedUserId } : {}),
+        ...(userEmail ? { email: userEmail } : {}),
+        ...(withdrawalData.refId ? { refId: withdrawalData.refId } : {}),
+        ...(withdrawalData.txHash ? { txHash: withdrawalData.txHash } : {})
       };
-      if (newStatus === 'reversed' && reason) {
-        txUpdatePayload.reversalReason = reason.trim();
+      if (effectiveReason) {
+        txUpdatePayload.reversalReason = effectiveReason;
       }
 
-      console.log(`[AdminWithdrawals TRACE 4] Writing updates to admin_withdrawals, withdrawals, and transactions for ${id}...`);
-      // 3. Update remote Firestore collections using safeSetDoc (avoids missing permission / doc errors)
-      await safeSetDoc(doc(db, 'admin_withdrawals', id), updatePayload, { merge: true });
-      await safeSetDoc(doc(db, 'withdrawals', id), updatePayload, { merge: true });
-      await safeSetDoc(doc(db, 'transactions', id), txUpdatePayload, { merge: true });
+      // Record in persistent action registry across all candidate IDs
+      recordWithdrawalAction(allCandidateIds, {
+        status: txStatus,
+        reversalReason: effectiveReason
+      });
+
+      console.log(`[AdminWithdrawals TRACE 4] Writing updates to admin_withdrawals, withdrawals, and transactions for ${allCandidateIds.join(', ')}...`);
+      // 3. Update remote Firestore collections for all candidate IDs
+      for (const cid of allCandidateIds) {
+        await safeSetDoc(doc(db, 'admin_withdrawals', cid), updatePayload, { merge: true }).catch(() => {});
+        await safeSetDoc(doc(db, 'withdrawals', cid), updatePayload, { merge: true }).catch(() => {});
+        await safeSetDoc(doc(db, 'transactions', cid), txUpdatePayload, { merge: true }).catch(() => {});
+        await safeSetDoc(doc(db, 'user_transactions', cid), txUpdatePayload, { merge: true }).catch(() => {});
+      }
       console.log(`[AdminWithdrawals TRACE 4 COMPLETED] Firestore document writes completed.`);
 
       // 4. Update local storage withdrawal store immediately
@@ -292,7 +358,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
         id,
         status: newStatus,
         processedBy: adminEmail,
-        reversalReason: newStatus === 'reversed' ? (reason || withdrawalData.reversalReason) : withdrawalData.reversalReason,
+        reversalReason: effectiveReason,
         updatedAt: new Date().toISOString()
       };
       saveLocalWithdrawal(updatedLocalRecord);
@@ -300,6 +366,13 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
 
       // 5. Balance & User document adjustments
       console.log(`[AdminWithdrawals TRACE 6] Processing balance adjustments for status ${newStatus}, user ${userId}, amount $${amount}...`);
+      const matchesWithdrawal = (w: any) => {
+        if (!w) return false;
+        return allCandidateIds.some(cid => 
+          w.id === cid || w.refId === cid || w.txHash === cid
+        );
+      };
+
       if (newStatus === 'completed' && currentStatus !== 'completed' && userId && amount > 0) {
         if (!userId.startsWith('local-') && userId !== 'anonymous') {
           const userRef = doc(db, 'users', userId);
@@ -309,7 +382,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                (w.id === id || w.refId === id || (withdrawalData.refId && (w.id === withdrawalData.refId || w.refId === withdrawalData.refId))) ? { ...w, status: 'Successful' } : w
+                matchesWithdrawal(w) ? { ...w, status: 'Completed' } : w
               );
             }
           }
@@ -327,6 +400,28 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
           }, { merge: true });
           console.log(`[AdminWithdrawals TRACE 6.1 COMPLETED] User document balance decremented.`);
         }
+
+        // Also update user profile in localStorage immediately
+        try {
+          const profileKeys = ['aver_active_user', `user_profile_${userId}`];
+          profileKeys.forEach(k => {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const u = JSON.parse(raw);
+              if (u) {
+                if (Array.isArray(u.withdrawals)) {
+                  u.withdrawals = u.withdrawals.map((w: any) => matchesWithdrawal(w) ? { ...w, status: 'Completed' } : w);
+                }
+                u.portfolioBalance = Math.max(0, (Number(u.portfolioBalance) || 0) - amount);
+                u.availableBalance = Math.max(0, (Number(u.availableBalance) || 0) - amount);
+                u.cashBalance = Math.max(0, (Number(u.cashBalance) || 0) - amount);
+                u.totalWithdrawals = (Number(u.totalWithdrawals) || 0) + amount;
+                u.lastUpdated = new Date().toISOString();
+                localStorage.setItem(k, JSON.stringify(u));
+              }
+            }
+          });
+        } catch (e) {}
 
         try {
           const wallet = await walletService.getOrCreateWallet(userId);
@@ -366,7 +461,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               const updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                (w.id === id || w.refId === id || (withdrawalData.refId && (w.id === withdrawalData.refId || w.refId === withdrawalData.refId))) ? { ...w, status: 'Failed' } : w
+                matchesWithdrawal(w) ? { ...w, status: 'Failed' } : w
               );
               await safeSetDoc(userRef, {
                 withdrawals: updatedUserWithdrawals,
@@ -375,8 +470,24 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             }
           }
         }
+
+        try {
+          const profileKeys = ['aver_active_user', `user_profile_${userId}`];
+          profileKeys.forEach(k => {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const u = JSON.parse(raw);
+              if (u && Array.isArray(u.withdrawals)) {
+                u.withdrawals = u.withdrawals.map((w: any) => matchesWithdrawal(w) ? { ...w, status: 'Failed' } : w);
+                u.lastUpdated = new Date().toISOString();
+                localStorage.setItem(k, JSON.stringify(u));
+              }
+            }
+          });
+        } catch (e) {}
+
         showNotification(`Withdrawal unsuccessful. Transaction of $${amount.toLocaleString()} rejected.`);
-      } else if (newStatus === 'reversed' && userId && amount > 0) {
+      } else if (newStatus === 'reversed' && userId) {
         if (!userId.startsWith('local-') && userId !== 'anonymous') {
           const userRef = doc(db, 'users', userId);
           const userSnap = await getDoc(userRef).catch(() => null);
@@ -385,22 +496,52 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
             const uData = userSnap.data();
             if (Array.isArray(uData.withdrawals)) {
               updatedUserWithdrawals = uData.withdrawals.map((w: any) => 
-                (w.id === id || w.refId === id || (withdrawalData.refId && (w.id === withdrawalData.refId || w.refId === withdrawalData.refId))) ? { ...w, status: 'Reversed', reversalReason: reason || 'Administrative Reversal' } : w
+                matchesWithdrawal(w) ? { ...w, status: 'Reversed', reversalReason: effectiveReason } : w
               );
             }
           }
 
-          await safeSetDoc(userRef, {
-            availableBalance: increment(amount),
-            portfolioBalance: increment(amount),
-            tokenBalance: increment(amount),
-            cashBalance: increment(amount),
-            totalWithdrawals: increment(-amount),
+          const userDocPayload: any = {
             ...(updatedUserWithdrawals.length > 0 ? { withdrawals: updatedUserWithdrawals } : {}),
             lastUpdated: serverTimestamp()
-          }, { merge: true });
+          };
+
+          if (amount > 0) {
+            userDocPayload.availableBalance = increment(amount);
+            userDocPayload.portfolioBalance = increment(amount);
+            userDocPayload.tokenBalance = increment(amount);
+            userDocPayload.cashBalance = increment(amount);
+            userDocPayload.totalWithdrawals = increment(-amount);
+          }
+
+          await safeSetDoc(userRef, userDocPayload, { merge: true });
           console.log(`[AdminWithdrawals TRACE 6.1 REVERSED COMPLETED] User balance refunded.`);
         }
+
+        try {
+          const profileKeys = ['aver_active_user', `user_profile_${userId}`];
+          profileKeys.forEach(k => {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const u = JSON.parse(raw);
+              if (u) {
+                if (Array.isArray(u.withdrawals)) {
+                  u.withdrawals = u.withdrawals.map((w: any) => 
+                    matchesWithdrawal(w) ? { ...w, status: 'Reversed', reversalReason: effectiveReason } : w
+                  );
+                }
+                if (amount > 0) {
+                  u.portfolioBalance = (Number(u.portfolioBalance) || 0) + amount;
+                  u.availableBalance = (Number(u.availableBalance) || 0) + amount;
+                  u.cashBalance = (Number(u.cashBalance) || 0) + amount;
+                  u.totalWithdrawals = Math.max(0, (Number(u.totalWithdrawals) || 0) - amount);
+                }
+                u.lastUpdated = new Date().toISOString();
+                localStorage.setItem(k, JSON.stringify(u));
+              }
+            }
+          });
+        } catch (e) {}
 
         try {
           const wallet = await walletService.getOrCreateWallet(userId);
@@ -436,7 +577,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
       window.dispatchEvent(new Event('storage'));
 
       // 7. Update React state locally
-      setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, status: newStatus, reversalReason: reason || w.reversalReason } : w));
+      setWithdrawals(prev => prev.map(w => matchesWithdrawal(w) ? { ...w, status: newStatus, reversalReason: reason || w.reversalReason } : w));
       console.log(`[AdminWithdrawals TRACE 8] handleAction completed successfully for ${id}.`);
     } catch (err: any) {
       // Detailed error logging as requested
@@ -544,7 +685,7 @@ export default function AdminWithdrawals({ theme }: { theme: 'light' | 'dark' })
               {filtered.map((item, idx) => {
                 const normStatus = (item.status || 'pending').toLowerCase();
                 const isPending = normStatus === 'pending';
-                const isCompleted = normStatus === 'completed' || normStatus === 'approved';
+                const isCompleted = normStatus === 'completed' || normStatus === 'approved' || normStatus === 'successful' || normStatus === 'success';
                 const isReversed = normStatus === 'reversed';
                 const isFailed = normStatus === 'failed' || normStatus === 'rejected';
 

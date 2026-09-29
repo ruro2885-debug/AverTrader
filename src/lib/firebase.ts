@@ -1,22 +1,15 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, memoryLocalCache, setDoc, updateDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setDoc, updateDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-const firebaseConfig = {
-  apiKey: "AIzaSyDA2AcnxhGzSCdNClHFpF3rn2Af0ucWF94",
-  authDomain: "aver-d2136.firebaseapp.com",
-  projectId: "aver-d2136",
-  storageBucket: "aver-d2136.firebasestorage.app",
-  messagingSenderId: "813693230408",
-  appId: "1:813693230408:web:be51499481b3fe0b0e277d"
-};
+import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache(),
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   experimentalAutoDetectLongPolling: true,
 });
 export const storage = getStorage(app);

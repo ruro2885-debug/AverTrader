@@ -119,8 +119,9 @@ function AppContent() {
         safeStorage.setItem('aver_session_initialized', 'true');
       }
     } else {
-      // If no user and we were on a protected view, go to login
-      if (currentView === 'dashboard' || currentView === 'referral-centre' || currentView === 'preferences' || currentView === 'bonus-center' || currentView === 'history' || currentView === 'kyc-verification' || currentView === 'deposit' || currentView === 'admin') {
+      // If no user and we were on a protected view, go to login (unless admin session is active)
+      const isAdminActive = safeStorage.getItem('admin_session_active') === 'true' || localStorage.getItem('admin_session_active') === 'true';
+      if (!isAdminActive && (currentView === 'dashboard' || currentView === 'referral-centre' || currentView === 'preferences' || currentView === 'bonus-center' || currentView === 'history' || currentView === 'kyc-verification' || currentView === 'deposit' || currentView === 'admin')) {
         navigate('auth', { replace: true });
       }
     }
