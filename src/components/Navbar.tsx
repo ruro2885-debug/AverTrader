@@ -86,22 +86,7 @@ export default function Navbar({
         </nav>
 
         {/* Desktop Action Buttons */}
-        <div className="hidden md:flex items-center space-x-3">
-          {onAdminAccess && (
-            <button
-              onClick={onAdminAccess}
-              className={`px-3.5 py-1.5 border rounded-full text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
-                theme === 'dark'
-                  ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500 hover:text-black'
-                  : 'border-emerald-600/30 text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white'
-              }`}
-              title="Open Admin Terminal"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Admin Terminal</span>
-            </button>
-          )}
-
+        <div className="hidden md:flex items-center space-x-4">
           <button
             onClick={onShowcase}
             className="px-6 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-sm rounded-full transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center space-x-1.5 cursor-pointer"
@@ -148,18 +133,6 @@ export default function Navbar({
             <hr className={theme === 'dark' ? 'border-white/5' : 'border-black/5'} />
             
             <div className="flex flex-col space-y-4">
-              {onAdminAccess && (
-                <button
-                  onClick={() => {
-                    onAdminAccess();
-                    setMobileMenuOpen(false);
-                  }}
-                  className="py-2.5 text-center rounded-lg border border-emerald-500/30 text-emerald-400 bg-emerald-500/10 text-sm font-semibold hover:bg-emerald-500 hover:text-black transition-all flex items-center justify-center space-x-2 cursor-pointer"
-                >
-                  <Shield className="w-4 h-4" />
-                  <span>Admin Terminal</span>
-                </button>
-              )}
               <button
                 onClick={() => {
                   onShowcase();

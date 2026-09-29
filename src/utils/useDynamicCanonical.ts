@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { NavigationLocation, locationToPath } from '../contexts/NavigationContext';
+import { NavigationLocation } from '../contexts/NavigationContext';
 
 const PRIMARY_DOMAIN = 'https://www.avertrader.space';
 
@@ -7,7 +7,7 @@ const PRIMARY_DOMAIN = 'https://www.avertrader.space';
  * Normalizes a URL path to a clean canonical format:
  * - Strips query parameters and hash fragments
  * - Resolves double slashes
- * - Keeps trailing slash for root ('/'), removes trailing slash for subpaths ('/deposit')
+ * - Keeps trailing slash for root ('/'), removes trailing slash for subpaths ('/pricing')
  */
 export function getCleanPathname(pathname: string = '/'): string {
   if (!pathname || pathname === '' || pathname === '/') {
@@ -22,15 +22,19 @@ export function getCleanPathname(pathname: string = '/'): string {
  * Computes canonical URL for the current location state and browser pathname.
  */
 export function getCanonicalUrl(currentLocation?: NavigationLocation): string {
-  if (currentLocation) {
-    const p = locationToPath(currentLocation);
-    return `${PRIMARY_DOMAIN}${p === '/' ? '/' : p}`;
+  if (typeof window === 'undefined') {
+    return `${PRIMARY_DOMAIN}/`;
   }
-  if (typeof window !== 'undefined') {
-    const path = getCleanPathname(window.location.pathname);
-    return `${PRIMARY_DOMAIN}${path === '/' ? '/' : path}`;
+
+  // Get base clean path from browser
+  let path = getCleanPathname(window.location.pathname);
+
+  // If on root but in a specific sub-view route state, map it cleanly if applicable
+  if (path === '/' && currentLocation?.view && currentLocation.view !== 'home' && currentLocation.view !== 'dashboard') {
+    path = `/${currentLocation.view}`;
   }
-  return `${PRIMARY_DOMAIN}/`;
+
+  return `${PRIMARY_DOMAIN}${path === '/' ? '/' : path}`;
 }
 
 /**
@@ -61,5 +65,5 @@ export function useDynamicCanonical(currentLocation?: NavigationLocation) {
     if (ogUrlTag && ogUrlTag.getAttribute('content') !== canonicalUrl) {
       ogUrlTag.setAttribute('content', canonicalUrl);
     }
-  }, [currentLocation?.view, currentLocation?.tab, currentLocation?.subView, currentLocation?.modal]);
+  }, [currentLocation?.view, currentLocation?.tab, currentLocation?.subView]);
 }

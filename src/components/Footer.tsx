@@ -1,6 +1,5 @@
 import { ArrowUp, Cpu, Sparkles, Send, Globe, Mail, ShieldAlert } from 'lucide-react';
 import { usePreferences } from '../contexts/PreferencesContext';
-import { useAppNavigation } from '../contexts/NavigationContext';
 import AverLogo from './AverLogo';
 
 interface FooterProps {
@@ -11,7 +10,6 @@ interface FooterProps {
 export default function Footer({ theme, onNavigate }: FooterProps) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
-  const { navigateView } = useAppNavigation();
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -123,23 +121,15 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
 
         {/* Bottom bar with Disclaimers & Credits */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-6">
-          <div className="flex flex-col space-y-3 text-left">
-            {/* White About Us Button directly above the copyright text */}
-            <button
-              onClick={() => navigateView('about')}
-              className="px-4 py-2 bg-white text-black hover:bg-zinc-200 font-bold text-xs uppercase tracking-wider rounded-lg transition-all shadow-md cursor-pointer self-start mb-1 flex items-center space-x-1.5"
-            >
-              <span>About Us</span>
-            </button>
-
-            <p className="text-[10px] font-black font-mono tracking-wide text-gray-400 uppercase">
+          <div className="flex flex-col space-y-2 text-left">
+            <p className="text-[10px] font-bold font-mono tracking-wide text-gray-500 uppercase">
               © 2026 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
             </p>
             <p className="text-[9px] text-gray-600 leading-normal max-w-2xl">
               Risk Disclosure: All operations and balances within the public preview workspace are virtual sandbox allocations provided solely for presentation. They are completely decoupled from external banking pipelines, physical ledgers, or physical cryptocurrency clearing routes. Performance metrics demonstrated on historical configurations do not guarantee future execution optimization.
             </p>
             <p className="text-[9px] text-gray-600 leading-normal max-w-2xl">
-              Entity Notice: AverTrader (avertrader.space) is an independent platform, unaffiliated with AvaTrade (avatrade.com) or any third-party broker.
+              Entity Notice: AverTrader (avertrader.space) is an independent proprietary trading workspace and AI execution platform. AverTrader is not affiliated with, sponsored by, or connected to AvaTrade (avatrade.com) or any third-party broker.
             </p>
           </div>
 

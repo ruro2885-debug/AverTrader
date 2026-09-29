@@ -8,6 +8,7 @@ import {
 import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { useAuth } from '../contexts/AuthContext';
+import { getUserScopedItem, setUserScopedItem, safeStorage } from '../utils/storage';
 import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
 // Institutional-grade AI Strategies Dataset with Advisor Insights
@@ -26,55 +27,35 @@ export default function DiscoverView({
 }) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
-  const { user, updateProfile } = useAuth();
   
+  const { user } = useAuth();
   const [showCopyTrade, setShowCopyTrade] = useState(false);
   const [showRoadmapModal, setShowRoadmapModal] = useState(false);
+  const [isNotified, setIsNotified] = useState(() => {
+    // Check both device-global and user-scoped for maximum persistence
+    const globalState = safeStorage.getItem('aver2_notified_global') === 'true';
+    if (globalState) return true;
+    return user?.uid ? getUserScopedItem(user.uid, 'aver2_notified') === 'true' : false;
+  });
 
-  // Compute user-scoped storage key so new users start fresh and NOT hardcoded
-  const userStorageKey = user?.uid 
-    ? `aver2_notified_user_${user.uid}` 
-    : (user?.email ? `aver2_notified_email_${user.email}` : null);
-
-  const [isNotified, setIsNotified] = useState(false);
-
-  // Synchronize on mount and when user changes
   useEffect(() => {
-    // Purge legacy global key that caused all users to be hardcoded to notified
-    try {
-      localStorage.removeItem('aver2_notified');
-    } catch (e) {}
-
-    if (!userStorageKey) {
-      setIsNotified(false);
+    const globalState = safeStorage.getItem('aver2_notified_global') === 'true';
+    if (globalState) {
+      setIsNotified(true);
       return;
     }
 
-    try {
-      const stored = localStorage.getItem(userStorageKey);
-      const profileFlag = Boolean((user as any)?.aver2Notified);
-      setIsNotified(stored === 'true' || profileFlag);
-    } catch (e) {
-      setIsNotified(false);
+    if (user?.uid) {
+      setIsNotified(getUserScopedItem(user.uid, 'aver2_notified') === 'true');
     }
-  }, [userStorageKey, user?.uid]);
+  }, [user?.uid]);
 
   const handleNotifyClick = () => {
-    const nextState = !isNotified;
-    setIsNotified(nextState);
-    if (userStorageKey) {
-      try {
-        if (nextState) {
-          localStorage.setItem(userStorageKey, 'true');
-        } else {
-          localStorage.removeItem(userStorageKey);
-        }
-      } catch (e) {}
-    }
-    if (user?.uid && updateProfile) {
-      updateProfile({
-        aver2Notified: nextState
-      } as any, undefined, undefined, true);
+    setIsNotified(true);
+    // Set both for redundancy and persistence across logouts
+    safeStorage.setItem('aver2_notified_global', 'true');
+    if (user?.uid) {
+      setUserScopedItem(user.uid, 'aver2_notified', 'true');
     }
   };
   
@@ -194,12 +175,12 @@ export default function DiscoverView({
               disabled={isNotified}
               className={`py-3 px-6 rounded-2xl font-bold text-xs tracking-wider uppercase transition-all duration-300 flex items-center justify-center gap-2 shadow-lg active:scale-95 ${
                 isNotified 
-                  ? 'bg-[#042f2e]/60 border border-emerald-500/50 text-emerald-400 cursor-default' 
+                  ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 cursor-default' 
                   : 'bg-white hover:bg-slate-100 text-slate-950 shadow-white/10 cursor-pointer'
               }`}
             >
               <Bell className={`w-4 h-4 ${isNotified ? 'text-emerald-400 fill-emerald-400' : 'text-slate-950'}`} />
-              <span>{isNotified ? 'NOTIFIED' : 'NOTIFY ME'}</span>
+              <span>NOTIFY</span>
             </button>
           </div>
         </div>
@@ -265,14 +246,12 @@ export default function DiscoverView({
               <div className="pt-2">
                 <button
                   onClick={() => {
-                    if (!isNotified) {
-                      handleNotifyClick();
-                    }
+                    setIsNotified(true);
                     setShowRoadmapModal(false);
                   }}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold text-xs tracking-wider uppercase hover:opacity-90 transition shadow-xl cursor-pointer"
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold text-xs tracking-wider uppercase hover:opacity-90 transition shadow-xl"
                 >
-                  {isNotified ? 'Already on Priority Access List' : 'Join VIP Priority Early Access List'}
+                  Join VIP Priority Early Access List
                 </button>
               </div>
             </motion.div>

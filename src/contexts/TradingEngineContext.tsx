@@ -139,12 +139,6 @@ export const TradingEngineContext = createContext<TradingEngineContextType>({
 
 export function normalizeAiConfig(raw: any, fallbackOwnerId?: string): AiConfiguration {
   const effectiveOwnerId = raw?.ownerId || fallbackOwnerId || 'guest_user';
-  const rawAssets = raw?.aiTradingRules?.assetSelection;
-  const isOld22List = Array.isArray(rawAssets) && rawAssets.length === 22 && rawAssets.includes('ARKK') && rawAssets.includes('GLD');
-  const assetSelection = (!rawAssets || !Array.isArray(rawAssets) || isOld22List)
-    ? ['BTC', 'ETH', 'SOL', 'XRP', 'ADA']
-    : rawAssets;
-
   return {
     id: raw?.id || `cfg_${Date.now()}`,
     ownerId: effectiveOwnerId,
@@ -168,9 +162,11 @@ export function normalizeAiConfig(raw: any, fallbackOwnerId?: string): AiConfigu
     aiTradingRules: {
       minConfidence: 85,
       maxSimultaneousPositions: 3,
+      assetSelection: Array.isArray(raw?.aiTradingRules?.assetSelection)
+        ? raw.aiTradingRules.assetSelection 
+        : ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'],
       tradingStrategy: 'NEURAL_MOMENTUM',
-      ...(raw?.aiTradingRules || {}),
-      assetSelection,
+      ...(raw?.aiTradingRules || {})
     },
     schedule: {
       enabled: false,
@@ -224,7 +220,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     tickInterval?: any;
     positionInterval?: any;
     orderTimeout?: any;
-    statusInterval?: any;
   }>({});
 
   const isInitialSyncGracePeriod = useRef(true);
@@ -375,7 +370,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           aiTradingRules: {
             minConfidence: 85,
             maxSimultaneousPositions: 3,
-            assetSelection: ['BTC', 'ETH', 'SOL', 'XRP', 'ADA'],
+            assetSelection: ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'],
             tradingStrategy: 'NEURAL_MOMENTUM'
           },
           configurationDetails: {
@@ -824,34 +819,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     tokenBalanceRef.current = newTokenBal;
     const totalNetBalance = newTokenBal + allocationAmount + newVaultBal;
 
-    // Immediately synchronize React state so balance never glitches or flashes zero
-    if (updateProfile) {
-      updateProfile({
-        tokenBalance: newTokenBal,
-        availableBalance: newTokenBal,
-        portfolioBalance: totalNetBalance,
-        vaultBalance: newVaultBal,
-        aiTradingCapital: allocationAmount,
-        portfolio: {
-          todayPnL: 0,
-          todayPnLPercent: 0,
-          overallReturn: 0,
-          realizedPnL: 0,
-          unrealizedPnL: 0,
-          healthScore: 90,
-          diversificationScore: 85,
-          volatility: 12,
-          sharpeRatio: 1.8,
-          winRate: 65,
-          maxDrawdown: 5,
-          recoveryFactor: 2,
-          riskAdjustedReturn: 15,
-          ...(user?.portfolio || {}),
-          totalValue: totalNetBalance
-        }
-      }, undefined, undefined, true);
-    }
-
     try {
       await walletService.updateWallet(effectiveUid, {
         tokenBalance: newTokenBal,
@@ -884,7 +851,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
     try {
       const userCacheKey = `user_profile_${effectiveUid}`;
-      const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
+      const cachedUserStr = safeStorage.getItem(userCacheKey);
       if (cachedUserStr) {
         const uObj = JSON.parse(cachedUserStr);
         uObj.tokenBalance = newTokenBal;
@@ -896,7 +863,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.portfolio.totalValue = totalNetBalance;
         }
         safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
-        localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         window.dispatchEvent(new Event('storage'));
         window.dispatchEvent(new Event('aver_user_updated'));
       }
@@ -1227,36 +1193,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       const newTotalLoss = sessionPnl < 0 ? (prevLoss + Math.abs(sessionPnl)) : prevLoss;
       const accountPnlPercent = totalNetBalance > 0 ? parseFloat(((sessionPnl / totalNetBalance) * 100).toFixed(4)) : 0;
 
-      // Immediately synchronize React state so balance never drops or glitches on session close
-      if (updateProfile) {
-        updateProfile({
-          tokenBalance: newTokenBal,
-          availableBalance: newTokenBal,
-          portfolioBalance: totalNetBalance,
-          vaultBalance: newVaultBal,
-          aiTradingCapital: 0,
-          totalProfit: newTotalProfit,
-          totalLoss: newTotalLoss,
-          portfolio: {
-            unrealizedPnL: 0,
-            healthScore: 90,
-            diversificationScore: 85,
-            volatility: 12,
-            sharpeRatio: 1.8,
-            winRate: 65,
-            maxDrawdown: 5,
-            recoveryFactor: 2,
-            riskAdjustedReturn: 15,
-            ...(user?.portfolio || {}),
-            totalValue: totalNetBalance,
-            todayPnL: sessionPnl,
-            todayPnLPercent: accountPnlPercent,
-            overallReturn: sessionPnl,
-            realizedPnL: sessionPnl
-          }
-        }, undefined, undefined, true);
-      }
-
       // 5. Update wallet document and portfolio persistence state
       await walletService.updateWallet(effectiveUid, {
         tokenBalance: newTokenBal,
@@ -1307,7 +1243,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       // 6. Update cached user profile
       try {
         const userCacheKey = `user_profile_${effectiveUid}`;
-        const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
+        const cachedUserStr = safeStorage.getItem(userCacheKey);
         if (cachedUserStr) {
           const uObj = JSON.parse(cachedUserStr);
           uObj.tokenBalance = newTokenBal;
@@ -1326,7 +1262,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             uObj.portfolio.overallReturn = sessionPnl;
           }
           safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
-          localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         }
       } catch (err) {
         console.warn("Failed to update cached user profile in local storage:", err);
@@ -1718,7 +1653,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     try {
       const userId = user.uid;
       const userCacheKey = `user_profile_${userId}`;
-      const cachedUserStr = safeStorage.getItem(userCacheKey) || localStorage.getItem('aver_active_user');
+      const cachedUserStr = safeStorage.getItem(userCacheKey);
       if (cachedUserStr) {
         const uObj = JSON.parse(cachedUserStr);
         uObj.totalProfit = pnl > 0 ? (uObj.totalProfit || 0) + pnl : (uObj.totalProfit || 0);
@@ -1733,7 +1668,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
           uObj.portfolio.overallReturn = (uObj.portfolio.overallReturn || 0) + pnl;
         }
         safeStorage.setItem(userCacheKey, JSON.stringify(uObj));
-        localStorage.setItem('aver_active_user', JSON.stringify(uObj));
         window.dispatchEvent(new Event('storage'));
       }
     } catch (err) {

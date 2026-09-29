@@ -165,12 +165,6 @@ export default function AiConfigurationsView({
 
   const handleEdit = (cfg: AiConfiguration) => {
     // Migration for old configs
-    const rawAssets = cfg.aiTradingRules?.assetSelection;
-    const isOld22List = Array.isArray(rawAssets) && rawAssets.length === 22 && rawAssets.includes('ARKK') && rawAssets.includes('GLD');
-    const migratedAssets = (!rawAssets || !Array.isArray(rawAssets) || isOld22List)
-      ? [...INITIAL_DEFAULT_ASSET_COLLECTION]
-      : rawAssets;
-
     const migrated: AiConfiguration = {
       ...cfg,
       sessionSetup: {
@@ -189,9 +183,9 @@ export default function AiConfigurationsView({
       aiTradingRules: {
         minConfidence: 85,
         maxSimultaneousPositions: 3,
+        assetSelection: [...INITIAL_DEFAULT_ASSET_COLLECTION],
         tradingStrategy: 'NEURAL_MOMENTUM',
-        ...(cfg.aiTradingRules || {}),
-        assetSelection: migratedAssets,
+        ...(cfg.aiTradingRules || {})
       },
       configurationDetails: cfg.configurationDetails || {
         description: '',
@@ -762,14 +756,15 @@ export default function AiConfigurationsView({
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(() => {
-                        const rawAssets = editingConfig.aiTradingRules?.assetSelection || [];
-                        const isOld22List = Array.isArray(rawAssets) && rawAssets.length === 22 && rawAssets.includes('ARKK') && rawAssets.includes('GLD');
-                        const currentAssets = isOld22List ? [...INITIAL_DEFAULT_ASSET_COLLECTION] : rawAssets;
+                        const currentAssets = editingConfig.aiTradingRules?.assetSelection || [];
                         const ORIGINAL_ASSET_ORDER = [
-                          'BTC', 'ETH', 'SOL', 'XRP', 'ADA',
-                          'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA',
-                          'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX',
-                          'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'
+                          'BTC', 'ETH', 'SOL', 'XRP',
+                          'ADA', 'DOT', 'DOGE',
+                          'SHIB', 'AAPL', 'TSLA',
+                          'NVDA', 'MSFT', 'AMZN',
+                          'GOOGL', 'META', 'NFLX',
+                          'AMD', 'INTC', 'SPY',
+                          'QQQ', 'ARKK', 'GLD'
                         ];
                         const displayedAssets = [
                           ...ORIGINAL_ASSET_ORDER.filter(m => currentAssets.includes(m)),

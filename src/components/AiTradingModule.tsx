@@ -61,8 +61,7 @@ type EngineState = 'IDLE' | 'PREPARING' | 'LOADING_CONFIG' | 'SYNC_USER' | 'SYNC
 
 export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'light' | 'dark', onOpenDeposit: () => void }) {
   const { user, updateProfile, addNotification } = useAuth();
-  const { activeTradingBalance, addFundsToActiveBalance, tokenBalance } = useFinancials();
-  const activeBalanceOffset = (useFinancials() as any).activeBalanceOffset || 0;
+  const { activeTradingBalance, addFundsToActiveBalance, activeBalanceOffset, tokenBalance } = useFinancials();
   const { preferences, formatCurrency } = usePreferences();
   const { 
     configs, 
@@ -368,7 +367,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
       await new Promise(resolve => setTimeout(resolve, 300));
       setEngineState('SCANNING');
       
-      addActivityEvent('SUCCESS', `AI Session online. Executing "${targetConfig.aiTradingRules?.tradingStrategy?.replace('_', ' ') || (targetConfig as any).strategy || 'QUANT'}" strategy.`);
+      addActivityEvent('SUCCESS', `AI Session online. Executing "${targetConfig.strategy?.replace('_', ' ') || 'QUANT'}" strategy.`);
       addNotification('trading', 'medium', 'AI Session Started', 'Neural analysis engine is now scanning selected markets.');
       
       setActiveView('HOME');
@@ -697,10 +696,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     <div>
                       <span className={textSecondary}>ENGINE STATUS</span>
                       <p className={`font-black uppercase mt-1 ${
-                        (displayEngineState as string) === 'SESSION_SCANNING' || (displayEngineState as string) === 'MONITORING' ? 'text-[#00D09C]' :
-                        (displayEngineState as string) === 'ANALYZING' || (displayEngineState as string) === 'GENERATING' ? 'text-amber-500' :
-                        (displayEngineState as string) === 'WAITING_DECISION' ? 'text-blue-500' : 
-                        (displayEngineState as string) === 'SLEEPING' || (displayEngineState as string) === 'COOLING_BREAK' ? 'text-amber-500 animate-pulse' : 'text-slate-500'
+                        displayEngineState === 'SESSION_SCANNING' || displayEngineState === 'MONITORING' ? 'text-[#00D09C]' :
+                        displayEngineState === 'ANALYZING' || displayEngineState === 'GENERATING' ? 'text-amber-500' :
+                        displayEngineState === 'WAITING_DECISION' ? 'text-blue-500' : 
+                        displayEngineState === 'SLEEPING' || displayEngineState === 'COOLING_BREAK' ? 'text-amber-500 animate-pulse' : 'text-slate-500'
                       }`}>{String(displayEngineState || 'INACTIVE').replace(/_/g, ' ')}</p>
                     </div>
                     <div className="w-px bg-white/5 self-stretch" />
@@ -842,7 +841,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     <AiTradeCenter 
                       trades={enrichedActiveTrades}
                       isDark={isDark}
-                      monitoredMarkets={config?.aiTradingRules?.assetSelection || (config as any)?.markets || []}
+                      monitoredMarkets={config?.markets || []}
                       isSessionActive={isSessionActive}
                     />
 
@@ -893,7 +892,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 <AiTradeCenter 
                   trades={enrichedActiveTrades}
                   isDark={isDark}
-                  monitoredMarkets={config?.aiTradingRules?.assetSelection || (config as any)?.markets || []}
+                  monitoredMarkets={config?.markets || []}
                   isSessionActive={isSessionActive}
                 />
               </div>

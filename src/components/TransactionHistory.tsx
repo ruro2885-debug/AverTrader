@@ -14,9 +14,6 @@ import { TransactionRecord } from '../types';
 import { safeStorage } from '../utils/storage';
 import { useAppNavigation } from '../contexts/NavigationContext';
 import CoinLogo from './CoinLogo';
-import { doc, onSnapshot, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { getLocalWithdrawals, getStatusPriority, isActionedStatus, getActionForWithdrawal, recordWithdrawalAction } from '../lib/withdrawalStore';
 
 type TabType = 'transactions' | 'orders' | 'order-history';
 
@@ -49,60 +46,10 @@ interface TransactionHistoryProps {
   onOpenSupport?: () => void;
 }
 
-const ReversalReasonTab = ({ 
-  reason, 
-  isDark, 
-  onPress 
-}: { 
-  reason: string; 
-  isDark: boolean; 
-  onPress: () => void; 
-}) => {
-  const textRef = useRef<HTMLParagraphElement>(null);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-
-  useEffect(() => {
-    if (textRef.current) {
-      const el = textRef.current;
-      // Check if scrollWidth > clientWidth to detect horizontal overflow
-      setIsOverflowing(el.scrollWidth > el.clientWidth);
-    }
-  }, [reason]);
-
-  return (
-    <button
-      type="button"
-      onClick={onPress}
-      className={`w-full p-3.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/20 hover:border-purple-500/30 text-[11px] space-y-1 text-left transition-all cursor-pointer flex flex-col gap-1 focus:outline-none focus:ring-1 focus:ring-purple-500/40`}
-    >
-      <div className="flex items-center gap-1.5 text-purple-400 font-bold uppercase tracking-wider text-[10px]">
-        <AlertCircle className="w-3.5 h-3.5" />
-        <span>Reversal Reason</span>
-      </div>
-      
-      <div className="flex items-center justify-between w-full gap-2">
-        <p
-          ref={textRef}
-          className={`font-medium ${
-            isDark ? 'text-neutral-200' : 'text-slate-700'
-          } truncate flex-1 block whitespace-nowrap overflow-hidden`}
-        >
-          {reason}
-        </p>
-        {isOverflowing && (
-          <span className="text-purple-400 font-bold shrink-0 text-[10px] whitespace-nowrap">
-            see more...
-          </span>
-        )}
-      </div>
-    </button>
-  );
-};
-
 export default function TransactionHistory({ onBack, onOpenSupport }: TransactionHistoryProps) {
   const { user } = useAuth();
-  const { formatCurrency, preferences } = usePreferences();
-  const isDark = preferences?.theme === 'dark';
+  const { formatCurrency, theme } = usePreferences();
+  const isDark = theme === 'dark';
 
   const [activeTab, setActiveTab] = useState<TabType>('transactions');
   const [filters, setFilters] = useState<FilterState>({
@@ -259,23 +206,8 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       setTransactions(data);
       setSelectedReceipt(prev => {
         if (!prev) return null;
-        const updated = data.find(t => 
-          t.id === prev.id || 
-          t.refId === prev.id || 
-          (prev.refId && (t.refId === prev.refId || t.id === prev.refId)) ||
-          (prev.txHash && (t.txHash === prev.txHash || t.id === prev.txHash))
-        );
-        if (!updated) return prev;
-        const curPri = getStatusPriority(prev.status);
-        const incPri = getStatusPriority(updated.status);
-        // An actioned withdrawal (Completed, Failed, Reversed) can NEVER revert to Pending!
-        const effectiveStatus = (curPri >= 2 && incPri < 2) ? prev.status : (incPri >= curPri ? updated.status : prev.status);
-        return {
-          ...prev,
-          ...updated,
-          status: effectiveStatus,
-          reversalReason: updated.reversalReason || prev.reversalReason
-        };
+        const updated = data.find(t => t.id === prev.id || t.refId === prev.id || (prev.refId && t.refId === prev.refId));
+        return updated ? { ...prev, ...updated } : prev;
       });
       setLoading(false);
       setIsRefreshing(false);
@@ -283,144 +215,6 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
 
     return () => unsub();
   }, [user?.uid]);
-
-  // Dedicated real-time sync for the currently selected receipt
-  useEffect(() => {
-    if (!selectedReceipt || !selectedReceipt.id) return;
-    const receiptId = selectedReceipt.id;
-    const refId = selectedReceipt.refId;
-    const txHash = selectedReceipt.txHash;
-
-    const updateFromSnapshot = (data: any) => {
-      if (!data) return;
-      const rawStatus = (data.status || '').toLowerCase();
-      let normalizedStatus: TransactionRecord['status'] = 'Pending';
-      if (rawStatus === 'completed' || rawStatus === 'approved' || rawStatus === 'successful' || rawStatus === 'success') {
-        normalizedStatus = 'Completed';
-      } else if (rawStatus === 'reversed') {
-        normalizedStatus = 'Reversed';
-      } else if (rawStatus === 'failed' || rawStatus === 'rejected' || rawStatus === 'declined' || rawStatus === 'cancelled') {
-        normalizedStatus = 'Failed';
-      } else if (rawStatus === 'processing') {
-        normalizedStatus = 'Processing';
-      }
-
-      setSelectedReceipt(prev => {
-        if (!prev) return null;
-        const isTarget = prev.id === receiptId || (refId && prev.refId === refId) || (txHash && prev.txHash === txHash);
-        if (!isTarget) return prev;
-
-        const actionRecord = getActionForWithdrawal(prev.id, prev.refId, prev.txHash);
-        const targetStatus = actionRecord ? actionRecord.status : normalizedStatus;
-        const targetIsActioned = isActionedStatus(targetStatus);
-        const curIsActioned = isActionedStatus(prev.status);
-
-        let effectiveStatus = prev.status;
-        if (targetIsActioned) {
-          effectiveStatus = targetStatus;
-        } else if (curIsActioned && !targetIsActioned) {
-          effectiveStatus = prev.status;
-        } else {
-          effectiveStatus = targetStatus;
-        }
-
-        return {
-          ...prev,
-          status: effectiveStatus,
-          reversalReason: (actionRecord?.reversalReason) || data.reversalReason || data.reason || prev.reversalReason,
-          destination: data.destination || data.destinationAddress || prev.destination,
-          network: data.network || prev.network,
-          txHash: data.txHash || prev.txHash,
-          amount: data.amount !== undefined ? (Number(data.amount) < 0 ? data.amount : -Math.abs(Number(data.amount))) : prev.amount
-        };
-      });
-
-      // Synchronize in the transactions list
-      setTransactions(prev => prev.map(t => {
-        if (t.id === receiptId || (refId && t.refId === refId) || (txHash && t.txHash === txHash)) {
-          const tActionRecord = getActionForWithdrawal(t.id, t.refId, t.txHash);
-          const tTargetStatus = tActionRecord ? tActionRecord.status : normalizedStatus;
-          const tTargetIsActioned = isActionedStatus(tTargetStatus);
-          const tCurIsActioned = isActionedStatus(t.status);
-
-          let tEffectiveStatus = t.status;
-          if (tTargetIsActioned) {
-            tEffectiveStatus = tTargetStatus;
-          } else if (tCurIsActioned && !tTargetIsActioned) {
-            tEffectiveStatus = t.status;
-          } else {
-            tEffectiveStatus = tTargetStatus;
-          }
-
-          return {
-            ...t,
-            status: tEffectiveStatus,
-            reversalReason: (tActionRecord?.reversalReason) || data.reversalReason || data.reason || t.reversalReason
-          };
-        }
-        return t;
-      }));
-    };
-
-    // 1. Check local withdrawals store first
-    try {
-      const local = getLocalWithdrawals();
-      const localMatch = local.find(w => w && (w.id === receiptId || (refId && w.refId === refId) || (txHash && w.txHash === txHash)));
-      if (localMatch && localMatch.status) {
-        updateFromSnapshot(localMatch);
-      }
-    } catch (e) {}
-
-    // 2. Direct Firestore document listeners
-    const unsubAdmin = onSnapshot(doc(db, 'admin_withdrawals', receiptId), (snap) => {
-      if (snap.exists()) updateFromSnapshot(snap.data());
-    }, () => {});
-
-    const unsubWth = onSnapshot(doc(db, 'withdrawals', receiptId), (snap) => {
-      if (snap.exists()) updateFromSnapshot(snap.data());
-    }, () => {});
-
-    const unsubTx = onSnapshot(doc(db, 'transactions', receiptId), (snap) => {
-      if (snap.exists()) updateFromSnapshot(snap.data());
-    }, () => {});
-
-    // Global shared action registry listeners to heal local state and ensure absolute status consistency
-    const unsubRegistry = onSnapshot(doc(db, 'withdrawal_actions_registry', receiptId), (snap) => {
-      if (snap.exists()) {
-        const actionData = snap.data();
-        recordWithdrawalAction([receiptId, refId, txHash], actionData as any);
-        updateFromSnapshot({ status: actionData.rawStatus || actionData.status, reversalReason: actionData.reversalReason });
-      }
-    }, () => {});
-
-    // Also check alternate doc keys (refId or txHash) if different
-    let unsubRef: (() => void) | undefined;
-    if (refId && refId !== receiptId) {
-      unsubRef = onSnapshot(doc(db, 'admin_withdrawals', refId), (snap) => {
-        if (snap.exists()) updateFromSnapshot(snap.data());
-      }, () => {});
-    }
-
-    let unsubRegistryRef: (() => void) | undefined;
-    if (refId && refId !== receiptId) {
-      unsubRegistryRef = onSnapshot(doc(db, 'withdrawal_actions_registry', refId), (snap) => {
-        if (snap.exists()) {
-          const actionData = snap.data();
-          recordWithdrawalAction([receiptId, refId, txHash], actionData as any);
-          updateFromSnapshot({ status: actionData.rawStatus || actionData.status, reversalReason: actionData.reversalReason });
-        }
-      }, () => {});
-    }
-
-    return () => {
-      unsubAdmin();
-      unsubWth();
-      unsubTx();
-      unsubRegistry();
-      if (unsubRef) unsubRef();
-      if (unsubRegistryRef) unsubRegistryRef();
-    };
-  }, [selectedReceipt?.id, selectedReceipt?.refId, selectedReceipt?.txHash]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -590,7 +384,7 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
       return 'Reversed';
     }
     if (s === 'failed' || s === 'rejected' || s === 'declined' || s === 'expired' || s === 'cancelled') {
-      return 'Failed';
+      return 'Transaction Failed';
     }
     if (s === 'pending' || s === 'verifying') {
       return 'Pending';
@@ -1099,8 +893,8 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                       
                       {isWithdrawal ? (
                         <>
-                          <h2 className="text-3xl font-black tracking-tight mb-1 text-rose-500 font-mono whitespace-nowrap flex items-baseline justify-center gap-1.5">
-                            -{tokenAmountDisplay} <span className="text-xl font-bold">{tokenSymbol}</span>
+                          <h2 className="text-3xl font-black tracking-tight mb-1 text-rose-500 font-mono">
+                            -{tokenAmountDisplay} {tokenSymbol}
                           </h2>
                           <p className="text-xs text-neutral-400 font-medium mb-3">
                             ≈ ${Math.abs(Number(selectedReceipt.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
@@ -1113,14 +907,24 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                             {Math.abs(Number(selectedReceipt.amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </h2>
                           {(selectedReceipt.cryptoAmount || (selectedReceipt.asset !== 'USD' && selectedReceipt.asset !== 'USDT' && selectedReceipt.asset !== 'USDC')) && (
-                            <p className="text-xs text-neutral-400 font-medium mb-3 whitespace-nowrap flex items-baseline justify-center gap-1">
-                              ~{selectedReceipt.cryptoAmount ? Math.abs(Number(selectedReceipt.cryptoAmount)).toLocaleString(undefined, { maximumFractionDigits: 6 }) : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(4)} <span className="font-semibold">{selectedReceipt.asset}</span>
+                            <p className="text-xs text-neutral-400 font-medium mb-3">
+                              ~{selectedReceipt.cryptoAmount ? Math.abs(Number(selectedReceipt.cryptoAmount)).toLocaleString(undefined, { maximumFractionDigits: 6 }) : (Math.abs(Number(selectedReceipt.amount)) / tokenPrice).toFixed(4)} {selectedReceipt.asset}
                             </p>
                           )}
                         </>
                       )}
                       
                       <div className="flex flex-col items-center gap-1.5">
+                        {isReversed && (
+                          <button
+                            type="button"
+                            onClick={() => setShowReasonPopup(true)}
+                            className="px-3 py-1 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-bold text-[11px] border border-amber-500/30 transition-colors cursor-pointer flex items-center gap-1 shadow-sm"
+                          >
+                            <span>Reason</span>
+                            <AlertCircle className="w-3 h-3" />
+                          </button>
+                        )}
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getStatusBadge(selectedReceipt.status)}`}>
                           {getStatusLabel(selectedReceipt.status)}
                         </span>
@@ -1135,21 +939,12 @@ export default function TransactionHistory({ onBack, onOpenSupport }: Transactio
                           <span className={`font-bold ${
                             getStatusLabel(selectedReceipt.status) === 'Successful' ? 'text-emerald-500' :
                             getStatusLabel(selectedReceipt.status) === 'Reversed' ? 'text-purple-400' :
-                            getStatusLabel(selectedReceipt.status) === 'Failed' || getStatusLabel(selectedReceipt.status) === 'Transaction Failed' ? 'text-rose-500' : 'text-amber-500'
+                            getStatusLabel(selectedReceipt.status) === 'Transaction Failed' ? 'text-rose-500' : 'text-amber-500'
                           }`}>
                             {getStatusLabel(selectedReceipt.status)}
                           </span>
                         </div>
                       </div>
-
-                      {/* Prominent Reversal Reason on Reversed Receipts */}
-                      {isReversed && (
-                        <ReversalReasonTab 
-                          reason={selectedReceipt.reversalReason || 'Administrative correction and compliance review.'}
-                          isDark={isDark}
-                          onPress={() => setShowReasonPopup(true)}
-                        />
-                      )}
 
                       <div className="flex justify-between items-center text-[11px]">
                         <span className="text-neutral-500 font-medium">Type</span>
@@ -1489,16 +1284,7 @@ const TransactionItem = memo(({
       setSwipedItemId(null);
     } else {
       // Show full receipt details on tap
-      const action = getActionForWithdrawal(item.id, item.refId, item.txHash);
-      if (action) {
-        setSelectedReceipt({
-          ...item,
-          status: action.status,
-          reversalReason: action.reversalReason || item.reversalReason
-        });
-      } else {
-        setSelectedReceipt(item);
-      }
+      setSelectedReceipt(item);
     }
   };
 

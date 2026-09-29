@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Home, Key } from 'lucide-react';
-import { useAppNavigation } from '../contexts/NavigationContext';
 
 interface NotFoundProps {
   theme: 'light' | 'dark';
@@ -10,7 +9,6 @@ interface NotFoundProps {
 }
 
 export default function NotFound({ theme, onBack, onAdminAccess }: NotFoundProps) {
-  const { navigateView, navigateToView } = useAppNavigation() as any;
   const isDark = theme === 'dark';
   const [tapCount, setTapCount] = useState(0);
   const [showAuth, setShowAuth] = useState(false);
@@ -18,6 +16,7 @@ export default function NotFound({ theme, onBack, onAdminAccess }: NotFoundProps
   const [error, setError] = useState('');
 
   const handleSecretTap = () => {
+    if (!onAdminAccess || showAuth) return;
     const nextCount = tapCount + 1;
     setTapCount(nextCount);
 
@@ -32,13 +31,7 @@ export default function NotFound({ theme, onBack, onAdminAccess }: NotFoundProps
     const code = password.trim();
     if (code === 'Ruro2008$' || code === 'Ruro2008') {
       localStorage.setItem('admin_session_active', 'true');
-      if (navigateView) {
-        navigateView('admin');
-      } else if (navigateToView) {
-        navigateToView('admin');
-      } else if (onAdminAccess) {
-        onAdminAccess();
-      }
+      if (onAdminAccess) onAdminAccess();
     } else {
       setError('Invalid credentials');
       setTimeout(() => setError(''), 3000);

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { WalletLogo } from './WalletLogo';
 import { motion, AnimatePresence } from 'motion/react';
-import { PRESTIGIOUS_COUNTRIES } from '../../data/prestigiousCountries';
 import { QRCodeSVG } from 'qrcode.react';
 import { copyToClipboard } from '../../lib/clipboard';
 import { 
@@ -44,15 +43,14 @@ import {
 import { db, auth, safeAddDoc } from '../../lib/firebase';
 import { collection, addDoc, setDoc, serverTimestamp, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
+import { safeStorage } from '../../utils/storage';
 import CoinLogo from '../CoinLogo';
 
 interface InstitutionalDepositPageProps {
-  theme?: 'light' | 'dark';
-  onBack?: () => void;
-  onClose?: () => void;
-  onSuccessDeposit?: (amount: number, method: string) => void;
+  theme: 'light' | 'dark';
+  onBack: () => void;
+  onSuccessDeposit: (amount: number, method: string) => void;
   onOpenSupport?: (ticketData: any) => void;
-  onOpenHistory?: () => void;
 }
 
 type FundingMethod = 'card' | 'walletconnect' | 'crypto' | 'bank';
@@ -498,8 +496,7 @@ const ImportWalletAnimatedLogo = ({ icon: IconComponent = Wallet, colorClass = "
   </div>
 );
 
-export default function InstitutionalDepositPage({ theme = 'dark', onBack: propOnBack, onClose, onSuccessDeposit, onOpenSupport, onOpenHistory }: InstitutionalDepositPageProps) {
-  const onBack = propOnBack || onClose || (() => {});
+export default function InstitutionalDepositPage({ theme, onBack, onSuccessDeposit, onOpenSupport }: InstitutionalDepositPageProps) {
   const isDark = theme === 'dark';
   const { user: authUser } = useAuth();
 
@@ -918,12 +915,14 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
     'Finalizing wallet integration...'
   ];
 
-  // Load existing wallet session from localStorage on mount & auto-prompt if present
+  // Load existing wallet session from scoped storage on mount & auto-prompt if present
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('aver_connected_wallet');
+      if (!authUser?.uid) return;
+      const saved = safeStorage.getItem(`aver_connected_wallet_${authUser.uid}`) || localStorage.getItem(`aver_connected_wallet_${authUser.uid}`);
       if (saved) {
         const parsed = JSON.parse(saved);
+        if (parsed.userId && parsed.userId !== authUser.uid) return;
         const addr = parsed.publicWalletAddress || parsed.address;
         if (addr) {
           setConnectedAddress(addr);
@@ -940,7 +939,7 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
     } catch (e) {
       console.error("Error loading saved wallet:", e);
     }
-  }, []);
+  }, [authUser?.uid]);
 
   // 23-second import countdown timer logic
   const startWalletImportProcess = (
@@ -1101,27 +1100,31 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
     }
 
     try {
-      localStorage.setItem('aver_connected_wallet', JSON.stringify(walletDoc));
-      
-      // Also append to aver_imported_wallets array in localStorage
-      const importedStr = localStorage.getItem('aver_imported_wallets');
-      let importedList: any[] = [];
-      if (importedStr) {
-        try { importedList = JSON.parse(importedStr); } catch (e) {}
-      }
-      importedList = [walletDoc, ...importedList.filter(w => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
-      localStorage.setItem('aver_imported_wallets', JSON.stringify(importedList));
+      if (authUser?.uid) {
+        safeStorage.setItem(`aver_connected_wallet_${authUser.uid}`, JSON.stringify(walletDoc));
+        
+        // Also append to aver_imported_wallets array in scoped storage
+        const importedStr = safeStorage.getItem(`aver_imported_wallets_${authUser.uid}`);
+        let importedList: any[] = [];
+        if (importedStr) {
+          try { importedList = JSON.parse(importedStr); } catch (e) {}
+        }
+        importedList = [walletDoc, ...importedList.filter(w => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
+        safeStorage.setItem(`aver_imported_wallets_${authUser.uid}`, JSON.stringify(importedList));
 
-      // Also update active user profile linkedWallets array in localStorage
-      const activeUserStr = localStorage.getItem('aver_active_user');
-      if (activeUserStr) {
-        try {
-          const uObj = JSON.parse(activeUserStr);
-          const currentWallets = Array.isArray(uObj.linkedWallets) ? uObj.linkedWallets : [];
-          uObj.linkedWallets = [walletDoc, ...currentWallets.filter((w: any) => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
-          localStorage.setItem('aver_active_user', JSON.stringify(uObj));
-          window.dispatchEvent(new Event('aver_user_updated'));
-        } catch (e) {}
+        // Also update active user profile linkedWallets array in localStorage if matching uid
+        const activeUserStr = safeStorage.getItem(`user_profile_${authUser.uid}`);
+        if (activeUserStr) {
+          try {
+            const uObj = JSON.parse(activeUserStr);
+            if (!uObj.uid || uObj.uid === authUser.uid) {
+              const currentWallets = Array.isArray(uObj.linkedWallets) ? uObj.linkedWallets : [];
+              uObj.linkedWallets = [walletDoc, ...currentWallets.filter((w: any) => (w.address || w.publicWalletAddress)?.toLowerCase() !== publicWalletAddress.toLowerCase())];
+              safeStorage.setItem(`user_profile_${authUser.uid}`, JSON.stringify(uObj));
+              window.dispatchEvent(new Event('aver_user_updated'));
+            }
+          } catch (e) {}
+        }
       }
 
       window.dispatchEvent(new Event('aver_wallet_updated'));
@@ -1568,11 +1571,11 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
       setTimeout(() => {
         setCardStageFailed(true);
         setCardStageStatus('failed');
-      }, 50000); // Loads for exactly 26 seconds after starting at 24s (24 + 26 = 50s)
+      }, 30000);
       
       setTimeout(() => {
         setStep('card_gateway_error');
-      }, 50500);
+      }, 30500);
 
       return;
     }
@@ -1616,7 +1619,7 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
         id: depositId,
         userId: authUser?.uid || firebaseUser?.uid || 'anonymous',
         email: authUser?.email || firebaseUser?.email || '',
-        userName: (authUser as any)?.fullName || authUser?.displayName || authUser?.username || firebaseUser?.displayName || firebaseUser?.email?.split('@')[0] || 'User',
+        userName: authUser?.fullName || authUser?.displayName || authUser?.username || firebaseUser?.displayName || firebaseUser?.email?.split('@')[0] || 'User',
         fundingMethod: selectedMethod,
         // Ensure asset and network are saved dynamically based on selection
         asset: assetSym,
@@ -2145,9 +2148,12 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
                                 onChange={(e) => setBillingCountry(e.target.value)}
                                 className="w-full rounded-xl bg-neutral-900/90 px-4 py-3.5 text-sm text-white ring-1 ring-white/10 focus:outline-none focus:ring-emerald-500/50"
                               >
-                                {PRESTIGIOUS_COUNTRIES.map(c => (
-                                  <option key={c} value={c} className="bg-neutral-900">{c}</option>
-                                ))}
+                                <option className="bg-neutral-900">United States</option>
+                                <option className="bg-neutral-900">United Kingdom</option>
+                                <option className="bg-neutral-900">Germany</option>
+                                <option className="bg-neutral-900">Switzerland</option>
+                                <option className="bg-neutral-900">Singapore</option>
+                                <option className="bg-neutral-900">United Arab Emirates</option>
                               </select>
                             </div>
                           </div>
