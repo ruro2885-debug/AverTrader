@@ -8,7 +8,6 @@ import {
 import { doc, setDoc, updateDoc, serverTimestamp, collection, addDoc, query, where, onSnapshot, limit, arrayUnion } from 'firebase/firestore';
 import { db, safeSetDoc } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { PRESTIGIOUS_COUNTRIES } from '../data/prestigiousCountries';
 
 interface KycVerificationPageProps {
   theme: 'light' | 'dark';
@@ -71,6 +70,11 @@ export function getKycTimestamp(sub: any): number {
 
 // Consolidates all candidate KYC records across memory, user profile, kycHistory, localStorage, and Firestore
 export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
+  // If user is explicitly set to unverified and no extra docs from active query, start fresh
+  if (user?.kycStatus === 'unverified' && (!extraDocs || extraDocs.length === 0)) {
+    return [];
+  }
+
   const map = new Map<string, any>();
 
   // 1. Load from user.kycData (the active submission on active user profile)
@@ -1065,7 +1069,33 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                     onChange={e => setFormData({...formData, nationality: e.target.value})}
                     className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent appearance-none cursor-pointer ${isDark ? 'border-white/10 bg-[#0E131F]' : 'border-slate-300 bg-white'}`}
                   >
-                    {PRESTIGIOUS_COUNTRIES.map(c => (
+                    {[
+                      "United States", "United Kingdom", "Canada", "Australia", "Germany", 
+                      "France", "Switzerland", "Netherlands", "Sweden", "Spain", 
+                      "Italy", "Japan", "China", "Brazil", "United Arab Emirates",
+                      "Norway", "Denmark", "Finland", "Ireland", "Luxembourg",
+                      "Austria", "Belgium", "Singapore", "South Korea", "New Zealand",
+                      "Israel", "Qatar", "Saudi Arabia", "Kuwait", "Bahrain",
+                      "Oman", "Monaco", "Liechtenstein", "Iceland", "Portugal",
+                      "Greece", "Poland", "Czech Republic", "Hungary", "Slovakia",
+                      "Slovenia", "Estonia", "Latvia", "Lithuania", "Cyprus",
+                      "Malta", "Turkey", "India", "Mexico", "Argentina",
+                      "Chile", "Uruguay", "South Africa", "Thailand", "Malaysia",
+                      "Indonesia", "Philippines", "Vietnam", "Taiwan", "Hong Kong",
+                      "Macao", "Russia", "Kazakhstan", "Vatican City", "San Marino",
+                      "Andorra", "Anguilla", "Antigua & Barbuda", "Aruba", "Bahamas", 
+                      "Barbados", "Bermuda", "British Virgin Islands", "Brunei", "Cayman Islands", 
+                      "Cook Islands", "Costa Rica", "Croatia", "Curacao", "Dominica", 
+                      "Faroe Islands", "Fiji", "French Polynesia", "Gibraltar", "Greenland", 
+                      "Grenada", "Guam", "Guernsey", "Isle of Man", "Jersey", 
+                      "Maldives", "Mauritius", "Montenegro", "Montserrat", "New Caledonia", 
+                      "Panama", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent & Grenadines", 
+                      "Seychelles", "Sint Maarten", "Turks & Caicos Islands", "US Virgin Islands",
+                      "Bulgaria", "Colombia", "Egypt", "Georgia", "Jordan", 
+                      "Lebanon", "Morocco", "Peru", "Romania", "Serbia", 
+                      "Sri Lanka", "Tunisia", "Ukraine", "Azerbaijan", "Trinidad & Tobago",
+                      "Nigeria", "Kenya", "Ghana", "Botswana", "Namibia", "Egypt"
+                    ].sort().filter((v, i, a) => a.indexOf(v) === i).map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>

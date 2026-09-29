@@ -578,30 +578,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ? uLoss
               : (typeof prevLoss === 'number' && prevLoss > 0 ? prevLoss : (uLoss ?? 0));
 
-            const isSuperAdminEmail = 
-              userData.email?.toLowerCase() === 'ruro2885@gmail.com' || 
-              prev?.email?.toLowerCase() === 'ruro2885@gmail.com' ||
-              auth.currentUser?.email?.toLowerCase() === 'ruro2885@gmail.com';
-
-            const resolvedRole = isSuperAdminEmail ? 'super_admin' : (userData.role || prev?.role || 'user');
-            const resolvedIsAdmin = isSuperAdminEmail || userData.isAdmin === true || prev?.isAdmin === true || resolvedRole === 'super_admin' || resolvedRole === 'admin';
-
-            // Auto-promote in Firestore if ruro2885 doesn't have super_admin role set yet
-            if (isSuperAdminEmail && userData.role !== 'super_admin') {
-              setDoc(userDocRef, {
-                role: 'super_admin',
-                isAdmin: true,
-                isSuperAdmin: true,
-                lastAdminAccess: serverTimestamp()
-              }, { merge: true }).catch(() => {});
-            }
-
             const updatedUser = {
               ...(prev || {}),
               ...userData,
-              role: resolvedRole,
-              isAdmin: resolvedIsAdmin,
-              isSuperAdmin: isSuperAdminEmail || (userData as any).isSuperAdmin,
               profilePhotoURL: resolvedPhoto,
               avatarUrl: resolvedPhoto,
               hasCustomPhoto,
@@ -652,14 +631,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           const finalPhoto = existingProfile?.profilePhotoURL || existingProfile?.avatarUrl || cachedPhoto || dataUrl;
           const finalHasCustom = (finalPhoto && !finalPhoto.startsWith('data:image/svg+xml')) || !!existingProfile?.hasCustomPhoto;
 
-          const isMaster = email.toLowerCase() === 'ruro2885@gmail.com';
           const defaultProfile = {
             uid,
             email,
             username: existingProfile?.username || email.split('@')[0],
-            role: isMaster ? 'super_admin' : (existingProfile?.role || 'user'),
-            isAdmin: isMaster || existingProfile?.isAdmin === true,
-            isSuperAdmin: isMaster || existingProfile?.isSuperAdmin === true,
+            role: existingProfile?.role || 'user',
             profilePhotoURL: finalPhoto,
             avatarUrl: finalPhoto,
             avatarSeed: existingProfile?.avatarSeed || seed,
@@ -1303,10 +1279,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       safeStorage.removeItem('portfolio_active_offset');
       safeStorage.removeItem('aver_connected_wallet');
       safeStorage.removeItem('aver_trading_config');
-      safeStorage.removeItem('aver_real_nav_stack_v2');
-      safeStorage.setItem('aver_real_nav_stack_v2', JSON.stringify([{ id: 'root-home', view: 'home', tab: 'home', aiView: 'HOME', modal: null }]));
-      safeStorage.removeItem('aver_redirect_after_login');
-      safeStorage.removeItem('aver_session_initialized');
 
       // 4. Update React state immediately
       userRef.current = null;
@@ -1314,17 +1286,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setNotifications([]);
       setPreviewPhotoURL(null);
 
-      // 5. Notify all listeners and trigger navigation reset to home landing page
+      // 5. Notify all listeners
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new Event('storage'));
-      window.dispatchEvent(new CustomEvent('aver_nav_reset', { detail: { view: 'home' } }));
-
-      // Immediately synchronize browser location to root '/'
-      if (typeof window !== 'undefined' && window.history) {
-        try {
-          window.history.replaceState({ id: 'root-home', view: 'home', tab: 'home' }, '', '/');
-        } catch (e) {}
-      }
 
       // 6. Sign out from Firebase Auth
       if (auth) {

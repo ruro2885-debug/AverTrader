@@ -76,10 +76,7 @@ export interface UserProfile {
   kycApprovedAt?: string;
   kycRewardUnlocked?: boolean;
   kycRejectionReason?: string | null;
-  kycResubmissionReason?: string | null;
   role?: 'user' | 'super_admin' | 'admin';
-  isAdmin?: boolean;
-  isSuperAdmin?: boolean;
   watchlist?: string[];
 }
 

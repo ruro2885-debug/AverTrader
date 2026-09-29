@@ -30,7 +30,7 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
   if (lower === '/' || lower === '') {
     return {
       id: `nav-root`,
-      view: 'home',
+      view: 'dashboard',
       tab: 'home',
       aiView: 'HOME',
       modal: null,
@@ -261,7 +261,7 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
   }
 
   // Admin Terminal
-  if (lower === '/admin' || lower.startsWith('/admin')) {
+  if (lower === '/admin' || lower.startsWith('/admin/')) {
     return {
       id: `nav-route-admin`,
       view: 'admin',
@@ -282,36 +282,7 @@ export function parsePathToLocation(pathname: string): NavigationLocation | null
     };
   }
 
-  // About Us
-  if (lower === '/about' || lower === '/about-us') {
-    return {
-      id: `nav-route-about`,
-      view: 'about',
-      tab: 'home',
-      aiView: 'HOME',
-      modal: null,
-    };
-  }
-
-  // 404 Not Found route
-  if (lower === '/404' || lower === '/not-found') {
-    return {
-      id: `nav-route-404`,
-      view: 'not-found',
-      tab: 'home',
-      aiView: 'HOME',
-      modal: null,
-    };
-  }
-
-  // Any other unrecognized path -> 404
-  return {
-    id: `nav-route-404`,
-    view: 'not-found',
-    tab: 'home',
-    aiView: 'HOME',
-    modal: null,
-  };
+  return null;
 }
 
 export function locationToPath(loc: NavigationLocation): string {
@@ -336,7 +307,6 @@ export function locationToPath(loc: NavigationLocation): string {
   if (loc.view === 'market-highlights') return '/market-highlights';
   if (loc.view === 'events-promos') return '/events-promos';
   if (loc.view === 'showcase') return '/showcase';
-  if (loc.view === 'about') return '/about';
   if (loc.view === 'not-found') return '/404';
 
   // 3. Dashboard sub-tabs
@@ -393,28 +363,12 @@ const DEFAULT_LOCATION: NavigationLocation = {
 };
 
 function getInitialStack(initialView?: string): NavigationLocation[] {
-  const isExplicitlyLoggedOut = safeStorage.getItem('aver_logged_out') === 'true';
-  const hasActiveUser = !isExplicitlyLoggedOut && !!safeStorage.getItem('aver_active_user');
-  const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification', 'auth'];
-
-  // 1. Direct browser address bar path (e.g. https://www.avertrader.space/admin or /404)
+  // 1. Direct browser address bar path (e.g. https://www.avertrader.space/deposit)
   if (typeof window !== 'undefined' && window.location) {
     const fromUrl = parsePathToLocation(window.location.pathname);
     if (fromUrl) {
-      // Admin, 404, and home are always accessible directly via URL
-      if (fromUrl.view === 'admin' || fromUrl.view === 'not-found' || fromUrl.view === 'home') {
-        return [fromUrl];
-      }
-      if (!hasActiveUser && protectedViews.includes(fromUrl.view)) {
-        return [DEFAULT_LOCATION];
-      }
       return [fromUrl];
     }
-  }
-
-  // If user is explicitly logged out or unauthenticated on cold boot, guarantee fresh start on the landing page
-  if (isExplicitlyLoggedOut) {
-    return [DEFAULT_LOCATION];
   }
 
   // 2. Persisted navigation stack in sessionStorage
@@ -423,10 +377,6 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const topView = parsed[parsed.length - 1]?.view;
-        if (!hasActiveUser && protectedViews.includes(topView)) {
-          return [DEFAULT_LOCATION];
-        }
         return parsed;
       }
     }
@@ -434,6 +384,7 @@ function getInitialStack(initialView?: string): NavigationLocation[] {
     // Ignore parse errors and use default
   }
 
+  const hasActiveUser = safeStorage.getItem('aver_active_user') && safeStorage.getItem('aver_logged_out') !== 'true';
   const initV = initialView || (hasActiveUser ? 'dashboard' : 'home');
   return [
     {
@@ -517,8 +468,6 @@ export function NavigationProvider({
       title = 'Aver | Special Events & Promotions';
     } else if (currentLocation.view === 'showcase') {
       title = 'Aver | Platform Showcase';
-    } else if (currentLocation.view === 'about') {
-      title = 'Aver | About Us — Building Intelligent Infrastructure';
     }
 
     document.title = title;
@@ -571,34 +520,6 @@ export function NavigationProvider({
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-  // Listen to navigation reset events (e.g. on logout) to instantly navigate to landing page
-  useEffect(() => {
-    const handleNavReset = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      const targetView = customEvent?.detail?.view || 'home';
-      const rootLocation: NavigationLocation = {
-        id: `root-${Date.now()}`,
-        view: targetView,
-        tab: 'home',
-        aiView: 'HOME',
-        modal: null,
-      };
-      setStack([rootLocation]);
-      try {
-        safeStorage.removeItem(STORAGE_STACK_KEY);
-        safeStorage.setItem(STORAGE_STACK_KEY, JSON.stringify([rootLocation]));
-      } catch (err) {}
-      if (typeof window !== 'undefined' && window.history) {
-        try {
-          window.history.replaceState(rootLocation, '', '/');
-        } catch (e) {}
-      }
-    };
-
-    window.addEventListener('aver_nav_reset', handleNavReset);
-    return () => window.removeEventListener('aver_nav_reset', handleNavReset);
   }, []);
 
   const registerOverlay = useCallback((id: string, onClose: () => boolean | void) => {

@@ -23,7 +23,6 @@ import TransactionHistory from './components/TransactionHistory';
 import AdminRoot from './components/admin/AdminRoot';
 import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
-import AboutPage from './components/AboutPage';
 import { NavigationProvider, useAppNavigation, parsePathToLocation, locationToPath } from './contexts/NavigationContext';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
@@ -103,6 +102,8 @@ function AppContent() {
           }
         }
         navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
+      } else if (currentView !== 'auth') {
+        navigateView('auth', {}, { replace: true });
       }
     }
   }, [user?.uid, authLoading]);
@@ -122,12 +123,7 @@ function AppContent() {
       const path = window.location.pathname;
       const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
 
-      if (currentView === 'admin') {
-        // Allow admin terminal to handle its own authorization
-        return;
-      }
-
-      if (currentView === 'auth' || currentView === 'home') {
+      if (currentView === 'auth') {
         const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
         if (savedRedirect) {
           safeStorage.removeItem('aver_redirect_after_login');
@@ -138,17 +134,13 @@ function AppContent() {
             return;
           }
         }
-        console.log("[App] Logged in, moving from auth/home to dashboard.");
+        console.log("[App] Logged in, moving from auth to dashboard.");
         navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
         safeStorage.setItem('aver_session_initialized', 'true');
-      }
-    } else {
-      // Access control enforcement: send anonymous/logged-out sessions on protected views to the landing page
-      // Note: 'admin' handles its own authentication gate (AdminRoot) so unauthenticated direct visits are not kicked to home
-      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
-      if (protectedViews.includes(currentView)) {
-        console.log(`[App] Access denied or session signed out on view ${currentView}. Redirecting to Landing Page.`);
-        navigateView('home', {}, { replace: true });
+      } else if (currentView === 'admin' && !isAdminAuthorized && !isAtAdminUrl) {
+        console.warn("[App] Admin view active but not authorized, redirecting to dashboard.");
+        navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
+        safeStorage.setItem('aver_session_initialized', 'true');
       }
     }
   }, [user?.uid, authLoading, currentView]);
@@ -298,10 +290,7 @@ function AppContent() {
                   Contact Support
                 </button>
                 <button
-                  onClick={async () => {
-                    await signOutUser();
-                    navigateView('home', {}, { replace: true });
-                  }}
+                  onClick={() => signOutUser()}
                   className="w-full py-3.5 rounded-2xl bg-rose-500 text-white font-bold text-sm hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
                 >
                   Sign Out
@@ -441,8 +430,6 @@ function AppContent() {
                   onBack={goBackView}
                   onGetStarted={() => navigateToView('auth')}
                 />
-              ) : currentView === 'about' ? (
-                <AboutPage onBack={goBackView} />
               ) : currentView === 'not-found' ? (
                 <NotFound 
                   theme={theme} 

@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
-import { useAppNavigation } from '../contexts/NavigationContext';
 import { multiFactor, TotpMultiFactorGenerator } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
 import { authenticator } from '@otplib/preset-default';
@@ -67,20 +66,6 @@ export default function ProfileView({
     verifyCurrentPassword
   } = useAuth();
   const { preferences, updatePreference, t } = usePreferences();
-  const { navigateView } = useAppNavigation();
-
-  const handleLogout = async () => {
-    try {
-      await signOutUser();
-    } finally {
-      navigateView('home', {}, { replace: true });
-      if (typeof window !== 'undefined' && window.history) {
-        try {
-          window.history.replaceState({ id: 'root-home', view: 'home', tab: 'home' }, '', '/');
-        } catch (e) {}
-      }
-    }
-  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
@@ -848,21 +833,7 @@ export default function ProfileView({
     }
   };
 
-  const isUserAdmin = 
-    user?.email?.toLowerCase() === 'ruro2885@gmail.com' ||
-    user?.role === 'super_admin' ||
-    user?.role === 'admin' ||
-    (user as any)?.isAdmin === true ||
-    (user as any)?.isSuperAdmin === true ||
-    safeStorage.getItem('admin_session_active') === 'true';
-
   const menuSections = [
-    ...(isUserAdmin ? [{
-      title: 'Platform Administration',
-      items: [
-        { icon: Shield, label: 'Admin Terminal (Executive Operations)', id: 'admin_terminal' }
-      ]
-    }] : []),
     {
       title: 'Account Settings',
       items: [
@@ -985,7 +956,7 @@ export default function ProfileView({
         </div>
 
         {/* Membership Tier Badge */}
-        <div className="mt-4 flex flex-col items-center gap-2">
+        <div className="mt-4 flex justify-center">
           <button 
             onClick={() => {
               if (onOpenBonusCenter) onOpenBonusCenter();
@@ -997,20 +968,6 @@ export default function ProfileView({
               {activeTier.name}
             </span>
           </button>
-
-          {isUserAdmin && (
-            <button
-              type="button"
-              onClick={() => {
-                safeStorage.setItem('admin_session_active', 'true');
-                navigateView('admin');
-              }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold hover:bg-emerald-500 hover:text-black transition-all shadow-[0_0_15px_rgba(16,185,129,0.15)] cursor-pointer"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Launch Admin Terminal</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -1029,10 +986,7 @@ export default function ProfileView({
                   onClick={() => {
                     setErrorMsg('');
                     setSuccessMsg('');
-                    if (item.id === 'admin_terminal') {
-                      safeStorage.setItem('admin_session_active', 'true');
-                      navigateView('admin');
-                    } else if (item.id === 'referral') {
+                    if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();
                       } else {
@@ -1068,7 +1022,7 @@ export default function ProfileView({
       <div className={`rounded-[24px] overflow-hidden ${cardClasses} mt-8`}>
         <button 
           type="button"
-          onClick={handleLogout}
+          onClick={signOutUser}
           className={`w-full flex items-center justify-between p-4 transition-all cursor-pointer touch-manipulation select-none active:scale-[0.99] ${
             isDark ? 'hover:bg-rose-500/10' : 'hover:bg-rose-50'
           }`}

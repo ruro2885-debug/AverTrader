@@ -223,7 +223,6 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     loggingInterval?: any;
     tickInterval?: any;
     positionInterval?: any;
-    statusInterval?: any;
     orderTimeout?: any;
   }>({});
 
@@ -835,7 +834,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
         portfolio: {
           ...(user?.portfolio || {}),
           totalValue: totalNetBalance
-        } as any
+        }
       }, undefined, undefined, true);
     }
 
@@ -1101,7 +1100,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       setLocalStorageItem(`aver_trades_${effectiveUid}`, updatedTrades);
 
       // Save closed trades to Firestore if online
-      if (user?.uid && !user.uid.startsWith('local-')) {
+      if (user.uid && !user.uid.startsWith('local-')) {
         for (const t of openTrades) {
           const livePrice = livePricesRef.current[t.asset] || liveTradePrices[t.asset] || t.currentPrice || t.entry;
           const pnl = (livePrice - t.entry) * t.quantity;
@@ -1193,9 +1192,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     try {
       // 4. Calculate new balances using rigorous P/L delta on existing portfolio balance (prevents double-counting & balance inflation)
       const sessionPnl = parseFloat((finalCapital - currentSession.initialCapital).toFixed(2));
-      const currentPortfolioBalance = user?.portfolioBalance ?? user?.portfolio?.totalValue ?? (tokenBalanceRef.current + (user?.vaultBalance || 0) + currentSession.initialCapital);
+      const currentPortfolioBalance = user.portfolioBalance ?? user.portfolio?.totalValue ?? (tokenBalanceRef.current + (user.vaultBalance || 0) + currentSession.initialCapital);
       const newPortfolioBalance = Math.max(0, currentPortfolioBalance + sessionPnl);
-      const currentVaultBal = user?.vaultBalance ?? 0;
+      const currentVaultBal = user.vaultBalance ?? 0;
 
       let newVaultBal = currentVaultBal;
       if (fundingSource === 'VAULT') {
@@ -1231,7 +1230,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
             todayPnLPercent: accountPnlPercent,
             overallReturn: sessionPnl,
             realizedPnL: sessionPnl
-          } as any
+          }
         }, undefined, undefined, true);
       }
 
@@ -1379,7 +1378,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     const currentTokenBalance = tokenBalance !== undefined ? tokenBalance : activeTradingBalance;
 
     // Automatic session termination disabled at user request - sessions stay active continuously.
-    if (false && !loading && session && session.status === 'ACTIVE' && session.initialCapital > 0 && session.tradingCapital !== undefined && session.tradingCapital <= 0 && (tradesRefVal.current.filter(t => t.status === 'OPEN').length === 0)) {
+    if (false && !loading && session?.status === 'ACTIVE' && session.initialCapital > 0 && session.tradingCapital !== undefined && session.tradingCapital <= 0 && (tradesRefVal.current.filter(t => t.status === 'OPEN').length === 0)) {
       console.log("[TradingEngineContext] Insufficient session funds detected. Terminating AI session.");
       // endSessionRef.current();
     }
@@ -1912,7 +1911,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       // Compute Total Account Equity (base wallet cash + vault + holdings + active session equity)
       const baseWalletCash = tokenBalanceRef.current ?? userRef.current?.tokenBalance ?? userRef.current?.availableBalance ?? 0;
       const vaultBal = userRef.current?.vaultBalance ?? 0;
-      const holdingsVal = (userRef.current?.holdings || []).reduce((s: number, h: any) => s + ((h.quantity || 0) * (h.currentPrice || 0)), 0);
+      const holdingsVal = (userRef.current?.holdings || []).reduce((s, h) => s + ((h.quantity || 0) * (h.currentPrice || 0)), 0);
       const totalAccountEquity = baseWalletCash + vaultBal + holdingsVal + sessionEquity;
 
       const timeFormatted = new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });

@@ -144,7 +144,7 @@ export default function Hero({ theme, onShowcase, onGetStarted }: HeroProps) {
               {t('hero.title.1')}
             </span>
             <br />
-            <span className="text-white">
+            <span className="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
               {t('hero.title.2')}
             </span>
           </h1>
