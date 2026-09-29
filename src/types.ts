@@ -3,14 +3,8 @@ export interface UserProfile {
   username: string;
   email: string;
   displayName?: string;
-  name?: string;
-  fullName?: string;
-  photoURL?: string;
   profilePhotoURL?: string;
   avatarUrl?: string;
-  pnlResetAt?: string | number | null;
-  resetPnL?: boolean;
-  referredUsers?: any;
   country: string;
   phoneNumber?: string;
   accountType: string;

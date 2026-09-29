@@ -708,15 +708,28 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
     const isPlatinumOrHigher = calcXp >= 100 || (user?.level || 1) >= 2 || isKycVerified;
 
-    // 1. Identity verification (Shows whenever user is not verified)
-    if (!user?.kycStatus || user.kycStatus !== 'verified') {
+    // 1. Identity verification
+    const uid = user?.uid;
+    const isKycPending = user?.kycStatus === 'pending' || 
+      (uid ? safeStorage.getItem(`aver_kyc_active_status_${uid}`) === 'pending' : false);
+
+    if (isKycPending) {
+      warnings.push({
+        id: 'kyc-pending',
+        title: 'Identity Verification Pending Review',
+        description: 'Your verification documents are securely submitted and currently under review by compliance (24–48h).',
+        actionText: 'View Status',
+        actionType: 'prop',
+        actionName: 'kyc-verification'
+      });
+    } else if (!user?.kycStatus || user.kycStatus === 'unverified') {
       warnings.push({
         id: 'kyc',
         title: 'Identity Verification Incomplete',
         description: 'Complete your tier-1 verification to unlock unlimited asset trades and premium withdrawals',
         actionText: 'Verify Identity',
         actionType: 'prop',
-        actionName: 'bonus-center'
+        actionName: 'kyc-verification'
       });
     }
 
@@ -875,7 +888,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             </div>
             <div className="truncate max-w-[120px]">
               <p className={`text-xs font-bold ${textPrimary} truncate`}>
-                {user?.displayName || (user as any)?.fullName || user?.username || user?.email || 'User'}
+                {user?.displayName || user?.fullName || user?.username || user?.email || 'User'}
               </p>
               <p className="text-[10px] text-emerald-500 font-medium">Pro Account</p>
             </div>
@@ -918,7 +931,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                   <div className="w-20 h-4 rounded animate-pulse bg-slate-700" />
                 ) : (
                   <h1 className={`text-sm font-bold tracking-tight ${textPrimary}`}>
-                    {user?.displayName || (user as any)?.fullName || user?.username || user?.email || 'User'}
+                    {user?.displayName || user?.fullName || user?.username || user?.email || 'User'}
                   </h1>
                 )}
               </div>

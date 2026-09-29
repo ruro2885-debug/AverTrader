@@ -149,7 +149,7 @@ interface AuthContextType {
   updateTradingConfig: (config: Partial<TradingEngineConfig>) => Promise<void>;
   toggleWatchlist: (symbol: string) => Promise<void>;
   addDeposit: (amount: number) => Promise<void>;
-  addWithdrawal: (amount: number, destinationAddress?: string, asset?: string, network?: string, hash?: string) => Promise<any>;
+  addWithdrawal: (amount: number) => Promise<any>;
   
   addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string, action?: string, metadata?: Record<string, any>, userId?: string) => Promise<void>;
   markNotificationRead: (id: string, readState?: boolean) => Promise<void>;
@@ -289,14 +289,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Failsafe timer to prevent infinite loading/blinking state if onAuthStateChanged hangs
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
   const userRef = useRef<User | null>(null);
   const notificationManagerRef = useRef<NotificationManager | null>(null);
   const avatarSetupRef = useRef<boolean>(false);
@@ -586,9 +578,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               ? uLoss
               : (typeof prevLoss === 'number' && prevLoss > 0 ? prevLoss : (uLoss ?? 0));
 
+            // Retain active kycStatus: if a submission is pending, never drop to unverified
+            const activeKycPending = safeStorage.getItem(`aver_kyc_active_status_${uid}`) === 'pending' || 
+              (email ? safeStorage.getItem(`aver_kyc_active_status_${email.toLowerCase()}`) === 'pending' : false);
+            let resolvedKycStatus = userData.kycStatus || prev?.kycStatus;
+            if (activeKycPending && (!resolvedKycStatus || resolvedKycStatus === 'unverified')) {
+              resolvedKycStatus = 'pending';
+            }
+
             const updatedUser = {
               ...(prev || {}),
               ...userData,
+              kycStatus: resolvedKycStatus,
+              kycData: userData.kycData || prev?.kycData,
               profilePhotoURL: resolvedPhoto,
               avatarUrl: resolvedPhoto,
               hasCustomPhoto,
@@ -1287,6 +1289,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       safeStorage.removeItem('portfolio_active_offset');
       safeStorage.removeItem('aver_connected_wallet');
       safeStorage.removeItem('aver_trading_config');
+      safeStorage.removeItem('aver_real_nav_stack_v2');
+      safeStorage.setItem('aver_real_nav_stack_v2', JSON.stringify([{ id: 'root-home', view: 'home', tab: 'home', aiView: 'HOME', modal: null }]));
+      safeStorage.removeItem('aver_redirect_after_login');
+      safeStorage.removeItem('aver_session_initialized');
 
       // 4. Update React state immediately
       userRef.current = null;
@@ -1294,19 +1300,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setNotifications([]);
       setPreviewPhotoURL(null);
 
-      // 5. Notify all listeners
+      // 5. Notify all listeners and trigger navigation reset to home landing page
       window.dispatchEvent(new Event('aver_user_updated'));
       window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('aver_nav_reset', { detail: { view: 'home' } }));
+
+      // Immediately synchronize browser location to root '/'
+      if (typeof window !== 'undefined' && window.history) {
+        try {
+          window.history.replaceState({ id: 'root-home', view: 'home', tab: 'home' }, '', '/');
+        } catch (e) {}
+      }
 
       // 6. Sign out from Firebase Auth
       if (auth) {
         await signOut(auth).catch(() => {});
       }
-
-      window.location.href = '/';
     } catch (error) {
       console.error("Error signing out:", error);
-      window.location.href = '/';
     }
   }, [clearAllSubscriptions]);
 

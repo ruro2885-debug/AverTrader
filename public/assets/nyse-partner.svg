@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" fill="none">
+  <rect width="200" height="60" fill="#09090b"/>
+  <text x="20" y="38" fill="#ffffff" font-family="serif" font-size="22" font-weight="bold" letter-spacing="2">NYSE</text>
+  <text x="95" y="36" fill="#71717a" font-family="monospace" font-size="10" letter-spacing="1">PARTNER</text>
+  <line x1="20" y1="46" x2="180" y2="46" stroke="#27272a" stroke-width="1"/>
+</svg>
