@@ -1,22 +1,57 @@
 import React from 'react';
 
-export default function AverLogo({ theme = 'dark', size = 32 }: { theme?: 'light' | 'dark'; size?: number }) {
+interface AverLogoProps {
+  theme?: 'light' | 'dark';
+  size?: number;
+  showText?: boolean;
+  className?: string;
+}
+
+export default function AverLogo({ theme = 'dark', size = 32, showText = true, className = '' }: AverLogoProps) {
   const isDark = theme === 'dark';
+  
   return (
-    <div className="flex items-center gap-3 font-display select-none">
+    <div className={`flex items-center gap-2.5 font-display select-none ${className}`}>
+      {/* Official Aver Emblem */}
       <div 
-        className="relative flex items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 p-2 shadow-lg shadow-emerald-500/20"
+        className="relative flex items-center justify-center flex-shrink-0"
         style={{ width: size, height: size }}
       >
-        <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-slate-950 stroke-current stroke-[2.5]">
-          <path d="M12 2L3 19h18L12 2z" strokeLinejoin="round" />
-          <path d="M12 8v7" strokeLinecap="round" />
-          <path d="M9 13l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+        <img 
+          src="/aver_logo_new.png" 
+          alt="Aver Logo" 
+          className="w-full h-full object-contain rounded-lg drop-shadow-[0_2px_10px_rgba(16,185,129,0.35)]"
+          onError={(e) => {
+            // Fallback to official brand SVG if image fails to load
+            (e.target as HTMLElement).style.display = 'none';
+            const fallback = (e.target as HTMLElement).nextElementSibling as HTMLElement;
+            if (fallback) fallback.style.display = 'block';
+          }}
+        />
+        <svg 
+          viewBox="0 0 32 32" 
+          className="w-full h-full hidden"
+          fill="none"
+        >
+          <defs>
+            <linearGradient id="averLogoGrad" x1="16" y1="4" x2="16" y2="28" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#34d399" />
+              <stop offset="100%" stopColor="#059669" />
+            </linearGradient>
+          </defs>
+          <path d="M16 4 L28 28 L22 28 L16 16 L10 28 L4 28 Z" fill="url(#averLogoGrad)" />
+          <circle cx="16" cy="16" r="2" fill="#10b981" />
         </svg>
       </div>
-      <span className={`font-black tracking-tight text-xl sm:text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
-        AVER<span className="text-emerald-400">.</span>
-      </span>
+
+      {/* Brand Typography */}
+      {showText && (
+        <div className="flex items-baseline">
+          <span className={`font-black tracking-tight text-xl sm:text-2xl font-display ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            AVER<span className="text-emerald-400">TRADER</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

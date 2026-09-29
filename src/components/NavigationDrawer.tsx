@@ -1,147 +1,122 @@
 import React from 'react';
-import { X, ArrowRight, Shield, Cpu, Activity, HelpCircle, Terminal, Info, ExternalLink } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { X, Cpu, Layout, Activity, Shield, ArrowRight, Home, User, BarChart2, Award } from 'lucide-react';
 import AverLogo from './AverLogo';
+import { usePreferences } from '../contexts/PreferencesContext';
 
 interface NavigationDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigate: (routeOrSection: string) => void;
-  theme?: 'light' | 'dark';
-  onOpenAbout?: () => void;
+  theme: 'light' | 'dark';
+  onNavigate: (section: string) => void;
+  activeSection?: string;
+  onShowcase?: () => void;
+  onAdminAccess?: () => void;
 }
 
 export default function NavigationDrawer({
   isOpen,
   onClose,
+  theme,
   onNavigate,
-  theme = 'dark',
-  onOpenAbout
+  activeSection,
+  onShowcase,
+  onAdminAccess,
 }: NavigationDrawerProps) {
-  if (!isOpen) return null;
+  const isDark = theme === 'dark';
+  const { t } = usePreferences();
 
-  const handleLinkClick = (dest: string) => {
-    onClose();
-    onNavigate(dest);
-  };
+  const navItems = [
+    { name: t('nav.technology') || 'Technology', id: 'tech', icon: Cpu },
+    { name: t('nav.platform') || 'Platform', id: 'features', icon: Layout },
+    { name: t('nav.performance') || 'Performance', id: 'stats', icon: Activity },
+    { name: t('show.title') || 'Preview', id: 'preview', icon: Shield },
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
-      <div 
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity animate-in fade-in duration-200" 
-        onClick={onClose}
-      />
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+          />
 
-      {/* Drawer Panel */}
-      <div className="relative w-full max-w-sm h-full bg-[#07090e] border-l border-slate-800/80 shadow-2xl z-10 flex flex-col justify-between p-6 text-slate-200 overflow-y-auto">
-        
-        {/* Header */}
-        <div>
-          <div className="flex items-center justify-between pb-6 border-b border-slate-800/80">
-            <button 
-              type="button"
-              onClick={() => handleLinkClick('hero')} 
-              className="focus:outline-none cursor-pointer"
-            >
-              <AverLogo theme="dark" size={32} />
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent hover:border-slate-800 transition-colors cursor-pointer"
-              aria-label="Close Menu"
-            >
-              <X size={20} />
-            </button>
-          </div>
+          {/* Drawer Body */}
+          <motion.aside
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className={`fixed top-0 right-0 bottom-0 z-50 w-80 max-w-[85vw] border-l flex flex-col justify-between p-6 shadow-2xl ${
+              isDark ? 'bg-slate-950/95 border-white/10 text-white' : 'bg-white/95 border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="space-y-6">
+              {/* Top Drawer Bar */}
+              <div className="flex items-center justify-between">
+                <AverLogo theme={theme} size={32} />
+                <button
+                  onClick={onClose}
+                  className={`p-2 rounded-xl transition-colors ${
+                    isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-          {/* Upper Menu Links */}
-          <nav className="py-6 flex flex-col space-y-1">
-            <button
-              type="button"
-              onClick={() => handleLinkClick('tech')}
-              className="flex items-center gap-3.5 py-3 px-3 rounded-xl text-left text-sm font-semibold text-slate-300 hover:text-emerald-400 hover:bg-slate-900/40 transition-colors cursor-pointer"
-            >
-              <Cpu size={18} className="text-emerald-400" />
-              <span>Technology Innovations</span>
-            </button>
+              <hr className={isDark ? 'border-white/5' : 'border-slate-100'} />
 
-            <button
-              type="button"
-              onClick={() => handleLinkClick('features')}
-              className="flex items-center gap-3.5 py-3 px-3 rounded-xl text-left text-sm font-semibold text-slate-300 hover:text-emerald-400 hover:bg-slate-900/40 transition-colors cursor-pointer"
-            >
-              <Activity size={18} className="text-teal-400" />
-              <span>Platform &amp; Ecosystem</span>
-            </button>
+              {/* Nav links */}
+              <nav className="flex flex-col space-y-2">
+                {navItems.map((item) => {
+                  const isActive = activeSection === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        onNavigate(item.id);
+                        onClose();
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
+                        isActive
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : isDark
+                          ? 'text-slate-300 hover:bg-white/5 hover:text-white'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                    >
+                      <item.icon className="w-4 h-4 text-emerald-400" />
+                      <span>{item.name}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => handleLinkClick('stats')}
-              className="flex items-center gap-3.5 py-3 px-3 rounded-xl text-left text-sm font-semibold text-slate-300 hover:text-emerald-400 hover:bg-slate-900/40 transition-colors cursor-pointer"
-            >
-              <Shield size={18} className="text-cyan-400" />
-              <span>Performance Verification</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleLinkClick('showcase')}
-              className="flex items-center gap-3.5 py-3 px-3 rounded-xl text-left text-sm font-semibold text-slate-300 hover:text-emerald-400 hover:bg-slate-900/40 transition-colors cursor-pointer"
-            >
-              <HelpCircle size={18} className="text-amber-400" />
-              <span>Help &amp; Knowledge Center</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleLinkClick('admin')}
-              className="flex items-center gap-3.5 py-3 px-3 rounded-xl text-left text-sm font-semibold text-slate-300 hover:text-emerald-400 hover:bg-slate-900/40 transition-colors cursor-pointer"
-            >
-              <Terminal size={18} className="text-emerald-400" />
-              <span>Admin Terminal</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Footer Area with Dedicated About Us button above copyright */}
-        <div className="pt-4 border-t border-slate-800/80 space-y-4">
-          
-          {/* Dedicated About Us Button */}
-          <div className="my-2">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                if (onOpenAbout) onOpenAbout();
-                else handleLinkClick('about');
-              }}
-              className="group w-full flex items-center justify-between py-2 text-base font-semibold text-slate-200 hover:text-emerald-400 transition-colors cursor-pointer"
-            >
-              <span className="tracking-wide flex items-center gap-2">
-                <Info size={18} className="text-emerald-400" />
-                About Us
-              </span>
-            </button>
-          </div>
-
-          {/* Target Position: Directly above copyright text */}
-          <p className="text-xs font-mono font-bold text-slate-200 tracking-wider">
-            © 2026 AVER TECHNOLOGIES. ALL RIGHTS RESERVED.
-          </p>
-
-          {/* Risk Disclaimer and Entity Notice text */}
-          <div className="space-y-2 text-[10px] font-bold text-slate-300 leading-relaxed font-sans">
-            <p>
-              <strong className="font-extrabold text-white">Risk Disclosure:</strong> All operations and balances within the public preview workspace are virtual sandbox allocations provided solely for presentation. They are completely decoupled from external banking pipelines, physical ledgers, or physical cryptocurrency clearing routes. Performance metrics demonstrated on historical configurations do not guarantee future execution optimization.
-            </p>
-            <p>
-              <strong className="font-extrabold text-white">Entity Notice:</strong> AverTrader (avertrader.space) is an independent proprietary trading workspace and AI execution platform. AverTrader is not affiliated with, sponsored by, or connected to AvaTrade (avatrade.com) or any third-party broker.
-            </p>
-          </div>
-        </div>
-
-      </div>
-    </div>
+            {/* Bottom Actions */}
+            <div className="space-y-3 pt-6 border-t border-white/5">
+              {onShowcase && (
+                <button
+                  onClick={() => {
+                    onShowcase();
+                    onClose();
+                  }}
+                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                >
+                  <span>{t('nav.access') || 'Launch Platform'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
