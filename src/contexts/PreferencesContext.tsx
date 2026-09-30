@@ -10,9 +10,6 @@ interface PreferencesContextType {
   resetPreferences: () => void;
   t: (key: string) => string;
   formatCurrency: (usdValue: number, compact?: boolean) => string;
-  theme: Theme;
-  language: Language;
-  currency: Currency;
 }
 
 const defaultPreferences: Preferences = {
@@ -244,10 +241,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     updatePreference, 
     resetPreferences, 
     t, 
-    formatCurrency,
-    theme: preferences.theme,
-    language: preferences.language,
-    currency: preferences.currency
+    formatCurrency 
   }), [preferences, updatePreference, resetPreferences, t, formatCurrency]);
 
   if (!isLoaded) return null;

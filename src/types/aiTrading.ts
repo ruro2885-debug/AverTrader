@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore';
 
-export type AiSessionStatus = 'ACTIVE' | 'INACTIVE' | 'STOPPED' | 'COMPLETED' | 'PAUSED';
+export type AiSessionStatus = 'ACTIVE' | 'INACTIVE';
 export type RecommendationStatus = 'PENDING' | 'EXECUTED' | 'DISMISSED' | 'EXPIRED';
 export type TradeStatus = 'OPEN' | 'CLOSED';
 export type RiskRating = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -141,7 +141,6 @@ export interface AiConfiguration {
     tradeExecutions: boolean;
     marketAlerts: boolean;
   };
-  markets?: any;
 }
 
 export type SessionControlMode = 'NORMAL' | 'FORCE_PROFIT' | 'FORCE_LOSS' | 'CUSTOM_TARGET_PNL' | 'CUSTOM_WIN_RATE';
@@ -216,10 +215,7 @@ export interface AiTrade {
   duration?: string;
   pnl?: number;
   pnlPercent?: number;
-  reasonClosed?: 'TARGET_HIT' | 'STOP_LOSS_HIT' | 'MANUAL' | 'AI_SUGGESTION' | 'SESSION_END';
-  rationale?: string;
-  type?: string;
-  amount?: number;
+  reasonClosed?: 'TARGET_HIT' | 'STOP_LOSS_HIT' | 'MANUAL' | 'AI_SUGGESTION';
 }
 
 export type MarketScanStatus = {

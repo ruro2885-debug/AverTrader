@@ -112,8 +112,6 @@ export function getTierState(user: any, session?: any) {
   const isDeposited = (user?.totalDeposits || 0) > 0 || (user?.deposits?.length || 0) > 0;
   const isKycVerified = user?.kycStatus === 'verified' || 
     (uid ? safeStorage.getItem(`aver_kyc_verified_${uid}`) === 'true' : false);
-  const isKycPending = user?.kycStatus === 'pending' ||
-    (uid ? safeStorage.getItem(`aver_kyc_active_status_${uid}`) === 'pending' : false);
 
   const tradesCount = user?.trades?.length || user?.aiTradesCount || 0;
   const isTraded = (tradesCount > 0 || (session?.status === 'ACTIVE' && (session?.tradingCapital || 0) > 0)) && isDeposited;
@@ -220,13 +218,11 @@ export function getTierState(user: any, session?: any) {
       title: 'Identity Verification (KYC)',
       progress: isKycVerified ? 100 : 0,
       increment: 35,
-      status: isKycVerified ? 'completed' : isKycPending ? 'pending' : 'unlocked',
+      status: isKycVerified ? 'completed' : 'pending',
       iconKey: 'shield',
-      actionLabel: isKycVerified ? 'Verified' : isKycPending ? 'Under Review' : 'Verify ID',
+      actionLabel: isKycVerified ? 'Verified' : 'Verify ID',
       customAction: 'kyc',
-      description: isKycPending 
-        ? 'Your KYC documents are currently being audited by compliance (24–48 hours).' 
-        : 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
+      description: 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
     },
     {
       id: 'trade',

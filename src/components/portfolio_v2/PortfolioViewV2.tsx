@@ -27,6 +27,7 @@ import AverLogo from '../AverLogo';
 import CoinLogo from '../CoinLogo';
 import VaultScreen from './VaultScreen';
 import AssetStatsScreen from './AssetStatsScreen';
+import { useAppNavigation } from '../../contexts/NavigationContext';
 
 interface PortfolioViewV2Props {
   theme: 'light' | 'dark';
@@ -925,7 +926,17 @@ export default function PortfolioViewV2({
   }, []);
 
   // Navigation mode to switch full-screen pages
-  const [viewMode, setViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+  const { currentLocation, navigateSubView, goBack } = useAppNavigation();
+  const [localViewMode, setLocalViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+  const viewMode: 'portfolio' | 'vault' | 'asset-stats' = 
+    (currentLocation.subView === 'vault' || currentLocation.subView === 'asset-stats') 
+      ? currentLocation.subView 
+      : localViewMode;
+
+  const setViewMode = useCallback((mode: 'portfolio' | 'vault' | 'asset-stats') => {
+    setLocalViewMode(mode);
+    navigateSubView(mode === 'portfolio' ? undefined : mode);
+  }, [navigateSubView]);
 
   const onViewModeChangeRef = useRef(onViewModeChange);
   useEffect(() => {
@@ -1061,19 +1072,16 @@ export default function PortfolioViewV2({
     { symbol: 'BTC', name: 'Bitcoin', baseConfidence: 96, category: 'high_conviction' },
     { symbol: 'ETH', name: 'Ethereum', baseConfidence: 89, category: 'preparing_entry' },
     { symbol: 'SOL', name: 'Solana', baseConfidence: 79, category: 'watching' },
-    { symbol: 'NVDA', name: 'NVIDIA', baseConfidence: 73, category: 'watching' },
     { symbol: 'XRP', name: 'Ripple', baseConfidence: 65, category: 'preparing_entry' },
-    { symbol: 'Gold', name: 'Gold Spot', baseConfidence: 95, category: 'high_conviction' },
-    { symbol: 'DOGE', name: 'Dogecoin', baseConfidence: 18, category: 'avoiding' },
-    { symbol: 'PEPE', name: 'Pepe', baseConfidence: 11, category: 'avoiding' },
+    { symbol: 'ADA', name: 'Cardano', baseConfidence: 58, category: 'watching' },
   ]);
 
   const handleRescanRadar = () => {
     setIsRescanningRadar(true);
     setTimeout(() => {
-      // Pick 7 to 9 random assets from the pool
+      // Pick 5 random assets from the pool
       const shuffled = [...MASTER_ASSET_POOL].sort(() => Math.random() - 0.5);
-      const count = Math.floor(Math.random() * 3) + 7; // 7, 8, or 9
+      const count = 5;
       const selected = shuffled.slice(0, count);
 
       const newAssets = selected.map(asset => {
@@ -1218,8 +1226,8 @@ export default function PortfolioViewV2({
 
   // Missing States for Vault and Trading dialogs
   const [activeDialog, setActiveDialog] = useState<'trade' | 'vault' | null>(null);
-  const [vaultState, setVaultState] = useState<'closed' | 'setup' | 'locked' | 'unlocked' | 'deposit' | 'withdraw' | 'goal'>('closed');
-  const [vaultActionType, setVaultActionType] = useState<'deposit' | 'withdraw' | 'DEPOSIT' | 'WITHDRAW' | null>(null);
+  const [vaultState, setVaultState] = useState<'closed' | 'deposit' | 'withdraw' | 'goal'>('closed');
+  const [vaultActionType, setVaultActionType] = useState<'DEPOSIT' | 'WITHDRAW' | null>(null);
   const [vaultActionAsset, setVaultActionAsset] = useState<string>('BTC');
   const [vaultActionAmount, setVaultActionAmount] = useState<string>('');
   const [vaultGoalName, setVaultGoalName] = useState<string>('');
@@ -1227,7 +1235,7 @@ export default function PortfolioViewV2({
   const [showWithdrawPasscodeVerify, setShowWithdrawPasscodeVerify] = useState<boolean>(false);
   const [withdrawVerifyInput, setWithdrawVerifyInput] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
-  const [shakeTrigger, setShakeTrigger] = useState<boolean | number>(0);
+  const [shakeTrigger, setShakeTrigger] = useState<number>(0);
 
   const [tradeType, setTradeType] = useState<'BUY' | 'SELL'>('BUY');
   const [tradeAsset, setTradeAsset] = useState<string>('BTC');
@@ -1456,7 +1464,7 @@ export default function PortfolioViewV2({
             : Math.floor((record.timestamp?.toMillis ? record.timestamp.toMillis() : Date.now()) / 1000);
           points.push({
             time: timeSec,
-            value: Number(record.totalNetBalance ?? (record as any).equity ?? 0)
+            value: Number(record.totalNetBalance ?? record.equity ?? 0)
           });
         });
       }
@@ -1524,7 +1532,7 @@ export default function PortfolioViewV2({
     }
     if (filteredEquityHistory && filteredEquityHistory.length > 0) {
       const firstRec = filteredEquityHistory[0];
-      return firstRec.totalNetBalance ?? (firstRec as any).equity ?? 0;
+      return firstRec.totalNetBalance ?? firstRec.equity ?? 0;
     }
     if (mergedChartData.length > 0) {
       return mergedChartData[0].value;
@@ -1559,7 +1567,7 @@ export default function PortfolioViewV2({
   const executionEvents = useMemo(() => {
     // Markers are LIVE SESSION UI markers ONLY.
     // When session is NOT ACTIVE/RUNNING (ENDED/STOPPED/INACTIVE), immediately return empty list to remove all markers.
-    if (!session || (session.status !== 'ACTIVE' && (session.status as string) !== 'RUNNING')) {
+    if (!session || (session.status !== 'ACTIVE' && session.status !== 'RUNNING')) {
       return [];
     }
 
@@ -1781,7 +1789,7 @@ export default function PortfolioViewV2({
         <VaultScreen 
           key="vault"
           theme={theme}
-          onBack={() => setViewMode('portfolio')}
+          onBack={() => goBack()}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           showNotification={showNotification}
           vaultBalance={vaultBalance}
@@ -1795,7 +1803,7 @@ export default function PortfolioViewV2({
         <AssetStatsScreen 
           key="asset-stats"
           theme={theme}
-          onBack={() => setViewMode('portfolio')}
+          onBack={() => goBack()}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           allocations={liveAllocations}
         />

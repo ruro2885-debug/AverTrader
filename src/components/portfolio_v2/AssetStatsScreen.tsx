@@ -82,9 +82,9 @@ export default function AssetStatsScreen({
           let dateStr = 'Just now';
           if (act.timestamp) {
             try {
-              const d = typeof (act.timestamp as any)?.toDate === 'function' 
-                ? (act.timestamp as any).toDate() 
-                : new Date(act.timestamp as any);
+              const d = typeof act.timestamp.toDate === 'function' 
+                ? act.timestamp.toDate() 
+                : new Date(act.timestamp);
               dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             } catch {
               dateStr = 'Recent';

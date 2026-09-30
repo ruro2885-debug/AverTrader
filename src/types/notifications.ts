@@ -10,9 +10,7 @@ export type NotificationCategory =
   | 'swap' 
   | 'referral' 
   | 'system'
-  | 'marketing'
-  | 'ai'
-  | 'rewards';
+  | 'marketing';
 
 export type NotificationPriority = 'low' | 'medium' | 'high' | 'critical';
 

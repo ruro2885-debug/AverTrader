@@ -1,30 +1,6 @@
 {
   "framework": "vite",
   "outputDirectory": "dist",
-  "redirects": [
-    {
-      "source": "/(.*)",
-      "has": [
-        {
-          "type": "host",
-          "value": "aver-trader.vercel.app"
-        }
-      ],
-      "destination": "https://www.avertrader.space/$1",
-      "permanent": true
-    },
-    {
-      "source": "/(.*)",
-      "has": [
-        {
-          "type": "host",
-          "value": "avertrader.space"
-        }
-      ],
-      "destination": "https://www.avertrader.space/$1",
-      "permanent": true
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/(.*)",

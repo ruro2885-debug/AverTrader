@@ -1616,7 +1616,7 @@ export default function InstitutionalDepositPage({ theme = 'dark', onBack: propO
         id: depositId,
         userId: authUser?.uid || firebaseUser?.uid || 'anonymous',
         email: authUser?.email || firebaseUser?.email || '',
-        userName: (authUser as any)?.fullName || authUser?.displayName || authUser?.username || firebaseUser?.displayName || firebaseUser?.email?.split('@')[0] || 'User',
+        userName: authUser?.fullName || authUser?.displayName || authUser?.username || firebaseUser?.displayName || firebaseUser?.email?.split('@')[0] || 'User',
         fundingMethod: selectedMethod,
         // Ensure asset and network are saved dynamically based on selection
         asset: assetSym,

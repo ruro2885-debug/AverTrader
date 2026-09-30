@@ -186,9 +186,9 @@ export default function MarketHighlightsPage({ theme, onBack }: MarketHighlights
   }
 
   return (
-    <div className={`min-h-screen relative z-10 ${isDark ? 'text-slate-200' : 'text-slate-900'} font-sans antialiased`}>
+    <div className={`min-h-screen ${isDark ? 'bg-[#050505] text-slate-200' : 'bg-slate-50 text-slate-900'} font-sans antialiased`}>
       {/* Institutional Header */}
-      <header className={`sticky top-0 z-50 backdrop-blur-md border-b ${isDark ? 'bg-slate-950/80 border-white/10' : 'bg-white/80 border-slate-200'}`}>
+      <header className={`sticky top-0 z-50 backdrop-blur-md border-b ${isDark ? 'bg-black/60 border-white/5' : 'bg-white/70 border-slate-200'}`}>
         <div className="max-w-[1500px] mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <button

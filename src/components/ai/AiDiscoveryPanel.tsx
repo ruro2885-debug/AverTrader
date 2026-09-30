@@ -18,7 +18,7 @@ export default function AiDiscoveryPanel({ session, config, recommendations, isD
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
   const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';
 
-  const markets = config?.aiTradingRules.assetSelection || [];
+  const markets = config?.aiTradingRules?.assetSelection || [];
   
   return (
     <div className={`rounded-2xl border ${cardClasses} overflow-hidden`}>

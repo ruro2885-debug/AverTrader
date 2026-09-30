@@ -31,7 +31,7 @@ export default function AdminAiMonitor({ theme }: { theme: 'light' | 'dark' }) {
 
   useEffect(() => {
     // Recent Sessions
-    const qSessions = query(collection(db, 'aiSessions'), orderBy('startTime', 'desc'), limit(10));
+    const qSessions = query(collection(db, 'aiSessions'), orderBy('startTime', 'desc'), limit(100));
     const unsubSessions = onSnapshot(qSessions, (snap) => {
       setSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AiSession)));
     });
@@ -49,7 +49,7 @@ export default function AdminAiMonitor({ theme }: { theme: 'light' | 'dark' }) {
     };
   }, []);
 
-  const activeSessionsCount = sessions.filter(s => s.status === 'active').length;
+  const activeSessionsCount = sessions.filter(s => String(s.status || '').toUpperCase() === 'ACTIVE').length;
 
   return (
     <div className="space-y-8">

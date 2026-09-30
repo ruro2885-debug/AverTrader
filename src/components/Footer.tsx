@@ -100,24 +100,9 @@ export default function Footer({ theme, onNavigate }: FooterProps) {
                         >
                           {link.label}
                         </a>
-                      ) : link.href === '/admin' ? (
-                        <button
-                          onClick={() => onNavigate('admin')}
-                          className={`text-xs font-sans hover:text-emerald-400 transition-colors cursor-pointer text-left ${
-                            isDark ? 'text-gray-400' : 'text-gray-600'
-                          }`}
-                        >
-                          {link.label}
-                        </button>
                       ) : (
                         <a
                           href={link.href}
-                          onClick={(e) => {
-                            if (link.href.startsWith('#')) {
-                              e.preventDefault();
-                              onNavigate(link.href.replace('#', ''));
-                            }
-                          }}
                           className={`text-xs font-sans hover:text-emerald-400 transition-colors ${
                             isDark ? 'text-gray-400' : 'text-gray-600'
                           }`}

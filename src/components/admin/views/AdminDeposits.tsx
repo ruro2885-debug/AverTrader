@@ -76,10 +76,8 @@ export interface DepositRecord {
   network?: string;
   // Crypto details
   walletAddress?: string;
-  cryptoAmount?: number;
   cryptoSymbol?: string;
   cryptoNetwork?: string;
-  asset?: string;
   txHash?: string;
   // WalletConnect details
   connectedWalletAddress?: string;

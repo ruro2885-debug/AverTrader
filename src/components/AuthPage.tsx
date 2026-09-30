@@ -10,9 +10,8 @@ import { usePreferences } from '../contexts/PreferencesContext';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { ClipboardPaste, UserPlus } from 'lucide-react';
+import { PRESTIGIOUS_COUNTRIES } from '../data/prestigiousCountries';
 
-
-import { ALL_COUNTRIES } from '../data/countries';
 
 interface AuthPageProps {
   theme: 'light' | 'dark';
@@ -88,7 +87,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
           setReferralStatus('invalid');
         }
       } catch (error) {
-        console.error("Error validating referral code:", error);
+        console.warn("Notice validating referral code:", error);
         setReferralStatus('idle'); // fail silently
       }
     };
@@ -121,7 +120,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
   const isFormValid = useMemo(() => {
     return (
       username.trim() !== '' &&
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
       Object.values(pwdCriteria).every(Boolean) &&
       password === confirmPassword &&
       password !== '' &&
@@ -132,7 +131,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
 
   const isLoginFormValid = useMemo(() => {
     return (
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail) &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail.trim()) &&
       loginPassword.length >= 6
     );
   }, [loginEmail, loginPassword]);
@@ -152,7 +151,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
         setReferralCode(text.trim().toUpperCase());
       }
     } catch (e) {
-      console.error("Failed to read clipboard");
+      console.warn("Notice reading clipboard");
     }
   };
 
@@ -165,7 +164,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     }
   };
   
-  const countries = ALL_COUNTRIES;
+  const countries = PRESTIGIOUS_COUNTRIES;
 
   // Handle Register Form Submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -178,7 +177,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       // Proceed with Firebase Auth signup
       await signUp({
         username,
-        email,
+        email: email.trim(),
         password,
         country,
         phoneNumber,
@@ -186,7 +185,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
       });
       onSuccess();
     } catch (error: any) {
-      console.error("Registration error:", error);
+      console.warn("Registration note:", error?.message || error);
 
       let displayError = '';
       
@@ -217,10 +216,10 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     setLoading(true);
     setErrorMsg('');
     try {
-      await signIn(loginEmail, loginPassword, rememberMe);
+      await signIn(loginEmail.trim(), loginPassword, rememberMe);
       onSuccess();
     } catch (error: any) {
-      console.error("Login error:", error);
+      console.warn("Login note:", error?.message || error);
       let displayError = '';
       
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
@@ -1056,7 +1055,6 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                       </>
                     )}
                   </button>
-
                 </form>
 
                 {/* Switch view footer */}
@@ -1066,9 +1064,11 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
                     <button 
                       onClick={() => {
                         setView('register');
-                        setLoginPassword('');
-                        setPassword('');
-                        setConfirmPassword('');
+                        if (loginEmail) setEmail(loginEmail);
+                        if (loginPassword) {
+                          setPassword(loginPassword);
+                          setConfirmPassword(loginPassword);
+                        }
                       }} 
                       className="text-emerald-400 hover:text-emerald-300 font-extrabold focus:outline-none cursor-pointer"
                     >

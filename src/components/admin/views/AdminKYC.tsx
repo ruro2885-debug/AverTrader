@@ -144,19 +144,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
             }
           });
         }
-
-        // Also check all localStorage keys matching aver_kyc_pending_* or aver_kyc_latest_*
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('aver_kyc_pending_') || key.startsWith('aver_kyc_latest_'))) {
-            try {
-              const pendingObj = JSON.parse(localStorage.getItem(key) || '{}');
-              if (pendingObj && pendingObj.id && !dataMap.has(pendingObj.id)) {
-                dataMap.set(pendingObj.id, pendingObj as KYC);
-              }
-            } catch (e) {}
-          }
-        }
       } catch (e) {}
 
       let data = Array.from(dataMap.values());
