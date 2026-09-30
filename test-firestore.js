@@ -1,14 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, collection, getDocs } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDA2AcnxhGzSCdNClHFpF3rn2Af0ucWF94",
-  authDomain: "aver-d2136.firebaseapp.com",
-  projectId: "aver-d2136",
-  storageBucket: "aver-d2136.firebasestorage.app",
-  messagingSenderId: "813693230408",
-  appId: "1:813693230408:web:be51499481b3fe0b0e277d"
+  // We need the config. Let's get it from src/lib/firebase.ts
 };
-
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);

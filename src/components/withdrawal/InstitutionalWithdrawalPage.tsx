@@ -16,7 +16,7 @@ interface InstitutionalWithdrawalPageProps {
   theme?: 'light' | 'dark';
 }
 
-export type CryptoAsset = 'BTC' | 'ETH' | 'USDT' | 'SOL' | 'AVR' | 'BNB';
+export type CryptoAsset = 'BTC' | 'ETH' | 'USDT' | 'SOL' | 'AVR';
 export type FiatCurrency = 'USD' | 'GBP' | 'EUR';
 
 interface CryptoInfo {
@@ -138,12 +138,11 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
         ]);
         
         if (isMounted) {
-          setCryptoPricesUsd(prev => ({
-            ...prev,
+          setCryptoPricesUsd({
             BTC: parseFloat(btcRes.price) || 64850,
             ETH: parseFloat(ethRes.price) || 3480.5,
             SOL: parseFloat(solRes.price) || 148.2
-          }));
+          });
         }
         
         // Crypto prices are fetched from server-side proxy

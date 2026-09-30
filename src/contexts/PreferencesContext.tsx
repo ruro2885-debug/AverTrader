@@ -4,13 +4,12 @@ import { translations } from '../i18n/translations';
 import { useAuth } from './AuthContext';
 import { safeStorage } from '../utils/storage';
 
-export interface PreferencesContextType {
+interface PreferencesContextType {
   preferences: Preferences;
   updatePreference: (key: keyof Preferences, value: any) => void;
   resetPreferences: () => void;
   t: (key: string) => string;
   formatCurrency: (usdValue: number, compact?: boolean) => string;
-  theme: Theme;
 }
 
 const defaultPreferences: Preferences = {
@@ -242,8 +241,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     updatePreference, 
     resetPreferences, 
     t, 
-    formatCurrency,
-    theme: preferences.theme
+    formatCurrency 
   }), [preferences, updatePreference, resetPreferences, t, formatCurrency]);
 
   if (!isLoaded) return null;

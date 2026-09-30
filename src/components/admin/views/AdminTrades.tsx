@@ -29,7 +29,6 @@ interface ActiveSessionRecord {
   activeConfigId?: string;
   strategyName?: string;
   adminControl?: SessionAdminControl;
-  isDeleted?: boolean;
 }
 
 interface TradeRecord {

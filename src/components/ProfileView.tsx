@@ -5,7 +5,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { useAppNavigation } from '../contexts/NavigationContext';
 import { multiFactor, TotpMultiFactorGenerator } from 'firebase/auth';
-import { auth } from '../lib/firebase';
 import { QRCodeSVG } from 'qrcode.react';
 import { authenticator } from '@otplib/preset-default';
 import { safeStorage } from '../utils/storage';
@@ -684,9 +683,7 @@ export default function ProfileView({
       
       if (!mfaSecret) {
         // Start enrollment
-        const fbUser = auth.currentUser;
-        if (!fbUser) return;
-        const mfa = multiFactor(fbUser);
+        const mfa = multiFactor(user);
         const session = await mfa.getSession();
         const secret = await TotpMultiFactorGenerator.generateSecret(session);
         setMfaSecret(secret);
@@ -700,9 +697,7 @@ export default function ProfileView({
         twoFactorCode
       );
       
-      const fbUser = auth.currentUser;
-      if (!fbUser) return;
-      const mfa = multiFactor(fbUser);
+      const mfa = multiFactor(user);
       await mfa.enroll(multiFactorAssertion, 'My 2FA Device');
 
       // Update Firestore preference for persistent state

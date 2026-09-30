@@ -73,8 +73,6 @@ export interface DepositRecord {
   fundingMethod: 'card' | 'crypto' | 'walletconnect' | 'bank' | string;
   currency: string;
   amount: number;
-  cryptoAmount?: number;
-  asset?: string;
   network?: string;
   // Crypto details
   walletAddress?: string;
