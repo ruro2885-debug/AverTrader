@@ -132,7 +132,7 @@ function AppContent() {
             return;
           }
         }
-        if (!isAtAdminUrl && (currentView as string) !== 'admin') {
+        if (!isAtAdminUrl && currentView !== 'admin') {
           console.log("[App] Logged in, moving from auth/home to dashboard.");
           navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
           safeStorage.setItem('aver_session_initialized', 'true');
@@ -246,7 +246,7 @@ function AppContent() {
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.7-system-reset">
       <AnimatePresence mode="wait">
         {!isReady ? (
-          <Loader />
+          <Loader onComplete={() => {}} />
         ) : isAccountBlocked ? (
           <motion.div
             key="blocked-screen"
@@ -438,7 +438,9 @@ function AppContent() {
                 />
               ) : currentView === 'not-found' ? (
                 <NotFound 
+                  theme={theme} 
                   onBack={goBackView} 
+                  onAdminAccess={() => navigateToView('admin')}
                 />
               ) : currentView === 'auth' ? (
                 <AuthPage

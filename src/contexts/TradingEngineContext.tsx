@@ -1167,9 +1167,9 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
       clearInterval(activeIntervalsRef.current.loggingInterval);
       activeIntervalsRef.current.loggingInterval = null;
     }
-    if ((activeIntervalsRef.current as any).statusInterval) {
-      clearInterval((activeIntervalsRef.current as any).statusInterval);
-      (activeIntervalsRef.current as any).statusInterval = null;
+    if (activeIntervalsRef.current.statusInterval) {
+      clearInterval(activeIntervalsRef.current.statusInterval);
+      activeIntervalsRef.current.statusInterval = null;
     }
     if (activeIntervalsRef.current.orderTimeout) {
       clearTimeout(activeIntervalsRef.current.orderTimeout);
@@ -2419,7 +2419,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
 
       setEngineStatus(nextStatus);
     }, 1000);
-    (activeIntervalsRef.current as any).statusInterval = statusInterval;
+    activeIntervalsRef.current.statusInterval = statusInterval;
 
     return () => {
       clearInterval(tickInterval);

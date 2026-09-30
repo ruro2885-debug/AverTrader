@@ -1235,7 +1235,7 @@ export default function PortfolioViewV2({
   const [showWithdrawPasscodeVerify, setShowWithdrawPasscodeVerify] = useState<boolean>(false);
   const [withdrawVerifyInput, setWithdrawVerifyInput] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
-  const [shakeTrigger, setShakeTrigger] = useState<boolean>(false);
+  const [shakeTrigger, setShakeTrigger] = useState<number>(0);
 
   const [tradeType, setTradeType] = useState<'BUY' | 'SELL'>('BUY');
   const [tradeAsset, setTradeAsset] = useState<string>('BTC');
@@ -1567,7 +1567,7 @@ export default function PortfolioViewV2({
   const executionEvents = useMemo(() => {
     // Markers are LIVE SESSION UI markers ONLY.
     // When session is NOT ACTIVE/RUNNING (ENDED/STOPPED/INACTIVE), immediately return empty list to remove all markers.
-    if (!session || ((session.status as string) !== 'ACTIVE' && (session.status as string) !== 'RUNNING')) {
+    if (!session || (session.status !== 'ACTIVE' && session.status !== 'RUNNING')) {
       return [];
     }
 
@@ -2463,7 +2463,7 @@ export default function PortfolioViewV2({
                 <div className="space-y-4">
                   
                   {/* STEP 1: ONBOARDING WELCOME */}
-                  {(vaultState as string) === 'setup' && vaultSetupStep === 1 && (
+                  {vaultState === 'setup' && vaultSetupStep === 1 && (
                     <div className="space-y-4 text-center">
                       <div className="w-16 h-16 bg-[#00D09C]/10 rounded-full flex items-center justify-center mx-auto">
                         <Vault className="w-7 h-7 text-[#00D09C]" />
@@ -2488,7 +2488,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* STEP 2: ONBOARDING PIN SETUP */}
-                  {(vaultState as string) === 'setup' && vaultSetupStep === 2 && (
+                  {vaultState === 'setup' && vaultSetupStep === 2 && (
                     <div className="space-y-4 text-center">
                       <h4 className="text-sm font-bold text-white tracking-tight uppercase tracking-widest">
                         {!isPasscodeConfirming ? 'Create 6-Digit PIN' : 'Verify Security PIN'}
@@ -2553,8 +2553,8 @@ export default function PortfolioViewV2({
                                       } else {
                                         setPasscodeConfirm('');
                                         setPasscodeError("Passcodes do not match. Re-enter confirm PIN.");
-                                        setShakeTrigger(true as any);
-                                        setTimeout(() => setShakeTrigger(false as any), 500);
+                                        setShakeTrigger(true);
+                                        setTimeout(() => setShakeTrigger(false), 500);
                                       }
                                     }, 350);
                                   }
@@ -2633,7 +2633,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* STEP 3: SUCCESS ONBOARDING */}
-                  {(vaultState as string) === 'setup' && vaultSetupStep === 3 && (
+                  {vaultState === 'setup' && vaultSetupStep === 3 && (
                     <div className="space-y-4 text-center">
                       <div className="w-16 h-16 bg-[#00D09C]/20 rounded-full flex items-center justify-center mx-auto animate-pulse">
                         <CheckCircle2 className="w-8 h-8 text-[#00D09C]" />
@@ -2648,7 +2648,7 @@ export default function PortfolioViewV2({
                         onClick={() => {
                           setIsVaultOnboarded(true);
                           safeStorage.setItem('vault_onboarded', 'true');
-                          setVaultState('unlocked' as any);
+                          setVaultState('unlocked');
                           setPasscodeInput('');
                           setPasscodeConfirm('');
                         }}
@@ -2660,7 +2660,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* VAULT ACCESS PIN LOCKSCREEN */}
-                  {(vaultState as string) === 'locked' && (
+                  {vaultState === 'locked' && (
                     <div className="space-y-4 text-center">
                       <div className="w-12 h-12 bg-white/[0.02] border border-white/[0.05] rounded-full flex items-center justify-center mx-auto text-slate-300">
                         <Lock className="w-5 h-5" />
@@ -2708,7 +2708,7 @@ export default function PortfolioViewV2({
                                 if (next.length === 6) {
                                   setTimeout(() => {
                                     if (next === vaultPasscode) {
-                                      setVaultState('unlocked' as any);
+                                      setVaultState('unlocked');
                                       setPasscodeInput('');
                                       setPasscodeError(null);
                                     } else {
@@ -2741,7 +2741,7 @@ export default function PortfolioViewV2({
                               if (next.length === 6) {
                                 setTimeout(() => {
                                   if (next === vaultPasscode) {
-                                    setVaultState('unlocked' as any);
+                                    setVaultState('unlocked');
                                     setPasscodeInput('');
                                     setPasscodeError(null);
                                   } else {
@@ -2778,7 +2778,7 @@ export default function PortfolioViewV2({
                               safeStorage.removeItem('vault_onboarded');
                               safeStorage.removeItem('portfolio_vault_balance');
                               safeStorage.removeItem('portfolio_active_offset');
-                              setVaultState('setup' as any);
+                              setVaultState('setup');
                               setVaultSetupStep(1);
                               setPasscodeInput('');
                             }
@@ -2792,7 +2792,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* UNLOCKED VAULT HOME PANEL */}
-                  {(vaultState as string) === 'unlocked' && vaultActionType === null && (
+                  {vaultState === 'unlocked' && vaultActionType === null && (
                     <div className="space-y-4 font-medium text-xs">
                       
                       {/* Secure metrics panel */}
@@ -2869,7 +2869,7 @@ export default function PortfolioViewV2({
                       <div className="grid grid-cols-2 gap-3.5 pt-2">
                         <button 
                           onClick={() => {
-                            setVaultActionType('deposit' as any);
+                            setVaultActionType('deposit');
                             setVaultActionAsset('BTC');
                             setVaultActionAmount('');
                             setVaultGoalName('');
@@ -2895,7 +2895,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* WITHDRAW PIN VERIFICATION FIRST */}
-                  {(vaultState as string) === 'unlocked' && showWithdrawPasscodeVerify && (
+                  {vaultState === 'unlocked' && showWithdrawPasscodeVerify && (
                     <div className="space-y-4 text-center">
                       <div className="w-12 h-12 bg-amber-400/10 border border-amber-400/20 rounded-full flex items-center justify-center mx-auto text-amber-400">
                         <ShieldAlert className="w-5 h-5" />
@@ -2944,7 +2944,7 @@ export default function PortfolioViewV2({
                                   setTimeout(() => {
                                     if (next === vaultPasscode) {
                                       setShowWithdrawPasscodeVerify(false);
-                                      setVaultActionType('withdraw' as any);
+                                      setVaultActionType('withdraw');
                                       setVaultActionAsset('BTC');
                                       setVaultActionAmount('');
                                       setWithdrawVerifyInput('');
@@ -2980,7 +2980,7 @@ export default function PortfolioViewV2({
                                 setTimeout(() => {
                                   if (next === vaultPasscode) {
                                     setShowWithdrawPasscodeVerify(false);
-                                    setVaultActionType('withdraw' as any);
+                                    setVaultActionType('withdraw');
                                     setVaultActionAsset('BTC');
                                     setVaultActionAmount('');
                                     setWithdrawVerifyInput('');
