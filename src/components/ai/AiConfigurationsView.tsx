@@ -34,8 +34,9 @@ import { Timestamp } from 'firebase/firestore';
 import { aiTradingService } from '../../services/aiTradingService';
 import CoinLogo from '../CoinLogo';
 import { AnimatePresence, motion } from 'motion/react';
+import { INITIAL_DEFAULT_ASSET_COLLECTION, UniverseAsset, toMarketCategory } from '../../data/assetUniverse';
 
-import { ASSET_UNIVERSE, INITIAL_DEFAULT_ASSET_COLLECTION, UniverseAsset } from '../../data/assetUniverse';
+const SEARCHABLE_ASSETS: UniverseAsset[] = INITIAL_DEFAULT_ASSET_COLLECTION;
 
 interface AiConfigurationsViewProps {
   configs: AiConfiguration[];
@@ -70,7 +71,7 @@ const defaultNewConfig = (userId: string): AiConfiguration => ({
   aiTradingRules: {
     minConfidence: 85,
     maxSimultaneousPositions: 3,
-    assetSelection: [...INITIAL_DEFAULT_ASSET_COLLECTION],
+    assetSelection: ['BTC', 'ETH', 'SOL'],
     tradingStrategy: 'NEURAL_MOMENTUM'
   },
   configurationDetails: {
@@ -127,7 +128,6 @@ export default function AiConfigurationsView({
   const [importText, setImportText] = useState('');
   const [showAssetSearch, setShowAssetSearch] = useState(false);
   const [assetSearchQuery, setAssetSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'CRYPTO' | 'STOCKS' | 'FOREX' | 'INDICES' | 'ETFs' | 'COMMODITIES'>('ALL');
 
   const cardClasses = isDark ? 'bg-[#0B0E14] border-white/5' : 'bg-white border-slate-200 shadow-sm';
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
@@ -165,34 +165,8 @@ export default function AiConfigurationsView({
 
   const handleEdit = (cfg: AiConfiguration) => {
     // Migration for old configs
-    const rawAssets = cfg.aiTradingRules?.assetSelection;
-    const isOld22List = Array.isArray(rawAssets) && rawAssets.length === 22 && rawAssets.includes('ARKK') && rawAssets.includes('GLD');
-    const migratedAssets = (!rawAssets || !Array.isArray(rawAssets) || isOld22List)
-      ? [...INITIAL_DEFAULT_ASSET_COLLECTION]
-      : rawAssets;
-
-    const migrated: AiConfiguration = {
+    const migrated = {
       ...cfg,
-      sessionSetup: {
-        amountToAllocate: 1000,
-        fundingSource: 'WALLET',
-        sessionDuration: 24,
-        ...(cfg.sessionSetup || {})
-      },
-      profitRiskManagement: {
-        sessionTakeProfit: 5,
-        sessionStopLoss: 2,
-        maxRiskPerTrade: 1,
-        maxPositionSize: 500,
-        ...(cfg.profitRiskManagement || {})
-      },
-      aiTradingRules: {
-        minConfidence: 85,
-        maxSimultaneousPositions: 3,
-        tradingStrategy: 'NEURAL_MOMENTUM',
-        ...(cfg.aiTradingRules || {}),
-        assetSelection: migratedAssets,
-      },
       configurationDetails: cfg.configurationDetails || {
         description: '',
         category: 'Scalping',
@@ -234,21 +208,6 @@ export default function AiConfigurationsView({
     });
   };
 
-  const updateAssetSelection = (nextAssets: string[]) => {
-    if (!editingConfig) return;
-    const updated: AiConfiguration = {
-      ...editingConfig,
-      aiTradingRules: {
-        ...editingConfig.aiTradingRules,
-        assetSelection: nextAssets
-      }
-    };
-    setEditingConfig(updated);
-    onSave(updated).catch(err => {
-      console.warn("Auto-syncing asset collection:", err);
-    });
-  };
-
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
@@ -275,12 +234,12 @@ export default function AiConfigurationsView({
         try {
           await Promise.race([
             aiTradingService.savePreferences(userId, {
-              maxPositionSize: configToSave.profitRiskManagement?.maxPositionSize ?? 500,
-              maxRiskPerTrade: configToSave.profitRiskManagement?.maxRiskPerTrade ?? 1,
-              lossLimit: configToSave.profitRiskManagement?.sessionStopLoss ?? 2,
-              minConfidence: configToSave.aiTradingRules?.minConfidence ?? 85,
-              maxSimultaneousPositions: configToSave.aiTradingRules?.maxSimultaneousPositions ?? 3,
-              preferredMarkets: configToSave.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL']
+              maxPositionSize: configToSave.profitRiskManagement.maxPositionSize,
+              maxRiskPerTrade: configToSave.profitRiskManagement.maxRiskPerTrade,
+              lossLimit: configToSave.profitRiskManagement.sessionStopLoss,
+              minConfidence: configToSave.aiTradingRules.minConfidence,
+              maxSimultaneousPositions: configToSave.aiTradingRules.maxSimultaneousPositions,
+              preferredMarkets: configToSave.aiTradingRules.assetSelection
             }),
             new Promise((res) => setTimeout(res, 1500))
           ]);
@@ -481,19 +440,19 @@ export default function AiConfigurationsView({
                       <div>
                         <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Allocated</p>
                         <p className={`text-xs font-bold ${textPrimary} mt-1`}>
-                          ${(cfg?.sessionSetup?.amountToAllocate ?? 1000).toLocaleString()}
+                          ${cfg.sessionSetup.amountToAllocate.toLocaleString()}
                         </p>
                       </div>
                       <div>
                         <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Risk Limit</p>
                         <p className={`text-xs font-bold ${textPrimary} mt-1`}>
-                          {cfg?.profitRiskManagement?.sessionStopLoss ?? 2}% SL
+                          {cfg.profitRiskManagement.sessionStopLoss}% SL
                         </p>
                       </div>
                       <div>
                         <p className={`text-[9px] font-black uppercase tracking-widest ${textSecondary}`}>Confidence</p>
                         <p className={`text-xs font-bold text-[#00D09C] mt-1`}>
-                          &gt; {cfg?.aiTradingRules?.minConfidence ?? 85}%
+                          &gt; {cfg.aiTradingRules.minConfidence}%
                         </p>
                       </div>
                     </div>
@@ -580,7 +539,7 @@ export default function AiConfigurationsView({
               {isSaved ? (
                 <button
                   type="button"
-                  onClick={() => onStartSession(editingConfig.id, editingConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL'])}
+                  onClick={() => onStartSession(editingConfig.id, editingConfig.aiTradingRules.assetSelection)}
                   className="px-5 py-2.5 bg-[#00D09C] hover:bg-[#00B585] text-black rounded-xl text-xs font-black transition-all shadow-lg shadow-[#00D09C]/20 flex items-center gap-2"
                 >
                   <Play className="w-4 h-4 fill-current" /> Launch Session
@@ -725,13 +684,13 @@ export default function AiConfigurationsView({
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <label className={`text-xs font-bold ${textSecondary}`}>Minimum Confidence Score (%)</label>
-                      <span className="text-xs font-mono font-bold text-[#00D09C]">{editingConfig.aiTradingRules?.minConfidence ?? 85}%</span>
+                      <span className="text-xs font-mono font-bold text-[#00D09C]">{editingConfig.aiTradingRules.minConfidence}%</span>
                     </div>
                     <input 
                       type="range" 
                       min="50" 
                       max="98"
-                      value={editingConfig.aiTradingRules?.minConfidence ?? 85}
+                      value={editingConfig.aiTradingRules.minConfidence}
                       onChange={(e) => handleFieldChange('aiTradingRules', 'minConfidence', Number(e.target.value))}
                       className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D09C]"
                     />
@@ -741,7 +700,7 @@ export default function AiConfigurationsView({
                     <label className={`block text-xs font-bold ${textSecondary}`}>Maximum Simultaneous Positions</label>
                     <input 
                       type="number"
-                      value={editingConfig.aiTradingRules?.maxSimultaneousPositions ?? 3}
+                      value={editingConfig.aiTradingRules.maxSimultaneousPositions}
                       onChange={(e) => handleFieldChange('aiTradingRules', 'maxSimultaneousPositions', Number(e.target.value))}
                       className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-mono font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
                     />
@@ -753,63 +712,43 @@ export default function AiConfigurationsView({
                       <button 
                         type="button"
                         onClick={() => setShowAssetSearch(true)}
-                        className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-[#00D09C]/30 text-[#00D09C] transition-all flex items-center gap-1.5 text-xs font-bold"
-                        title="Search and discover assets"
+                        className={`p-1.5 rounded-lg bg-white/5 border border-white/5 hover:border-[#00D09C]/30 text-[#00D09C] transition-all`}
+                        title="Search and add assets"
                       >
                         <Search className="w-3.5 h-3.5" />
-                        <span>Discover Assets</span>
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {(() => {
-                        const rawAssets = editingConfig.aiTradingRules?.assetSelection || [];
-                        const isOld22List = Array.isArray(rawAssets) && rawAssets.length === 22 && rawAssets.includes('ARKK') && rawAssets.includes('GLD');
-                        const currentAssets = isOld22List ? [...INITIAL_DEFAULT_ASSET_COLLECTION] : rawAssets;
-                        const ORIGINAL_ASSET_ORDER = [
-                          'BTC', 'ETH', 'SOL', 'XRP', 'ADA',
-                          'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA',
-                          'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX',
-                          'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'
-                        ];
-                        const displayedAssets = [
-                          ...ORIGINAL_ASSET_ORDER.filter(m => currentAssets.includes(m)),
-                          ...currentAssets.filter(m => !ORIGINAL_ASSET_ORDER.includes(m))
-                        ];
-
-                        return displayedAssets.map(m => (
+                      {['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'SHIB', 'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'SPY', 'QQQ', 'ARKK', 'GLD'].map(m => {
+                        const included = editingConfig.aiTradingRules.assetSelection.includes(m);
+                        return (
                           <button
                             key={m}
                             type="button"
                             onClick={() => {
-                              const next = currentAssets.filter(x => x !== m);
-                              updateAssetSelection(next);
+                              const next = included 
+                                ? editingConfig.aiTradingRules.assetSelection.filter(x => x !== m)
+                                : [...editingConfig.aiTradingRules.assetSelection, m];
+                              handleFieldChange('aiTradingRules', 'assetSelection', next);
                             }}
-                            className="px-3 py-2 rounded-xl text-[10px] font-black border transition-all flex items-center gap-2 bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]"
+                            className={`px-3 py-2 rounded-xl text-[10px] font-black border transition-all flex items-center gap-2 ${
+                              included 
+                                ? 'bg-[#00D09C]/10 border-[#00D09C] text-[#00D09C]'
+                                : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300'
+                            }`}
                           >
                             <CoinLogo symbol={m} size={20} />
                             {m}
                           </button>
-                        ));
-                      })()}
-                      {(editingConfig.aiTradingRules?.assetSelection || []).length === 0 && (
-                        <div className={`w-full py-6 px-4 rounded-2xl border border-dashed border-white/10 text-center ${textSecondary} text-xs flex flex-col items-center justify-center gap-3 bg-black/10`}>
-                          <p>No assets in your collection. Click below to explore and add assets.</p>
-                          <button
-                            type="button"
-                            onClick={() => setShowAssetSearch(true)}
-                            className="px-4 py-2 rounded-xl bg-[#00D09C]/10 border border-[#00D09C]/30 text-[#00D09C] text-xs font-black flex items-center gap-2 hover:bg-[#00D09C]/20 transition-all shadow-sm"
-                          >
-                            <Plus className="w-3.5 h-3.5" /> Discover Assets
-                          </button>
-                        </div>
-                      )}
+                        );
+                      })}
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <label className={`block text-xs font-bold ${textSecondary}`}>Trading Strategy</label>
                     <select 
-                      value={editingConfig.aiTradingRules?.tradingStrategy || 'NEURAL_MOMENTUM'}
+                      value={editingConfig.aiTradingRules.tradingStrategy}
                       onChange={(e) => handleFieldChange('aiTradingRules', 'tradingStrategy', e.target.value)}
                       className={`w-full bg-black/20 border border-white/10 rounded-xl p-3 text-xs font-bold ${textPrimary} outline-none focus:border-[#00D09C]`}
                     >
@@ -1413,134 +1352,76 @@ export default function AiConfigurationsView({
                 </button>
               </div>
 
-              <div className="p-6 border-b border-white/5 space-y-3">
+              <div className="p-6 border-b border-white/5">
                 <div className="relative">
                   <Search className={`absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 ${textSecondary}`} />
                   <input 
                     autoFocus
                     type="text"
-                    placeholder="Search by symbol, company, crypto, forex, index..."
+                    placeholder="Search stocks, crypto, forex..."
                     value={assetSearchQuery}
                     onChange={(e) => setAssetSearchQuery(e.target.value)}
-                    className={`w-full bg-black/40 border border-white/10 rounded-2xl py-3 pl-11 pr-4 text-sm font-bold ${textPrimary} outline-none focus:border-[#00D09C] transition-all`}
+                    className={`w-full bg-black/40 border border-white/10 rounded-2xl py-3.5 pl-11 pr-4 text-sm font-bold ${textPrimary} outline-none focus:border-[#00D09C] transition-all`}
                   />
-                  {assetSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setAssetSearchQuery('')}
-                      className={`absolute right-3.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-white transition-colors`}
-                    >
-                      <CloseIcon className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Category Filtering Tabs */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
-                  {(['ALL', 'CRYPTO', 'STOCKS', 'FOREX', 'INDICES', 'ETFs', 'COMMODITIES'] as const).map(cat => {
-                    const isCatActive = selectedCategory === cat;
-                    return (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setSelectedCategory(cat)}
-                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
-                          isCatActive 
-                            ? 'bg-[#00D09C] text-black shadow-md shadow-[#00D09C]/20' 
-                            : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-                {(() => {
-                  const currentAssets = editingConfig?.aiTradingRules?.assetSelection || [];
-                  const filteredAssets = ASSET_UNIVERSE.filter(asset => {
-                    if (selectedCategory !== 'ALL' && asset.category !== selectedCategory) {
-                      return false;
-                    }
-                    if (!assetSearchQuery.trim()) {
-                      return true;
-                    }
-                    const q = assetSearchQuery.toLowerCase().trim();
-                    return (
-                      asset.symbol.toLowerCase().includes(q) ||
-                      asset.name.toLowerCase().includes(q) ||
-                      asset.category.toLowerCase().includes(q) ||
-                      asset.keywords?.some(k => k.toLowerCase().includes(q))
-                    );
-                  });
-
-                  if (filteredAssets.length === 0) {
-                    return (
-                      <div className={`p-12 text-center ${textSecondary} text-xs font-mono opacity-60 italic space-y-2`}>
-                        <p>No matching assets found in {selectedCategory} for "{assetSearchQuery}"</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAssetSearchQuery('');
-                            setSelectedCategory('ALL');
-                          }}
-                          className="text-[#00D09C] text-[11px] underline font-bold"
-                        >
-                          Clear search & filters
-                        </button>
+                {SEARCHABLE_ASSETS.filter(a => {
+                  const query = assetSearchQuery.toLowerCase().trim();
+                  if (!query) return true;
+                  const matchSymbol = a.symbol.toLowerCase().includes(query);
+                  const matchName = a.name.toLowerCase().includes(query);
+                  const matchCategory = a.category.toLowerCase().includes(query) || toMarketCategory(a.category).toLowerCase().includes(query);
+                  const matchKeywords = a.keywords ? a.keywords.some(k => k.toLowerCase().includes(query)) : false;
+                  return matchSymbol || matchName || matchCategory || matchKeywords;
+                }).map(asset => {
+                  const isAdded = editingConfig?.aiTradingRules.assetSelection.includes(asset.symbol);
+                  return (
+                    <div 
+                      key={asset.symbol}
+                      className={`p-3 rounded-2xl border flex items-center justify-between transition-all group ${
+                        isAdded 
+                          ? 'bg-[#00D09C]/5 border-[#00D09C]/20' 
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center border border-white/5 shadow-inner overflow-hidden">
+                          <CoinLogo symbol={asset.symbol} size={32} className="bg-transparent border-none" />
+                        </div>
+                        <div>
+                          <h4 className={`text-sm font-black ${textPrimary}`}>{asset.symbol}</h4>
+                          <p className={`text-[10px] font-bold ${textSecondary}`}>{asset.name} • {toMarketCategory(asset.category)}</p>
+                        </div>
                       </div>
-                    );
-                  }
-
-                  return filteredAssets.map(asset => {
-                    const isAdded = currentAssets.includes(asset.symbol);
-                    return (
-                      <div 
-                        key={asset.symbol}
-                        className={`p-3 rounded-2xl border flex items-center justify-between transition-all group ${
+                      <button
+                        onClick={() => {
+                          if (!editingConfig) return;
+                          const next = isAdded 
+                            ? editingConfig.aiTradingRules.assetSelection.filter(x => x !== asset.symbol)
+                            : [...editingConfig.aiTradingRules.assetSelection, asset.symbol];
+                          handleFieldChange('aiTradingRules', 'assetSelection', next);
+                        }}
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
                           isAdded 
-                            ? 'bg-[#00D09C]/5 border-[#00D09C]/20' 
-                            : 'bg-white/5 border-white/5 hover:border-white/10'
+                            ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20' 
+                            : 'bg-[#00D09C]/10 text-[#00D09C] hover:bg-[#00D09C]/20 border border-[#00D09C]/20'
                         }`}
                       >
-                        <div className="flex items-center gap-3.5">
-                          <div className="w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center border border-white/5 shadow-inner overflow-hidden shrink-0">
-                            <CoinLogo symbol={asset.symbol} size={32} className="bg-transparent border-none" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className={`text-sm font-black ${textPrimary}`}>{asset.symbol}</h4>
-                              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/5 text-slate-400">
-                                {asset.category}
-                              </span>
-                            </div>
-                            <p className={`text-[10px] font-bold ${textSecondary}`}>{asset.name}</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!editingConfig) return;
-                            const next = isAdded 
-                              ? currentAssets.filter(x => x !== asset.symbol)
-                              : [...currentAssets, asset.symbol];
-                            updateAssetSelection(next);
-                          }}
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-                            isAdded 
-                              ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20' 
-                              : 'bg-[#00D09C]/10 text-[#00D09C] hover:bg-[#00D09C]/20 border border-[#00D09C]/20'
-                          }`}
-                          title={isAdded ? `Remove ${asset.symbol} from collection` : `Add ${asset.symbol} to collection`}
-                        >
-                          {isAdded ? <Minus className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                        </button>
-                      </div>
-                    );
-                  });
-                })()}
+                        {isAdded ? <Minus className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  );
+                })}
+                {SEARCHABLE_ASSETS.filter(a => 
+                  a.symbol.toLowerCase().includes(assetSearchQuery.toLowerCase()) || 
+                  a.name.toLowerCase().includes(assetSearchQuery.toLowerCase())
+                ).length === 0 && (
+                  <div className={`p-12 text-center ${textSecondary} text-xs font-mono opacity-50 italic`}>
+                    No matching assets found for "{assetSearchQuery}"
+                  </div>
+                )}
               </div>
 
               <div className="p-4 bg-black/20 border-t border-white/5">

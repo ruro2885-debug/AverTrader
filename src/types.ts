@@ -54,7 +54,9 @@ export interface UserProfile {
   level?: number;
   xp?: number;
   loginStreak?: number;
+  streak?: number;
   lastLoginDate?: string;
+  lastActivityAt?: string;
   winRun?: number;
   aiTradesCount?: number;
   insignias?: string[];
