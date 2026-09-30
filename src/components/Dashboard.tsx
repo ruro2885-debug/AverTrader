@@ -1205,7 +1205,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           )}
           {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
           {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} onOpenAdmin={() => onNavigate('admin')} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} onOpenAdmin={() => onNavigate('admin' as any)} />}
           
           {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('ai')} />}
           {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}

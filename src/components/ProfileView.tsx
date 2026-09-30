@@ -669,7 +669,7 @@ export default function ProfileView({
       
       if (!mfaSecret) {
         // Start enrollment
-        const mfa = multiFactor(user);
+        const mfa = multiFactor(user as any);
         const session = await mfa.getSession();
         const secret = await TotpMultiFactorGenerator.generateSecret(session);
         setMfaSecret(secret);
@@ -683,7 +683,7 @@ export default function ProfileView({
         twoFactorCode
       );
       
-      const mfa = multiFactor(user);
+      const mfa = multiFactor(user as any);
       await mfa.enroll(multiFactorAssertion, 'My 2FA Device');
 
       // Update Firestore preference for persistent state
