@@ -223,6 +223,7 @@ export const TradingEngineProvider = ({ children }: { children: React.ReactNode 
     loggingInterval?: any;
     tickInterval?: any;
     positionInterval?: any;
+    statusInterval?: any;
     orderTimeout?: any;
   }>({});
 

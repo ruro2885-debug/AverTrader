@@ -80,19 +80,19 @@ export interface UserPreferences {
 
 export interface PortfolioData {
   totalValue: number;
-  todayPnL: number;
-  todayPnLPercent: number;
-  overallReturn: number;
-  realizedPnL: number;
-  unrealizedPnL: number;
-  healthScore: number;
-  diversificationScore: number;
-  volatility: number;
-  sharpeRatio: number;
-  winRate: number;
-  maxDrawdown: number;
-  recoveryFactor: number;
-  riskAdjustedReturn: number;
+  todayPnL?: number;
+  todayPnLPercent?: number;
+  overallReturn?: number;
+  realizedPnL?: number;
+  unrealizedPnL?: number;
+  healthScore?: number;
+  diversificationScore?: number;
+  volatility?: number;
+  sharpeRatio?: number;
+  winRate?: number;
+  maxDrawdown?: number;
+  recoveryFactor?: number;
+  riskAdjustedReturn?: number;
 }
 
 export interface DepositItem {
@@ -136,7 +136,7 @@ export interface User extends UserProfile {
   watchlist: string[];
 }
 
-interface AuthContextType {
+export interface AuthContextType {
   user: User | null;
   loading: boolean;
   signOutUser: () => Promise<void>;
@@ -149,7 +149,7 @@ interface AuthContextType {
   updateTradingConfig: (config: Partial<TradingEngineConfig>) => Promise<void>;
   toggleWatchlist: (symbol: string) => Promise<void>;
   addDeposit: (amount: number) => Promise<void>;
-  addWithdrawal: (amount: number) => Promise<void>;
+  addWithdrawal: (amount: number, destination?: string, asset?: string, network?: string, customTxHash?: string) => Promise<{ id: string; refId: string; txHash: string; } | void>;
   
   addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string, action?: string, metadata?: Record<string, any>, userId?: string) => Promise<void>;
   markNotificationRead: (id: string, readState?: boolean) => Promise<void>;
@@ -2009,7 +2009,7 @@ function dataURLtoBlob(dataurl: string): Blob {
     }
   }, [addNotification]);
 
-  const addWithdrawal = useCallback(async (amount: number, destination?: string, asset: string = 'USDT', network: string = 'TRC20') => {
+  const addWithdrawal = useCallback(async (amount: number, destination?: string, asset: string = 'USDT', network: string = 'TRC20', customTxHash?: string) => {
     if (userRef.current) {
       const u = userRef.current;
       const availBal = Math.max(
@@ -2029,7 +2029,7 @@ function dataURLtoBlob(dataurl: string): Blob {
 
       const txId = `wth-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const refId = 'WTH-' + Math.random().toString(36).substring(2, 9).toUpperCase();
-      const txHash = '0x' + Math.random().toString(16).substring(2, 10) + Math.random().toString(16).substring(2, 10);
+      const txHash = customTxHash || ('0x' + Math.random().toString(16).substring(2, 10) + Math.random().toString(16).substring(2, 10));
       const timestamp = new Date().toISOString();
 
       const assetPrices: Record<string, number> = { BTC: 64000, ETH: 3400, SOL: 145, BNB: 580, AVR: 1.2, USDT: 1, USDC: 1, USD: 1 };

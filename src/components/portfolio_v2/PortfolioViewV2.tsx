@@ -1226,8 +1226,8 @@ export default function PortfolioViewV2({
 
   // Missing States for Vault and Trading dialogs
   const [activeDialog, setActiveDialog] = useState<'trade' | 'vault' | null>(null);
-  const [vaultState, setVaultState] = useState<'closed' | 'deposit' | 'withdraw' | 'goal'>('closed');
-  const [vaultActionType, setVaultActionType] = useState<'DEPOSIT' | 'WITHDRAW' | null>(null);
+  const [vaultState, setVaultState] = useState<'closed' | 'deposit' | 'withdraw' | 'goal' | 'setup' | 'locked' | 'unlocked'>('closed');
+  const [vaultActionType, setVaultActionType] = useState<'deposit' | 'withdraw' | 'DEPOSIT' | 'WITHDRAW' | null>(null);
   const [vaultActionAsset, setVaultActionAsset] = useState<string>('BTC');
   const [vaultActionAmount, setVaultActionAmount] = useState<string>('');
   const [vaultGoalName, setVaultGoalName] = useState<string>('');
@@ -1235,7 +1235,7 @@ export default function PortfolioViewV2({
   const [showWithdrawPasscodeVerify, setShowWithdrawPasscodeVerify] = useState<boolean>(false);
   const [withdrawVerifyInput, setWithdrawVerifyInput] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
-  const [shakeTrigger, setShakeTrigger] = useState<number>(0);
+  const [shakeTrigger, setShakeTrigger] = useState<boolean>(false);
 
   const [tradeType, setTradeType] = useState<'BUY' | 'SELL'>('BUY');
   const [tradeAsset, setTradeAsset] = useState<string>('BTC');

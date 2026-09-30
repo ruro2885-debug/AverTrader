@@ -21,6 +21,7 @@ export interface UnifiedFinancials {
   cashBalance: number;
   tokenBalance: number;
   walletData: WalletData | null;
+  activeBalanceOffset: number;
 }
 
 // Module-level persistent cache to prevent transient $0.00 flashing during hydration, listener reconciliation, or remounts
@@ -354,9 +355,10 @@ export const useFinancials = () => {
       portfolioValue: portfolioTotalNetBalance,
       cashBalance: tokenBalance,
       tokenBalance,
-      walletData
+      walletData,
+      activeBalanceOffset: user?.activeOffset || 0
     };
-  }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.availableBalance, user?.cashBalance, user?.vaultBalance, user?.holdings, walletData, activeSessionCapital]);
+  }, [user?.uid, user?.portfolioBalance, user?.tokenBalance, user?.availableBalance, user?.cashBalance, user?.vaultBalance, user?.holdings, user?.activeOffset, walletData, activeSessionCapital]);
 
   function walletBalanceInvalid(wBal: number, tCap: number): boolean {
     return wBal < 0 || tCap < 0;
@@ -643,6 +645,8 @@ export const useFinancials = () => {
 
   return {
     ...financials,
+    activeBalanceOffset: user?.activeOffset || 0,
+    updateActiveBalanceOffset,
     updateVaultBalance,
     addFundsToActiveBalance,
     executeVaultTransfer,

@@ -168,6 +168,29 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   const isDark = theme === 'dark';
   const { user, updateProfile } = useAuth();
 
+  const countries = [
+    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria",
+    "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
+    "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia",
+    "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica",
+    "Croatia", "Cuba", "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt",
+    "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon",
+    "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
+    "Haiti", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel",
+    "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Korea, North", "Korea, South", "Kuwait",
+    "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
+    "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico",
+    "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru",
+    "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Macedonia", "Norway", "Oman", "Pakistan",
+    "Palau", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania",
+    "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal",
+    "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Sudan",
+    "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania",
+    "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda",
+    "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam",
+    "Yemen", "Zambia", "Zimbabwe"
+  ].sort();
+
   const [step, setStep] = useState<number>(1);
   const [submitting, setSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
@@ -185,28 +208,15 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
   // Derive effective status to avoid Step 1 flicker during reload and preserve pending status across sessions
   const effectiveStatus = useMemo(() => {
-    // If the user's kycStatus is explicitly set to 'unverified' and user didn't just submit right now:
-    if (user?.kycStatus === 'unverified' && !submittedSuccess) {
-      return 'unverified';
+    // ALWAYS prioritize any existing active/pending submission from resolver or local storage
+    const list = resolveUserSubmissions(user);
+    if (list.length > 0) {
+      const latest = list[0];
+      if (latest && latest.status) {
+        return latest.status; // pending, verified, rejected, requires_resubmission
+      }
     }
 
-    // 1. Check user.kycStatus first (instant from auth/profile)
-    if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
-
-    // 2. Check latestSubmission status
-    if (latestSubmission && latestSubmission.status && latestSubmission.status !== 'unverified') {
-      return latestSubmission.status;
-    }
-    
-    // 3. Check cached profile if Firestore user is still loading or doesn't have status
-    try {
-      const cached = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
-      if (cached.kycStatus === 'unverified' && !submittedSuccess) return 'unverified';
-      if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
-      if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
-    } catch (e) {}
-
-    // 4. Check aver_admin_kyc_local in localStorage
     try {
       const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
       if (Array.isArray(locals) && locals.length > 0) {
@@ -215,6 +225,13 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       }
     } catch (e) {}
 
+    try {
+      const cached = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
+      if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
+      if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
+    } catch (e) {}
+
+    if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
     if (submittedSuccess) return 'pending';
     
     return 'unverified';
@@ -1067,35 +1084,10 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                   <select 
                     value={formData.nationality}
                     onChange={e => setFormData({...formData, nationality: e.target.value})}
-                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent appearance-none cursor-pointer ${isDark ? 'border-white/10 bg-[#0E131F]' : 'border-slate-300 bg-white'}`}
+                    className={`w-full p-4 rounded-2xl border text-sm font-semibold ${isDark ? 'border-white/10 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-900'}`}
                   >
-                    {[
-                      "United States", "United Kingdom", "Canada", "Australia", "Germany", 
-                      "France", "Switzerland", "Netherlands", "Sweden", "Spain", 
-                      "Italy", "Japan", "China", "Brazil", "United Arab Emirates",
-                      "Norway", "Denmark", "Finland", "Ireland", "Luxembourg",
-                      "Austria", "Belgium", "Singapore", "South Korea", "New Zealand",
-                      "Israel", "Qatar", "Saudi Arabia", "Kuwait", "Bahrain",
-                      "Oman", "Monaco", "Liechtenstein", "Iceland", "Portugal",
-                      "Greece", "Poland", "Czech Republic", "Hungary", "Slovakia",
-                      "Slovenia", "Estonia", "Latvia", "Lithuania", "Cyprus",
-                      "Malta", "Turkey", "India", "Mexico", "Argentina",
-                      "Chile", "Uruguay", "South Africa", "Thailand", "Malaysia",
-                      "Indonesia", "Philippines", "Vietnam", "Taiwan", "Hong Kong",
-                      "Macao", "Russia", "Kazakhstan", "Vatican City", "San Marino",
-                      "Andorra", "Anguilla", "Antigua & Barbuda", "Aruba", "Bahamas", 
-                      "Barbados", "Bermuda", "British Virgin Islands", "Brunei", "Cayman Islands", 
-                      "Cook Islands", "Costa Rica", "Croatia", "Curacao", "Dominica", 
-                      "Faroe Islands", "Fiji", "French Polynesia", "Gibraltar", "Greenland", 
-                      "Grenada", "Guam", "Guernsey", "Isle of Man", "Jersey", 
-                      "Maldives", "Mauritius", "Montenegro", "Montserrat", "New Caledonia", 
-                      "Panama", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent & Grenadines", 
-                      "Seychelles", "Sint Maarten", "Turks & Caicos Islands", "US Virgin Islands",
-                      "Bulgaria", "Colombia", "Egypt", "Georgia", "Jordan", 
-                      "Lebanon", "Morocco", "Peru", "Romania", "Serbia", 
-                      "Sri Lanka", "Tunisia", "Ukraine", "Azerbaijan", "Trinidad & Tobago",
-                      "Nigeria", "Kenya", "Ghana", "Botswana", "Namibia", "Egypt"
-                    ].sort().filter((v, i, a) => a.indexOf(v) === i).map(c => (
+                    <option value="">Select Country</option>
+                    {countries.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>

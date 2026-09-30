@@ -12,7 +12,7 @@ export const translations: Record<Language, Record<string, string>> = {
     'hero.badge.ai': 'Powered by AverCore AI™',
     'hero.badge.peo': 'Built on Precision Entry Optimizer™ (PEO™)',
     'hero.title.1': 'Institutional Trading',
-    'hero.title.2': 'Powered by Neural Networks.',
+    'hero.title.2': 'Powered by Neural Networks',
     'hero.subtitle': 'Aver integrates decentralized market telemetry with autonomous intelligence, delivering institutional-grade algorithmic execution directly to your portfolio.',
     'hero.cta.ecosystem': 'Explore Ecosystem',
     'hero.cta.doc': 'Get Started',

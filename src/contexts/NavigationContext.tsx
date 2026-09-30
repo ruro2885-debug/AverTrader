@@ -12,6 +12,8 @@ export interface NavigationLocation {
   params?: Record<string, any>;
 }
 
+export type Location = NavigationLocation;
+
 export interface NavigateOptions {
   replace?: boolean;
 }
@@ -333,7 +335,7 @@ export function locationToPath(loc: NavigationLocation): string {
   return `/${loc.view}`;
 }
 
-interface NavigationContextType {
+export interface NavigationContextType {
   currentLocation: NavigationLocation;
   stack: NavigationLocation[];
   navigate: (to: Partial<NavigationLocation> | string, options?: NavigateOptions) => void;

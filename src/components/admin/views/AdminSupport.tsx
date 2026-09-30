@@ -9,11 +9,11 @@ import {
   Bot, Sparkles, CheckCheck, FileUp, Lock, LifeBuoy, Layers, ArrowUpRight
 } from 'lucide-react';
 import { collection, onSnapshot, query, updateDoc, doc, setDoc } from 'firebase/firestore';
-import { db, storage } from '@/lib/firebase';
+import { db, storage } from '../../../lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { useAuth } from '@/contexts/AuthContext';
-import { saveSupportTicket, mergeTicketsWithLocal, uploadSupportAttachment } from '@/lib/supportStore';
-import { compressImageFile } from '@/utils/imageCompressor';
+import { useAuth } from '../../../contexts/AuthContext';
+import { saveSupportTicket, mergeTicketsWithLocal, uploadSupportAttachment } from '../../../lib/supportStore';
+import { compressImageFile } from '../../../utils/imageCompressor';
 // Force tsc cache refresh
 
 export interface SupportMessage {

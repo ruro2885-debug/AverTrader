@@ -47,7 +47,11 @@ export type EngineState =
   | 'INACTIVE'
   | 'SESSION_SCANNING'
   | 'COOLING_BREAK'
-  | 'SLEEPING';
+  | 'SLEEPING'
+  | 'MONITORING'
+  | 'ANALYZING'
+  | 'GENERATING'
+  | 'WAITING_DECISION';
 
 export interface EngineStatus {
   state: EngineState;

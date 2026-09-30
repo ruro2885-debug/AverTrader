@@ -1,14 +1,18 @@
 export interface UserProfile {
   uid: string;
   username: string;
-  email: string;
+  name?: string;
+  fullName?: string;
   displayName?: string;
+  email: string;
   profilePhotoURL?: string;
+  photoURL?: string;
   avatarUrl?: string;
   country: string;
   phoneNumber?: string;
   accountType: string;
   accountStatus: string;
+  status?: string;
   portfolioBalance: number;
   availableBalance: number;
   vaultBalance: number;
@@ -23,6 +27,7 @@ export interface UserProfile {
   referralCode: string;
   referredBy?: string | null;
   referralCount: number;
+  referredUsers?: any[];
   preferredLanguage: string;
   theme: string;
   notificationSettings: Record<string, boolean>;
@@ -76,8 +81,12 @@ export interface UserProfile {
   kycApprovedAt?: string;
   kycRewardUnlocked?: boolean;
   kycRejectionReason?: string | null;
+  kycResubmissionReason?: string | null;
   role?: 'user' | 'super_admin' | 'admin';
   watchlist?: string[];
+  resetPnL?: boolean;
+  pnlResetAt?: string | number | null;
+  preferences?: any;
 }
 
 export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';
@@ -142,6 +151,7 @@ export interface Position {
 export interface Holding {
   id: string;
   ticker: string;
+  symbol?: string;
   name: string;
   quantity: number;
   avgEntry: number;

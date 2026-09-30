@@ -1,22 +1,21 @@
 /**
- * Comprehensive list of 200 global sovereign nations and prime financial jurisdictions,
- * ordered alphabetically with complete A-Z coverage for international institutional onboarding.
+ * Comprehensive list of all countries, sovereign nations, and global territories of the world,
+ * ordered alphabetically for complete global coverage in registration and compliance verification.
  */
-export const PRESTIGIOUS_COUNTRIES = [
-  // A
+export const ALL_WORLD_COUNTRIES: string[] = [
   "Afghanistan",
   "Albania",
   "Algeria",
   "Andorra",
   "Angola",
+  "Anguilla",
   "Antigua and Barbuda",
   "Argentina",
   "Armenia",
+  "Aruba",
   "Australia",
   "Austria",
   "Azerbaijan",
-
-  // B
   "Bahamas",
   "Bahrain",
   "Bangladesh",
@@ -36,12 +35,10 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Bulgaria",
   "Burkina Faso",
   "Burundi",
-
-  // C
+  "Cabo Verde",
   "Cambodia",
   "Cameroon",
   "Canada",
-  "Cape Verde",
   "Cayman Islands",
   "Central African Republic",
   "Chad",
@@ -49,20 +46,20 @@ export const PRESTIGIOUS_COUNTRIES = [
   "China",
   "Colombia",
   "Comoros",
-  "Congo",
+  "Congo (Democratic Republic of)",
+  "Congo (Republic of)",
+  "Cook Islands",
   "Costa Rica",
+  "Cote d'Ivoire",
   "Croatia",
   "Cuba",
+  "Curacao",
   "Cyprus",
   "Czech Republic",
-
-  // D
   "Denmark",
   "Djibouti",
   "Dominica",
   "Dominican Republic",
-
-  // E
   "Ecuador",
   "Egypt",
   "El Salvador",
@@ -71,14 +68,12 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Estonia",
   "Eswatini",
   "Ethiopia",
-
-  // F
+  "Faroe Islands",
   "Fiji",
   "Finland",
   "France",
+  "French Guiana",
   "French Polynesia",
-
-  // G
   "Gabon",
   "Gambia",
   "Georgia",
@@ -86,43 +81,38 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Ghana",
   "Gibraltar",
   "Greece",
+  "Greenland",
   "Grenada",
+  "Guadeloupe",
+  "Guam",
   "Guatemala",
   "Guernsey",
   "Guinea",
+  "Guinea-Bissau",
   "Guyana",
-
-  // H
   "Haiti",
   "Honduras",
   "Hong Kong",
   "Hungary",
-
-  // I
   "Iceland",
   "India",
   "Indonesia",
+  "Iran",
   "Iraq",
   "Ireland",
   "Isle of Man",
   "Israel",
   "Italy",
-  "Ivory Coast",
-
-  // J
   "Jamaica",
   "Japan",
   "Jersey",
   "Jordan",
-
-  // K
   "Kazakhstan",
   "Kenya",
   "Kiribati",
+  "Kosovo",
   "Kuwait",
   "Kyrgyzstan",
-
-  // L
   "Laos",
   "Latvia",
   "Lebanon",
@@ -132,9 +122,7 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Liechtenstein",
   "Lithuania",
   "Luxembourg",
-
-  // M
-  "Macau",
+  "Macao",
   "Madagascar",
   "Malawi",
   "Malaysia",
@@ -142,34 +130,33 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Mali",
   "Malta",
   "Marshall Islands",
+  "Martinique",
   "Mauritania",
   "Mauritius",
+  "Mayotte",
   "Mexico",
   "Micronesia",
   "Moldova",
   "Monaco",
   "Mongolia",
   "Montenegro",
+  "Montserrat",
   "Morocco",
   "Mozambique",
   "Myanmar",
-
-  // N
   "Namibia",
   "Nauru",
   "Nepal",
   "Netherlands",
+  "New Caledonia",
   "New Zealand",
   "Nicaragua",
   "Niger",
   "Nigeria",
+  "North Korea",
   "North Macedonia",
   "Norway",
-
-  // O
   "Oman",
-
-  // P
   "Pakistan",
   "Palau",
   "Palestine",
@@ -180,17 +167,17 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Philippines",
   "Poland",
   "Portugal",
-
-  // Q
+  "Puerto Rico",
   "Qatar",
-
-  // R
+  "Reunion",
   "Romania",
+  "Russia",
   "Rwanda",
-
-  // S
+  "Saint Barthelemy",
   "Saint Kitts and Nevis",
   "Saint Lucia",
+  "Saint Martin",
+  "Saint Pierre and Miquelon",
   "Saint Vincent and the Grenadines",
   "Samoa",
   "San Marino",
@@ -201,19 +188,21 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Seychelles",
   "Sierra Leone",
   "Singapore",
+  "Sint Maarten",
   "Slovakia",
   "Slovenia",
   "Solomon Islands",
   "Somalia",
   "South Africa",
   "South Korea",
+  "South Sudan",
   "Spain",
   "Sri Lanka",
+  "Sudan",
   "Suriname",
   "Sweden",
   "Switzerland",
-
-  // T
+  "Syria",
   "Taiwan",
   "Tajikistan",
   "Tanzania",
@@ -227,8 +216,6 @@ export const PRESTIGIOUS_COUNTRIES = [
   "Turkmenistan",
   "Turks and Caicos Islands",
   "Tuvalu",
-
-  // U
   "Uganda",
   "Ukraine",
   "United Arab Emirates",
@@ -236,27 +223,17 @@ export const PRESTIGIOUS_COUNTRIES = [
   "United States",
   "Uruguay",
   "Uzbekistan",
-
-  // V
   "Vanuatu",
   "Vatican City",
   "Venezuela",
   "Vietnam",
-
-  // W
-  "Wales",
   "Wallis and Futuna",
   "Western Sahara",
-
-  // X
-  "X-Offshore Financial Zone",
-
-  // Y
   "Yemen",
-
-  // Z
   "Zambia",
   "Zimbabwe"
 ];
 
-export default PRESTIGIOUS_COUNTRIES;
+// Backward-compatible alias for existing imports
+export const PRESTIGIOUS_COUNTRIES = ALL_WORLD_COUNTRIES;
+export default ALL_WORLD_COUNTRIES;

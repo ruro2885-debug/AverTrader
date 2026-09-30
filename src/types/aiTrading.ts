@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore';
 
-export type AiSessionStatus = 'ACTIVE' | 'INACTIVE';
+export type AiSessionStatus = 'ACTIVE' | 'INACTIVE' | 'STOPPED' | 'PAUSED' | 'RUNNING' | 'COMPLETED';
 export type RecommendationStatus = 'PENDING' | 'EXECUTED' | 'DISMISSED' | 'EXPIRED';
 export type TradeStatus = 'OPEN' | 'CLOSED';
 export type RiskRating = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -116,6 +116,8 @@ export interface AiConfiguration {
   };
 
   schedule?: TradingSchedule;
+  strategy?: string;
+  markets?: string[];
 
   // Section 4: Configuration Details
   configurationDetails: {
@@ -215,7 +217,10 @@ export interface AiTrade {
   duration?: string;
   pnl?: number;
   pnlPercent?: number;
-  reasonClosed?: 'TARGET_HIT' | 'STOP_LOSS_HIT' | 'MANUAL' | 'AI_SUGGESTION';
+  rationale?: string;
+  type?: string;
+  amount?: number;
+  reasonClosed?: 'TARGET_HIT' | 'STOP_LOSS_HIT' | 'MANUAL' | 'AI_SUGGESTION' | 'SESSION_END' | 'EMERGENCY_STOP' | 'TIMEOUT';
 }
 
 export type MarketScanStatus = {
@@ -243,6 +248,7 @@ export interface EquityHistoryRecord {
   userId: string;
   timestamp: Timestamp;
   totalNetBalance: number;
+  equity?: number;
   sessionId?: string;
   trigger: EquityTrigger;
 }
