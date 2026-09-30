@@ -12,7 +12,7 @@ interface InstitutionalWithdrawalPageProps {
   theme?: 'light' | 'dark';
 }
 
-export type CryptoAsset = 'BTC' | 'ETH' | 'USDT' | 'SOL' | 'AVR';
+export type CryptoAsset = 'BTC' | 'ETH' | 'USDT' | 'SOL' | 'AVR' | 'BNB';
 export type FiatCurrency = 'USD' | 'GBP' | 'EUR';
 
 interface CryptoInfo {
@@ -41,7 +41,8 @@ const SUPPORTED_CRYPTO: CryptoInfo[] = [
   { symbol: 'ETH', name: 'Ethereum', decimals: 6, defaultPriceUsd: 3450.20 },
   { symbol: 'USDT', name: 'Tether USD', decimals: 2, defaultPriceUsd: 1.00 },
   { symbol: 'SOL', name: 'Solana', decimals: 4, defaultPriceUsd: 145.60 },
-  { symbol: 'AVR', name: 'Aver Token', decimals: 4, defaultPriceUsd: 12.40 }
+  { symbol: 'AVR', name: 'Aver Token', decimals: 4, defaultPriceUsd: 12.40 },
+  { symbol: 'BNB', name: 'BNB Smart Chain', decimals: 4, defaultPriceUsd: 580.00 }
 ];
 
 const MIN_WITHDRAWAL_USD = 10.00;
@@ -135,7 +136,8 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
             ETH: parseFloat(ethRes.price) || 3480.5,
             SOL: parseFloat(solRes.price) || 148.2,
             AVR: 2.45,
-            USDT: 1.0
+            USDT: 1.0,
+            BNB: 580.0
           });
         }
         

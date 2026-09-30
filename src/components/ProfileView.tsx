@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
+import { auth } from '../lib/firebase';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { multiFactor, TotpMultiFactorGenerator } from 'firebase/auth';
 import { QRCodeSVG } from 'qrcode.react';
@@ -46,15 +47,13 @@ export default function ProfileView({
   onOpenBonusCenter, 
   onOpenReferralCentre, 
   onOpenPreferences,
-  onOpenSupportCenter,
-  onOpenAdmin
+  onOpenSupportCenter 
 }: { 
   theme: 'light' | 'dark', 
   onOpenBonusCenter?: () => void, 
   onOpenReferralCentre?: () => void, 
   onOpenPreferences?: () => void,
-  onOpenSupportCenter?: () => void,
-  onOpenAdmin?: () => void
+  onOpenSupportCenter?: () => void
 }) {
   const { 
     user, 
@@ -669,7 +668,8 @@ export default function ProfileView({
       
       if (!mfaSecret) {
         // Start enrollment
-        const mfa = multiFactor(user as any);
+        const firebaseUser = auth.currentUser || (user as any);
+        const mfa = multiFactor(firebaseUser);
         const session = await mfa.getSession();
         const secret = await TotpMultiFactorGenerator.generateSecret(session);
         setMfaSecret(secret);
@@ -683,7 +683,7 @@ export default function ProfileView({
         twoFactorCode
       );
       
-      const mfa = multiFactor(user as any);
+      const mfa = multiFactor(auth.currentUser || (user as any));
       await mfa.enroll(multiFactorAssertion, 'My 2FA Device');
 
       // Update Firestore preference for persistent state
@@ -966,6 +966,7 @@ export default function ProfileView({
         <div className="mt-4 flex justify-center">
           <button 
             onClick={() => {
+              safeStorage.setItem('aver_dashboard_tab', 'profile');
               if (onOpenBonusCenter) onOpenBonusCenter();
             }}
             className={`flex items-center space-x-2 px-4 py-1.5 rounded-full border ${activeTier.badgeBorder} ${activeTier.badgeBg} ${activeTier.badgeGlow} transition-all cursor-pointer backdrop-blur-sm active:scale-95`}
@@ -994,11 +995,7 @@ export default function ProfileView({
                     setSuccessMsg('');
                     if (item.id === 'admin') {
                       localStorage.setItem('admin_session_active', 'true');
-                      if (onOpenAdmin) {
-                        onOpenAdmin();
-                      } else {
-                        window.location.href = '/admin';
-                      }
+                      window.location.href = '/admin';
                     } else if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();
@@ -1034,7 +1031,10 @@ export default function ProfileView({
       {/* Log Out button */}
       <div className={`rounded-[24px] overflow-hidden ${cardClasses} mt-8`}>
         <button 
-          onClick={signOutUser}
+          onClick={async () => {
+            window.dispatchEvent(new Event('aver_logout'));
+            await signOutUser();
+          }}
           className={`w-full flex items-center justify-between p-4 transition-colors ${
             isDark ? 'hover:bg-rose-500/10' : 'hover:bg-rose-50'
           }`}

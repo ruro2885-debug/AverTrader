@@ -79,6 +79,16 @@ function AppContent() {
     }
   }, []);
 
+  // Immediate redirect to landing page on logout
+  useEffect(() => {
+    const handleLogout = () => {
+      setViewStack(['home']);
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    };
+    window.addEventListener('aver_logout', handleLogout);
+    return () => window.removeEventListener('aver_logout', handleLogout);
+  }, []);
+
   // Unified startup and session management
   useEffect(() => {
     if (authLoading) return;
@@ -93,11 +103,11 @@ function AppContent() {
         return prev;
       });
     } else {
-      // If no user and we were on a protected view, go to login
+      // If no user, redirect immediately to landing page ('home')
       setViewStack(prev => {
         const top = prev[prev.length - 1];
-        if (top === 'dashboard' || top === 'referral-centre' || top === 'preferences' || top === 'bonus-center' || top === 'history' || top === 'kyc-verification') {
-          return ['auth'];
+        if (top !== 'home' && top !== 'admin' && top !== 'not-found' && top !== 'showcase') {
+          return ['home'];
         }
         return prev;
       });

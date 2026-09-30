@@ -73,13 +73,13 @@ export interface DepositRecord {
   fundingMethod: 'card' | 'crypto' | 'walletconnect' | 'bank' | string;
   currency: string;
   amount: number;
-  cryptoAmount?: number;
-  asset?: string;
   network?: string;
   // Crypto details
   walletAddress?: string;
+  cryptoAmount?: number;
   cryptoSymbol?: string;
   cryptoNetwork?: string;
+  asset?: string;
   txHash?: string;
   // WalletConnect details
   connectedWalletAddress?: string;

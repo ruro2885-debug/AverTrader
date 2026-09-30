@@ -148,8 +148,8 @@ interface AuthContextType {
   updateUserPreferences: (prefs: Partial<UserPreferences>) => Promise<void>;
   updateTradingConfig: (config: Partial<TradingEngineConfig>) => Promise<void>;
   toggleWatchlist: (symbol: string) => Promise<void>;
-  addDeposit: (amount: number) => Promise<void>;
-  addWithdrawal: (amount: number) => Promise<void>;
+  addDeposit: (amount: number, txHash?: string, walletAddress?: string) => Promise<void>;
+  addWithdrawal: (amount: number, destination?: string, asset?: string, network?: string) => Promise<void>;
   
   addNotification: (category: NotificationCategory, priority: NotificationPriority, title: string, body: string, actionUrl?: string, action?: string, metadata?: Record<string, any>, userId?: string) => Promise<void>;
   markNotificationRead: (id: string, readState?: boolean) => Promise<void>;
@@ -969,6 +969,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setPreviewPhotoURL(null);
       window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
       window.dispatchEvent(new Event('aver_user_updated'));
+      window.dispatchEvent(new Event('aver_logout'));
       window.dispatchEvent(new Event('storage'));
       if (auth) {
         await signOut(auth).catch(() => {});

@@ -84,7 +84,7 @@ export default function AssetStatsScreen({
             try {
               const d = typeof (act.timestamp as any)?.toDate === 'function' 
                 ? (act.timestamp as any).toDate() 
-                : new Date(act.timestamp);
+                : new Date(act.timestamp as any);
               dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             } catch {
               dateStr = 'Recent';
@@ -102,12 +102,11 @@ export default function AssetStatsScreen({
 
     if (trades && Array.isArray(trades)) {
       trades.forEach(t => {
-        const tradeAny = t as any;
-        if (tradeAny.rationale && (
-          tradeAny.rationale.toLowerCase().includes('rebalance') || 
-          tradeAny.rationale.toLowerCase().includes('shift') || 
-          tradeAny.rationale.toLowerCase().includes('allocation') ||
-          tradeAny.rationale.toLowerCase().includes('rotate')
+        if (t.rationale && (
+          t.rationale.toLowerCase().includes('rebalance') || 
+          t.rationale.toLowerCase().includes('shift') || 
+          t.rationale.toLowerCase().includes('allocation') ||
+          t.rationale.toLowerCase().includes('rotate')
         )) {
           let dateStr = 'Just now';
           if (t.openedAt) {
@@ -123,8 +122,8 @@ export default function AssetStatsScreen({
 
           shifts.push({
             date: dateStr,
-            action: `${tradeAny.type === 'BUY' ? 'Reallocated into' : 'Reduced position in'} ${t.asset} (${tradeAny.amount || ''} ${t.asset})`,
-            reason: tradeAny.rationale
+            action: `${t.type === 'BUY' ? 'Reallocated into' : 'Reduced position in'} ${t.asset} (${t.amount || ''} ${t.asset})`,
+            reason: t.rationale
           });
         }
       });

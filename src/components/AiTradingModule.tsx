@@ -28,14 +28,12 @@ import {
   Square,
   TrendingUp,
   TrendingDown,
-  Info,
-  ArrowLeft
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiTradingService } from '../services/aiTradingService';
 import { db, auth } from '../lib/firebase';
 import { safeStorage } from '../utils/storage';
-import { useAppNavigation } from '../contexts/NavigationContext';
 import { 
   AiSession, 
   AiRecommendation, 
@@ -61,8 +59,9 @@ type EngineState = 'IDLE' | 'PREPARING' | 'LOADING_CONFIG' | 'SYNC_USER' | 'SYNC
 
 export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'light' | 'dark', onOpenDeposit: () => void }) {
   const { user, updateProfile, addNotification } = useAuth();
-  const { activeTradingBalance, addFundsToActiveBalance, tokenBalance } = useFinancials();
-  const activeBalanceOffset = (useFinancials() as any).activeBalanceOffset || 0;
+  const financials = useFinancials();
+  const { activeTradingBalance, addFundsToActiveBalance, tokenBalance } = financials;
+  const activeBalanceOffset = (financials as any).activeBalanceOffset || 0;
   const { preferences, formatCurrency } = usePreferences();
   const { 
     configs, 
@@ -86,15 +85,11 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
 
-  // Navigation state managed centrally via useAppNavigation
-  const { currentLocation, navigateSubView, goBack, canGoBack, stack } = useAppNavigation();
-  const [localActiveView, setLocalActiveView] = useState<AiView>('HOME');
-  const activeView: AiView = (currentLocation.subView as AiView) || localActiveView || 'HOME';
-
-  const setActiveView = useCallback((view: AiView) => {
-    setLocalActiveView(view);
-    navigateSubView(view === 'HOME' ? undefined : view);
-  }, [navigateSubView]);
+  // Navigation state (restored from localStorage)
+  const [activeView, setActiveView] = useState<AiView>(() => {
+    const saved = safeStorage.getItem('aver_ai_active_view');
+    return (saved as AiView) || 'HOME';
+  });
 
   const activeTrades = useMemo(() => trades.filter(t => t.status === 'OPEN'), [trades]);
   const closedTrades = trades.filter(t => t.status === 'CLOSED');
@@ -206,12 +201,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const displayCpuUsage = !isSessionActive ? 0 : cpuUsage;
   const displayMemoryUsage = !isSessionActive ? 0 : memoryUsage;
   const displayNeuralCycles = !isSessionActive ? 0 : neuralCycles;
-  const displayEngineState = (typeof engineStatus?.state === 'string' 
-    ? engineStatus.state 
-    : (typeof engineStatus === 'string' ? engineStatus : 'INACTIVE')) || 'INACTIVE';
+  const displayEngineState = engineStatus.state;
   const displayThinkingIdea = !isSessionActive 
     ? (hasInsufficientFunds ? 'Insufficient funds. Deposit funds to start AI trading.' : 'Neural core offline. Standby for market sync...') 
-    : (engineStatus?.state === 'SLEEPING' || engineStatus?.state === 'COOLING_BREAK' ? (engineStatus?.reason || 'Cooling break / standby') : liveThinkingIdea);
+    : (engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? engineStatus.reason : liveThinkingIdea);
 
   // Layout helpers
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
@@ -368,7 +361,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
       await new Promise(resolve => setTimeout(resolve, 300));
       setEngineState('SCANNING');
       
-      addActivityEvent('SUCCESS', `AI Session online. Executing "${targetConfig.aiTradingRules?.tradingStrategy?.replace('_', ' ') || (targetConfig as any).strategy || 'QUANT'}" strategy.`);
+      addActivityEvent('SUCCESS', `AI Session online. Executing "${(targetConfig as any).strategy?.replace('_', ' ') || targetConfig.aiTradingRules?.tradingStrategy?.replace('_', ' ') || 'QUANT'}" strategy.`);
       addNotification('trading', 'medium', 'AI Session Started', 'Neural analysis engine is now scanning selected markets.');
       
       setActiveView('HOME');
@@ -474,17 +467,13 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
   const handleToggleMarket = async (symbol: string) => {
     const activeConfig = configs.find(c => c.id === activeConfigId);
     if (!activeConfig) return;
-    const currentAssetSelection = activeConfig.aiTradingRules?.assetSelection || ['BTC', 'ETH', 'SOL'];
-    const nextMarkets = currentAssetSelection.includes(symbol)
-      ? currentAssetSelection.filter(m => m !== symbol)
-      : [...currentAssetSelection, symbol];
+    const nextMarkets = activeConfig.aiTradingRules.assetSelection.includes(symbol)
+      ? activeConfig.aiTradingRules.assetSelection.filter(m => m !== symbol)
+      : [...activeConfig.aiTradingRules.assetSelection, symbol];
     const updated = {
       ...activeConfig,
       aiTradingRules: {
-        minConfidence: 85,
-        maxSimultaneousPositions: 3,
-        tradingStrategy: 'NEURAL_MOMENTUM' as const,
-        ...(activeConfig.aiTradingRules || {}),
+        ...activeConfig.aiTradingRules,
         assetSelection: nextMarkets
       }
     };
@@ -652,23 +641,6 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
       {/* Main Interactive Work Area */}
       <div className="flex-1 min-w-0">
-        {activeView !== 'HOME' && (
-          <div className="flex items-center gap-2 mb-4">
-            <button
-              onClick={() => {
-                if (canGoBack && stack.length > 1) {
-                  goBack();
-                } else {
-                  setActiveView('HOME');
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back</span>
-            </button>
-          </div>
-        )}
         <AnimatePresence mode="wait">
           <motion.div
             key={activeView}
@@ -700,8 +672,8 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                         (displayEngineState as string) === 'SESSION_SCANNING' || (displayEngineState as string) === 'MONITORING' ? 'text-[#00D09C]' :
                         (displayEngineState as string) === 'ANALYZING' || (displayEngineState as string) === 'GENERATING' ? 'text-amber-500' :
                         (displayEngineState as string) === 'WAITING_DECISION' ? 'text-blue-500' : 
-                        (displayEngineState as string) === 'SLEEPING' || (displayEngineState as string) === 'COOLING_BREAK' ? 'text-amber-500 animate-pulse' : 'text-slate-500'
-                      }`}>{String(displayEngineState || 'INACTIVE').replace(/_/g, ' ')}</p>
+                        displayEngineState === 'SLEEPING' || displayEngineState === 'COOLING_BREAK' ? 'text-amber-500 animate-pulse' : 'text-slate-500'
+                      }`}>{displayEngineState.replace('_', ' ')}</p>
                     </div>
                     <div className="w-px bg-white/5 self-stretch" />
                     <div>
@@ -789,7 +761,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 <div className={`p-4 rounded-2xl border ${cardClasses} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 overflow-hidden w-full bg-gradient-to-r from-teal-500/5 to-transparent`}>
                   <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1 w-full sm:w-auto">
                     <div className="p-2 rounded-xl bg-[#00D09C]/10 text-[#00D09C] shrink-0 animate-pulse mt-0.5 sm:mt-0">
-                      {engineStatus?.state === 'SLEEPING' || engineStatus?.state === 'COOLING_BREAK' ? (
+                      {engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? (
                         <Clock className="w-5 h-5 text-amber-500" />
                       ) : (
                         <Cpu className="w-5 h-5" />
@@ -797,7 +769,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     </div>
                     <div className="min-w-0 flex-1">
                       <span className={`${textSecondary} text-[10px] font-black uppercase tracking-wider block min-w-0 leading-tight`}>
-                        {engineStatus?.state === 'SLEEPING' || engineStatus?.state === 'COOLING_BREAK' ? 'Scheduler: Operating Window Gate' : 'Neural Decision Engine (Think-Tank)'}
+                        {engineStatus.state === 'SLEEPING' || engineStatus.state === 'COOLING_BREAK' ? 'Scheduler: Operating Window Gate' : 'Neural Decision Engine (Think-Tank)'}
                       </span>
                       <AnimatePresence mode="wait">
                         <motion.span
@@ -815,10 +787,10 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                   </div>
                   <div className="flex items-center gap-2 font-mono text-[9px] text-slate-500 whitespace-nowrap shrink-0 self-start sm:self-center bg-white/5 sm:bg-transparent px-2.5 py-1 sm:p-0 rounded-full sm:rounded-none">
                     <span className="relative flex h-2 w-2">
-                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${engineStatus?.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'} opacity-75`}></span>
-                      <span className={`relative inline-flex rounded-full h-2 w-2 ${engineStatus?.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'}`}></span>
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${engineStatus.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'} opacity-75`}></span>
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${engineStatus.state === 'SESSION_SCANNING' ? 'bg-[#00D09C]' : 'bg-amber-500'}`}></span>
                     </span>
-                    {engineStatus?.state === 'SESSION_SCANNING' ? 'CORE AGENT LIVE' : engineStatus?.state === 'SLEEPING' ? 'CORE AGENT SLEEPING' : 'CORE AGENT COOLING'}
+                    {engineStatus.state === 'SESSION_SCANNING' ? 'CORE AGENT LIVE' : engineStatus.state === 'SLEEPING' ? 'CORE AGENT SLEEPING' : 'CORE AGENT COOLING'}
                   </div>
                 </div>
 
@@ -842,7 +814,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                     <AiTradeCenter 
                       trades={enrichedActiveTrades}
                       isDark={isDark}
-                      monitoredMarkets={config?.aiTradingRules?.assetSelection || (config as any)?.markets || []}
+                      monitoredMarkets={(config as any)?.markets || config?.aiTradingRules?.assetSelection || []}
                       isSessionActive={isSessionActive}
                     />
 
@@ -872,7 +844,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
 
             {activeView === 'SCANNER' && (
               <AiMarketScannerView 
-                monitoredMarkets={configs.find(c => c.id === activeConfigId)?.aiTradingRules?.assetSelection || []}
+                monitoredMarkets={configs.find(c => c.id === activeConfigId)?.aiTradingRules.assetSelection || []}
                 onToggleMarket={handleToggleMarket}
                 isDark={isDark}
               />
@@ -893,7 +865,7 @@ export default function AiTradingModule({ theme, onOpenDeposit }: { theme: 'ligh
                 <AiTradeCenter 
                   trades={enrichedActiveTrades}
                   isDark={isDark}
-                  monitoredMarkets={config?.aiTradingRules?.assetSelection || (config as any)?.markets || []}
+                  monitoredMarkets={(config as any)?.markets || config?.aiTradingRules?.assetSelection || []}
                   isSessionActive={isSessionActive}
                 />
               </div>

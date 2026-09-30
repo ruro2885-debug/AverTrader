@@ -53,12 +53,8 @@ export interface UserProfile {
   // Progression & Milestones
   level?: number;
   xp?: number;
-  streak?: number;
   loginStreak?: number;
-  lastActivityAt?: string;
   lastLoginDate?: string;
-  lastStreakIncrementAt?: number;
-  lastStreakResetAt?: number;
   winRun?: number;
   aiTradesCount?: number;
   insignias?: string[];
@@ -76,17 +72,16 @@ export interface UserProfile {
   kycApprovedAt?: string;
   kycRewardUnlocked?: boolean;
   kycRejectionReason?: string | null;
-  kycResubmissionReason?: string | null;
   role?: 'user' | 'super_admin' | 'admin';
   watchlist?: string[];
-  fullName?: string;
   name?: string;
   photoURL?: string;
-  status?: string;
+  fullName?: string;
+  resetPnL?: boolean;
+  pnlResetAt?: string;
   preferences?: any;
-  resetPnL?: any;
-  pnlResetAt?: any;
-  referredUsers?: any[];
+  referredUsers?: any;
+  status?: string;
 }
 
 export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';

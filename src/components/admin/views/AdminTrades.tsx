@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, Search, Filter, ShieldCheck, Clock, ExternalLink, 
@@ -29,6 +29,7 @@ interface ActiveSessionRecord {
   activeConfigId?: string;
   strategyName?: string;
   adminControl?: SessionAdminControl;
+  isDeleted?: boolean;
 }
 
 interface TradeRecord {
@@ -71,16 +72,13 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionRecord[]>([]);
   const [userMap, setUserMap] = useState<Record<string, { email: string }>>({});
+  const userMapRef = React.useRef<Record<string, { email: string }>>({});
   const [search, setSearch] = useState('');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [selectedControlSession, setSelectedControlSession] = useState<ActiveSessionRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
-  const latestFirestoreDocsRef = useRef<any[]>([]);
-  const latestUsersDocsRef = useRef<any[]>([]);
-  const userMapRef = useRef<Record<string, { email: string }>>({});
-  const syncSessionsRef = useRef<(firestoreDocs?: any[]) => ActiveSessionRecord[]>(() => []);
 
   const isDark = theme === 'dark';
 
@@ -89,17 +87,13 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     let unsubUsers: (() => void) | null = null;
     try {
       unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-        latestUsersDocsRef.current = snap.docs;
         const newUserMap: Record<string, { email: string }> = {};
         snap.forEach(uDoc => {
           const d = uDoc.data();
           newUserMap[uDoc.id] = { email: d.email || 'user@example.com' };
         });
-        userMapRef.current = newUserMap;
         setUserMap(newUserMap);
-        if (syncSessionsRef.current) {
-          syncSessionsRef.current();
-        }
+        userMapRef.current = newUserMap;
       }, (err) => {
         console.warn("[AdminTrades] User map listener error:", err);
       });
@@ -110,181 +104,97 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     };
   }, []);
 
-  // 2. Real-time listener for active aiSessions (authoritative source of truth)
+  // Update session emails when userMap updates without restarting session listener
+  useEffect(() => {
+    userMapRef.current = userMap;
+    setActiveSessions(prev => prev.map(s => ({
+      ...s,
+      userEmail: s.userEmail === 'trader@example.com' || s.userEmail === s.userId 
+        ? (userMap[s.userId]?.email || s.userEmail) 
+        : s.userEmail
+    })));
+  }, [userMap]);
+
+  // 2. Real-time listener for active aiSessions
   useEffect(() => {
     let unsubSessions: (() => void) | null = null;
-    let unsubTradesList: (() => void)[] = [];
+    let unsubTradesMap: Record<string, () => void> = {};
 
-    console.log("[ADMIN] Initializing live active sessions listener");
-
-    const isSessionStopped = (id: string) => {
-      if (!id) return true;
-      try {
-        if (localStorage.getItem(`aver_stopped_session_${id}`) === 'true') return true;
-        if (sessionStorage.getItem(`aver_stopped_session_${id}`) === 'true') return true;
-      } catch (e) {}
-      return false;
-    };
-
-    const syncSessions = (firestoreDocs?: any[]) => {
-      if (firestoreDocs) {
-        latestFirestoreDocsRef.current = firestoreDocs;
-      }
-      const docsToProcess = firestoreDocs || latestFirestoreDocsRef.current || [];
-      const currentUsersMap = userMapRef.current || userMap;
-      const sessionsMap = new Map<string, ActiveSessionRecord>();
-
-      // ONLY process Firestore 'aiSessions' collection documents (authoritative active sessions)
-      if (docsToProcess && docsToProcess.length > 0) {
-        docsToProcess.forEach(sDoc => {
-          const data = typeof sDoc.data === 'function' ? sDoc.data() : sDoc;
-          const docId = sDoc.id || data.id;
-          const statusVal = String(data.status || '').toUpperCase();
-
-          const isStatusActive = (statusVal === 'ACTIVE' || statusVal === 'RUNNING');
-          const isDocValid = isStatusActive && data.isDeleted !== true && !data.endTime && docId && !isSessionStopped(docId);
-
-          if (!isDocValid) {
-            // Asynchronously prune inactive or stopped documents from Firestore so they do not linger
-            if (docId && (data.isDeleted === true || statusVal === 'INACTIVE' || statusVal === 'STOPPED' || data.endTime || isSessionStopped(docId))) {
-              deleteDoc(doc(db, 'aiSessions', docId)).catch(() => {});
-            }
-            return;
-          }
-
-          const uId = data.userId || 'unknown';
-
-          // Verify with latest user doc in Firestore: if the user document shows 0 active trading capital
-          // and no active session, then this session document is an orphan and must be purged
-          if (latestUsersDocsRef.current && latestUsersDocsRef.current.length > 0) {
-            const uDoc = latestUsersDocsRef.current.find(u => u.id === uId);
-            if (uDoc) {
-              const uData = typeof uDoc.data === 'function' ? uDoc.data() : uDoc;
-              const hasCap = Number(uData.aiTradingCapital || 0) > 0;
-              const hasActiveSession = Boolean(uData.aiSession || uData.activeSession);
-              if (!hasCap && !hasActiveSession) {
-                // Orphan session doc in Firestore - delete it
-                deleteDoc(doc(db, 'aiSessions', docId)).catch(() => {});
-                return;
-              }
-            }
-          }
-
-          const userEmail = data.userEmail || currentUsersMap[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
-          
-          const sessionRecord: ActiveSessionRecord = {
-            id: docId,
-            userId: uId,
-            userEmail: userEmail,
-            status: 'ACTIVE',
-            startTime: data.startTime || new Date().toISOString(),
-            tradingCapital: data.tradingCapital ?? data.initialCapital ?? 0,
-            initialCapital: data.initialCapital ?? data.tradingCapital ?? 1000,
-            openPositionsCount: data.openPositionsCount || 0,
-            totalProfit: data.totalProfit || 0,
-            totalLoss: data.totalLoss || 0,
-            activeConfigId: data.activeConfigId,
-            strategyName: data.strategyName || 'Algorithmic Strategy',
-            adminControl: data.adminControl || { mode: 'NORMAL', forceNextTrade: 'AUTO' }
-          };
-
-          // Strictly enforce at most ONE active session per user.
-          // If duplicate session documents exist for the same userId, keep only the latest one
-          // and delete the older duplicate from Firestore immediately.
-          const existingForUser = Array.from(sessionsMap.values()).find(s => s.userId === uId);
-          if (existingForUser) {
-            const getMs = (t: any) => {
-              if (!t) return 0;
-              if (typeof t.toDate === 'function') return t.toDate().getTime();
-              if (typeof t.seconds === 'number') return t.seconds * 1000;
-              const parsed = new Date(t).getTime();
-              return isNaN(parsed) ? 0 : parsed;
-            };
-            if (getMs(sessionRecord.startTime) > getMs(existingForUser.startTime)) {
-              deleteDoc(doc(db, 'aiSessions', existingForUser.id)).catch(() => {});
-              sessionsMap.delete(existingForUser.id);
-              sessionsMap.set(docId, sessionRecord);
-            } else {
-              deleteDoc(doc(db, 'aiSessions', docId)).catch(() => {});
-            }
-          } else {
-            sessionsMap.set(docId, sessionRecord);
-          }
-        });
-      }
-
-      // Clean up any stale local registry keys that are not active in database
-      try {
-        const regRaw = localStorage.getItem('aver_active_sessions_registry');
-        if (regRaw) {
-          const reg = JSON.parse(regRaw);
-          let changed = false;
-          for (const k of Object.keys(reg)) {
-            if (!sessionsMap.has(k)) {
-              delete reg[k];
-              changed = true;
-            }
-          }
-          if (changed) {
-            if (Object.keys(reg).length === 0) {
-              localStorage.removeItem('aver_active_sessions_registry');
-            } else {
-              localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
-            }
-          }
-        }
-      } catch (e) {}
-
-      const sessionsList = Array.from(sessionsMap.values());
-
-      // Sort by start time descending
-      sessionsList.sort((a, b) => {
-        const getMs = (t: any) => {
-          if (!t) return 0;
-          if (typeof t.toDate === 'function') return t.toDate().getTime();
-          if (typeof t.seconds === 'number') return t.seconds * 1000;
-          const parsed = new Date(t).getTime();
-          return isNaN(parsed) ? 0 : parsed;
-        };
-        return getMs(b.startTime) - getMs(a.startTime);
-      });
-
-      setActiveSessions(sessionsList);
-      setLoading(false);
-
-      // Keep selectedControlSession continuously updated with live mirror
-      setSelectedControlSession(prev => {
-        if (!prev) return null;
-        const updated = sessionsList.find(s => s.id === prev.id);
-        return updated || null;
-      });
-
-      return sessionsList;
-    };
-
-    syncSessionsRef.current = syncSessions;
-
-    // Real-time listener for active aiSessions
+    console.log("[ADMIN] Listener mounted for aiSessions");
     try {
       unsubSessions = onSnapshot(collection(db, 'aiSessions'), (snapshot) => {
-        const sessionsList = syncSessions(snapshot.docs);
+        console.log("[ADMIN] aiSessions snapshot received, docs count:", snapshot.size);
 
-        // Subscribe to real-time trades for all active session users
-        unsubTradesList.forEach(unsub => unsub());
-        unsubTradesList = [];
+        const sessionsList: ActiveSessionRecord[] = [];
+        const seenIds = new Set<string>();
 
+        snapshot.docs.forEach(sDoc => {
+          const data = sDoc.data();
+          // Filter strictly active sessions
+          const statusVal = String(data.status || '').toUpperCase();
+          if ((statusVal === 'ACTIVE' || statusVal === 'RUNNING') && data.isDeleted !== true) {
+            if (!seenIds.has(sDoc.id)) {
+              seenIds.add(sDoc.id);
+              const uId = data.userId || 'unknown';
+              const userEmail = data.userEmail || userMapRef.current[uId]?.email || (data.userId === user?.uid ? user?.email : undefined) || 'trader@example.com';
+              
+              sessionsList.push({
+                id: sDoc.id,
+                userId: uId,
+                userEmail: userEmail,
+                status: 'ACTIVE',
+                startTime: data.startTime || new Date().toISOString(),
+                tradingCapital: data.tradingCapital || data.initialCapital || 0,
+                initialCapital: data.initialCapital || data.tradingCapital || 0,
+                openPositionsCount: data.openPositionsCount || 0,
+                totalProfit: data.totalProfit || 0,
+                totalLoss: data.totalLoss || 0,
+                activeConfigId: data.activeConfigId,
+                strategyName: data.strategyName || 'Algorithmic Strategy',
+                adminControl: data.adminControl
+              });
+            }
+          }
+        });
+
+        // Sort by start time descending
+        sessionsList.sort((a, b) => {
+          const getMs = (t: any) => {
+            if (!t) return 0;
+            if (typeof t.toDate === 'function') return t.toDate().getTime();
+            if (typeof t.seconds === 'number') return t.seconds * 1000;
+            const parsed = new Date(t).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+          };
+          return getMs(b.startTime) - getMs(a.startTime);
+        });
+
+        setActiveSessions(sessionsList);
+        setLoading(false);
+
+        // Synchronize trade listeners for active users
         const activeUserIds = Array.from(new Set(sessionsList.map(s => s.userId).filter(uid => uid && !uid.startsWith('local-'))));
-        if (activeUserIds.length > 0) {
-          activeUserIds.forEach(uId => {
+        
+        // Remove unneeded listeners
+        Object.keys(unsubTradesMap).forEach(uId => {
+          if (!activeUserIds.includes(uId)) {
+            unsubTradesMap[uId]();
+            delete unsubTradesMap[uId];
+          }
+        });
+
+        // Add missing listeners
+        activeUserIds.forEach(uId => {
+          if (!unsubTradesMap[uId]) {
             try {
-              const uTrades = onSnapshot(collection(db, 'users', uId, 'trades'), (tSnap) => {
+              unsubTradesMap[uId] = onSnapshot(collection(db, 'users', uId, 'trades'), (tSnap) => {
                 const userTrades: TradeRecord[] = [];
                 tSnap.forEach(tDoc => {
                   const tData = tDoc.data();
                   userTrades.push({
                     id: tDoc.id,
                     userId: uId,
-                    userEmail: (userMapRef.current && userMapRef.current[uId]?.email) || userMap[uId]?.email || 'trader@example.com',
+                    userEmail: userMapRef.current[uId]?.email || 'trader@example.com',
                     symbol: tData.symbol || 'BTC/USDT',
                     type: tData.type || 'long',
                     amount: tData.amount || tData.size || 0,
@@ -305,81 +215,22 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
                   return combined;
                 });
               }, () => {});
-              unsubTradesList.push(uTrades);
             } catch (e) {}
-          });
-        } else {
-          setTrades([]);
-        }
+          }
+        });
       }, (err) => {
         console.warn("[AdminTrades] Error in aiSessions onSnapshot:", err);
-        syncSessions();
         setLoading(false);
       });
     } catch (e) {
-      syncSessions();
       setLoading(false);
     }
 
-    const handleStorageUpdate = () => {
-      syncSessions();
-    };
-
-    const handleSessionTerminated = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      const termId = customEvent.detail?.sessionId;
-      const termUserId = customEvent.detail?.userId;
-
-      if (termId) {
-        try {
-          localStorage.setItem(`aver_stopped_session_${termId}`, 'true');
-          sessionStorage.setItem(`aver_stopped_session_${termId}`, 'true');
-          localStorage.removeItem(`aver_session_${termId}`);
-          localStorage.removeItem(`aver_active_session_${termId}`);
-          localStorage.removeItem(`aver_session_control_${termId}`);
-          if (termUserId) {
-            localStorage.removeItem(`aver_session_${termUserId}`);
-          }
-          const regRaw = localStorage.getItem('aver_active_sessions_registry');
-          if (regRaw) {
-            const reg = JSON.parse(regRaw);
-            delete reg[termId];
-            localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
-          }
-        } catch (err) {}
-
-        // Immediately purge from latestFirestoreDocsRef
-        latestFirestoreDocsRef.current = latestFirestoreDocsRef.current.filter(d => {
-          const docId = d.id || (typeof d.data === 'function' ? d.data()?.id : d.id);
-          return docId !== termId;
-        });
-
-        // Immediately purge from activeSessions state
-        setActiveSessions(prev => prev.filter(s => s.id !== termId));
-        setSelectedControlSession(prev => (prev?.id === termId ? null : prev));
-      }
-
-      syncSessions();
-    };
-
-    window.addEventListener('storage', handleStorageUpdate);
-    window.addEventListener('aver_sessions_registry_updated', handleStorageUpdate);
-    window.addEventListener('aver_session_updated', handleStorageUpdate);
-    window.addEventListener('aver_session_launched', handleStorageUpdate);
-    window.addEventListener('aver_session_terminated', handleSessionTerminated);
-    window.addEventListener('aver_admin_control_updated', handleStorageUpdate);
-
     return () => {
       if (unsubSessions) unsubSessions();
-      unsubTradesList.forEach(unsub => unsub());
-      window.removeEventListener('storage', handleStorageUpdate);
-      window.removeEventListener('aver_sessions_registry_updated', handleStorageUpdate);
-      window.removeEventListener('aver_session_updated', handleStorageUpdate);
-      window.removeEventListener('aver_session_launched', handleStorageUpdate);
-      window.removeEventListener('aver_session_terminated', handleSessionTerminated);
-      window.removeEventListener('aver_admin_control_updated', handleStorageUpdate);
+      Object.values(unsubTradesMap).forEach(unsub => unsub());
     };
-  }, [user?.uid, user?.email]);
+  }, []);
 
   const handleEndSession = async (session: ActiveSessionRecord, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -391,16 +242,6 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     try {
       // 1. Delete session from Firestore aiSessions collection immediately
       await deleteDoc(doc(db, 'aiSessions', session.id)).catch(() => {});
-      if (session.userId) {
-        try {
-          const extraDocsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', session.userId))).catch(() => null);
-          if (extraDocsSnap && !extraDocsSnap.empty) {
-            for (const ed of extraDocsSnap.docs) {
-              await deleteDoc(doc(db, 'aiSessions', ed.id)).catch(() => {});
-            }
-          }
-        } catch (e) {}
-      }
 
       // 2. Refund balance and update user profile in Firestore
       if (session.userId && !session.userId.startsWith('local-') && session.userId !== 'guest_user') {
@@ -450,28 +291,15 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         }
       }
 
-      // 3. Clear local storage for user and specific session instance
-      localStorage.removeItem(`aver_session_${session.id}`);
-      localStorage.removeItem(`aver_active_session_${session.id}`);
+      // 3. Clear local storage for user if local
       localStorage.removeItem(`aver_session_${session.userId}`);
       localStorage.removeItem(`aver_session_control_${session.id}`);
       localStorage.removeItem(`aver_session_control_${session.userId}`);
-      localStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
-      sessionStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
+      localStorage.removeItem(`aver_stopped_session_${session.userId}`);
+      sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
       
-      try {
-        const regRaw = localStorage.getItem('aver_active_sessions_registry');
-        if (regRaw) {
-          const reg = JSON.parse(regRaw);
-          delete reg[session.id];
-          localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
-          window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
-        }
-      } catch (e) {}
-
-      latestFirestoreDocsRef.current = latestFirestoreDocsRef.current.filter(d => (d.id || d.data?.()?.id) !== session.id);
-      
-      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id, userId: session.userId } }));
+      window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
+      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id } }));
 
       // 4. Update state immediately
       setActiveSessions(prev => prev.filter(s => s.id !== session.id));
@@ -495,50 +323,18 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
     setActionLoading(session.id);
     try {
       await deleteDoc(doc(db, 'aiSessions', session.id)).catch(() => {});
-      if (session.userId) {
-        try {
-          const extraDocsSnap = await getDocs(query(collection(db, 'aiSessions'), where('userId', '==', session.userId))).catch(() => null);
-          if (extraDocsSnap && !extraDocsSnap.empty) {
-            for (const ed of extraDocsSnap.docs) {
-              await deleteDoc(doc(db, 'aiSessions', ed.id)).catch(() => {});
-            }
-          }
-        } catch (e) {}
-
-        if (!session.userId.startsWith('local-') && session.userId !== 'guest_user') {
-          await updateDoc(doc(db, 'users', session.userId), {
-            aiSession: null,
-            activeSession: null,
-            aiTradingCapital: 0,
-            lastUpdated: serverTimestamp()
-          }).catch(() => {});
-        }
-      }
-      localStorage.removeItem(`aver_session_${session.id}`);
-      localStorage.removeItem(`aver_active_session_${session.id}`);
       localStorage.removeItem(`aver_session_${session.userId}`);
       localStorage.removeItem(`aver_session_control_${session.id}`);
       localStorage.removeItem(`aver_session_control_${session.userId}`);
-      localStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
-      sessionStorage.setItem(`aver_stopped_session_${session.id}`, 'true');
+      localStorage.removeItem(`aver_stopped_session_${session.userId}`);
+      sessionStorage.removeItem(`aver_stopped_session_${session.userId}`);
       
-      try {
-        const regRaw = localStorage.getItem('aver_active_sessions_registry');
-        if (regRaw) {
-          const reg = JSON.parse(regRaw);
-          delete reg[session.id];
-          localStorage.setItem('aver_active_sessions_registry', JSON.stringify(reg));
-          window.dispatchEvent(new CustomEvent('aver_sessions_registry_updated', { detail: reg }));
-        }
-      } catch (e) {}
-
-      latestFirestoreDocsRef.current = latestFirestoreDocsRef.current.filter(d => (d.id || d.data?.()?.id) !== session.id);
-
       setActiveSessions(prev => prev.filter(s => s.id !== session.id));
       if (selectedControlSession?.id === session.id) {
         setSelectedControlSession(null);
       }
-      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id, userId: session.userId } }));
+      window.dispatchEvent(new CustomEvent('aver_session_updated', { detail: null }));
+      window.dispatchEvent(new CustomEvent('aver_session_terminated', { detail: { sessionId: session.id } }));
     } catch (e) {
       console.error("Failed to delete session tab:", e);
     } finally {
@@ -578,7 +374,7 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
           }
         }
       }
-      setActiveSessions(prev => prev.filter(s => s.status === 'ACTIVE' && !(s as any).isDeleted));
+      setActiveSessions(prev => prev.filter(s => s.status === 'ACTIVE' && !s.isDeleted));
       alert(`Purge complete: Cleaned up ${count} inactive session documents.`);
     } catch (err) {
       console.error("Purge error:", err);
@@ -602,10 +398,8 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
       {selectedControlSession && (
         <AdminSessionControlModal
           session={selectedControlSession}
-          allActiveSessions={activeSessions}
           theme={theme}
           onClose={() => setSelectedControlSession(null)}
-          onSelectSession={(sess) => setSelectedControlSession(sess)}
           onSessionTerminated={(sId) => {
             setActiveSessions(prev => prev.filter(s => s.id !== sId));
             setSelectedControlSession(null);
@@ -651,55 +445,6 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         </div>
       </div>
 
-      {/* ACTIVE SESSIONS INDEPENDENT TABS BAR */}
-      {activeSessions.length > 0 && (
-        <div className={`p-4 rounded-2xl border space-y-3 ${
-          isDark ? 'bg-slate-900/60 border-white/10' : 'bg-white border-slate-200'
-        }`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              Active Session Tabs ({activeSessions.length})
-            </span>
-            <span className="text-xs text-slate-500 hidden sm:inline">
-              Every active user session has its own independent tab & trade outcome control
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-            {activeSessions.map((sess) => {
-              const isSelected = selectedControlSession?.id === sess.id;
-              const mode = sess.adminControl?.mode || 'NORMAL';
-              const displayName = sess.userEmail?.split('@')[0] || sess.userEmail || sess.userId;
-              
-              return (
-                <button
-                  key={sess.id}
-                  onClick={() => setSelectedControlSession(sess)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border ${
-                    isSelected
-                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400'
-                      : isDark
-                        ? 'bg-slate-950 border-white/10 text-slate-300 hover:border-emerald-500/40 hover:bg-slate-850 hover:text-white'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-emerald-500/40 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${
-                    mode === 'FORCE_PROFIT' ? 'bg-emerald-400' : mode === 'FORCE_LOSS' ? 'bg-rose-400' : 'bg-slate-400'
-                  }`}></span>
-                  <span className="font-bold">{displayName}</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
-                    isSelected ? 'bg-slate-950/20 text-slate-950' : 'bg-white/10 text-slate-400'
-                  }`}>
-                    {mode === 'FORCE_PROFIT' ? 'PROFIT' : mode === 'FORCE_LOSS' ? 'DRAWDOWN' : 'NORMAL'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Search & Overview Toolbar */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative w-full md:w-96">
@@ -726,8 +471,49 @@ export default function AdminTrades({ theme }: { theme: 'light' | 'dark' }) {
         )}
       </div>
 
-      {/* ACTIVE TRADING SESSIONS GRID */}
+      {/* ACTIVE TRADING SESSIONS SECTION */}
       <div className="space-y-4">
+        {/* Active Session Tabs Bar */}
+        {activeSessions.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+              <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                Active Session Tabs ({activeSessions.length})
+              </span>
+              <span className="text-[10px] text-slate-500 font-normal">Tap any tab to open outcome controls</span>
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
+              {activeSessions.map((sess) => {
+                const sPnl = (sess.totalProfit || 0) - (sess.totalLoss || 0);
+                const isPos = sPnl >= 0;
+                const isSelected = selectedControlSession?.id === sess.id;
+                return (
+                  <button
+                    key={sess.id}
+                    onClick={() => setSelectedControlSession(sess)}
+                    className={`flex-shrink-0 px-3.5 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-2.5 ${
+                      isSelected
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/10'
+                        : isDark
+                          ? 'bg-slate-900/80 hover:bg-slate-800/80 border-white/10 hover:border-emerald-500/40 text-slate-300'
+                          : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-emerald-500/40 text-slate-800 shadow-sm'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="max-w-[130px] truncate">{sess.userEmail}</span>
+                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                      isPos ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                    }`}>
+                      {isPos ? '+' : ''}${sPnl.toFixed(2)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
             <RefreshCw className="w-5 h-5 animate-spin text-emerald-500" />

@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore';
 
-export type AiSessionStatus = 'ACTIVE' | 'INACTIVE' | 'PAUSED' | 'IDLE' | 'STOPPED' | 'COMPLETED' | 'ERROR';
+export type AiSessionStatus = 'ACTIVE' | 'INACTIVE' | 'STOPPED' | 'COMPLETED' | 'PAUSED';
 export type RecommendationStatus = 'PENDING' | 'EXECUTED' | 'DISMISSED' | 'EXPIRED';
 export type TradeStatus = 'OPEN' | 'CLOSED';
 export type RiskRating = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -88,8 +88,6 @@ export interface AiConfiguration {
   id: string;
   ownerId: string;
   name: string;
-  strategy?: string;
-  markets?: string[];
   createdAt: Timestamp;
   lastModified: Timestamp;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
@@ -143,6 +141,7 @@ export interface AiConfiguration {
     tradeExecutions: boolean;
     marketAlerts: boolean;
   };
+  markets?: any;
 }
 
 export type SessionControlMode = 'NORMAL' | 'FORCE_PROFIT' | 'FORCE_LOSS' | 'CUSTOM_TARGET_PNL' | 'CUSTOM_WIN_RATE';
@@ -250,7 +249,6 @@ export interface EquityHistoryRecord {
   totalNetBalance: number;
   sessionId?: string;
   trigger: EquityTrigger;
-  equity?: number;
 }
 
 export interface SessionEquityPoint {
