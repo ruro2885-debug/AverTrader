@@ -565,23 +565,15 @@ export const useFinancials = () => {
         availableBalance: newCashBal,
         tokenBalance: newCashBal,
         cashBalance: newCashBal,
-        portfolio: {
+        portfolio: ({
           todayPnL: 0,
           todayPnLPercent: 0,
           overallReturn: 0,
           realizedPnL: 0,
           unrealizedPnL: 0,
-          healthScore: 90,
-          diversificationScore: 85,
-          volatility: 12,
-          sharpeRatio: 1.8,
-          winRate: 65,
-          maxDrawdown: 5,
-          recoveryFactor: 2,
-          riskAdjustedReturn: 15,
           ...(user?.portfolio || {}),
           totalValue: newCashBal + newVaultBal
-        }
+        } as any)
       }, undefined, undefined, true).catch(() => {});
     }
 

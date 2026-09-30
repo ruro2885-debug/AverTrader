@@ -9,6 +9,8 @@ import { doc, setDoc, updateDoc, serverTimestamp, collection, addDoc, query, whe
 import { db, safeSetDoc } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 
+import PRESTIGIOUS_COUNTRIES from '../data/prestigiousCountries';
+
 interface KycVerificationPageProps {
   theme: 'light' | 'dark';
   onBack: () => void;
@@ -70,18 +72,26 @@ export function getKycTimestamp(sub: any): number {
 
 // Consolidates all candidate KYC records across memory, user profile, kycHistory, localStorage, and Firestore
 export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
-  // If user is explicitly set to unverified and no extra docs from active query, start fresh
-  if (user?.kycStatus === 'unverified' && (!extraDocs || extraDocs.length === 0)) {
-    return [];
-  }
-
   const map = new Map<string, any>();
 
-  // 1. Load from user.kycData (the active submission on active user profile)
+  // 1. Check dedicated pending submission key in localStorage
+  if (user?.uid) {
+    try {
+      const pendingRaw = localStorage.getItem(`aver_kyc_pending_${user.uid}`);
+      if (pendingRaw) {
+        const pendingData = JSON.parse(pendingRaw);
+        if (pendingData && pendingData.id) {
+          map.set(pendingData.id, pendingData);
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Load from user.kycData (active submission on user profile)
   if (user?.kycData && typeof user.kycData === 'object') {
     const kData = user.kycData;
     const id = kData.id || `kyc_${user?.uid || 'user'}_active`;
-    const resolvedStatus = (user?.kycStatus && user.kycStatus !== 'unverified') ? user.kycStatus : (kData.status || 'pending');
+    const resolvedStatus = user?.kycStatus || kData.status || 'pending';
     map.set(id, { 
       ...kData, 
       id, 
@@ -91,7 +101,7 @@ export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
     });
   }
 
-  // 2. Load from user.kycHistory (array of past and current submissions on user profile)
+  // 3. Load from user.kycHistory
   if (Array.isArray(user?.kycHistory)) {
     user.kycHistory.forEach((h: any, idx: number) => {
       if (h && typeof h === 'object') {
@@ -103,32 +113,30 @@ export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
     });
   }
 
-  // 3. Load from user_profile_${uid} cached profile in localStorage
+  // 4. Load from user_profile_${uid} cached profile in localStorage
   if (user?.uid) {
     try {
       const cached = JSON.parse(localStorage.getItem(`user_profile_${user.uid}`) || '{}');
-      if (cached.kycStatus !== 'unverified') {
-        if (cached.kycData && typeof cached.kycData === 'object') {
-          const id = cached.kycData.id || `cached_${user.uid}`;
-          if (!map.has(id)) {
-            map.set(id, { ...cached.kycData, id, userId: user.uid });
-          }
+      if (cached.kycData && typeof cached.kycData === 'object') {
+        const id = cached.kycData.id || `cached_${user.uid}`;
+        if (!map.has(id)) {
+          map.set(id, { ...cached.kycData, id, userId: user.uid, status: cached.kycStatus || cached.kycData.status || 'pending' });
         }
-        if (Array.isArray(cached.kycHistory)) {
-          cached.kycHistory.forEach((h: any, idx: number) => {
-            if (h && typeof h === 'object') {
-              const id = h.id || `cached_hist_${idx}`;
-              if (!map.has(id)) {
-                map.set(id, { ...h, id, userId: user.uid });
-              }
+      }
+      if (Array.isArray(cached.kycHistory)) {
+        cached.kycHistory.forEach((h: any, idx: number) => {
+          if (h && typeof h === 'object') {
+            const id = h.id || `cached_hist_${idx}`;
+            if (!map.has(id)) {
+              map.set(id, { ...h, id, userId: user.uid });
             }
-          });
-        }
+          }
+        });
       }
     } catch (e) {}
   }
 
-  // 4. Load from aver_admin_kyc_local in localStorage
+  // 5. Load from aver_admin_kyc_local in localStorage
   try {
     const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
     if (Array.isArray(locals)) {
@@ -147,7 +155,7 @@ export function resolveUserSubmissions(user: any, extraDocs?: any[]): any[] {
     }
   } catch (e) {}
 
-  // 5. Load from extraDocs (e.g. from Firestore admin_kyc snapshot)
+  // 6. Load from extraDocs (e.g. from Firestore admin_kyc snapshot)
   if (Array.isArray(extraDocs)) {
     extraDocs.forEach((d: any) => {
       const raw = typeof d.data === 'function' ? d.data() : d;
@@ -168,29 +176,6 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
   const isDark = theme === 'dark';
   const { user, updateProfile } = useAuth();
 
-  const countries = [
-    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria",
-    "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
-    "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia",
-    "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica",
-    "Croatia", "Cuba", "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt",
-    "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon",
-    "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
-    "Haiti", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel",
-    "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Korea, North", "Korea, South", "Kuwait",
-    "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
-    "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico",
-    "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru",
-    "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Macedonia", "Norway", "Oman", "Pakistan",
-    "Palau", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania",
-    "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal",
-    "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Sudan",
-    "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania",
-    "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda",
-    "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam",
-    "Yemen", "Zambia", "Zimbabwe"
-  ].sort();
-
   const [step, setStep] = useState<number>(1);
   const [submitting, setSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
@@ -208,30 +193,42 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
 
   // Derive effective status to avoid Step 1 flicker during reload and preserve pending status across sessions
   const effectiveStatus = useMemo(() => {
-    // ALWAYS prioritize any existing active/pending submission from resolver or local storage
-    const list = resolveUserSubmissions(user);
-    if (list.length > 0) {
-      const latest = list[0];
-      if (latest && latest.status) {
-        return latest.status; // pending, verified, rejected, requires_resubmission
-      }
+    // 1. Check latestSubmission status if present
+    if (latestSubmission && latestSubmission.status) {
+      return latestSubmission.status;
     }
 
+    // 2. Check dedicated pending submission in localStorage
+    if (user?.uid) {
+      try {
+        const pendingRaw = localStorage.getItem(`aver_kyc_pending_${user.uid}`);
+        if (pendingRaw) {
+          const p = JSON.parse(pendingRaw);
+          if (p?.status) return p.status;
+          return 'pending';
+        }
+      } catch (e) {}
+    }
+
+    // 3. Check user.kycStatus from auth/profile
+    if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
+
+    // 4. Check cached profile in localStorage
+    try {
+      const cached = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
+      if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
+      if (cached.kycData?.status) return cached.kycData.status;
+    } catch (e) {}
+
+    // 5. Check aver_admin_kyc_local in localStorage
     try {
       const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
       if (Array.isArray(locals) && locals.length > 0) {
         const userLocal = locals.find((item: any) => !user?.uid || item.userId === user.uid || item.userId === 'guest_user' || (user?.email && item.email && item.email.toLowerCase() === user.email.toLowerCase()));
-        if (userLocal?.status && userLocal.status !== 'unverified') return userLocal.status;
+        if (userLocal?.status) return userLocal.status;
       }
     } catch (e) {}
 
-    try {
-      const cached = JSON.parse(user?.uid ? (localStorage.getItem(`user_profile_${user.uid}`) || '{}') : '{}');
-      if (cached.kycStatus && cached.kycStatus !== 'unverified') return cached.kycStatus;
-      if (cached.kycData?.status && cached.kycData.status !== 'unverified') return cached.kycData.status;
-    } catch (e) {}
-
-    if (user?.kycStatus && user.kycStatus !== 'unverified') return user.kycStatus;
     if (submittedSuccess) return 'pending';
     
     return 'unverified';
@@ -389,7 +386,7 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       const nowIso = new Date().toISOString();
       console.log("[KYC TRACE 2] Generated submission ID:", submissionId);
 
-      console.log("[KYC TRACE 2.1] Compressing image uploads to safe payload size (<100KB)...");
+      console.log("[KYC TRACE 2.1] Compressing image uploads...");
       const compressedFront = await downscaleImage(formData.frontIdUrl, 800, 800, 0.7);
       const compressedBack = await downscaleImage(formData.backIdUrl, 800, 800, 0.7);
       const compressedSelfie = await downscaleImage(formData.selfieUrl, 800, 800, 0.7);
@@ -425,28 +422,49 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         createdAt: nowIso
       };
 
-      console.log("[KYC TRACE 3] Constructed payload successfully.");
+      // Lightweight metadata payload without heavy image strings for reliable users/{uid} Firestore writes
+      const metadataPayload = {
+        id: submissionId,
+        userId: user?.uid || 'guest_user',
+        name: submissionPayload.name,
+        email: submissionPayload.email,
+        tier: submissionPayload.tier,
+        idType: submissionPayload.idType,
+        personalInfo: submissionPayload.personalInfo,
+        address: submissionPayload.address,
+        status: 'pending',
+        submittedAt: nowIso,
+        createdAt: nowIso,
+        hasFrontId: !!compressedFront,
+        hasBackId: !!compressedBack,
+        hasSelfie: !!compressedSelfie
+      };
+
+      console.log("[KYC TRACE 3] Constructed payloads successfully.");
 
       // Set newest submission immediately in local React state so Pending view is instant & guaranteed
       setLatestSubmission(submissionPayload);
 
-      // 1. Save to admin_kyc collection for real-time admin review
-      console.log("[KYC TRACE 4] Writing to admin_kyc document:", submissionId);
-      await safeSetDoc(doc(db, 'admin_kyc', submissionId), submissionPayload);
-      console.log("[KYC TRACE 4 COMPLETED] admin_kyc document written.");
+      // 1. Save full payload to admin_kyc collection in Firestore for Admin Panel review
+      console.log("[KYC TRACE 4] Writing full payload to admin_kyc collection...");
+      await safeSetDoc(doc(db, 'admin_kyc', submissionId), submissionPayload, { merge: true });
+      if (user?.uid) {
+        await safeSetDoc(doc(db, 'admin_kyc', user.uid), submissionPayload, { merge: true });
+      }
+      console.log("[KYC TRACE 4 COMPLETED] admin_kyc documents written.");
 
-      // 2. Local storage fallback so Admin and User can see it across all views/sessions
+      // 2. Save full payload to dedicated user pending key in localStorage
+      if (user?.uid) {
+        localStorage.setItem(`aver_kyc_pending_${user.uid}`, JSON.stringify(submissionPayload));
+      }
+
+      // 3. Save to aver_admin_kyc_local in localStorage
       console.log("[KYC TRACE 5] Updating local storage fallback...");
       try {
         const locals = JSON.parse(localStorage.getItem('aver_admin_kyc_local') || '[]');
-        const filtered = Array.isArray(locals) ? locals.filter((item: any) => item.id !== submissionId) : [];
+        const filtered = Array.isArray(locals) ? locals.filter((item: any) => item.id !== submissionId && (!user?.uid || item.userId !== user.uid)) : [];
         filtered.unshift(submissionPayload);
-        try {
-          localStorage.setItem('aver_admin_kyc_local', JSON.stringify(filtered));
-        } catch (storageErr) {
-          const trimmed = filtered.slice(0, 10);
-          localStorage.setItem('aver_admin_kyc_local', JSON.stringify(trimmed));
-        }
+        localStorage.setItem('aver_admin_kyc_local', JSON.stringify(filtered));
         window.dispatchEvent(new Event('storage'));
         window.dispatchEvent(new CustomEvent('aver_kyc_submitted', { detail: submissionPayload }));
         console.log("[KYC TRACE 5 COMPLETED] Local storage aver_admin_kyc_local updated.");
@@ -454,14 +472,14 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         console.warn("[KYC TRACE 5 NOTICE] Local storage sync notice:", e);
       }
 
-      // 3. Update user document with kycStatus, full kycData and append to kycHistory
+      // 4. Update user document in Firestore with lightweight metadata
       if (user?.uid) {
         console.log("[KYC TRACE 6] Updating user document in users collection...");
         await safeSetDoc(doc(db, 'users', user.uid), {
           kycStatus: 'pending',
           kycSubmittedAt: nowIso,
-          kycData: submissionPayload,
-          kycHistory: arrayUnion(submissionPayload),
+          kycData: metadataPayload,
+          kycHistory: arrayUnion(metadataPayload),
           lastUpdated: serverTimestamp()
         }, { merge: true });
         console.log("[KYC TRACE 6 COMPLETED] User document updated.");
@@ -478,12 +496,18 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
             kycHistory: [submissionPayload, ...existingHistory.filter((h: any) => h.id !== submissionId)]
           };
           localStorage.setItem(uKey, JSON.stringify(updatedUser));
-          if (user?.uid) {
-            localStorage.setItem(`user_profile_${user.uid}`, JSON.stringify(updatedUser));
-          }
+          localStorage.setItem('aver_active_user', JSON.stringify(updatedUser));
           window.dispatchEvent(new Event('aver_user_updated'));
           console.log("[KYC TRACE 6.1 COMPLETED] Local user profile updated.");
         } catch (e) {}
+
+        // Update AuthContext directly
+        if (updateProfile) {
+          await updateProfile({
+            kycStatus: 'pending',
+            kycData: submissionPayload
+          }, undefined, undefined, true);
+        }
       }
 
       console.log("[KYC TRACE 7] Setting step=7 and submittedSuccess=true...");
@@ -1084,10 +1108,9 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                   <select 
                     value={formData.nationality}
                     onChange={e => setFormData({...formData, nationality: e.target.value})}
-                    className={`w-full p-4 rounded-2xl border text-sm font-semibold ${isDark ? 'border-white/10 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-900'}`}
+                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent appearance-none cursor-pointer ${isDark ? 'border-white/10 bg-[#0E131F]' : 'border-slate-300 bg-white'}`}
                   >
-                    <option value="">Select Country</option>
-                    {countries.map(c => (
+                    {PRESTIGIOUS_COUNTRIES.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>

@@ -11,8 +11,8 @@ export type NotificationCategory =
   | 'referral' 
   | 'system'
   | 'marketing'
-  | 'rewards'
-  | 'ai';
+  | 'ai'
+  | 'rewards';
 
 export type NotificationPriority = 'low' | 'medium' | 'high' | 'critical';
 

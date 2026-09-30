@@ -79,6 +79,14 @@ export interface UserProfile {
   kycResubmissionReason?: string | null;
   role?: 'user' | 'super_admin' | 'admin';
   watchlist?: string[];
+  fullName?: string;
+  name?: string;
+  photoURL?: string;
+  status?: string;
+  preferences?: any;
+  resetPnL?: any;
+  pnlResetAt?: any;
+  referredUsers?: any[];
 }
 
 export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';
@@ -143,6 +151,7 @@ export interface Position {
 export interface Holding {
   id: string;
   ticker: string;
+  symbol?: string;
   name: string;
   quantity: number;
   avgEntry: number;

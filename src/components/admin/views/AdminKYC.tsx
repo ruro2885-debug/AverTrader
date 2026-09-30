@@ -119,29 +119,13 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
               });
             }
 
-            // Check single kycData or pending kycStatus if present and not in map
-            if ((u.kycData && typeof u.kycData === 'object') || u.kycStatus === 'pending') {
-              const kData = u.kycData || {};
-              const subId = kData.id || `user-kyc-${uDoc.id}`;
-              if (!dataMap.has(subId)) {
-                dataMap.set(subId, {
-                  ...kData,
-                  id: subId,
-                  userId: uDoc.id,
-                  name: kData.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || u.email?.split('@')[0] || 'User',
-                  email: u.email || kData.email || '',
-                  profilePhoto: kData.profilePhoto || u.profilePhotoURL || kData.selfieUrl,
-                  tier: kData.tier || 'Tier 1',
-                  idType: kData.idType || 'Passport',
-                  personalInfo: kData.personalInfo || { nationality: u.country || 'United States' },
-                  address: kData.address || { country: u.country || 'United States' },
-                  documents: kData.documents || [kData.frontIdUrl, kData.backIdUrl, kData.selfieUrl].filter(Boolean),
-                  frontIdUrl: kData.frontIdUrl,
-                  backIdUrl: kData.backIdUrl,
-                  selfieUrl: kData.selfieUrl,
-                  status: kData.status || u.kycStatus || 'pending',
-                  rejectionReason: kData.rejectionReason || u.kycRejectionReason,
-                  submittedAt: u.kycSubmittedAt || kData.submittedAt || new Date().toISOString()
+            // Check single kycData if present and not in map
+            if (u.kycData && u.kycData.id) {
+              if (!dataMap.has(u.kycData.id)) {
+                dataMap.set(u.kycData.id, {
+                  ...u.kycData,
+                  id: u.kycData.id,
+                  userId: uDoc.id
                 });
               }
             }
@@ -159,6 +143,19 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
               dataMap.set(k.id, k);
             }
           });
+        }
+
+        // Also check all localStorage keys matching aver_kyc_pending_* or aver_kyc_latest_*
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('aver_kyc_pending_') || key.startsWith('aver_kyc_latest_'))) {
+            try {
+              const pendingObj = JSON.parse(localStorage.getItem(key) || '{}');
+              if (pendingObj && pendingObj.id && !dataMap.has(pendingObj.id)) {
+                dataMap.set(pendingObj.id, pendingObj as KYC);
+              }
+            } catch (e) {}
+          }
         }
       } catch (e) {}
 
@@ -502,13 +499,6 @@ export default function AdminKYC({ theme }: { theme: 'light' | 'dark' }) {
 
         // Update local storage user caches
         try {
-          if (targetUserId) {
-            localStorage.setItem(`aver_kyc_active_status_${targetUserId}`, status);
-          }
-          if (targetEmail) {
-            localStorage.setItem(`aver_kyc_active_status_${targetEmail}`, status);
-          }
-
           const profKey = `user_profile_${targetUserId}`;
           const cachedProfStr = localStorage.getItem(profKey);
           if (cachedProfStr) {

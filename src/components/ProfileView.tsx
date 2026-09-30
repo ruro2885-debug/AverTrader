@@ -1,5 +1,4 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
@@ -47,13 +46,15 @@ export default function ProfileView({
   onOpenBonusCenter, 
   onOpenReferralCentre, 
   onOpenPreferences,
-  onOpenSupportCenter 
+  onOpenSupportCenter,
+  onOpenAdmin
 }: { 
   theme: 'light' | 'dark', 
   onOpenBonusCenter?: () => void, 
   onOpenReferralCentre?: () => void, 
   onOpenPreferences?: () => void,
-  onOpenSupportCenter?: () => void
+  onOpenSupportCenter?: () => void,
+  onOpenAdmin?: () => void
 }) {
   const { 
     user, 
@@ -668,7 +669,7 @@ export default function ProfileView({
       
       if (!mfaSecret) {
         // Start enrollment
-        const mfa = multiFactor(user as any);
+        const mfa = multiFactor(user);
         const session = await mfa.getSession();
         const secret = await TotpMultiFactorGenerator.generateSecret(session);
         setMfaSecret(secret);
@@ -682,7 +683,7 @@ export default function ProfileView({
         twoFactorCode
       );
       
-      const mfa = multiFactor(user as any);
+      const mfa = multiFactor(user);
       await mfa.enroll(multiFactorAssertion, 'My 2FA Device');
 
       // Update Firestore preference for persistent state
@@ -859,7 +860,13 @@ export default function ProfileView({
   ];
 
   return (
-    <div className="space-y-6 pb-6">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3 }}
+      className="space-y-6 pb-6"
+    >
       {/* Header Profile Info */}
       <div className={`rounded-[24px] p-6 ${cardClasses} flex flex-col items-center text-center relative overflow-hidden`}>
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[40px] rounded-full pointer-events-none" />
@@ -982,11 +989,17 @@ export default function ProfileView({
               {section.items.map((item, i) => (
                 <button 
                   key={item.id} 
-                  type="button"
                   onClick={() => {
                     setErrorMsg('');
                     setSuccessMsg('');
-                    if (item.id === 'referral') {
+                    if (item.id === 'admin') {
+                      localStorage.setItem('admin_session_active', 'true');
+                      if (onOpenAdmin) {
+                        onOpenAdmin();
+                      } else {
+                        window.location.href = '/admin';
+                      }
+                    } else if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();
                       } else {
@@ -998,7 +1011,7 @@ export default function ProfileView({
                       setActiveModal(item.id);
                     }
                   }}
-                  className={`w-full flex items-center justify-between p-4 transition-all cursor-pointer touch-manipulation select-none active:scale-[0.99] ${itemHover} ${
+                  className={`w-full flex items-center justify-between p-4 transition-colors cursor-pointer ${itemHover} ${
                     i !== section.items.length - 1 ? (isDark ? 'border-b border-white/5' : 'border-b border-slate-100') : ''
                   }`}
                 >
@@ -1021,9 +1034,8 @@ export default function ProfileView({
       {/* Log Out button */}
       <div className={`rounded-[24px] overflow-hidden ${cardClasses} mt-8`}>
         <button 
-          type="button"
           onClick={signOutUser}
-          className={`w-full flex items-center justify-between p-4 transition-all cursor-pointer touch-manipulation select-none active:scale-[0.99] ${
+          className={`w-full flex items-center justify-between p-4 transition-colors ${
             isDark ? 'hover:bg-rose-500/10' : 'hover:bg-rose-50'
           }`}
         >
@@ -1039,25 +1051,20 @@ export default function ProfileView({
       </div>
 
       {/* Interactive Modals Backdrop */}
-      {typeof document !== 'undefined' && createPortal(
-        <AnimatePresence>
-          {activeModal && (
+      <AnimatePresence>
+        {activeModal && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4"
+          >
             <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4 overflow-y-auto"
-              onClick={(e) => {
-                if (e.target === e.currentTarget) closeModal();
-              }}
+              initial={{ scale: 0.95, y: 20 }} 
+              animate={{ scale: 1, y: 0 }} 
+              exit={{ scale: 0.95, y: 20 }}
+              className={`w-full ${activeModal === 'notifications' ? 'max-w-xl md:max-w-2xl' : 'max-w-md'} rounded-[28px] p-6 max-h-[85vh] overflow-y-auto flex flex-col transition-all duration-300 ${modalBgClasses}`}
             >
-              <motion.div 
-                initial={{ scale: 0.95, y: 20 }} 
-                animate={{ scale: 1, y: 0 }} 
-                exit={{ scale: 0.95, y: 20 }}
-                className={`w-full ${activeModal === 'notifications' ? 'max-w-xl md:max-w-2xl' : 'max-w-md'} rounded-[28px] p-6 max-h-[85vh] overflow-y-auto flex flex-col transition-all duration-300 relative z-[10000] my-auto ${modalBgClasses}`}
-                onClick={(e) => e.stopPropagation()}
-              >
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-black tracking-tight flex items-center">
                   {activeModal === 'edit' && <Edit3 className="w-5 h-5 mr-2 text-emerald-500" />}
@@ -2041,9 +2048,7 @@ export default function ProfileView({
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>,
-      document.body
-    )}
+      </AnimatePresence>
 
 
 
@@ -2091,6 +2096,6 @@ export default function ProfileView({
       </button>
 
       {/* Interactive Crop Modal Removed */}
-    </div>
+    </motion.div>
   );
 }

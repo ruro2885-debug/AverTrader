@@ -23,7 +23,7 @@ import TransactionHistory from './components/TransactionHistory';
 import AdminRoot from './components/admin/AdminRoot';
 import KycVerificationPage from './components/KycVerificationPage';
 import NotFound from './components/NotFound';
-import { NavigationProvider, useAppNavigation } from './contexts/NavigationContext';
+import { NavigationProvider, useAppNavigation, parsePathToLocation, locationToPath } from './contexts/NavigationContext';
 import { usePreferences } from './contexts/PreferencesContext';
 import { useAuth } from './contexts/AuthContext';
 import { TradingEngineProvider } from './contexts/TradingEngineContext';
@@ -52,12 +52,14 @@ function AppContent() {
   // Ready state logic: Wait for auth and a minimum splash duration
   useEffect(() => {
     if (!authLoading) {
+      // Small additional delay if user is present to allow Dashboard components to pre-initialize
+      const settleDelay = user ? 3200 : 2800;
       const timer = setTimeout(() => {
         setIsReady(true);
-      }, 2800); // Institutional minimum splash duration (matches Loader sequence)
+      }, settleDelay);
       return () => clearTimeout(timer);
     }
-  }, [authLoading]);
+  }, [authLoading, user?.uid]);
 
   const navigateToView = (view: string) => {
     navigateView(view);
@@ -73,29 +75,34 @@ function AppContent() {
   // Navigation section tracker
   const [activeSection, setActiveSection] = useState('hero');
 
-  // Route detection
+  // Route detection on initial load (e.g. cold load of /admin or /404 or /auth)
   useEffect(() => {
     const path = window.location.pathname;
     const search = window.location.search;
     
-    // Strict admin protection: Never auto-route to admin view based on URL.
-    // Admin access must be triggered via the secret handshake in the NotFound view.
-    if (path === '/admin' || search.includes('admin=true')) {
-      // Force unauthorized admin attempts to the NotFound view for verification
-      console.warn("[App] Blocking direct admin access attempt.");
-      navigateView('not-found', {}, { replace: true });
-    } else if (path === '/404' || search.includes('404=true')) {
-      navigateView('not-found', {}, { replace: true });
-    } else if (path === '/auth') {
-      navigateView('auth', {}, { replace: true });
-    } else if (path === '/' || path === '' || path === '/index.html') {
-      // Land on home if not logged in, otherwise dashboard handles it in session management
-      if (!user && !authLoading) {
-        navigateView('home', {}, { replace: true });
+    // Check if we are at an admin-related URL
+    const isAtAdminUrl = path === '/admin' || search.includes('admin=true') || path.toLowerCase().includes('admin');
+    
+    if (isAtAdminUrl) {
+      if (currentView !== 'admin') {
+        console.log("[App] Explicit admin route detected. Rendering Admin Terminal.");
+        navigateToView('admin');
       }
-    } else {
-      // Any other path defaults to home or not-found
-      navigateView('home', {}, { replace: true });
+    } else if (path === '/404' || search.includes('404=true')) {
+      if (currentView !== 'not-found') navigateView('not-found', {}, { replace: true });
+    } else if (path === '/auth' || path === '/login' || path === '/register') {
+      if (user && !authLoading) {
+        const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
+        if (savedRedirect) {
+          safeStorage.removeItem('aver_redirect_after_login');
+          const targetLoc = parsePathToLocation(savedRedirect);
+          if (targetLoc) {
+            navigate(targetLoc, { replace: true });
+            return;
+          }
+        }
+        navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
+      }
     }
   }, [user?.uid, authLoading]);
 
@@ -105,27 +112,41 @@ function AppContent() {
 
     // Handle session restoration and view management
     if (user) {
-      if (currentView === 'home' || currentView === 'auth' || currentView === 'admin') {
-        // SAFETY: Redirect away from admin on cold start/session restore unless specifically triggered
-        const isColdStart = !safeStorage.getItem('aver_session_initialized');
-        if (currentView === 'admin' && isColdStart) {
-          console.warn("[App] Redirecting from admin to dashboard on cold start.");
-          navigate({ view: 'dashboard', tab: 'home' }, { replace: true });
-          safeStorage.setItem('aver_session_initialized', 'true');
-          return;
+      const isAdminAuthorized = localStorage.getItem('admin_session_active') === 'true' || 
+                               user.role === 'super_admin' || 
+                               user.role === 'admin' || 
+                               user.email === 'ruro2885@gmail.com' ||
+                               (user as any).isAdmin === true;
+
+      const path = window.location.pathname;
+      const isAtAdminUrl = path === '/admin' || path.toLowerCase().includes('admin');
+
+      if (currentView === 'auth' || (currentView === 'home' && !isAtAdminUrl)) {
+        const savedRedirect = safeStorage.getItem('aver_redirect_after_login');
+        if (savedRedirect) {
+          safeStorage.removeItem('aver_redirect_after_login');
+          const targetLoc = parsePathToLocation(savedRedirect);
+          if (targetLoc) {
+            navigate(targetLoc, { replace: true });
+            safeStorage.setItem('aver_session_initialized', 'true');
+            return;
+          }
         }
-        
-        navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
-        safeStorage.setItem('aver_session_initialized', 'true');
+        if (!isAtAdminUrl && currentView !== 'admin') {
+          console.log("[App] Logged in, moving from auth/home to dashboard.");
+          navigate({ view: 'dashboard', tab: currentLocation.tab || 'home' }, { replace: true });
+          safeStorage.setItem('aver_session_initialized', 'true');
+        }
       }
     } else {
-      // If no user and we were on a protected view, go to login (unless admin session is active)
-      const isAdminActive = safeStorage.getItem('admin_session_active') === 'true' || localStorage.getItem('admin_session_active') === 'true';
-      if (!isAdminActive && (currentView === 'dashboard' || currentView === 'referral-centre' || currentView === 'preferences' || currentView === 'bonus-center' || currentView === 'history' || currentView === 'kyc-verification' || currentView === 'deposit' || currentView === 'admin')) {
-        navigate('auth', { replace: true });
+      // Access control enforcement: send anonymous/logged-out sessions on protected views to the landing page
+      const protectedViews = ['dashboard', 'deposit', 'withdraw', 'history', 'referral-centre', 'preferences', 'bonus-center', 'kyc-verification'];
+      if (protectedViews.includes(currentView)) {
+        console.log(`[App] Access denied or session signed out on view ${currentView}. Redirecting to Landing Page.`);
+        navigateView('home', {}, { replace: true });
       }
     }
-  }, [user?.uid, authLoading, currentView, currentLocation.tab]);
+  }, [user?.uid, authLoading, currentView]);
 
   // Preference Toggle callback
   useEffect(() => {
@@ -225,7 +246,7 @@ function AppContent() {
     <div className={`min-h-screen transition-colors duration-300 relative ${containerBg}`} data-version="1.0.7-system-reset">
       <AnimatePresence mode="wait">
         {!isReady ? (
-          <Loader key="app-splash" onComplete={() => {}} />
+          <Loader onComplete={() => {}} />
         ) : isAccountBlocked ? (
           <motion.div
             key="blocked-screen"
@@ -272,7 +293,10 @@ function AppContent() {
                   Contact Support
                 </button>
                 <button
-                  onClick={() => signOutUser()}
+                  onClick={async () => {
+                    await signOutUser();
+                    navigateView('home', {}, { replace: true });
+                  }}
                   className="w-full py-3.5 rounded-2xl bg-rose-500 text-white font-bold text-sm hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
                 >
                   Sign Out
@@ -353,7 +377,7 @@ function AppContent() {
             <AnimatePresence mode="wait">
               {currentView === 'admin' ? (
                 <AdminRoot theme={theme} />
-              ) : currentView === 'dashboard' ? (
+              ) : currentView === 'dashboard' || currentView === 'deposit' || currentView === 'withdraw' ? (
                 <Dashboard theme={theme} onNavigate={(view) => navigateToView(view)} />
               ) : currentView === 'preferences' ? (
                 <Preferences theme={theme} onBack={goBackView} />
