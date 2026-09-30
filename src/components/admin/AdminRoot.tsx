@@ -64,13 +64,6 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
   };
 
   useEffect(() => {
-    const session = localStorage.getItem('admin_session_active');
-    if (session === 'true') {
-      setShowAdmin(true);
-    }
-  }, []);
-
-  useEffect(() => {
     // Sovereign Admin setup: purge user translation cookies & force English
     document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${window.location.hostname}; path=/;`;

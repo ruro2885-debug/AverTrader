@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders } from 'lucide-react';
+import { Sliders, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DashboardIcon, WalletIcon, TradesIcon, AnalyticsIcon } from './CustomIcons';
@@ -18,28 +18,28 @@ interface BottomNavigationProps {
 export default function BottomNavigation({ activeTab, onTabChange }: BottomNavigationProps) {
   const { t } = usePreferences();
   const navItems: NavItem[] = [
-    { name: t('common.home'), icon: DashboardIcon, id: 'home' },
-    { name: t('common.market'), icon: TradesIcon, id: 'markets' },
-    { name: t('common.ai'), icon: Sliders, id: 'ai' },
-    { name: t('common.portfolio'), icon: WalletIcon, id: 'portfolio' },
-    { name: t('common.discover'), icon: AnalyticsIcon, id: 'discover' },
+    { name: t('common.home') || 'Home', icon: DashboardIcon, id: 'home' },
+    { name: t('common.market') || 'Market', icon: TradesIcon, id: 'markets' },
+    { name: t('common.ai') || 'AI', icon: Sliders, id: 'ai' },
+    { name: t('common.portfolio') || 'Accounts', icon: WalletIcon, id: 'portfolio' },
+    { name: 'Profile', icon: User, id: 'profile' },
   ];
 
   return (
-    <div className="fixed bottom-[12px] left-[15px] right-[15px] z-50 flex lg:hidden justify-center pointer-events-none">
+    <div className="fixed bottom-[12px] left-[10px] right-[10px] z-50 flex lg:hidden justify-center pointer-events-none">
       <motion.div 
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
         style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.03)',
+          backgroundColor: 'rgba(15, 20, 28, 0.85)',
           backdropFilter: 'blur(25px)',
           WebkitBackdropFilter: 'blur(25px)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderTop: '1px solid rgba(255, 255, 255, 0.15)',
-          boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 10px 20px rgba(0, 0, 0, 0.4)'
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.25)',
+          boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 10px 24px rgba(0, 0, 0, 0.6)'
         }}
-        className="relative w-full max-w-md h-[44px] rounded-[22px] flex items-center justify-around px-4 pointer-events-auto"
+        className="relative w-full max-w-lg h-[52px] rounded-[26px] flex items-center justify-around px-2 pointer-events-auto"
       >
         
 
@@ -53,22 +53,23 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
                 <div className="absolute bottom-[-16px] w-6 h-[4px] bg-emerald-500/40 blur-[3px] rounded-full pointer-events-none" />
 
                 <motion.button
+                  type="button"
                   whileHover={{ scale: 1.08, y: -2 }}
                   whileTap={{ scale: 0.94 }}
                   onClick={() => onTabChange(item.id)}
                   style={{
-                    backgroundColor: 'rgba(18, 22, 28, 0.55)',
-                    borderColor: 'rgba(255, 255, 255, 0.22)',
-                    borderTopColor: 'rgba(255, 255, 255, 0.45)', // very bright rim highlight
+                    backgroundColor: 'rgba(18, 22, 28, 0.85)',
+                    borderColor: 'rgba(255, 255, 255, 0.3)',
+                    borderTopColor: 'rgba(255, 255, 255, 0.6)', // very bright rim highlight
                     boxShadow: `
-                      0 4px 12px rgba(0, 0, 0, 0.30),
-                      0 2px 6px rgba(16, 185, 129, 0.20),
-                      inset 0 1px 0.5px rgba(255, 255, 255, 0.40),
+                      0 4px 12px rgba(0, 0, 0, 0.40),
+                      0 2px 6px rgba(16, 185, 129, 0.30),
+                      inset 0 1px 0.5px rgba(255, 255, 255, 0.50),
                       inset 0 -1px 1px rgba(0, 0, 0, 0.5),
-                      inset 0 3px 6px rgba(16, 185, 129, 0.15)
+                      inset 0 3px 6px rgba(16, 185, 129, 0.25)
                     `
                   }}
-                  className="absolute -top-[12px] w-[32px] h-[32px] rounded-full flex items-center justify-center z-20 cursor-pointer border focus:outline-none backdrop-blur-xl"
+                  className="absolute -top-[14px] w-[38px] h-[38px] rounded-full flex items-center justify-center z-20 cursor-pointer border focus:outline-none backdrop-blur-xl touch-manipulation pointer-events-auto"
                 >
                   {/* Frosted emerald breathing core */}
                   <motion.div
@@ -88,7 +89,7 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
                   <div className="absolute top-0.5 left-1 w-2.5 h-1 bg-white/25 rounded-full filter blur-[0.5px] rotate-[15deg] pointer-events-none" />
 
                   {/* Only the icon glows brightly */}
-                  <item.icon className="relative w-4 h-4 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.95)]" />
+                  <item.icon className="relative w-5 h-5 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.95)]" />
                 </motion.button>
               </div>
             );
@@ -97,28 +98,29 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
           return (
             <button
               key={item.id}
+              type="button"
               onClick={() => onTabChange(item.id)}
-              className="relative flex flex-col items-center justify-center w-[48px] h-[36px] cursor-pointer group focus:outline-none select-none"
+              className="relative flex flex-col items-center justify-center w-[54px] h-[44px] cursor-pointer group focus:outline-none select-none touch-manipulation pointer-events-auto"
             >
               {/* Active Glass lens reflection */}
               {isActive && (
                 <motion.div
                   layoutId="activeTabBg"
                   style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    borderColor: 'rgba(255, 255, 255, 0.15)',
-                    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 10px rgba(16, 185, 129, 0.15)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    borderColor: 'rgba(255, 255, 255, 0.25)',
+                    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 12px rgba(16, 185, 129, 0.25)',
                   }}
                   transition={{
                     type: 'spring',
                     stiffness: 380,
                     damping: 28
                   }}
-                  className="absolute inset-0 rounded-full border backdrop-blur-md"
+                  className="absolute inset-0 rounded-2xl border backdrop-blur-md"
                 />
               )}
 
-              {/* Icon & Label Container - Icons look engraved beneath the glass surface */}
+              {/* Icon & Label Container */}
               <motion.div
                 animate={{
                   scale: isActive ? 1.05 : 1,
@@ -128,17 +130,17 @@ export default function BottomNavigation({ activeTab, onTabChange }: BottomNavig
                 className="relative flex flex-col items-center justify-center z-10 pointer-events-none"
               >
                 <item.icon 
-                  className={`w-[18px] h-[18px] transition-all duration-220 ${
+                  className={`w-[20px] h-[20px] transition-all duration-220 ${
                     isActive 
                       ? 'text-white drop-shadow-[0_0_8px_rgba(52,211,153,0.85)]' 
-                      : 'text-white/65 group-hover:text-white/95 group-active:text-white'
+                      : 'text-white/80 group-hover:text-white group-active:text-white'
                   }`} 
                 />
                 <span
-                  className={`text-[9px] font-semibold mt-0.5 tracking-wide transition-colors duration-220 truncate max-w-[54px] text-center ${
+                  className={`text-[11px] font-extrabold mt-0.5 tracking-wide transition-colors duration-220 truncate max-w-[58px] text-center ${
                     isActive 
-                      ? 'text-emerald-400 font-bold drop-shadow-[0_0_6px_rgba(16,185,129,0.35)]' 
-                      : 'text-white/65 group-hover:text-white/95 group-active:text-white'
+                      ? 'text-emerald-400 font-black drop-shadow-[0_0_6px_rgba(16,185,129,0.35)]' 
+                      : 'text-white/80 group-hover:text-white group-active:text-white'
                   }`}
                 >
                   {item.name}

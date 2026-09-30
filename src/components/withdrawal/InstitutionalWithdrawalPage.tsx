@@ -133,7 +133,9 @@ export default function InstitutionalWithdrawalPage({ onClose, onOpenHistory }: 
           setCryptoPricesUsd({
             BTC: parseFloat(btcRes.price) || 64850,
             ETH: parseFloat(ethRes.price) || 3480.5,
-            SOL: parseFloat(solRes.price) || 148.2
+            SOL: parseFloat(solRes.price) || 148.2,
+            AVR: 2.45,
+            USDT: 1.0
           });
         }
         

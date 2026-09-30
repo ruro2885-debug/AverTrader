@@ -53,8 +53,12 @@ export interface UserProfile {
   // Progression & Milestones
   level?: number;
   xp?: number;
+  streak?: number;
   loginStreak?: number;
+  lastActivityAt?: string;
   lastLoginDate?: string;
+  lastStreakIncrementAt?: number;
+  lastStreakResetAt?: number;
   winRun?: number;
   aiTradesCount?: number;
   insignias?: string[];
@@ -72,8 +76,17 @@ export interface UserProfile {
   kycApprovedAt?: string;
   kycRewardUnlocked?: boolean;
   kycRejectionReason?: string | null;
+  kycResubmissionReason?: string | null;
   role?: 'user' | 'super_admin' | 'admin';
   watchlist?: string[];
+  fullName?: string;
+  name?: string;
+  photoURL?: string;
+  status?: string;
+  preferences?: any;
+  resetPnL?: any;
+  pnlResetAt?: any;
+  referredUsers?: any[];
 }
 
 export type Language = 'EN' | 'ES' | 'ZH' | 'DE' | 'FR' | 'PT';
@@ -138,6 +151,7 @@ export interface Position {
 export interface Holding {
   id: string;
   ticker: string;
+  symbol?: string;
   name: string;
   quantity: number;
   avgEntry: number;

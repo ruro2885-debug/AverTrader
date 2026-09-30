@@ -60,19 +60,19 @@ export default function AiWorkspaceHeader({ session, engineStatus, onStart, onEn
           AI Trading Workspace
         </h1>
         {isActive ? (
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${getStateBadgeStyle(engineStatus.state)}`}>
+          <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${getStateBadgeStyle(engineStatus?.state || 'INACTIVE')}`}>
             <span className="flex h-2 w-2 relative">
-              {(engineStatus.state === 'RUNNING' || engineStatus.state === 'SESSION_SCANNING') && (
+              {(engineStatus?.state === 'RUNNING' || engineStatus?.state === 'SESSION_SCANNING') && (
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
               )}
               <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                engineStatus.state === 'RUNNING' || engineStatus.state === 'SESSION_SCANNING' ? 'bg-emerald-500' : 'bg-current'
+                engineStatus?.state === 'RUNNING' || engineStatus?.state === 'SESSION_SCANNING' ? 'bg-emerald-500' : 'bg-current'
               }`}></span>
             </span>
             <span className="text-[10px] font-black uppercase tracking-widest">
-              {getStateLabel(engineStatus.state)}
+              {getStateLabel(engineStatus?.state || 'INACTIVE')}
             </span>
-            {engineStatus.countdownText && (
+            {engineStatus?.countdownText && (
               <span className="text-[10px] font-mono font-bold opacity-80 border-l border-current/20 pl-2">
                 {engineStatus.countdownText}
               </span>
@@ -102,11 +102,11 @@ export default function AiWorkspaceHeader({ session, engineStatus, onStart, onEn
               <span>Terminate Session</span>
             </button>
             
-            {engineStatus.reason && !engineStatus.reason.includes('Continuous Mode') && (
-              <div className={`flex items-center gap-2 px-3.5 py-1.5 border rounded-xl text-[11px] font-semibold ${getStateBadgeStyle(engineStatus.state)}`}>
-                {engineStatus.state === 'RISK_LOCK' || engineStatus.state === 'EMERGENCY_STOP' ? <ShieldAlert className="w-3.5 h-3.5" /> :
-                 engineStatus.state === 'PAUSED' ? <PauseCircle className="w-3.5 h-3.5" /> :
-                 engineStatus.state === 'SESSION_COMPLETE' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+            {engineStatus?.reason && !engineStatus.reason.includes('Continuous Mode') && (
+              <div className={`flex items-center gap-2 px-3.5 py-1.5 border rounded-xl text-[11px] font-semibold ${getStateBadgeStyle(engineStatus?.state || 'INACTIVE')}`}>
+                {engineStatus?.state === 'RISK_LOCK' || engineStatus?.state === 'EMERGENCY_STOP' ? <ShieldAlert className="w-3.5 h-3.5" /> :
+                 engineStatus?.state === 'PAUSED' ? <PauseCircle className="w-3.5 h-3.5" /> :
+                 engineStatus?.state === 'SESSION_COMPLETE' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
                  <Clock className="w-3.5 h-3.5" />}
                 <span>{engineStatus.reason}</span>
               </div>

@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Wallet, ArrowUpRight, ArrowDownRight, 
   Brain, Activity, Star, Newspaper, Zap, ArrowRightLeft, 
   Copy, History, CreditCard, ChevronRight, Bell, X, ShieldCheck,
-  Award, AlertCircle, CheckCircle2, Lock, Flame, Trash2
+  Award, AlertCircle, CheckCircle2, Lock, Flame, Trash2, Shield
 } from 'lucide-react';
 import BottomNavigation from './BottomNavigation';
 import CoinLogo from './CoinLogo';
@@ -42,6 +42,7 @@ import { useFinancials } from '../hooks/useFinancials';
 import { safeStorage } from '../utils/storage';
 import { portfolioPersistenceService } from '../services/portfolioPersistenceService';
 import { walletService, WalletData } from '../services/walletService';
+import { useAppNavigation } from '../contexts/NavigationContext';
 
 export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dark', onNavigate: (view: 'referral-centre' | 'preferences' | 'bonus-center' | 'market-highlights' | 'events-promos' | 'strategies' | 'history') => void }) {
   const { user, loading: authLoading, notifications, addDeposit, addWithdrawal, clearNotifications } = useAuth();
@@ -140,26 +141,43 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   const totalFloatingPnl = useMemo(() => enrichedActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0), [enrichedActiveTrades]);
 
-  const [activeTab, setActiveTab] = useState(() => {
-    return safeStorage.getItem('aver_dashboard_tab') || 'home';
-  });
-  const [supportBackTab, setSupportBackTab] = useState<string>('discover');
+  const { currentLocation, navigateTab: navTab, navigateView, goBack, openModal, closeModal } = useAppNavigation();
+  const activeTab = currentLocation.tab || 'home';
+
+  const navigateTab = useCallback((tab: string, options?: { asset?: string }) => {
+    navTab(tab, options);
+  }, [navTab]);
+
+  const goBackTab = useCallback(() => {
+    goBack();
+  }, [goBack]);
+
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [portfolioViewMode, setPortfolioViewMode] = useState<any>('overview');
   const [showClearTimelineModal, setShowClearTimelineModal] = useState(false);
 
-  React.useEffect(() => {
-    const checkTab = () => {
-      const savedTab = safeStorage.getItem('aver_dashboard_tab');
-      if (savedTab) {
-        setActiveTab(savedTab);
-        safeStorage.removeItem('aver_dashboard_tab');
-      }
-    };
-    checkTab();
-    const interval = setInterval(checkTab, 500);
-    return () => clearInterval(interval);
-  }, []);
+  const handleOpenWithdraw = useCallback(() => {
+    setAmount('');
+    setTxError('');
+    setTxSuccess('');
+    setShowWithdrawModal(true);
+    openModal('withdraw');
+  }, [openModal]);
+
+  const handleCloseWithdraw = useCallback(() => {
+    setShowWithdrawModal(false);
+    closeModal();
+  }, [closeModal]);
+
+  const handleOpenDeposit = useCallback(() => {
+    setShowDepositModal(true);
+    openModal('deposit');
+  }, [openModal]);
+
+  const handleCloseDeposit = useCallback(() => {
+    setShowDepositModal(false);
+    closeModal();
+  }, [closeModal]);
   const watchlist = useMemo(() => {
     if (user?.holdings && user.holdings.length > 0) {
       return user.holdings.map((h: any) => {
@@ -181,15 +199,16 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   }, [user?.holdings, liveTradePrices]);
 
   const handleNavigate = useCallback((tab: string) => {
-    setActiveTab(tab);
-    safeStorage.setItem('aver_dashboard_tab', tab);
-  }, []);
+    navigateTab(tab);
+  }, [navigateTab]);
 
   const handleViewModeChange = useCallback((mode: any) => {
     setPortfolioViewMode(mode);
   }, []);
 
-  const [selectedAsset, setSelectedAsset] = useState('BTC');
+  const [selectedAssetLocal, setSelectedAssetLocal] = useState('BTC');
+  const selectedAsset = currentLocation.asset || selectedAssetLocal;
+  const setSelectedAsset = setSelectedAssetLocal;
 
   const [marketData, setMarketData] = useState<any[]>([]);
   const [marketLoading, setMarketLoading] = useState(true);
@@ -312,6 +331,20 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     return 0;
   }, [session, totalFloatingPnl]);
 
+  // Source completed sessions from context or local cache
+  const activeCompletedSessions = useMemo(() => {
+    if (completedSessions && completedSessions.length > 0) return completedSessions;
+    const uId = user?.uid || 'guest_user';
+    const local = safeStorage.getItem(`aver_latest_completed_session_${uId}`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (parsed) return [parsed];
+      } catch (e) {}
+    }
+    return [];
+  }, [completedSessions, user?.uid]);
+
   const closedTradesPnL = useMemo(() => {
     // 1. Check actual closed trades in state after resetTime
     const filteredTrades = trades.filter((t: any) => {
@@ -325,8 +358,8 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     if (fromTrades !== 0) return fromTrades;
 
     // 2. Check completed sessions ended after resetTime
-    if (completedSessions && completedSessions.length > 0) {
-      const filteredSessions = completedSessions.filter((s: any) => {
+    if (activeCompletedSessions && activeCompletedSessions.length > 0) {
+      const filteredSessions = activeCompletedSessions.filter((s: any) => {
         if (!resetTime) return true;
         const sTime = s.endTime ? (typeof s.endTime === 'number' ? s.endTime : new Date(s.endTime).getTime()) : (s.startTime ? (typeof s.startTime === 'number' ? s.startTime : new Date(s.startTime).getTime()) : 0);
         return sTime >= resetTime;
@@ -351,9 +384,9 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
     }
     
     return 0;
-  }, [trades, completedSessions, user, resetTime]);
+  }, [trades, activeCompletedSessions, user, resetTime]);
 
-  // Net value displayed on Home Net Balance card (represents available money, decreases immediately on session start by active trading capital)
+  // Home Net Balance represents the single authoritative wallet balance (Home Net Balance = Portfolio Wallet Balance)
   const totalValue = useMemo(() => {
     return homeNetBalance;
   }, [homeNetBalance]);
@@ -361,23 +394,22 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   // Account baseline for trading return calculations (independent of cash deposits/withdrawals)
   const baselineAccountBalance = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      const allocated = session.initialCapital || session.tradingCapital || 0;
-      const starting = totalValue + allocated;
+      const allocated = session.initialCapital || session.tradingCapital || 1000;
+      const unallocated = homeNetBalance;
+      const starting = unallocated + allocated;
       return starting > 0 ? starting : (allocated > 0 ? allocated : 1000);
     }
     // When session is inactive, baseline = current balance minus PnL (ensures starting balance is mathematically sound)
     const pnl = closedTradesPnL !== 0 ? closedTradesPnL : (user?.portfolio?.todayPnL || 0);
-    const computedBase = totalValue - pnl;
-    return computedBase > 0 ? computedBase : (totalValue > 0 ? totalValue : 1000);
-  }, [session, totalValue, closedTradesPnL, user?.portfolio?.todayPnL]);
+    const computedBase = totalNetBalance - pnl;
+    return computedBase > 0 ? computedBase : (totalNetBalance > 0 ? totalNetBalance : 1000);
+  }, [session, homeNetBalance, totalNetBalance, closedTradesPnL, user?.portfolio?.todayPnL]);
 
   // Total PnL dollar change for performance indicator strictly driven by trading activity
   const totalPlAmount = useMemo(() => {
     if (session?.status === 'ACTIVE') {
-      const allocated = session.initialCapital || session.tradingCapital || 0;
-      // While active, allocated capital was deducted from net balance.
-      // Net balance effect = activeSessionPnL - allocated + closedTradesPnL
-      return activeSessionPnL - allocated + closedTradesPnL;
+      // While active, trading PnL is the active session PnL + closed trades PnL
+      return activeSessionPnL + closedTradesPnL;
     }
     if (closedTradesPnL !== 0 || totalFloatingPnl !== 0) {
       return closedTradesPnL + totalFloatingPnl;
@@ -396,17 +428,53 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
   // Overall Return Amount & Overall Return % (strictly trading return, unaffected by deposits/withdrawals)
   const overallReturnAmount = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      return activeSessionPnL + closedTradesPnL;
+    }
     if (user?.portfolio?.overallReturn !== undefined && user.portfolio.overallReturn !== 0) {
       return user.portfolio.overallReturn;
     }
     return totalPlAmount;
-  }, [user?.portfolio?.overallReturn, totalPlAmount]);
+  }, [session?.status, activeSessionPnL, closedTradesPnL, user?.portfolio?.overallReturn, totalPlAmount]);
 
   const overallReturnPercent = useMemo(() => {
+    if (session?.status === 'ACTIVE') {
+      const sessionInitial = session.initialCapital || session.tradingCapital || 1000;
+      if (sessionInitial > 0) {
+        return (overallReturnAmount / sessionInitial) * 100;
+      }
+      return 0;
+    }
+
+    // When session is inactive / completed:
+    const filteredSessions = activeCompletedSessions.filter((s: any) => {
+      if (!resetTime) return true;
+      const sTime = s.endTime ? (typeof s.endTime === 'number' ? s.endTime : new Date(s.endTime).getTime()) : (s.startTime ? (typeof s.startTime === 'number' ? s.startTime : new Date(s.startTime).getTime()) : 0);
+      return sTime >= resetTime;
+    });
+
+    if (filteredSessions.length > 0) {
+      const latest = filteredSessions[0];
+      if (typeof latest.pnlPercent === 'number' && latest.pnlPercent !== 0) {
+        return latest.pnlPercent;
+      }
+      if (latest.initialCapital && latest.initialCapital > 0) {
+        return ((latest.totalPnl || 0) / latest.initialCapital) * 100;
+      }
+    }
+
+    if (resetTime > 0) {
+      return 0;
+    }
+
+    if (user?.portfolio?.todayPnLPercent !== undefined && user.portfolio.todayPnLPercent !== 0) {
+      return user.portfolio.todayPnLPercent;
+    }
+
     const base = baselineAccountBalance > 0 ? baselineAccountBalance : (totalValue > 0 ? totalValue : 1000);
     if (base <= 0) return 0;
     return (overallReturnAmount / base) * 100;
-  }, [overallReturnAmount, baselineAccountBalance, totalValue]);
+  }, [session, overallReturnAmount, activeCompletedSessions, resetTime, user?.portfolio?.todayPnLPercent, baselineAccountBalance, totalValue]);
 
   const totalValueFormatted = formatCurrency(totalValue);
   const todayPnLFormatted = (totalPlAmount < 0 ? '-' : '+') + formatCurrency(Math.abs(totalPlAmount));
@@ -439,7 +507,26 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
   const closedTradesCount = trades.filter((t: any) => t.status === 'CLOSED').length;
   const totalAiTradesCount = Math.max(user?.aiTradesCount || 0, closedTradesCount);
   
-  const loginStreak = user?.loginStreak || 0;
+  const loginStreak = (() => {
+    const rawStreak = user?.streak ?? user?.loginStreak;
+    const currentStreak = typeof rawStreak === 'number' ? rawStreak : 0;
+    
+    // Check if 24 full hours of inactivity have elapsed since last activity
+    const raw = user?.lastActivityAt || user?.lastLoginDate || user?.lastLogin;
+    if (raw) {
+      const lastTime = typeof raw?.toMillis === 'function'
+        ? raw.toMillis()
+        : (typeof raw?.toDate === 'function' ? raw.toDate().getTime() : new Date(raw).getTime());
+      if (!isNaN(lastTime)) {
+        const elapsed = Date.now() - lastTime;
+        // Inactive for 24 full hours: streak resets to 0
+        if (elapsed >= 24 * 60 * 60 * 1000) {
+          return 0;
+        }
+      }
+    }
+    return currentStreak;
+  })();
   const winRun = user?.winRun || 0;
   
   // Calculate XP and level based strictly on real activity
@@ -745,7 +832,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => navigateTab(item.id)}
                 className={`w-full flex items-center space-x-3.5 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
                   isActive 
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' 
@@ -762,7 +849,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
         {/* User profile section at the bottom of sidebar */}
         <div className={`p-4 border-t ${isDark ? 'border-white/5' : 'border-slate-200/50'} flex items-center justify-between`}>
           <button 
-            onClick={() => setActiveTab('profile')}
+            onClick={() => navigateTab('profile')}
             className="flex items-center space-x-3 hover:opacity-80 transition-opacity cursor-pointer text-left"
           >
             <div className={`w-9 h-9 rounded-full overflow-hidden flex items-center justify-center border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
@@ -777,7 +864,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           </button>
           
           <button
-            onClick={() => setActiveTab('preferences')}
+            onClick={() => onNavigate('preferences')}
             className={`p-2 rounded-lg border transition-colors cursor-pointer ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${textSecondary}`}>
@@ -797,7 +884,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             <header className={`fixed top-0 left-0 lg:left-64 right-0 h-[50px] flex justify-between items-center px-4 lg:px-8 z-40 ${isDark ? 'bg-black/80 backdrop-blur-md border-b border-white/5' : 'bg-slate-50/80 backdrop-blur-md border-b border-slate-200'}`}>
             <div className="flex items-center space-x-3">
               <button 
-                onClick={() => setActiveTab('profile')}
+                onClick={() => navigateTab('profile')}
                 className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 p-[1.5px] hover:scale-105 transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 cursor-pointer animate-in fade-in zoom-in duration-300"
               >
                 <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center ${isDark ? 'bg-black' : 'bg-white'}`}>
@@ -823,17 +910,19 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
             <div id="header-unrealized-pl-wrapper" className="flex items-center justify-center">
             </div>
             
-            <button 
-              onClick={() => setShowNotificationsModal(true)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
-            >
-              <Bell className={`w-4 h-4 ${textPrimary}`} />
-              {unreadNotificationsCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-2 ring-slate-950">
-                  {unreadNotificationsCount}
-                </span>
-              )}
-            </button>
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={() => setShowNotificationsModal(true)}
+                className={`w-8 h-8 rounded-full flex items-center justify-center border transition-colors cursor-pointer relative ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-100'}`}
+              >
+                <Bell className={`w-4 h-4 ${textPrimary}`} />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-2 ring-slate-950">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+            </div>
           </header>
         )}
 
@@ -900,24 +989,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
                 <div className="flex justify-center gap-4">
                   <button 
-                    onClick={() => {
-                      setAmount('');
-                      setTxError('');
-                      setTxSuccess('');
-                      setShowDepositModal(true);
-                    }}
+                    onClick={handleOpenDeposit}
                     className="flex-1 max-w-[140px] flex flex-col items-center justify-center p-4 rounded-2xl bg-[#1a1a1a] border border-white/10 text-white font-bold text-xs sm:text-sm transition-all duration-300 hover:scale-105 hover:border-emerald-500/50 active:scale-95 shadow-lg cursor-pointer"
                   >
                     <img src="https://cdn-icons-png.flaticon.com/512/3050/3050249.png" alt="Deposit" className="w-6 h-6 mb-2 invert" />
                     <span>Deposit</span>
                   </button>
                   <button 
-                    onClick={() => {
-                      setAmount('');
-                      setTxError('');
-                      setTxSuccess('');
-                      setShowWithdrawModal(true);
-                    }}
+                    onClick={handleOpenWithdraw}
                     className="flex-1 max-w-[140px] flex flex-col items-center justify-center p-4 rounded-2xl bg-[#1a1a1a] border border-white/10 text-white font-bold text-xs sm:text-sm transition-all duration-300 hover:scale-105 hover:border-emerald-500/50 active:scale-95 shadow-lg cursor-pointer"
                   >
                     <img src="https://cdn-icons-png.flaticon.com/512/3050/3050250.png" alt="Withdraw" className="w-6 h-6 mb-2 invert" />
@@ -954,7 +1033,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                               onClick={() => {
                                 if ((warning as any).onClick) (warning as any).onClick();
                                 if (warning.actionType === 'tab') {
-                                  setActiveTab(warning.targetTab);
+                                  navigateTab(warning.targetTab);
                                 } else if (warning.actionType === 'prop') {
                                   onNavigate(warning.actionName);
                                 }
@@ -1061,7 +1140,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <Flame className="w-4 h-4 text-orange-500 mx-auto mb-1 animate-pulse" />
                           <p className={`text-[10px] font-bold ${textSecondary}`}>Streak</p>
-                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{loginStreak} Days</p>
+                          <p className={`text-xs font-black ${textPrimary} mt-0.5`}>{loginStreak} {loginStreak === 1 ? 'Day' : 'Days'}</p>
                         </div>
                         <div className="text-center p-2 rounded-xl bg-white/[0.02] border border-white/5">
                           <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
@@ -1107,22 +1186,29 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           {activeTab === 'portfolio' && (
             <PortfolioViewV2 
               theme={theme} 
-              onBack={() => setActiveTab('home')} 
-              onNavigate={(tab) => setActiveTab(tab)}
-              onOpenDeposit={() => setShowDepositModal(true)}
-              onOpenWithdraw={() => setShowWithdrawModal(true)}
+              onBack={goBackTab} 
+              onNavigate={navigateTab}
+              onOpenDeposit={handleOpenDeposit}
+              onOpenWithdraw={handleOpenWithdraw}
               onViewModeChange={setPortfolioViewMode}
             />
           )}
 
-          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); setActiveTab('coin-details'); }} />}
-          {activeTab === 'coin-details' && selectedAsset && <CoinDetailsPage asset={selectedAsset} theme={theme} onBack={() => setActiveTab('markets')} />}
-          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => setActiveTab('events')} onOpenSupportCenter={() => { setSupportBackTab('discover'); setActiveTab('support'); }} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
-          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={() => { setActiveTab('home'); setShowDepositModal(true); }} />}
-          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => { setSupportBackTab('profile'); setActiveTab('support'); }} />}
+          {activeTab === 'markets' && <MarketsPage theme={theme} onSelectAsset={(asset) => { setSelectedAsset(asset); navigateTab('coin-details', { asset }); }} />}
+          {activeTab === 'coin-details' && (
+            <CoinDetailsPage 
+              asset={selectedAsset || currentLocation.asset || { symbol: 'BTC', name: 'Bitcoin', price: '$94,200', change: '+2.4%' }} 
+              theme={theme} 
+              onBack={goBackTab}
+              onTrade={(symbol) => navigateTab('ai', { asset: symbol })}
+            />
+          )}
+          {activeTab === 'discover' && <DiscoverView theme={theme} onOpenMarketHighlights={() => onNavigate('market-highlights')} onOpenEventsPromos={() => navigateTab('events')} onOpenSupportCenter={() => navigateTab('support')} onOpenStrategies={() => setShowExploreStrategiesModal(true)} />}
+          {activeTab === 'ai' && <AiTradingModule theme={theme} onOpenDeposit={handleOpenDeposit} />}
+          {activeTab === 'profile' && <ProfileView theme={theme} onOpenBonusCenter={() => onNavigate('bonus-center')} onOpenReferralCentre={() => onNavigate('referral-centre')} onOpenPreferences={() => onNavigate('preferences')} onOpenSupportCenter={() => navigateTab('support')} onOpenAdmin={() => onNavigate('admin' as any)} />}
           
-          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={() => setActiveTab('discover')} onNavigateToTrading={() => setActiveTab('home')} />}
-          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={() => setActiveTab(supportBackTab || 'discover')} />}
+          {activeTab === 'events' && <EventsPromosPage theme={theme} onBack={goBackTab} onNavigateToTrading={() => navigateTab('ai')} />}
+          {activeTab === 'support' && <SupportCenterPage theme={theme} onBack={goBackTab} />}
           
           {activeTab !== 'home' && activeTab !== 'copy-trading' && activeTab !== 'portfolio' && activeTab !== 'markets' && activeTab !== 'coin-details' && activeTab !== 'discover' && activeTab !== 'ai' && activeTab !== 'profile' && activeTab !== 'events' && activeTab !== 'support' && (
             <motion.div
@@ -1153,7 +1239,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
       {!isFullScreen && activeTab !== 'coin-details' && activeTab !== 'events' && activeTab !== 'events-promos' && activeTab !== 'support' && !(activeTab === 'portfolio' && (portfolioViewMode === 'vault' || portfolioViewMode === 'asset-stats')) && (
         <>
           <div className="h-20 flex-shrink-0 lg:hidden" aria-hidden="true" />
-          <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+          <BottomNavigation activeTab={activeTab} onTabChange={navigateTab} />
         </>
       )}
 
@@ -1161,7 +1247,7 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 1. INSTITUTIONAL FULL-SCREEN DEPOSIT EXPERIENCE */}
       <AnimatePresence>
-        {showDepositModal && (
+        {(showDepositModal || currentLocation.modal === 'deposit') && (
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
@@ -1171,15 +1257,14 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
           >
             <InstitutionalDepositPage 
               theme={theme}
-              onBack={() => setShowDepositModal(false)}
+              onBack={handleCloseDeposit}
               onSuccessDeposit={async (amountValue, method) => {
-                setShowDepositModal(false);
+                handleCloseDeposit();
               }}
               onOpenSupport={async (ticketData) => {
                 await saveSupportTicket(ticketData);
-                setShowDepositModal(false);
-                setSupportBackTab('discover');
-                setActiveTab('support');
+                handleCloseDeposit();
+                navigateTab('support');
               }}
             />
           </motion.div>
@@ -1188,13 +1273,15 @@ export default function Dashboard({ theme, onNavigate }: { theme: 'light' | 'dar
 
       {/* 2. DEDICATED FULL-SCREEN WITHDRAWAL EXPERIENCE */}
       <AnimatePresence>
-        {showWithdrawModal && (
+        {(showWithdrawModal || currentLocation.modal === 'withdraw') && (
           <InstitutionalWithdrawalPage 
-            onClose={() => setShowWithdrawModal(false)}
+            onClose={handleCloseWithdraw}
             onOpenHistory={() => {
-              setShowWithdrawModal(false);
+              handleCloseWithdraw();
               if (onNavigate) {
                 onNavigate('history');
+              } else {
+                navigateView('history');
               }
             }}
             theme={theme}

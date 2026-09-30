@@ -28,6 +28,7 @@ import {
   OperatingWindow,
   MarketCategory
 } from '../types/aiTrading';
+import { ASSET_UNIVERSE } from '../data/assetUniverse';
 import { equityService } from './equityService';
 import { portfolioPersistenceService } from './portfolioPersistenceService';
 
@@ -211,37 +212,44 @@ export const aiTradingService = {
   async endSession(sessionId: string): Promise<void> {
     try {
       const sessionRef = doc(db, SESSIONS_COLLECTION, sessionId);
-      const sessionSnap = await getDoc(sessionRef).catch(() => null);
-      const sessionData = sessionSnap?.exists() ? sessionSnap.data() as AiSession : null;
+      const sessionSnap = await getDoc(sessionRef);
+      const sessionData = sessionSnap.exists() ? sessionSnap.data() as AiSession : null;
       const userId = sessionData?.userId || '';
 
       // Progression Tracking
       if (userId) {
-        await progressionService.updateProgress(userId, 'trade').catch(() => {});
+        await progressionService.updateProgress(userId, 'trade');
         if (sessionData && (sessionData.totalProfit || 0) > (sessionData.totalLoss || 0)) {
-          await progressionService.updateProgress(userId, 'win').catch(() => {});
+          await progressionService.updateProgress(userId, 'win');
         }
       }
 
-      if (sessionSnap?.exists()) {
-        await deleteDoc(sessionRef).catch(() => {});
+      // Update status if session document still exists
+      if (sessionSnap && sessionSnap.exists()) {
+        await updateDoc(sessionRef, {
+          status: 'INACTIVE',
+          endTime: Timestamp.now()
+        }).catch(() => {});
       }
 
       // Record historical balance
       if (userId) {
-        const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId).catch(() => null);
-        if (portfolio) {
+        try {
+          const portfolio = await portfolioPersistenceService.getPortfolioCurrent(userId);
           await equityService.recordEquity({
             userId,
             timestamp: Timestamp.now(),
             totalNetBalance: portfolio.portfolioMetrics.totalValue,
             sessionId: sessionId,
             trigger: 'SESSION_END'
-          }).catch(() => {});
-        }
+          });
+        } catch (e) {}
       }
+
+      // Delete active session document so it is removed from active sessions collection
+      await deleteDoc(sessionRef).catch(() => {});
     } catch (error) {
-      console.warn("[aiTradingService] endSession completed with notice:", error);
+      console.warn(`[aiTradingService] Non-critical warning in endSession for ${sessionId}:`, error);
     }
   },
 
@@ -1015,6 +1023,15 @@ export const aiTradingService = {
   },
 
   getMarketCategory(asset: string): MarketCategory {
+    const found = ASSET_UNIVERSE.find(a => a.symbol.toUpperCase() === asset.toUpperCase());
+    if (found) {
+      if (found.category === 'CRYPTO') return 'Crypto';
+      if (found.category === 'STOCKS' || found.category === 'ETFs') return 'Stocks';
+      if (found.category === 'FOREX') return 'Forex';
+      if (found.category === 'INDICES') return 'Indices';
+      if (found.category === 'COMMODITIES') return 'Commodities';
+    }
+
     const stocks = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META'];
     const forex = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD'];
     const crypto = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'DOGE', 'LINK', 'UNI', 'LTC'];

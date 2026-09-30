@@ -186,6 +186,16 @@ export default function SupportCenterPage({ theme, onBack }: { theme: 'light' | 
     }
   }, [activeTicket?.messages, activeTicket?.id, isTyping, autoScroll]);
 
+  // Mark support chat as read immediately when user opens support center or switches active ticket
+  useEffect(() => {
+    if (user?.uid) {
+      try {
+        localStorage.setItem(`aver_support_last_read_${user.uid}`, String(Date.now()));
+        window.dispatchEvent(new CustomEvent('aver_support_read', { detail: { timestamp: Date.now(), userId: user.uid } }));
+      } catch (e) {}
+    }
+  }, [user?.uid, activeTicket?.id]);
+
   // Handle Starting First Conversation from Empty State
   const handleStartFirstConversation = async () => {
     if (!user) return;

@@ -649,7 +649,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ onClose,
                 onClick={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
                 className="h-9 px-4 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all bg-white/[0.03] border border-white/10 text-gray-300 hover:bg-white/[0.06] cursor-pointer"
               >
-                <span>{categoryFilter === 'all' || showArchived ? 'All Categories' : categoryFilter.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
+                <span>{categoryFilter === 'all' || showArchived ? 'All Categories' : (categoryFilter || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
                 <span className="text-[9px] opacity-60">▼</span>
               </button>
 

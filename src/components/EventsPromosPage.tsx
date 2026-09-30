@@ -178,10 +178,10 @@ export default function EventsPromosPage({
   const heroTimeLeft = formatTimeLeft(activeHero?.endTime || activeHero?.startTime);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#03060D] text-slate-100 overflow-y-auto w-full h-full min-h-screen font-sans selection:bg-emerald-500/30 selection:text-emerald-200 pb-20">
+    <div className={`min-h-screen relative z-10 w-full font-sans selection:bg-emerald-500/30 selection:text-emerald-200 pb-20 ${theme === 'dark' ? 'text-slate-100' : 'text-slate-900'}`}>
       
       {/* TOP HUB NAVIGATION HEADER */}
-      <header className="sticky top-0 z-50 bg-[#03060D]/90 backdrop-blur-2xl border-b border-white/10 px-4 sm:px-8 py-4 flex items-center justify-between">
+      <header className={`sticky top-0 z-50 backdrop-blur-2xl border-b transition-colors px-4 sm:px-8 py-3.5 flex items-center justify-between ${theme === 'dark' ? 'bg-slate-950/80 border-white/10' : 'bg-white/80 border-slate-200'}`}>
         
         {/* Left: Back Button */}
         <button

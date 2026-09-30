@@ -8,6 +8,7 @@ interface NavbarProps {
   onNavigate: (section: string) => void;
   activeSection: string;
   onShowcase: () => void;
+  onSignIn?: () => void;
   onAdminAccess?: () => void;
 }
 
@@ -16,6 +17,7 @@ export default function Navbar({
   onNavigate,
   activeSection,
   onShowcase,
+  onSignIn,
   onAdminAccess
 }: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
@@ -87,6 +89,18 @@ export default function Navbar({
 
         {/* Desktop Action Buttons */}
         <div className="hidden md:flex items-center space-x-4">
+          {onSignIn && (
+            <button
+              onClick={onSignIn}
+              className={`px-4 py-2 font-bold text-sm rounded-full transition-all cursor-pointer border ${
+                theme === 'dark' 
+                  ? 'border-white/10 text-white hover:bg-white/10' 
+                  : 'border-slate-200 text-slate-800 hover:bg-slate-100'
+              }`}
+            >
+              <span>{t('auth.sign_in') || 'Log In'}</span>
+            </button>
+          )}
           <button
             onClick={onShowcase}
             className="px-6 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-sm rounded-full transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center space-x-1.5 cursor-pointer"
@@ -133,6 +147,21 @@ export default function Navbar({
             <hr className={theme === 'dark' ? 'border-white/5' : 'border-black/5'} />
             
             <div className="flex flex-col space-y-4">
+              {onSignIn && (
+                <button
+                  onClick={() => {
+                    onSignIn();
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`py-3 text-center rounded-lg text-sm font-bold border transition-all flex items-center justify-center space-x-2 ${
+                    theme === 'dark'
+                      ? 'border-white/10 text-white hover:bg-white/10'
+                      : 'border-slate-300 text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{t('auth.sign_in') || 'Log In'}</span>
+                </button>
+              )}
               <button
                 onClick={() => {
                   onShowcase();

@@ -416,9 +416,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (docSnap.exists()) {
             const userData = docSnap.data() as User;
             
+            // Check local submissions if kycStatus is missing or unverified
+            let effectiveKycStatus = userData.kycStatus || 'unverified';
+            if (effectiveKycStatus === 'unverified') {
+              if (userData.kycData?.status && userData.kycData.status !== 'unverified') {
+                effectiveKycStatus = userData.kycData.status;
+              } else {
+                try {
+                  const locals = JSON.parse(safeStorage.getItem('aver_admin_kyc_local') || '[]');
+                  if (Array.isArray(locals) && locals.length > 0) {
+                    const match = locals.find((item: any) => item.userId === uid || (userData.email && item.email?.toLowerCase() === userData.email.toLowerCase()));
+                    if (match?.status && match.status !== 'unverified') {
+                      effectiveKycStatus = match.status;
+                    }
+                  }
+                } catch (e) {}
+              }
+            }
+
             setUser(prev => {
               const updatedUser = {
                 ...userData,
+                kycStatus: effectiveKycStatus,
                 portfolioBalance: typeof userData.portfolioBalance === 'number' ? userData.portfolioBalance : (prev?.portfolioBalance ?? 0),
                 availableBalance: typeof userData.availableBalance === 'number' ? userData.availableBalance : (prev?.availableBalance ?? 0),
                 vaultBalance: typeof userData.vaultBalance === 'number' ? userData.vaultBalance : (prev?.vaultBalance ?? 0),
@@ -2162,3 +2181,5 @@ function dataURLtoBlob(dataurl: string): Blob {
 };
 
 export const useAuth = () => useContext(AuthContext);
+
+export default useAuth;

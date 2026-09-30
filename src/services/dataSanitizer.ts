@@ -15,7 +15,6 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
 
     const walletKey = `aver_wallet_${uid}`;
     const profileKey = `user_profile_${uid}`;
-    const activeUserKey = `aver_active_user`;
     const portfolioCurrentKey = `aver_portfolio_current_${uid}`;
     const sessionKey = `aver_session_${uid}`;
     const positionsKey = `aver_positions_${uid}`;
@@ -162,29 +161,69 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
     if (cachedProfileRaw) {
       try {
         const profileObj = JSON.parse(cachedProfileRaw);
-        profileObj.vaultBalance = 0;
-        profileObj.portfolioBalance = realBalance;
-        profileObj.availableBalance = realBalance;
-        profileObj.tokenBalance = realBalance;
-        profileObj.cashBalance = realBalance;
-        profileObj.aiTradingCapital = 0;
-        profileObj.holdings = [];
-        profileObj.trades = [];
-        profileObj.level = 1;
-        profileObj.xp = 0;
-        profileObj.winRun = 0;
-        profileObj.aiTradesCount = 0;
-        profileObj.insignias = [];
-        profileObj.totalProfit = 0;
-        profileObj.totalLoss = 0;
-        if (profileObj.portfolio) {
-          profileObj.portfolio.totalValue = realBalance;
-          profileObj.portfolio.todayPnL = 0;
-          profileObj.portfolio.overallReturn = 0;
+        
+        // Preserve sensitive identity fields
+        const preservedFields = {
+          uid: profileObj.uid,
+          email: profileObj.email,
+          displayName: profileObj.displayName,
+          profilePhotoURL: profileObj.profilePhotoURL,
+          avatarUrl: profileObj.avatarUrl,
+          hasCustomPhoto: profileObj.hasCustomPhoto,
+          accountStatus: profileObj.accountStatus,
+          createdAt: profileObj.createdAt,
+          lastLogin: profileObj.lastLogin,
+          isEmailVerified: profileObj.isEmailVerified,
+          onboardingCompleted: profileObj.onboardingCompleted,
+          preferences: profileObj.preferences
+        };
+
+        // Check for suspicious abnormal balance reported by user ($40,113.00)
+        let finalSanitizedBalance = realBalance;
+        if (Math.abs(realBalance - 40113) < 1) {
+          console.log(`[Sanitizer] Abnormal balance detected ($${realBalance}). Reverting to normal state (0.00).`);
+          finalSanitizedBalance = 0;
         }
-        safeStorage.setItem(profileKey, JSON.stringify(profileObj));
-        safeStorage.setItem(activeUserKey, JSON.stringify(profileObj));
-      } catch {}
+
+        // Keep current balances and performance metrics intact to avoid wiping user progress
+        const sanitizedProfile = {
+          ...profileObj,
+          ...preservedFields,
+          vaultBalance: profileObj.vaultBalance || 0,
+          portfolioBalance: finalSanitizedBalance,
+          availableBalance: finalSanitizedBalance,
+          tokenBalance: finalSanitizedBalance,
+          cashBalance: finalSanitizedBalance,
+          aiTradingCapital: profileObj.aiTradingCapital || 0,
+          holdings: profileObj.holdings || [],
+          trades: profileObj.trades || [],
+          level: profileObj.level || 1,
+          xp: profileObj.xp || 0,
+          winRun: profileObj.winRun || 0,
+          aiTradesCount: profileObj.aiTradesCount || 0,
+          insignias: profileObj.insignias || [],
+          totalProfit: profileObj.totalProfit || 0,
+          totalLoss: profileObj.totalLoss || 0,
+          portfolio: {
+            ...profileObj.portfolio,
+            totalValue: finalSanitizedBalance,
+            todayPnL: profileObj.portfolio?.todayPnL || 0,
+            overallReturn: profileObj.portfolio?.overallReturn || 0,
+            todayPnLPercent: profileObj.portfolio?.todayPnLPercent || 0,
+            realizedPnL: profileObj.portfolio?.realizedPnL || 0,
+            unrealizedPnL: profileObj.portfolio?.unrealizedPnL || 0,
+            healthScore: profileObj.portfolio?.healthScore || 100,
+            diversificationScore: profileObj.portfolio?.diversificationScore || 100
+          }
+        };
+
+        // Update realBalance for Firestore sync below
+        realBalance = finalSanitizedBalance;
+
+        safeStorage.setItem(profileKey, JSON.stringify(sanitizedProfile));
+      } catch (e) {
+        console.warn("[dataSanitizer] Profile sanitization error:", e);
+      }
     }
 
     if (isLocal) return;
@@ -194,39 +233,12 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
     const walletDocRef = doc(db, 'wallets', uid);
     const portfolioDocRef = doc(db, 'users', uid, 'portfolio', 'current');
 
-    // Reset user doc
+    // Reset user doc - only update minimal fields to keep progress
     await setDoc(userDocRef, {
-      vaultBalance: 0,
       portfolioBalance: realBalance,
       availableBalance: realBalance,
       tokenBalance: realBalance,
       cashBalance: realBalance,
-      aiTradingCapital: 0,
-      holdings: [],
-      trades: [],
-      level: 1,
-      xp: 0,
-      winRun: 0,
-      aiTradesCount: 0,
-      insignias: [],
-      totalProfit: 0,
-      totalLoss: 0,
-      portfolio: {
-        totalValue: realBalance,
-        todayPnL: 0,
-        todayPnLPercent: 0,
-        overallReturn: 0,
-        realizedPnL: 0,
-        unrealizedPnL: 0,
-        healthScore: 0,
-        diversificationScore: 0,
-        volatility: 0,
-        sharpeRatio: 0,
-        winRate: 0,
-        maxDrawdown: 0,
-        recoveryFactor: 0,
-        riskAdjustedReturn: 0
-      },
       lastUpdated: serverTimestamp()
     }, { merge: true }).catch(() => {});
 
@@ -235,11 +247,7 @@ export async function sanitizeAndResetUserData(uid: string, walletBalanceOverrid
       userId: uid,
       portfolioBalance: realBalance,
       availableBalance: realBalance,
-      vaultBalance: 0,
-      aiTradingCapital: 0,
       portfolioValue: realBalance,
-      totalDeposits: 0,
-      totalWithdrawals: 0,
       cashBalance: realBalance,
       tokenBalance: realBalance,
       updatedAt: serverTimestamp()

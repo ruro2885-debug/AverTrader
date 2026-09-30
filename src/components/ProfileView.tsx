@@ -46,13 +46,15 @@ export default function ProfileView({
   onOpenBonusCenter, 
   onOpenReferralCentre, 
   onOpenPreferences,
-  onOpenSupportCenter 
+  onOpenSupportCenter,
+  onOpenAdmin
 }: { 
   theme: 'light' | 'dark', 
   onOpenBonusCenter?: () => void, 
   onOpenReferralCentre?: () => void, 
   onOpenPreferences?: () => void,
-  onOpenSupportCenter?: () => void
+  onOpenSupportCenter?: () => void,
+  onOpenAdmin?: () => void
 }) {
   const { 
     user, 
@@ -667,7 +669,7 @@ export default function ProfileView({
       
       if (!mfaSecret) {
         // Start enrollment
-        const mfa = multiFactor(user);
+        const mfa = multiFactor(user as any);
         const session = await mfa.getSession();
         const secret = await TotpMultiFactorGenerator.generateSecret(session);
         setMfaSecret(secret);
@@ -681,7 +683,7 @@ export default function ProfileView({
         twoFactorCode
       );
       
-      const mfa = multiFactor(user);
+      const mfa = multiFactor(user as any);
       await mfa.enroll(multiFactorAssertion, 'My 2FA Device');
 
       // Update Firestore preference for persistent state
@@ -964,7 +966,6 @@ export default function ProfileView({
         <div className="mt-4 flex justify-center">
           <button 
             onClick={() => {
-              safeStorage.setItem('aver_dashboard_tab', 'profile');
               if (onOpenBonusCenter) onOpenBonusCenter();
             }}
             className={`flex items-center space-x-2 px-4 py-1.5 rounded-full border ${activeTier.badgeBorder} ${activeTier.badgeBg} ${activeTier.badgeGlow} transition-all cursor-pointer backdrop-blur-sm active:scale-95`}
@@ -993,7 +994,11 @@ export default function ProfileView({
                     setSuccessMsg('');
                     if (item.id === 'admin') {
                       localStorage.setItem('admin_session_active', 'true');
-                      window.location.href = '/admin';
+                      if (onOpenAdmin) {
+                        onOpenAdmin();
+                      } else {
+                        window.location.href = '/admin';
+                      }
                     } else if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();

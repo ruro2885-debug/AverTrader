@@ -27,6 +27,7 @@ import AverLogo from '../AverLogo';
 import CoinLogo from '../CoinLogo';
 import VaultScreen from './VaultScreen';
 import AssetStatsScreen from './AssetStatsScreen';
+import { useAppNavigation } from '../../contexts/NavigationContext';
 
 interface PortfolioViewV2Props {
   theme: 'light' | 'dark';
@@ -925,7 +926,17 @@ export default function PortfolioViewV2({
   }, []);
 
   // Navigation mode to switch full-screen pages
-  const [viewMode, setViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+  const { currentLocation, navigateSubView, goBack } = useAppNavigation();
+  const [localViewMode, setLocalViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
+  const viewMode: 'portfolio' | 'vault' | 'asset-stats' = 
+    (currentLocation.subView === 'vault' || currentLocation.subView === 'asset-stats') 
+      ? currentLocation.subView 
+      : localViewMode;
+
+  const setViewMode = useCallback((mode: 'portfolio' | 'vault' | 'asset-stats') => {
+    setLocalViewMode(mode);
+    navigateSubView(mode === 'portfolio' ? undefined : mode);
+  }, [navigateSubView]);
 
   const onViewModeChangeRef = useRef(onViewModeChange);
   useEffect(() => {
@@ -1061,19 +1072,16 @@ export default function PortfolioViewV2({
     { symbol: 'BTC', name: 'Bitcoin', baseConfidence: 96, category: 'high_conviction' },
     { symbol: 'ETH', name: 'Ethereum', baseConfidence: 89, category: 'preparing_entry' },
     { symbol: 'SOL', name: 'Solana', baseConfidence: 79, category: 'watching' },
-    { symbol: 'NVDA', name: 'NVIDIA', baseConfidence: 73, category: 'watching' },
     { symbol: 'XRP', name: 'Ripple', baseConfidence: 65, category: 'preparing_entry' },
-    { symbol: 'Gold', name: 'Gold Spot', baseConfidence: 95, category: 'high_conviction' },
-    { symbol: 'DOGE', name: 'Dogecoin', baseConfidence: 18, category: 'avoiding' },
-    { symbol: 'PEPE', name: 'Pepe', baseConfidence: 11, category: 'avoiding' },
+    { symbol: 'ADA', name: 'Cardano', baseConfidence: 58, category: 'watching' },
   ]);
 
   const handleRescanRadar = () => {
     setIsRescanningRadar(true);
     setTimeout(() => {
-      // Pick 7 to 9 random assets from the pool
+      // Pick 5 random assets from the pool
       const shuffled = [...MASTER_ASSET_POOL].sort(() => Math.random() - 0.5);
-      const count = Math.floor(Math.random() * 3) + 7; // 7, 8, or 9
+      const count = 5;
       const selected = shuffled.slice(0, count);
 
       const newAssets = selected.map(asset => {
@@ -1227,7 +1235,7 @@ export default function PortfolioViewV2({
   const [showWithdrawPasscodeVerify, setShowWithdrawPasscodeVerify] = useState<boolean>(false);
   const [withdrawVerifyInput, setWithdrawVerifyInput] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
-  const [shakeTrigger, setShakeTrigger] = useState<number>(0);
+  const [shakeTrigger, setShakeTrigger] = useState<boolean>(false);
 
   const [tradeType, setTradeType] = useState<'BUY' | 'SELL'>('BUY');
   const [tradeAsset, setTradeAsset] = useState<string>('BTC');
@@ -1559,7 +1567,7 @@ export default function PortfolioViewV2({
   const executionEvents = useMemo(() => {
     // Markers are LIVE SESSION UI markers ONLY.
     // When session is NOT ACTIVE/RUNNING (ENDED/STOPPED/INACTIVE), immediately return empty list to remove all markers.
-    if (!session || (session.status !== 'ACTIVE' && session.status !== 'RUNNING')) {
+    if (!session || ((session.status as string) !== 'ACTIVE' && (session.status as string) !== 'RUNNING')) {
       return [];
     }
 
@@ -1781,7 +1789,7 @@ export default function PortfolioViewV2({
         <VaultScreen 
           key="vault"
           theme={theme}
-          onBack={() => setViewMode('portfolio')}
+          onBack={() => goBack()}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           showNotification={showNotification}
           vaultBalance={vaultBalance}
@@ -1795,7 +1803,7 @@ export default function PortfolioViewV2({
         <AssetStatsScreen 
           key="asset-stats"
           theme={theme}
-          onBack={() => setViewMode('portfolio')}
+          onBack={() => goBack()}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           allocations={liveAllocations}
         />
@@ -2455,7 +2463,7 @@ export default function PortfolioViewV2({
                 <div className="space-y-4">
                   
                   {/* STEP 1: ONBOARDING WELCOME */}
-                  {vaultState === 'setup' && vaultSetupStep === 1 && (
+                  {(vaultState as string) === 'setup' && vaultSetupStep === 1 && (
                     <div className="space-y-4 text-center">
                       <div className="w-16 h-16 bg-[#00D09C]/10 rounded-full flex items-center justify-center mx-auto">
                         <Vault className="w-7 h-7 text-[#00D09C]" />
@@ -2480,7 +2488,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* STEP 2: ONBOARDING PIN SETUP */}
-                  {vaultState === 'setup' && vaultSetupStep === 2 && (
+                  {(vaultState as string) === 'setup' && vaultSetupStep === 2 && (
                     <div className="space-y-4 text-center">
                       <h4 className="text-sm font-bold text-white tracking-tight uppercase tracking-widest">
                         {!isPasscodeConfirming ? 'Create 6-Digit PIN' : 'Verify Security PIN'}
@@ -2545,8 +2553,8 @@ export default function PortfolioViewV2({
                                       } else {
                                         setPasscodeConfirm('');
                                         setPasscodeError("Passcodes do not match. Re-enter confirm PIN.");
-                                        setShakeTrigger(true);
-                                        setTimeout(() => setShakeTrigger(false), 500);
+                                        setShakeTrigger(true as any);
+                                        setTimeout(() => setShakeTrigger(false as any), 500);
                                       }
                                     }, 350);
                                   }
@@ -2625,7 +2633,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* STEP 3: SUCCESS ONBOARDING */}
-                  {vaultState === 'setup' && vaultSetupStep === 3 && (
+                  {(vaultState as string) === 'setup' && vaultSetupStep === 3 && (
                     <div className="space-y-4 text-center">
                       <div className="w-16 h-16 bg-[#00D09C]/20 rounded-full flex items-center justify-center mx-auto animate-pulse">
                         <CheckCircle2 className="w-8 h-8 text-[#00D09C]" />
@@ -2640,7 +2648,7 @@ export default function PortfolioViewV2({
                         onClick={() => {
                           setIsVaultOnboarded(true);
                           safeStorage.setItem('vault_onboarded', 'true');
-                          setVaultState('unlocked');
+                          setVaultState('unlocked' as any);
                           setPasscodeInput('');
                           setPasscodeConfirm('');
                         }}
@@ -2652,7 +2660,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* VAULT ACCESS PIN LOCKSCREEN */}
-                  {vaultState === 'locked' && (
+                  {(vaultState as string) === 'locked' && (
                     <div className="space-y-4 text-center">
                       <div className="w-12 h-12 bg-white/[0.02] border border-white/[0.05] rounded-full flex items-center justify-center mx-auto text-slate-300">
                         <Lock className="w-5 h-5" />
@@ -2700,7 +2708,7 @@ export default function PortfolioViewV2({
                                 if (next.length === 6) {
                                   setTimeout(() => {
                                     if (next === vaultPasscode) {
-                                      setVaultState('unlocked');
+                                      setVaultState('unlocked' as any);
                                       setPasscodeInput('');
                                       setPasscodeError(null);
                                     } else {
@@ -2733,7 +2741,7 @@ export default function PortfolioViewV2({
                               if (next.length === 6) {
                                 setTimeout(() => {
                                   if (next === vaultPasscode) {
-                                    setVaultState('unlocked');
+                                    setVaultState('unlocked' as any);
                                     setPasscodeInput('');
                                     setPasscodeError(null);
                                   } else {
@@ -2770,7 +2778,7 @@ export default function PortfolioViewV2({
                               safeStorage.removeItem('vault_onboarded');
                               safeStorage.removeItem('portfolio_vault_balance');
                               safeStorage.removeItem('portfolio_active_offset');
-                              setVaultState('setup');
+                              setVaultState('setup' as any);
                               setVaultSetupStep(1);
                               setPasscodeInput('');
                             }
@@ -2784,7 +2792,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* UNLOCKED VAULT HOME PANEL */}
-                  {vaultState === 'unlocked' && vaultActionType === null && (
+                  {(vaultState as string) === 'unlocked' && vaultActionType === null && (
                     <div className="space-y-4 font-medium text-xs">
                       
                       {/* Secure metrics panel */}
@@ -2861,7 +2869,7 @@ export default function PortfolioViewV2({
                       <div className="grid grid-cols-2 gap-3.5 pt-2">
                         <button 
                           onClick={() => {
-                            setVaultActionType('deposit');
+                            setVaultActionType('deposit' as any);
                             setVaultActionAsset('BTC');
                             setVaultActionAmount('');
                             setVaultGoalName('');
@@ -2887,7 +2895,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* WITHDRAW PIN VERIFICATION FIRST */}
-                  {vaultState === 'unlocked' && showWithdrawPasscodeVerify && (
+                  {(vaultState as string) === 'unlocked' && showWithdrawPasscodeVerify && (
                     <div className="space-y-4 text-center">
                       <div className="w-12 h-12 bg-amber-400/10 border border-amber-400/20 rounded-full flex items-center justify-center mx-auto text-amber-400">
                         <ShieldAlert className="w-5 h-5" />
@@ -2936,7 +2944,7 @@ export default function PortfolioViewV2({
                                   setTimeout(() => {
                                     if (next === vaultPasscode) {
                                       setShowWithdrawPasscodeVerify(false);
-                                      setVaultActionType('withdraw');
+                                      setVaultActionType('withdraw' as any);
                                       setVaultActionAsset('BTC');
                                       setVaultActionAmount('');
                                       setWithdrawVerifyInput('');
@@ -2972,7 +2980,7 @@ export default function PortfolioViewV2({
                                 setTimeout(() => {
                                   if (next === vaultPasscode) {
                                     setShowWithdrawPasscodeVerify(false);
-                                    setVaultActionType('withdraw');
+                                    setVaultActionType('withdraw' as any);
                                     setVaultActionAsset('BTC');
                                     setVaultActionAmount('');
                                     setWithdrawVerifyInput('');
@@ -3009,7 +3017,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* DEPOSIT FORM PANEL */}
-                  {vaultState === 'unlocked' && vaultActionType === 'deposit' && (
+                  {(vaultState as any) === 'unlocked' && (vaultActionType as any) === 'deposit' && (
                     <div className="space-y-4 font-medium text-xs">
                       <div className="flex justify-between items-center pb-2 border-b border-white/[0.04]">
                         <span className="text-white font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5 text-[#00D09C]">
@@ -3125,7 +3133,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* WITHDRAW FORM PANEL */}
-                  {vaultState === 'unlocked' && vaultActionType === 'withdraw' && (
+                  {(vaultState as any) === 'unlocked' && (vaultActionType as any) === 'withdraw' && (
                     <div className="space-y-4 font-medium text-xs">
                       <div className="flex justify-between items-center pb-2 border-b border-white/[0.04]">
                         <span className="text-white font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5 text-amber-400">

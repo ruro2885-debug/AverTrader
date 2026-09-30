@@ -8,6 +8,7 @@ import {
 import { doc, setDoc, updateDoc, serverTimestamp, collection, addDoc, query, where, onSnapshot, limit, arrayUnion } from 'firebase/firestore';
 import { db, safeSetDoc } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { ALL_COUNTRIES } from '../data/countries';
 
 interface KycVerificationPageProps {
   theme: 'light' | 'dark';
@@ -15,7 +16,7 @@ interface KycVerificationPageProps {
   onComplete: () => void;
 }
 
-const downscaleImage = (dataUrl: string, maxWidth = 800, maxHeight = 800, quality = 0.7): Promise<string> => {
+const downscaleImage = (dataUrl: string, maxWidth = 500, maxHeight = 500, quality = 0.5): Promise<string> => {
   return new Promise((resolve) => {
     if (!dataUrl || !dataUrl.startsWith('data:image')) {
       resolve(dataUrl);
@@ -339,9 +340,9 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
       console.log("[KYC TRACE 2] Generated submission ID:", submissionId);
 
       console.log("[KYC TRACE 2.1] Compressing image uploads to safe payload size (<100KB)...");
-      const compressedFront = await downscaleImage(formData.frontIdUrl, 800, 800, 0.7);
-      const compressedBack = await downscaleImage(formData.backIdUrl, 800, 800, 0.7);
-      const compressedSelfie = await downscaleImage(formData.selfieUrl, 800, 800, 0.7);
+      const compressedFront = await downscaleImage(formData.frontIdUrl, 500, 500, 0.5);
+      const compressedBack = await downscaleImage(formData.backIdUrl, 500, 500, 0.5);
+      const compressedSelfie = await downscaleImage(formData.selfieUrl, 500, 500, 0.5);
 
       const submissionPayload = {
         id: submissionId,
@@ -364,11 +365,8 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
         },
         documents: [compressedFront, compressedBack, compressedSelfie].filter(Boolean),
         frontIdUrl: compressedFront,
-        frontIdOriginalUrl: compressedFront,
         backIdUrl: compressedBack,
-        backIdOriginalUrl: compressedBack,
         selfieUrl: compressedSelfie,
-        selfieOriginalUrl: compressedSelfie,
         status: 'pending',
         submittedAt: nowIso,
         createdAt: nowIso
@@ -958,13 +956,17 @@ export default function KycVerificationPage({ theme, onBack, onComplete }: KycVe
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Nationality *</label>
-                  <input 
-                    type="text" 
+                  <select 
                     value={formData.nationality}
                     onChange={e => setFormData({...formData, nationality: e.target.value})}
-                    placeholder="United States"
-                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent ${isDark ? 'border-white/10 bg-white/5' : 'border-slate-300 bg-white'}`}
-                  />
+                    className={`w-full p-4 rounded-2xl border text-sm font-semibold bg-transparent appearance-none cursor-pointer ${isDark ? 'border-white/10 bg-[#0d1117] text-white' : 'border-slate-300 bg-white text-slate-900'}`}
+                  >
+                    {ALL_COUNTRIES.map(c => (
+                      <option key={c} value={c} className={isDark ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Phone Number</label>

@@ -1,11 +1,21 @@
 import React from 'react';
-import { ArrowLeft, Star, Share2 } from 'lucide-react';
+import { ArrowLeft, Star, Share2, TrendingUp } from 'lucide-react';
 import { AdvancedRealTimeChart } from "react-ts-tradingview-widgets";
 import CoinLogo from './CoinLogo';
 import { useAuth } from '../contexts/AuthContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 
-export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, theme: 'light' | 'dark', onBack: () => void }) {
+export default function CoinDetailsPage({ 
+  asset, 
+  theme, 
+  onBack,
+  onTrade 
+}: { 
+  asset: any, 
+  theme: 'light' | 'dark', 
+  onBack: () => void,
+  onTrade?: (symbol: string) => void
+}) {
   const { user, toggleWatchlist } = useAuth();
   const { formatCurrency } = usePreferences();
   const isDark = theme === 'dark';
@@ -23,9 +33,13 @@ export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, 
   };
 
   return (
-    <div className={`min-h-screen pb-12 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'}`}>
+    <div className={`min-h-screen pb-24 ${isDark ? 'bg-[#000000]' : 'bg-slate-50'}`}>
       <header className="p-4 flex justify-between items-center">
-        <button onClick={onBack} className="p-2 rounded-full bg-slate-800/50 hover:bg-slate-700/50 transition-colors">
+        <button 
+          onClick={onBack} 
+          className="p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer active:scale-95"
+          aria-label="Back"
+        >
           <ArrowLeft size={20} className={textPrimary} />
         </button>
         <div className="flex gap-2">
@@ -54,7 +68,7 @@ export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, 
         <div className="flex items-center gap-4 mb-4">
           <CoinLogo symbol={asset.symbol} size={64} />
           <div>
-            <h1 className={`text-2xl font-black ${textPrimary}`}>{asset.name}</h1>
+            <h1 className={`text-2xl font-black ${textPrimary}`}>{asset.name || asset.symbol}</h1>
             <p className={`text-lg font-bold ${textSecondary}`}>{asset.symbol}</p>
           </div>
         </div>
@@ -88,6 +102,18 @@ export default function CoinDetailsPage({ asset, theme, onBack }: { asset: any, 
           ))}
         </div>
       </div>
+
+      {onTrade && (
+        <div className="fixed bottom-6 left-6 right-6 z-40 max-w-lg mx-auto">
+          <button
+            onClick={() => onTrade(asset.symbol)}
+            className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-emerald-500/25 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span>Trade {asset.symbol}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

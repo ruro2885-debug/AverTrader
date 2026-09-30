@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import CoinLogo from './CoinLogo';
 import { usePreferences } from '../contexts/PreferencesContext';
+import { useAuth } from '../contexts/AuthContext';
 import CopyTradeDashboard from './copytrade/CopyTradeDashboard';
 
 // Institutional-grade AI Strategies Dataset with Advisor Insights
@@ -25,16 +26,56 @@ export default function DiscoverView({
 }) {
   const isDark = theme === 'dark';
   const { t } = usePreferences();
+  const { user, updateProfile } = useAuth();
   
   const [showCopyTrade, setShowCopyTrade] = useState(false);
   const [showRoadmapModal, setShowRoadmapModal] = useState(false);
-  const [isNotified, setIsNotified] = useState(() => {
-    return localStorage.getItem('aver2_notified') === 'true';
-  });
+
+  // Compute user-scoped storage key so new users start fresh and NOT hardcoded
+  const userStorageKey = user?.uid 
+    ? `aver2_notified_user_${user.uid}` 
+    : (user?.email ? `aver2_notified_email_${user.email}` : null);
+
+  const [isNotified, setIsNotified] = useState(false);
+
+  // Synchronize on mount and when user changes
+  useEffect(() => {
+    // Purge legacy global key that caused all users to be hardcoded to notified
+    try {
+      localStorage.removeItem('aver2_notified');
+    } catch (e) {}
+
+    if (!userStorageKey) {
+      setIsNotified(false);
+      return;
+    }
+
+    try {
+      const stored = localStorage.getItem(userStorageKey);
+      const profileFlag = Boolean((user as any)?.aver2Notified);
+      setIsNotified(stored === 'true' || profileFlag);
+    } catch (e) {
+      setIsNotified(false);
+    }
+  }, [userStorageKey, user?.uid]);
 
   const handleNotifyClick = () => {
-    setIsNotified(true);
-    localStorage.setItem('aver2_notified', 'true');
+    const nextState = !isNotified;
+    setIsNotified(nextState);
+    if (userStorageKey) {
+      try {
+        if (nextState) {
+          localStorage.setItem(userStorageKey, 'true');
+        } else {
+          localStorage.removeItem(userStorageKey);
+        }
+      } catch (e) {}
+    }
+    if (user?.uid && updateProfile) {
+      updateProfile({
+        aver2Notified: nextState
+      } as any, undefined, undefined, true);
+    }
   };
   
   const textPrimary = isDark ? "text-white" : "text-slate-900";
@@ -224,12 +265,14 @@ export default function DiscoverView({
               <div className="pt-2">
                 <button
                   onClick={() => {
-                    setIsNotified(true);
+                    if (!isNotified) {
+                      handleNotifyClick();
+                    }
                     setShowRoadmapModal(false);
                   }}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold text-xs tracking-wider uppercase hover:opacity-90 transition shadow-xl"
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold text-xs tracking-wider uppercase hover:opacity-90 transition shadow-xl cursor-pointer"
                 >
-                  Join VIP Priority Early Access List
+                  {isNotified ? 'Already on Priority Access List' : 'Join VIP Priority Early Access List'}
                 </button>
               </div>
             </motion.div>

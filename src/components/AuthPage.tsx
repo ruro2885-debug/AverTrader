@@ -12,6 +12,8 @@ import { db } from '../lib/firebase';
 import { ClipboardPaste, UserPlus } from 'lucide-react';
 
 
+import { ALL_COUNTRIES } from '../data/countries';
+
 interface AuthPageProps {
   theme: 'light' | 'dark';
   onBack: () => void;
@@ -163,9 +165,7 @@ export default function AuthPage({ theme, onBack, onSuccess }: AuthPageProps) {
     }
   };
   
-  const countries = [
-    "United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Switzerland", "Netherlands", "Sweden", "Spain", "Italy", "Japan", "China", "Brazil", "United Arab Emirates"
-  ];
+  const countries = ALL_COUNTRIES;
 
   // Handle Register Form Submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {

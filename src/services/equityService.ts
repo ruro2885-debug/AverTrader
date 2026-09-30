@@ -152,8 +152,8 @@ export const equityService = {
 
       // Merge with localRecords to ensure complete master history persistence
       const mergedMap = new Map<string, EquityHistoryRecord>();
-      localRecords.forEach(r => mergedMap.set(r.id, r));
-      records.forEach(r => mergedMap.set(r.id, r));
+      localRecords.forEach(r => { if (r.id) mergedMap.set(r.id, r); });
+      records.forEach(r => { if (r.id) mergedMap.set(r.id, r); });
       const combined = Array.from(mergedMap.values()).sort((a, b) => {
         const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : (typeof a.timestamp === 'number' ? a.timestamp : 0));
         const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : (typeof b.timestamp === 'number' ? b.timestamp : 0));
