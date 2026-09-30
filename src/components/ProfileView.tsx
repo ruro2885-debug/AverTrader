@@ -46,15 +46,13 @@ export default function ProfileView({
   onOpenBonusCenter, 
   onOpenReferralCentre, 
   onOpenPreferences,
-  onOpenSupportCenter,
-  onOpenAdmin
+  onOpenSupportCenter 
 }: { 
   theme: 'light' | 'dark', 
   onOpenBonusCenter?: () => void, 
   onOpenReferralCentre?: () => void, 
   onOpenPreferences?: () => void,
-  onOpenSupportCenter?: () => void,
-  onOpenAdmin?: () => void
+  onOpenSupportCenter?: () => void
 }) {
   const { 
     user, 
@@ -966,6 +964,7 @@ export default function ProfileView({
         <div className="mt-4 flex justify-center">
           <button 
             onClick={() => {
+              safeStorage.setItem('aver_dashboard_tab', 'profile');
               if (onOpenBonusCenter) onOpenBonusCenter();
             }}
             className={`flex items-center space-x-2 px-4 py-1.5 rounded-full border ${activeTier.badgeBorder} ${activeTier.badgeBg} ${activeTier.badgeGlow} transition-all cursor-pointer backdrop-blur-sm active:scale-95`}
@@ -994,11 +993,7 @@ export default function ProfileView({
                     setSuccessMsg('');
                     if (item.id === 'admin') {
                       localStorage.setItem('admin_session_active', 'true');
-                      if (onOpenAdmin) {
-                        onOpenAdmin();
-                      } else {
-                        window.location.href = '/admin';
-                      }
+                      window.location.href = '/admin';
                     } else if (item.id === 'referral') {
                       if (onOpenReferralCentre) {
                         onOpenReferralCentre();

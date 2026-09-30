@@ -10,9 +10,6 @@ interface PreferencesContextType {
   resetPreferences: () => void;
   t: (key: string) => string;
   formatCurrency: (usdValue: number, compact?: boolean) => string;
-  theme: Theme;
-  language: Language;
-  currency: Currency;
 }
 
 const defaultPreferences: Preferences = {
@@ -89,11 +86,6 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=${window.location.hostname}; path=/;`;
       }
 
-      const isTwoFactor = (user.uid && safeStorage.getItem(`aver_twoFactorEnabled_${user.uid}`) === 'true') ||
-        safeStorage.getItem('aver_twoFactorEnabled') === 'true' ||
-        !!user.twoFactorEnabled ||
-        !!(user as any).preferences?.twoFactorEnabled;
-
       setPreferences({
         language: finalLanguage,
         theme: validThemes.includes(userTheme) ? userTheme : 'dark',
@@ -101,16 +93,11 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         biometricsEnabled: user.biometricEnabled,
         rememberMeEnabled: user.rememberMeEnabled,
         notifications: user.notificationSettings,
-        twoFactorEnabled: isTwoFactor,
-        twoFactorSecret: user.twoFactorSecret || (user as any).preferences?.twoFactorSecret,
-        twoFactorEnabledAt: user.twoFactorEnabledAt || (user as any).preferences?.twoFactorEnabledAt,
-        twoFactorBackupCodes: user.twoFactorBackupCodes || (user as any).preferences?.twoFactorBackupCodes,
       });
     } else {
       const savedLanguage = safeStorage.getItem('aver_language') as Language;
       const savedTheme = safeStorage.getItem('aver_theme') as Theme;
       const savedCurrency = safeStorage.getItem('aver_currency') as Currency;
-      const saved2Fa = safeStorage.getItem('aver_twoFactorEnabled') === 'true';
       let savedNotifications: any = undefined;
       try {
         const raw = safeStorage.getItem('aver_notifications');
@@ -126,11 +113,10 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         theme: validThemes.includes(savedTheme) ? savedTheme : prev.theme,
         currency: validCurrencies.includes(savedCurrency) ? savedCurrency : prev.currency,
         notifications: savedNotifications !== undefined ? savedNotifications : prev.notifications,
-        twoFactorEnabled: saved2Fa,
       }));
     }
     setIsLoaded(true);
-  }, [user?.uid, user?.role, user?.notificationSettings, (user as any)?.preferences?.twoFactorEnabled, user?.twoFactorEnabled]);
+  }, [user?.uid, user?.role, user?.notificationSettings]);
 
   // Keep a local storage listener to synchronize across tabs for global settings
   useEffect(() => {
@@ -244,10 +230,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     updatePreference, 
     resetPreferences, 
     t, 
-    formatCurrency,
-    theme: preferences.theme,
-    language: preferences.language,
-    currency: preferences.currency
+    formatCurrency 
   }), [preferences, updatePreference, resetPreferences, t, formatCurrency]);
 
   if (!isLoaded) return null;

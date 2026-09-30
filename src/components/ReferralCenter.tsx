@@ -168,24 +168,16 @@ export default function ReferralCenter({ theme, onBack }: { theme: 'light' | 'da
       initial="initial"
       animate="animate"
       exit="exit"
-      className={`min-h-screen flex flex-col relative overflow-y-auto overflow-x-hidden ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
+      className="min-h-screen bg-black text-white flex flex-col relative overflow-y-auto overflow-x-hidden"
     >
-      {/* Top Header Navigation */}
-      <header className={`sticky top-0 z-50 backdrop-blur-md border-b px-6 py-3.5 flex items-center justify-between ${theme === 'dark' ? 'bg-slate-950/80 border-white/10' : 'bg-white/80 border-slate-200'}`}>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={onBack}
-            className={`p-2 rounded-xl transition-all ${theme === 'dark' ? 'bg-white/5 hover:bg-white/10 text-white border border-white/10' : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200'}`}
-            title="Back"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-sm font-black tracking-tight uppercase">Referral Center</h1>
-            <p className="text-[10px] text-emerald-400 font-semibold">Earn Together & Unlock Rewards</p>
-          </div>
-        </div>
-      </header>
+      {/* Fixed Back Button */}
+      <button 
+        onClick={onBack}
+        className="fixed top-6 left-6 z-50 w-12 h-12 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-black/60 cursor-pointer shadow-xl transition-all"
+        title="Back"
+      >
+        <ArrowLeft className="w-6 h-6" />
+      </button>
 
       {/* 1. Hero Section - Full Width Gradient */}
       <section className="relative w-full bg-gradient-to-br from-[#00e676] to-[#00bcd4] pt-16 pb-20 px-6 rounded-b-[48px] shadow-2xl shadow-emerald-500/10 z-20">

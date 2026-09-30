@@ -102,19 +102,10 @@ export const TIERS_DATA: Record<TierId, TierInfo> = {
 export function getTierState(user: any, session?: any) {
   const uid = user?.uid || '';
   // 1. Evaluate Bronze Tasks
-  const isEmailVerified = !!user?.emailVerified || 
-    (uid ? safeStorage.getItem(`aver_email_verified_${uid}`) === 'true' : false);
-
-  const isTwoFactorEnabled = (uid ? safeStorage.getItem(`aver_twoFactorEnabled_${uid}`) === 'true' : false) || 
-    !!user?.preferences?.twoFactorEnabled || 
-    !!user?.twoFactorEnabled;
-
+  const isEmailVerified = !!user?.emailVerified || (uid && safeStorage.getItem(`aver_email_verified_${uid}`) === 'true');
+  const isTwoFactorEnabled = (uid && safeStorage.getItem(`aver_twoFactorEnabled_${uid}`) === 'true') || !!user?.preferences?.twoFactorEnabled;
   const isDeposited = (user?.totalDeposits || 0) > 0 || (user?.deposits?.length || 0) > 0;
-  const isKycVerified = user?.kycStatus === 'verified' || 
-    (uid ? safeStorage.getItem(`aver_kyc_verified_${uid}`) === 'true' : false);
-  const isKycPending = user?.kycStatus === 'pending' ||
-    (uid ? safeStorage.getItem(`aver_kyc_active_status_${uid}`) === 'pending' : false);
-
+  const isKycVerified = user?.kycStatus === 'verified';
   const tradesCount = user?.trades?.length || user?.aiTradesCount || 0;
   const isTraded = (tradesCount > 0 || (session?.status === 'ACTIVE' && (session?.tradingCapital || 0) > 0)) && isDeposited;
   const referralCount = user?.referralCount || 0;
@@ -127,27 +118,22 @@ export function getTierState(user: any, session?: any) {
   if (isTraded) bronzeXP += 15;
   if (referralCount > 0) bronzeXP += 15;
 
-  const isBronzeComplete = bronzeXP >= 100 || 
-    (uid ? safeStorage.getItem(`aver_bronze_completed_${uid}`) === 'true' : false) || 
-    user?.membershipTier === 'platinum' || 
-    user?.membershipTier === 'gold';
+  const isBronzeComplete = bronzeXP >= 100 || (uid && safeStorage.getItem(`aver_bronze_completed_${uid}`) === 'true') || user?.membershipTier === 'platinum' || user?.membershipTier === 'gold';
 
   // 2. Evaluate Platinum Tasks
   const deposit1000Done = (user?.totalDeposits || 0) >= 1000 || 
     user?.deposits?.some((d: any) => d.amount >= 1000) || 
-    (uid ? safeStorage.getItem(`aver_task_deposit_1000_${uid}`) === 'true' : false);
+    (uid && safeStorage.getItem(`aver_task_deposit_1000_${uid}`) === 'true');
 
-  const trade500Done = (((session?.initialCapital || 0) >= 500 || (session?.tradingCapital || 0) >= 500) && isDeposited) || 
+  const trade500Done = ((session?.initialCapital || 0) >= 500 || (session?.tradingCapital || 0) >= 500) && isDeposited || 
     user?.trades?.some((t: any) => (t.amountUsd || t.quantity * (t.entry || 1)) >= 500) || 
-    (uid ? safeStorage.getItem(`aver_task_trade_500_${uid}`) === 'true' : false);
+    (uid && safeStorage.getItem(`aver_task_trade_500_${uid}`) === 'true');
 
   const copyTradingCount = (user?.copyTradingCount || 0) + parseInt(uid ? (safeStorage.getItem(`aver_copy_trades_count_${uid}`) || '0') : '0', 10);
-  const copy10Done = copyTradingCount >= 10 || 
-    (uid ? safeStorage.getItem(`aver_task_copy_10_${uid}`) === 'true' : false);
+  const copy10Done = copyTradingCount >= 10 || (uid && safeStorage.getItem(`aver_task_copy_10_${uid}`) === 'true');
 
   const usedStrategiesCount = (user?.usedStrategiesCount || 0) + parseInt(uid ? (safeStorage.getItem(`aver_used_strategies_count_${uid}`) || '0') : '0', 10);
-  const strat2Done = usedStrategiesCount >= 2 || 
-    (uid ? safeStorage.getItem(`aver_task_strat_2_${uid}`) === 'true' : false);
+  const strat2Done = usedStrategiesCount >= 2 || (uid && safeStorage.getItem(`aver_task_strat_2_${uid}`) === 'true');
 
   let platinumXP = 0;
   if (deposit1000Done) platinumXP += 25;
@@ -155,188 +141,188 @@ export function getTierState(user: any, session?: any) {
   if (copy10Done) platinumXP += 25;
   if (strat2Done) platinumXP += 25;
 
-  const isPlatinumComplete = platinumXP >= 100 || 
-    (uid ? safeStorage.getItem(`aver_platinum_completed_${uid}`) === 'true' : false) || 
-    user?.membershipTier === 'gold';
+  const isPlatinumComplete = platinumXP >= 100 || (uid && safeStorage.getItem(`aver_platinum_completed_${uid}`) === 'true') || user?.membershipTier === 'gold';
 
   // Determine current active tier
   let currentTierId: TierId = 'bronze';
   let progress = Math.min(100, Math.floor((bronzeXP / 100) * 100));
 
+  if (isBronzeComplete) {
+    currentTierId = 'platinum';
+    progress = Math.min(100, Math.floor((platinumXP / 100) * 100));
+  }
+
   if (isPlatinumComplete) {
     currentTierId = 'gold';
     progress = 100;
-  } else if (isBronzeComplete) {
-    currentTierId = 'platinum';
-    // Strictly calculate progress from completed Platinum tasks ONLY
-    progress = Math.min(100, platinumXP);
   }
 
   const currentTier = TIERS_DATA[currentTierId];
   const nextTierId: TierId | null = currentTierId === 'bronze' ? 'platinum' : currentTierId === 'platinum' ? 'gold' : null;
   const nextTier = nextTierId ? TIERS_DATA[nextTierId] : null;
 
-  // Candidate Bronze Tasks
-  const bronzeTasks: TaskItem[] = [
-    {
-      id: 'email_verify',
-      tierId: 'bronze',
-      title: 'Verify Email Address',
-      progress: isEmailVerified ? 100 : 0,
-      increment: 20,
-      status: isEmailVerified ? 'completed' : 'pending',
-      iconKey: 'check',
-      actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
-      customAction: 'verify_email',
-      description: 'Verify your email address to secure your account and unlock trading notifications and bonus rewards.'
-    },
-    {
-      id: '2fa',
-      tierId: 'bronze',
-      title: 'Enable 2FA Authenticator',
-      progress: isTwoFactorEnabled ? 100 : 0,
-      increment: 25,
-      status: isTwoFactorEnabled ? 'completed' : 'pending',
-      iconKey: 'shield',
-      actionLabel: isTwoFactorEnabled ? 'Enabled' : 'Enable 2FA',
-      customAction: 'enable_2fa',
-      description: 'Secure your account with an Authenticator app. Enter a 6-character code.'
-    },
-    {
-      id: 'deposit',
-      tierId: 'bronze',
-      title: 'First Deposit',
-      progress: isDeposited ? 100 : 0,
-      increment: 25,
-      status: isDeposited ? 'completed' : 'pending',
-      iconKey: 'wallet',
-      actionLabel: isDeposited ? 'Deposited' : 'Deposit',
-      customAction: 'deposit',
-      description: 'Fund your trading wallet with cryptocurrency or fiat.'
-    },
-    {
-      id: 'kyc',
-      tierId: 'bronze',
-      title: 'Identity Verification (KYC)',
-      progress: isKycVerified ? 100 : 0,
-      increment: 35,
-      status: isKycVerified ? 'completed' : isKycPending ? 'pending' : 'unlocked',
-      iconKey: 'shield',
-      actionLabel: isKycVerified ? 'Verified' : isKycPending ? 'Under Review' : 'Verify ID',
-      customAction: 'kyc',
-      description: isKycPending 
-        ? 'Your KYC documents are currently being audited by compliance (24–48 hours).' 
-        : 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
-    },
-    {
-      id: 'trade',
-      tierId: 'bronze',
-      title: 'First Trade',
-      progress: isTraded ? 100 : 0,
-      increment: 15,
-      status: isTraded ? 'completed' : 'pending',
-      iconKey: 'trade',
-      actionLabel: isTraded ? 'Traded' : 'Trade',
-      targetTab: 'ai',
-      description: 'Execute your first crypto trade on our trading engine.'
-    },
-    {
-      id: 'referral',
-      tierId: 'bronze',
-      title: 'Invite Friends',
-      progress: referralCount > 0 ? 100 : 0,
-      increment: 15,
-      status: referralCount > 0 ? 'completed' : 'pending',
-      iconKey: 'users',
-      actionLabel: referralCount > 0 ? 'Invited' : 'Invite',
-      customAction: 'profile',
-      description: 'Share your referral code to earn commission and progress bonuses.'
-    }
-  ];
-
-  // Candidate Platinum Tasks
-  const platinumTasks: TaskItem[] = [
-    {
-      id: 'deposit_1000',
-      tierId: 'platinum',
-      title: 'Deposit $1000',
-      progress: deposit1000Done ? 100 : 0,
-      increment: 25,
-      status: deposit1000Done ? 'completed' : 'pending',
-      iconKey: 'wallet',
-      actionLabel: deposit1000Done ? 'Completed' : 'Deposit $1000',
-      customAction: 'deposit_1000',
-      description: 'Deposit $1,000 or more into your account to qualify for Platinum rewards.'
-    },
-    {
-      id: 'trade_500',
-      tierId: 'platinum',
-      title: 'Trade $500 in one session',
-      progress: trade500Done ? 100 : 0,
-      increment: 25,
-      status: trade500Done ? 'completed' : 'pending',
-      iconKey: 'trade',
-      actionLabel: trade500Done ? 'Completed' : 'Trade $500',
-      customAction: 'trade_500',
-      targetTab: 'ai',
-      description: 'Allocate or trade at least $500 in a single trading session or transaction.'
-    },
-    {
-      id: 'copy_10',
-      tierId: 'platinum',
-      title: 'Copy trade 10 traders',
-      progress: copy10Done ? 100 : Math.min(100, Math.floor((copyTradingCount / 10) * 100)),
-      increment: 25,
-      status: copy10Done ? 'completed' : 'pending',
-      iconKey: 'copy',
-      actionLabel: copy10Done ? 'Completed' : `Copy Trade (${Math.min(copyTradingCount, 10)}/10)`,
-      customAction: 'copy_10',
-      targetTab: 'copy-trading',
-      description: 'Follow and copy trade 10 strategy traders in the Copy Trading market.'
-    },
-    {
-      id: 'strat_2',
-      tierId: 'platinum',
-      title: 'Use 2 strategies from strategy engine',
-      progress: strat2Done ? 100 : Math.min(100, Math.floor((usedStrategiesCount / 2) * 100)),
-      increment: 25,
-      status: strat2Done ? 'completed' : 'pending',
-      iconKey: 'cpu',
-      actionLabel: strat2Done ? 'Completed' : `Deploy (${Math.min(usedStrategiesCount, 2)}/2)`,
-      customAction: 'strat_2',
-      targetTab: 'ai',
-      description: 'Deploy or configure at least 2 distinct AI strategies from the Strategy Engine.'
-    }
-  ];
-
-  // Active Tasks: NEVER remove uncompleted tasks regardless of tier!
+  // Generate Tier Specific Tasks
   let activeTasks: TaskItem[] = [];
 
   if (currentTierId === 'bronze') {
-    activeTasks = bronzeTasks.filter(t => t.status !== 'completed');
+    const list: TaskItem[] = [
+      {
+        id: 'email_verify',
+        tierId: 'bronze',
+        title: 'Verify Email Address',
+        progress: isEmailVerified ? 100 : 0,
+        increment: 20,
+        status: isEmailVerified ? 'completed' : 'pending',
+        iconKey: 'check',
+        actionLabel: isEmailVerified ? 'Verified' : 'Verify Email',
+        customAction: 'verify_email',
+        description: 'Verify your email address to secure your account and unlock trading notifications and bonus rewards.'
+      },
+      {
+        id: '2fa',
+        tierId: 'bronze',
+        title: 'Enable 2FA Authenticator',
+        progress: isTwoFactorEnabled ? 100 : 0,
+        increment: 25,
+        status: isTwoFactorEnabled ? 'completed' : 'pending',
+        iconKey: 'shield',
+        actionLabel: isTwoFactorEnabled ? 'Enabled' : 'Enable 2FA',
+        customAction: 'enable_2fa',
+        description: 'Secure your account with an Authenticator app. Enter a 6-character code.'
+      },
+      {
+        id: 'deposit',
+        tierId: 'bronze',
+        title: 'First Deposit',
+        progress: isDeposited ? 100 : 0,
+        increment: 25,
+        status: isDeposited ? 'completed' : 'pending',
+        iconKey: 'wallet',
+        actionLabel: 'Deposit',
+        customAction: 'deposit',
+        description: 'Fund your trading wallet with cryptocurrency or fiat.'
+      },
+      {
+        id: 'kyc',
+        tierId: 'bronze',
+        title: 'Identity Verification (KYC)',
+        progress: isKycVerified ? 100 : 0,
+        increment: 35,
+        status: isKycVerified ? 'completed' : 'pending',
+        iconKey: 'shield',
+        actionLabel: 'Verify ID',
+        customAction: 'kyc',
+        description: 'Complete KYC Tier-1 verification to unlock high limit withdrawals.'
+      },
+      {
+        id: 'trade',
+        tierId: 'bronze',
+        title: 'First Trade',
+        progress: isTraded ? 100 : 0,
+        increment: 15,
+        status: isTraded ? 'completed' : 'pending',
+        iconKey: 'trade',
+        actionLabel: 'Trade',
+        targetTab: 'ai',
+        description: 'Execute your first crypto trade on our trading engine.'
+      },
+      {
+        id: 'referral',
+        tierId: 'bronze',
+        title: 'Invite Friends',
+        progress: referralCount > 0 ? 100 : 0,
+        increment: 15,
+        status: referralCount > 0 ? 'completed' : 'pending',
+        iconKey: 'users',
+        actionLabel: 'Invite',
+        customAction: 'profile',
+        description: 'Share your referral code to earn commission and progress bonuses.'
+      }
+    ];
+    activeTasks = list.filter(t => t.status !== 'completed');
   } else if (currentTierId === 'platinum') {
-    const uncompletedBronze = bronzeTasks.filter(t => t.status !== 'completed');
-    const uncompletedPlatinum = platinumTasks.filter(t => t.status !== 'completed');
-    activeTasks = [...uncompletedBronze, ...uncompletedPlatinum];
+    const list: TaskItem[] = [
+      {
+        id: 'deposit_1000',
+        tierId: 'platinum',
+        title: 'Deposit $1000',
+        progress: deposit1000Done ? 100 : 0,
+        increment: 25,
+        status: deposit1000Done ? 'completed' : 'pending',
+        iconKey: 'wallet',
+        actionLabel: deposit1000Done ? 'Completed' : 'Deposit $1000',
+        customAction: 'deposit_1000',
+        description: 'Deposit $1,000 or more into your account to qualify for Platinum rewards.'
+      },
+      {
+        id: 'trade_500',
+        tierId: 'platinum',
+        title: 'Trade $500 in one session',
+        progress: trade500Done ? 100 : 0,
+        increment: 25,
+        status: trade500Done ? 'completed' : 'pending',
+        iconKey: 'trade',
+        actionLabel: trade500Done ? 'Completed' : 'Trade $500',
+        customAction: 'trade_500',
+        targetTab: 'ai',
+        description: 'Allocate or trade at least $500 in a single trading session or transaction.'
+      },
+      {
+        id: 'copy_10',
+        tierId: 'platinum',
+        title: 'Copy trade 10 traders',
+        progress: copy10Done ? 100 : Math.min(100, Math.floor((copyTradingCount / 10) * 100)),
+        increment: 25,
+        status: copy10Done ? 'completed' : 'pending',
+        iconKey: 'copy',
+        actionLabel: copy10Done ? 'Completed' : `Copy Trade (${copyTradingCount}/10)`,
+        customAction: 'copy_10',
+        targetTab: 'copy-trading',
+        description: 'Follow and copy trade 10 strategy traders in the Copy Trading market.'
+      },
+      {
+        id: 'strat_2',
+        tierId: 'platinum',
+        title: 'Use 2 strategies from strategy engine',
+        progress: strat2Done ? 100 : Math.min(100, Math.floor((usedStrategiesCount / 2) * 100)),
+        increment: 25,
+        status: strat2Done ? 'completed' : 'pending',
+        iconKey: 'cpu',
+        actionLabel: strat2Done ? 'Completed' : `Deploy (${usedStrategiesCount}/2)`,
+        customAction: 'strat_2',
+        targetTab: 'ai',
+        description: 'Deploy or configure at least 2 distinct AI strategies from the Strategy Engine.'
+      },
+      {
+        id: 'referral',
+        tierId: 'platinum',
+        title: 'Invite Friends',
+        progress: referralCount > 0 ? 100 : 0,
+        increment: 15,
+        status: referralCount > 0 ? 'completed' : 'pending',
+        iconKey: 'users',
+        actionLabel: 'Invite',
+        customAction: 'profile',
+        description: 'Share your referral link with friends to earn bonus commissions.'
+      }
+    ];
+    activeTasks = list.filter(t => t.status !== 'completed');
   } else {
     // Gold tier
-    const uncompletedBronze = bronzeTasks.filter(t => t.status !== 'completed');
-    const uncompletedPlatinum = platinumTasks.filter(t => t.status !== 'completed');
-    const goldTasks: TaskItem[] = [
+    activeTasks = [
       {
         id: 'referral_gold',
         tierId: 'gold',
         title: 'Invite Friends & VIP Partners',
-        progress: referralCount >= 5 ? 100 : Math.min(100, Math.floor((referralCount / 5) * 100)),
+        progress: referralCount > 0 ? 100 : 0,
         increment: 20,
-        status: referralCount >= 5 ? 'completed' : 'pending',
+        status: 'pending',
         iconKey: 'users',
-        actionLabel: referralCount >= 5 ? 'Completed' : 'Invite VIPs',
+        actionLabel: 'Invite VIPs',
         customAction: 'profile',
         description: 'Invite new traders to receive highest referral tier commissions.'
       }
     ];
-    activeTasks = [...uncompletedBronze, ...uncompletedPlatinum, ...goldTasks.filter(t => t.status !== 'completed')];
   }
 
   return {
@@ -357,8 +343,9 @@ export function getTierState(user: any, session?: any) {
   };
 }
 
-export function completePlatinumTask(taskId: string, uid?: string) {
-  if (uid) {
-    safeStorage.setItem(`aver_task_${taskId}_${uid}`, 'true');
-  }
+export function completePlatinumTask(taskId: string) {
+  if (taskId === 'deposit_1000') safeStorage.setItem('aver_task_deposit_1000', 'true');
+  if (taskId === 'trade_500') safeStorage.setItem('aver_task_trade_500', 'true');
+  if (taskId === 'copy_10') safeStorage.setItem('aver_task_copy_10', 'true');
+  if (taskId === 'strat_2') safeStorage.setItem('aver_task_strat_2', 'true');
 }

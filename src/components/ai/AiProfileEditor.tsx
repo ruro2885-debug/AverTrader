@@ -12,7 +12,7 @@ interface AiProfileEditorProps {
 }
 
 const defaultPrefs: AiPreferenceProfile = {
-  preferredMarkets: ['BTC', 'ETH', 'SOL', 'XRP', 'ADA'],
+  preferredMarkets: ['BTC', 'ETH', 'SOL'],
   assetClasses: ['CRYPTO'],
   riskProfile: 'MEDIUM',
   tradingStyle: 'DAY_TRADING',

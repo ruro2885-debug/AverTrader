@@ -4,20 +4,18 @@ import { AlertCircle, Home, Search, Shield, Bot, Lock, Key, Cpu, RefreshCw } fro
 import AdminLayout from './AdminLayout';
 import { db, auth } from '../../lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { useAppNavigation } from '../../contexts/NavigationContext';
 
 export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
-  const { navigateToView } = useAppNavigation() as any;
-  const [showAdmin, setShowAdmin] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false); // Default to false, check session in useEffect
   const [clickCount, setClickCount] = useState(0);
-  const [showAccessPrompt, setShowAccessPrompt] = useState(false); // Default to showing 404 disguise page first
+  const [showAccessPrompt, setShowAccessPrompt] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const [error, setError] = useState('');
   const [promoting, setPromoting] = useState(false);
 
   const isDark = theme === 'dark';
 
-  // Hidden gesture: Click the logo header 6 times
+  // Hidden gesture: Click the 404 header 6 times
   const handleLogoClick = () => {
     const newCount = clickCount + 1;
     setClickCount(newCount);
@@ -38,17 +36,20 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
         try {
           setPromoting(true);
           const userRef = doc(db, 'users', auth.currentUser.uid);
+          // Use setDoc with merge:true instead of updateDoc to ensure it works even if doc is missing
           await setDoc(userRef, {
             role: 'super_admin',
             isAdmin: true,
             isSuperAdmin: true,
             lastAdminAccess: serverTimestamp(),
+            // Ensure essential fields exist if creating for the first time
             email: auth.currentUser.email || '',
             uid: auth.currentUser.uid
           }, { merge: true });
           console.log("[AdminRoot] Role promoted to super_admin successfully.");
         } catch (err) {
           console.error("[AdminRoot] Failed to promote role during terminal authentication:", err);
+          // We still show admin because they have the code, but they might face DB errors
         } finally {
           setPromoting(false);
         }
@@ -56,15 +57,18 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
 
       setShowAdmin(true);
       setShowAccessPrompt(false);
-      
-      if (navigateToView) {
-        navigateToView('admin');
-      }
     } else {
       setError('Invalid access credentials');
       setTimeout(() => setError(''), 3000);
     }
   };
+
+  useEffect(() => {
+    const session = localStorage.getItem('admin_session_active');
+    if (session === 'true') {
+      setShowAdmin(true);
+    }
+  }, []);
 
   useEffect(() => {
     // Sovereign Admin setup: purge user translation cookies & force English
@@ -188,10 +192,10 @@ export default function AdminRoot({ theme }: { theme: 'light' | 'dark' }) {
               </div>
             </motion.div>
 
-            <div className="pt-20 flex justify-center items-center gap-8 opacity-40">
-              <Shield className="w-6 h-6 cursor-pointer hover:opacity-100 hover:text-emerald-400 transition-all" title="System Security" onClick={() => setShowAccessPrompt(true)} />
+            <div className="pt-20 flex justify-center items-center gap-8 opacity-20">
+              <Shield className="w-6 h-6" />
               <Cpu className="w-6 h-6" />
-              <Lock className="w-6 h-6 cursor-pointer hover:opacity-100 hover:text-emerald-400 transition-all" title="Admin Authentication" onClick={() => setShowAccessPrompt(true)} />
+              <Lock className="w-6 h-6" />
             </div>
           </motion.div>
         ) : (

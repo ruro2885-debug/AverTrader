@@ -1,14 +1,99 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="notranslate" translate="no">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="google" content="notranslate" />
+    <meta name="google-site-verification" content="RuYkJPorNZxqPI5I-nKt7dpjeA8v8QKHx7qsZcjaAOc" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AVER | Institutional Crypto Trading Platform</title>
-    <meta name="description" content="Institutional-grade cryptocurrency trading, AI-powered insights, and advanced market liquidity." />
+    
+    <!-- Primary SEO Metadata -->
+    <title>AverTrader – AI-Powered Algorithmic Trading Platform</title>
+    <meta name="title" content="AverTrader – AI-Powered Algorithmic Trading Platform" />
+    <meta name="description" content="AverTrader integrates decentralized market telemetry with autonomous intelligence, delivering institutional-grade algorithmic execution directly to your portfolio." />
+    <meta name="keywords" content="AverTrader, Aver, trading bot, algorithmic trading, neural networks, market telemetry, automated trading, crypto trading, institutional SLA, artificial intelligence" />
+    <meta name="author" content="AverTrader Platform" />
+    <meta name="theme-color" content="#050505" />
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://aver-trader.vercel.app" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&family=Space+Mono:wght@400;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+    <!-- Open Graph / WhatsApp / Facebook / LinkedIn -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://aver-trader.vercel.app" />
+    <meta property="og:title" content="AverTrader – AI-Powered Algorithmic Trading Platform" />
+    <meta property="og:description" content="AverTrader integrates decentralized market telemetry with autonomous intelligence, delivering institutional-grade algorithmic execution directly to your portfolio." />
+    <meta property="og:image" content="https://aver-trader.vercel.app/avertrader_preview.png?v=10" />
+    <meta property="og:image:secure_url" content="https://aver-trader.vercel.app/avertrader_preview.png?v=10" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:site_name" content="AverTrader" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AverTrader – AI-Powered Algorithmic Trading Platform" />
+    <meta property="twitter:title" content="AverTrader – AI-Powered Algorithmic Trading Platform" />
+    <meta name="twitter:description" content="AverTrader integrates decentralized market telemetry with autonomous intelligence, delivering institutional-grade algorithmic execution directly to your portfolio." />
+    <meta property="twitter:description" content="AverTrader integrates decentralized market telemetry with autonomous intelligence, delivering institutional-grade algorithmic execution directly to your portfolio." />
+    <meta name="twitter:image" content="https://aver-trader.vercel.app/avertrader_preview.png?v=10" />
+    <meta property="twitter:image" content="https://aver-trader.vercel.app/avertrader_preview.png?v=10" />
+
+    <!-- Favicon and App Icons -->
+    <link rel="preload" href="/avertrader_preview.png" as="image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon.svg" />
+    <link rel="mask-icon" href="/favicon.svg" color="#10b981" />
+    
+    <style>
+      /* Hide all Google Translate elements, tooltips, and prevent body shift */
+      .goog-te-banner-frame.skiptranslate, 
+      .goog-te-gadget-icon, 
+      .goog-te-gadget-simple, 
+      .goog-te-gadget, 
+      .VIpgJd-ZVi9od-aZ2wEe-wOHMyf, 
+      .VIpgJd-ZVi9od-aZ2wEe-OiiCO, 
+      .skiptranslate > iframe.skiptranslate, 
+      iframe.goog-te-banner-frame, 
+      iframe[src*="translate.googleapis.com"],
+      #goog-gt-tt, 
+      .goog-te-balloon-frame { 
+        display: none !important; 
+        visibility: hidden !important; 
+      }
+      .goog-text-highlight { 
+        background-color: transparent !important; 
+        box-shadow: none !important; 
+      }
+      body { top: 0px !important; position: static !important; }
+      html { margin-top: 0px !important; height: 100%; }
+      #google_translate_element { display: none !important; }
+    </style>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-amber-500 selection:text-black">
+  <body class="notranslate">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Aggressively suppress auto-translation if it triggers
+      (function() {
+        const killTranslate = () => {
+          document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+          document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=" + window.location.hostname + "; path=/;";
+          const banner = document.querySelector('.goog-te-banner-frame');
+          if (banner) banner.remove();
+          document.body.style.top = '0px';
+        };
+        killTranslate();
+        window.addEventListener('load', killTranslate);
+        setInterval(killTranslate, 2000);
+      })();
+    </script>
   </body>
 </html>

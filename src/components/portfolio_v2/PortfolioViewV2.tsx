@@ -27,7 +27,6 @@ import AverLogo from '../AverLogo';
 import CoinLogo from '../CoinLogo';
 import VaultScreen from './VaultScreen';
 import AssetStatsScreen from './AssetStatsScreen';
-import { useAppNavigation } from '../../contexts/NavigationContext';
 
 interface PortfolioViewV2Props {
   theme: 'light' | 'dark';
@@ -926,17 +925,7 @@ export default function PortfolioViewV2({
   }, []);
 
   // Navigation mode to switch full-screen pages
-  const { currentLocation, navigateSubView, goBack } = useAppNavigation();
-  const [localViewMode, setLocalViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
-  const viewMode: 'portfolio' | 'vault' | 'asset-stats' = 
-    (currentLocation.subView === 'vault' || currentLocation.subView === 'asset-stats') 
-      ? currentLocation.subView 
-      : localViewMode;
-
-  const setViewMode = useCallback((mode: 'portfolio' | 'vault' | 'asset-stats') => {
-    setLocalViewMode(mode);
-    navigateSubView(mode === 'portfolio' ? undefined : mode);
-  }, [navigateSubView]);
+  const [viewMode, setViewMode] = useState<'portfolio' | 'vault' | 'asset-stats'>('portfolio');
 
   const onViewModeChangeRef = useRef(onViewModeChange);
   useEffect(() => {
@@ -1072,16 +1061,19 @@ export default function PortfolioViewV2({
     { symbol: 'BTC', name: 'Bitcoin', baseConfidence: 96, category: 'high_conviction' },
     { symbol: 'ETH', name: 'Ethereum', baseConfidence: 89, category: 'preparing_entry' },
     { symbol: 'SOL', name: 'Solana', baseConfidence: 79, category: 'watching' },
+    { symbol: 'NVDA', name: 'NVIDIA', baseConfidence: 73, category: 'watching' },
     { symbol: 'XRP', name: 'Ripple', baseConfidence: 65, category: 'preparing_entry' },
-    { symbol: 'ADA', name: 'Cardano', baseConfidence: 58, category: 'watching' },
+    { symbol: 'Gold', name: 'Gold Spot', baseConfidence: 95, category: 'high_conviction' },
+    { symbol: 'DOGE', name: 'Dogecoin', baseConfidence: 18, category: 'avoiding' },
+    { symbol: 'PEPE', name: 'Pepe', baseConfidence: 11, category: 'avoiding' },
   ]);
 
   const handleRescanRadar = () => {
     setIsRescanningRadar(true);
     setTimeout(() => {
-      // Pick 5 random assets from the pool
+      // Pick 7 to 9 random assets from the pool
       const shuffled = [...MASTER_ASSET_POOL].sort(() => Math.random() - 0.5);
-      const count = 5;
+      const count = Math.floor(Math.random() * 3) + 7; // 7, 8, or 9
       const selected = shuffled.slice(0, count);
 
       const newAssets = selected.map(asset => {
@@ -1789,7 +1781,7 @@ export default function PortfolioViewV2({
         <VaultScreen 
           key="vault"
           theme={theme}
-          onBack={() => goBack()}
+          onBack={() => setViewMode('portfolio')}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           showNotification={showNotification}
           vaultBalance={vaultBalance}
@@ -1803,7 +1795,7 @@ export default function PortfolioViewV2({
         <AssetStatsScreen 
           key="asset-stats"
           theme={theme}
-          onBack={() => goBack()}
+          onBack={() => setViewMode('portfolio')}
           activeTradingBalance={activeTradingBalance + totalFloatingPnl}
           allocations={liveAllocations}
         />
@@ -3017,7 +3009,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* DEPOSIT FORM PANEL */}
-                  {(vaultState as any) === 'unlocked' && (vaultActionType as any) === 'deposit' && (
+                  {vaultState === 'unlocked' && vaultActionType === 'deposit' && (
                     <div className="space-y-4 font-medium text-xs">
                       <div className="flex justify-between items-center pb-2 border-b border-white/[0.04]">
                         <span className="text-white font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5 text-[#00D09C]">
@@ -3133,7 +3125,7 @@ export default function PortfolioViewV2({
                   )}
 
                   {/* WITHDRAW FORM PANEL */}
-                  {(vaultState as any) === 'unlocked' && (vaultActionType as any) === 'withdraw' && (
+                  {vaultState === 'unlocked' && vaultActionType === 'withdraw' && (
                     <div className="space-y-4 font-medium text-xs">
                       <div className="flex justify-between items-center pb-2 border-b border-white/[0.04]">
                         <span className="text-white font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5 text-amber-400">

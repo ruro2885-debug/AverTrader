@@ -1,7 +1,6 @@
 import { 
   collection, 
   doc, 
-  getDoc,
   getDocs, 
   setDoc, 
   addDoc, 
@@ -14,24 +13,7 @@ import {
 import { db } from '../lib/firebase';
 import { TransactionRecord, TransactionType } from '../types';
 import { getLocalDeposits } from '../lib/depositStore';
-import { getLocalWithdrawals, getStatusPriority, isActionedStatus, getActionForWithdrawal, recordWithdrawalAction } from '../lib/withdrawalStore';
-
-export const isTradeEngineTransaction = (tx: any): boolean => {
-  if (!tx) return false;
-  const net = (tx.network || '').toLowerCase();
-  const typ = (tx.type || '').toLowerCase();
-  const tit = (tx.title || '').toLowerCase();
-  const id = (tx.id || '').toLowerCase();
-  return (
-    net.includes('trading engine') ||
-    net.includes('trade engine') ||
-    id.startsWith('trd-') ||
-    typ === 'order_creation' ||
-    (typ === 'trade' && (net.includes('engine') || tit.includes('trade') || tit.includes('crypto'))) ||
-    tit.includes('trading engine') ||
-    tit.includes('trade engine')
-  );
-};
+import { getLocalWithdrawals } from '../lib/withdrawalStore';
 
 export const getExplorerUrl = (txHash?: string, network?: string): string | undefined => {
   if (!txHash) return undefined;
@@ -59,10 +41,6 @@ export const transactionService = {
    * Record a new financial operation into Firestore & localStorage
    */
   async recordTransaction(params: Omit<TransactionRecord, 'id' | 'timestamp'> & { id?: string; timestamp?: string }): Promise<TransactionRecord> {
-    if (isTradeEngineTransaction(params)) {
-      return null as any;
-    }
-
     const userId = params.userId || 'guest';
     const id = params.id || `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const timestamp = params.timestamp || new Date().toISOString();
@@ -175,17 +153,30 @@ export const transactionService = {
   },
 
   /**
-   * Helper method for orders & trades (do not record as ledger transaction receipts)
+   * Helper method for orders & trades
    */
   async recordOrder(
-    _userId: string, 
-    _ticker: string, 
-    _side: 'buy' | 'sell', 
-    _price: number, 
-    _quantity: number, 
-    _status: 'Pending' | 'Completed' | 'Cancelled' = 'Pending'
+    userId: string, 
+    ticker: string, 
+    side: 'buy' | 'sell', 
+    price: number, 
+    quantity: number, 
+    status: 'Pending' | 'Completed' | 'Cancelled' = 'Pending'
   ) {
-    return null as any;
+    const isPending = status === 'Pending';
+    return this.recordTransaction({
+      userId,
+      type: isPending ? 'order_creation' : 'trade',
+      category: isPending ? 'orders' : 'order-history',
+      title: `${side.toUpperCase()} ${ticker}`,
+      asset: ticker,
+      amount: price * quantity,
+      price,
+      quantity,
+      side,
+      network: 'Trading Engine',
+      status
+    });
   },
 
   /**
@@ -203,66 +194,15 @@ export const transactionService = {
       return 'Pending';
     };
 
-    const findExistingInMap = (id?: string, refId?: string, txHash?: string): TransactionRecord | undefined => {
-      if (id && map.has(id)) return map.get(id);
-      if (refId && map.has(refId)) return map.get(refId);
-      if (txHash && map.has(txHash)) return map.get(txHash);
-      for (const existing of map.values()) {
-        if (
-          (id && (existing.id === id || existing.refId === id || existing.txHash === id)) ||
-          (refId && (existing.refId === refId || existing.id === refId || existing.txHash === refId)) ||
-          (txHash && (existing.txHash === txHash || existing.id === txHash || existing.refId === txHash))
-        ) {
-          return existing;
-        }
-      }
-      return undefined;
-    };
-
-    const applyStatusIfHigher = (existing: TransactionRecord, newStatus: TransactionRecord['status']) => {
-      const curIsActioned = isActionedStatus(existing.status);
-      const incIsActioned = isActionedStatus(newStatus);
-
-      // If incoming status is actioned, it ALWAYS supersedes/overwrites!
-      if (incIsActioned) {
-        existing.status = newStatus;
-        return;
-      }
-
-      // If current status is actioned and incoming is not, never downgrade to pending/processing!
-      if (curIsActioned && !incIsActioned) {
-        return;
-      }
-
-      existing.status = newStatus;
-    };
-
-    // 1. Read from localStorage and purge any existing trade engine records
+    // 1. Read from localStorage
     try {
       const storageKey = `aver_txs_${userId}`;
       const localStr = localStorage.getItem(storageKey);
       if (localStr) {
         const localList: TransactionRecord[] = JSON.parse(localStr);
-        let hasEngineTx = false;
         localList.forEach(item => {
-          if (isTradeEngineTransaction(item)) {
-            hasEngineTx = true;
-            return;
-          }
-          if (item.id) {
-            const normalized = normalizeStatus(item.status);
-            const existing = findExistingInMap(item.id, item.refId, item.txHash);
-            if (existing) {
-              applyStatusIfHigher(existing, normalized);
-            } else {
-              map.set(item.id, { ...item, status: normalized });
-            }
-          }
+          if (item.id) map.set(item.id, { ...item, status: normalizeStatus(item.status) });
         });
-        if (hasEngineTx) {
-          const cleaned = localList.filter(item => !isTradeEngineTransaction(item));
-          localStorage.setItem(storageKey, JSON.stringify(cleaned));
-        }
       }
     } catch (err) {}
 
@@ -274,9 +214,9 @@ export const transactionService = {
         if (matchesUser) {
           const id = d.id;
           const status = normalizeStatus(d.status);
-          const existing = findExistingInMap(id, d.refId, d.txHash);
+          const existing = map.get(id);
           if (existing) {
-            applyStatusIfHigher(existing, status);
+            existing.status = status;
             if (d.amount) existing.amount = Number(d.amount);
             if (d.cryptoAmount) existing.cryptoAmount = Number(d.cryptoAmount);
             if (d.cryptoSymbol || d.asset) existing.asset = d.cryptoSymbol || d.asset;
@@ -304,16 +244,13 @@ export const transactionService = {
     try {
       const localAdminWithdrawals = getLocalWithdrawals();
       localAdminWithdrawals.forEach(w => {
-        const matchesUser = w.userId === userId || 
-                            (!w.userId && userId === 'anonymous') || 
-                            (userProfile?.email && w.email && w.email.toLowerCase() === userProfile.email.toLowerCase()) ||
-                            findExistingInMap(w.id, w.refId, w.txHash) !== undefined;
+        const matchesUser = w.userId === userId || (!w.userId && userId === 'anonymous') || (userProfile?.email && w.email && w.email.toLowerCase() === userProfile.email.toLowerCase());
         if (matchesUser) {
           const id = w.id;
           const status = normalizeStatus(w.status);
-          const existing = findExistingInMap(id, w.refId, w.txHash);
+          const existing = map.get(id);
           if (existing) {
-            applyStatusIfHigher(existing, status);
+            existing.status = status;
             if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
             if (w.amount) existing.amount = -Math.abs(Number(w.amount));
             if (w.cryptoAmount) existing.cryptoAmount = -Math.abs(Number(w.cryptoAmount));
@@ -350,8 +287,7 @@ export const transactionService = {
           const asset = d.asset || d.symbol || 'USDT';
           const network = d.network || d.cryptoNetwork || 'TRC20';
           const status = normalizeStatus(d.status || 'Completed');
-          const existing = findExistingInMap(id, d.refId, d.txHash);
-          if (!existing) {
+          if (!map.has(id)) {
             map.set(id, {
               id,
               userId,
@@ -367,7 +303,8 @@ export const transactionService = {
               txHash: d.txHash || d.hash || undefined
             });
           } else {
-            applyStatusIfHigher(existing, status);
+            const existing = map.get(id)!;
+            if (d.status && !existing.status) existing.status = status;
           }
         });
       }
@@ -378,9 +315,9 @@ export const transactionService = {
           const asset = w.asset || w.symbol || 'USDT';
           const network = w.network || w.cryptoNetwork || 'TRC20';
           const status = normalizeStatus(w.status || 'Processing');
-          const existing = findExistingInMap(id, w.refId, w.txHash);
+          const existing = map.get(id);
           if (existing) {
-            applyStatusIfHigher(existing, status);
+            existing.status = status;
             if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
             if (w.txHash) existing.txHash = w.txHash || w.hash;
           } else {
@@ -399,6 +336,30 @@ export const transactionService = {
               timestamp: w.timestamp || w.date || new Date().toISOString(),
               txHash: w.txHash || w.hash || undefined,
               refId: w.refId || w.id
+            });
+          }
+        });
+      }
+
+      if (Array.isArray(userProfile.trades)) {
+        userProfile.trades.forEach((t: any, idx: number) => {
+          const id = t.id || `trd-${t.timestamp || idx}`;
+          const isPending = t.status === 'Pending';
+          if (!map.has(id)) {
+            map.set(id, {
+              id,
+              userId,
+              type: isPending ? 'order_creation' : 'trade',
+              category: isPending ? 'orders' : 'order-history',
+              title: `${(t.side || 'BUY').toUpperCase()} ${t.ticker || 'Crypto'}`,
+              asset: t.ticker || 'USDT',
+              amount: Number(t.amount) || ((t.quantity || 1) * (t.price || 0)),
+              price: t.price,
+              quantity: t.quantity,
+              side: t.side,
+              network: 'Trading Engine',
+              status: normalizeStatus(t.status || 'Completed'),
+              timestamp: t.timestamp || new Date().toISOString()
             });
           }
         });
@@ -432,14 +393,10 @@ export const transactionService = {
       const snap = await getDocs(q);
       snap.forEach(d => {
         const data = d.data() as TransactionRecord;
-        if (isTradeEngineTransaction(data)) {
-          deleteDoc(doc(db, 'transactions', d.id)).catch(() => {});
-          return;
-        }
         const normalized = normalizeStatus(data.status);
-        const existing = findExistingInMap(d.id, data.refId, data.txHash);
+        const existing = map.get(d.id);
         if (existing) {
-          applyStatusIfHigher(existing, normalized);
+          existing.status = normalized;
           if (data.txHash) existing.txHash = data.txHash;
         } else {
           map.set(d.id, { ...data, id: d.id, status: normalized });
@@ -457,9 +414,9 @@ export const transactionService = {
         const d = docSnap.data();
         const id = docSnap.id;
         const status = normalizeStatus(d.status);
-        const existing = findExistingInMap(id, d.refId, d.txHash);
+        const existing = map.get(id);
         if (existing) {
-          applyStatusIfHigher(existing, status);
+          existing.status = status;
           if (d.amount) existing.amount = Number(d.amount);
           if (d.cryptoAmount) existing.cryptoAmount = Number(d.cryptoAmount);
           if (d.cryptoSymbol || d.asset) existing.asset = d.cryptoSymbol || d.asset;
@@ -492,9 +449,9 @@ export const transactionService = {
         const w = docSnap.data();
         const id = docSnap.id;
         const status = normalizeStatus(w.status);
-        const existing = findExistingInMap(id, w.refId, w.txHash);
+        const existing = map.get(id);
         if (existing) {
-          applyStatusIfHigher(existing, status);
+          existing.status = status;
           if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
           if (w.txHash) existing.txHash = w.txHash;
         } else {
@@ -517,22 +474,6 @@ export const transactionService = {
           });
         }
       });
-
-      if (userProfile?.email) {
-        const qEmailWth = query(collection(db, 'admin_withdrawals'), where('email', '==', userProfile.email));
-        const snapEmailWth = await getDocs(qEmailWth);
-        snapEmailWth.forEach(docSnap => {
-          const w = docSnap.data();
-          const id = docSnap.id;
-          const status = normalizeStatus(w.status);
-          const existing = findExistingInMap(id, w.refId, w.txHash);
-          if (existing) {
-            applyStatusIfHigher(existing, status);
-            if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
-            if (w.txHash) existing.txHash = w.txHash;
-          }
-        });
-      }
     } catch (err) {
       console.warn("Firestore admin_withdrawals sync notice:", err);
     }
@@ -544,9 +485,9 @@ export const transactionService = {
         const w = docSnap.data();
         const id = docSnap.id;
         const status = normalizeStatus(w.status);
-        const existing = findExistingInMap(id, w.refId, w.txHash);
+        const existing = map.get(id);
         if (existing) {
-          applyStatusIfHigher(existing, status);
+          existing.status = status;
           if (w.reversalReason || w.reason) existing.reversalReason = w.reversalReason || w.reason;
           if (w.txHash) existing.txHash = w.txHash;
         } else {
@@ -573,73 +514,13 @@ export const transactionService = {
       console.warn("Firestore withdrawals sync notice:", err);
     }
 
-    // 7. Direct doc ID verification for any known withdrawal in the map
-    const mappedWithdrawals = Array.from(map.values()).filter(t => t.type === 'withdrawal' || t.id.startsWith('wth-'));
-    for (const item of mappedWithdrawals) {
-      const checkIds = Array.from(new Set([item.id, item.refId, item.txHash].filter(Boolean))) as string[];
-      for (const cid of checkIds) {
-        try {
-          const wSnap = await getDoc(doc(db, 'admin_withdrawals', cid));
-          if (wSnap.exists()) {
-            const data = wSnap.data();
-            const s = normalizeStatus(data.status);
-            applyStatusIfHigher(item, s);
-            if (data.reversalReason || data.reason) item.reversalReason = data.reversalReason || data.reason;
-            if (data.txHash) item.txHash = data.txHash;
-          }
-        } catch (e) {}
-
-        try {
-          const txSnap = await getDoc(doc(db, 'transactions', cid));
-          if (txSnap.exists()) {
-            const data = txSnap.data();
-            const s = normalizeStatus(data.status);
-            applyStatusIfHigher(item, s);
-            if (data.reversalReason || data.reason) item.reversalReason = data.reversalReason || data.reason;
-            if (data.txHash) item.txHash = data.txHash;
-          }
-        } catch (e) {}
-      }
-    }
-
-    // Sync actions registry from Firestore first to heal local memory and ensure absolute persistence
-    try {
-      const qReg = query(collection(db, 'withdrawal_actions_registry'));
-      const snapReg = await getDocs(qReg);
-      snapReg.forEach(docSnap => {
-        const act = docSnap.data();
-        if (act && act.status) {
-          recordWithdrawalAction([docSnap.id], act as any);
-        }
-      });
-    } catch (e) {
-      console.warn("Notice syncing withdrawal_actions_registry:", e);
-    }
-
-    // Apply action registry to ensure absolute status persistence before deduplication
-    const list = Array.from(map.values()).map(tx => {
-      if (tx.type === 'withdrawal' || (tx.id && tx.id.startsWith('wth-')) || (tx.refId && tx.refId.startsWith('WTH-'))) {
-        const action = getActionForWithdrawal(tx.id, tx.refId, tx.txHash);
-        if (action) {
-          tx.status = action.status;
-          if (action.reversalReason) tx.reversalReason = action.reversalReason;
-        }
-      }
-      return tx;
-    });
-
-    // Sort list so actioned status records come first (ensures deduplication keeps actioned records)
-    const sortedForDeduplication = [...list].sort((a, b) => {
-      const aAct = isActionedStatus(a.status) ? 1 : 0;
-      const bAct = isActionedStatus(b.status) ? 1 : 0;
-      return bAct - aAct; // Actioned items first
-    });
+    const list = Array.from(map.values());
 
     // Deduplicate duplicate entries created during legacy deposit/history sync
     const deduplicated: TransactionRecord[] = [];
     const seenKeys = new Set<string>();
 
-    sortedForDeduplication.forEach(tx => {
+    list.forEach(tx => {
       // Priority 1: Unique ID
       if (seenKeys.has(`id-${tx.id}`)) return;
       seenKeys.add(`id-${tx.id}`);
@@ -662,7 +543,6 @@ export const transactionService = {
     });
 
     const filteredList = deduplicated.filter(tx => {
-      if (isTradeEngineTransaction(tx)) return false;
       try {
         const deletedStr = localStorage.getItem(`aver_deleted_txs_${userId}`);
         if (deletedStr) {
